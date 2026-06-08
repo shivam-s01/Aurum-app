@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/mini_player.dart';
 import 'home_screen.dart';
+import 'full_player_screen.dart';
 import 'search_screen.dart';
 import '../providers/player_provider.dart';
 
@@ -23,7 +24,11 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return Consumer<PlayerProvider>(
+      builder: (context, player, _) {
+        return Stack(
+          children: [
+            Scaffold(
       backgroundColor: AurumTheme.bg,
       body: IndexedStack(
         index: _tab,
@@ -69,7 +74,13 @@ class _MainShellState extends State<MainShell> {
             },
           ),
         ],
-      ),
+              ),
+            ),
+            if (player.showFullPlayer)
+              const FullPlayerScreen(),
+          ],
+        );
+      },
     );
   }
 }

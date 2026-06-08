@@ -37,30 +37,42 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> playQueue(List<Song> songs, int startIndex) async {
     _queue = songs;
     _currentIndex = startIndex;
-
-    // Build sources
-    final sources = <AudioSource>[];
-    for (final song in songs) {
-      final url = await ApiService.resolveStreamUrl(song);
-      if (url != null) {
-        sources.add(AudioSource.uri(
-          Uri.parse(url),
-          tag: _songToMediaItem(song),
-        ));
-      }
-    }
-
+    final currentSong = songs[startIndex];
+    final currentUrl = await ApiService.resolveStreamUrl(currentSong);
+    if (currentUrl == null) return;
     await _playlist.clear();
+    final sources = <AudioSource>[];
+    for (int i = 0; i < songs.length; i++) {
+      sources.add(AudioSource.uri(
+        Uri.parse(i == startIndex ? currentUrl : currentUrl),
+        tag: _songToMediaItem(songs[i]),
+      ));
+    }
     await _playlist.addAll(sources);
-
     try {
       await _player.setAudioSource(_playlist, initialIndex: startIndex);
     } catch (_) {
       await _player.setAudioSource(_playlist, initialIndex: 0);
     }
-
-    _updateMediaItem(songs[startIndex]);
+    _updateMediaItem(currentSong);
     await _player.play();
+    _resolveQueueInBackground(songs, startIndex);
+  }
+
+  void _resolveQueueInBackground(List<Song> songs, int startIndex) async {
+    for (int i = 0; i < songs.length; i++) {
+      if (i == startIndex) continue;
+      try {
+        final url = await ApiService.resolveStreamUrl(songs[i]);
+        if (url != null && i < _playlist.length) {
+          await _playlist.removeAt(i);
+          await _playlist.insert(i, AudioSource.uri(
+            Uri.parse(url),
+            tag: _songToMediaItem(songs[i]),
+          ));
+        }
+      } catch (_) {}
+    }
   }
 
   Future<void> playSong(Song song) async {
