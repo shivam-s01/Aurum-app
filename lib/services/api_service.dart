@@ -59,19 +59,14 @@ class ApiService {
   }
 
   static Future<String?> resolveStreamUrl(Song song) async {
-    if (song.streamUrl != null && song.streamUrl!.isNotEmpty) return song.streamUrl;
-    try {
-      final res = await _client.get(Uri.parse('$_base/api/play?id=${song.id}')).timeout(const Duration(seconds: 12));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final url = data['stream_url'] ?? data['url'] ?? data['media_url'];
-        if (url != null && url.toString().isNotEmpty) {
-          if (!url.toString().startsWith('http')) return '$_base${url.toString()}';
-          return url.toString();
-        }
-      }
-    } catch (_) {}
-    return '$_base/api/stream?id=${song.id}';
+    if (song.streamUrl != null && song.streamUrl!.isNotEmpty) {
+      final s = song.streamUrl!;
+      if (s.startsWith('http')) return s;
+      return '$_base$s';
+    }
+    final title = Uri.encodeQueryComponent(song.title);
+    final artist = Uri.encodeQueryComponent(song.artist);
+    return '$_base/api/play?title=$title&artist=$artist';
   }
 
   static List<Song> _parseSongs(dynamic data) {
