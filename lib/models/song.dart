@@ -23,15 +23,15 @@ class Song {
 
   factory Song.fromJson(Map<String, dynamic> json) {
     return Song(
-      id: json['id']?.toString() ?? json['song_id']?.toString() ?? '',
-      title: _clean(json['title'] ?? json['song'] ?? 'Unknown'),
-      artist: _clean(json['primary_artists'] ?? json['artist'] ?? json['singers'] ?? 'Unknown'),
-      album: _clean(json['album'] ?? ''),
+      id: (json['trackId'] ?? json['id'] ?? json['song_id'] ?? '').toString(),
+      title: _clean((json['trackName'] ?? json['title'] ?? json['song'] ?? 'Unknown').toString()),
+      artist: _clean((json['artistName'] ?? json['primary_artists'] ?? json['artist'] ?? json['singers'] ?? 'Unknown').toString()),
+      album: _clean((json['collectionName'] ?? json['album'] ?? '').toString()),
       artworkUrl: _resolveArtwork(json),
-      streamUrl: json['stream_url'] ?? json['media_url'],
-      duration: _parseDuration(json['duration']),
-      language: json['language'],
-      year: json['year']?.toString(),
+      streamUrl: json['stream_url'] ?? json['media_url'] ?? json['previewUrl'],
+      duration: _parseDuration(json['trackTimeMillis'] != null ? (json['trackTimeMillis'] / 1000).round() : json['duration']),
+      language: json['primaryGenreName'] ?? json['language'],
+      year: json['releaseDate']?.toString().substring(0, 4) ?? json['year']?.toString(),
     );
   }
 
@@ -46,6 +46,9 @@ class Song {
   }
 
   static String _resolveArtwork(Map<String, dynamic> json) {
+    if (json['artworkUrl100'] != null) {
+      return json['artworkUrl100'].toString().replaceAll('100x100bb', '600x600bb').replaceAll('100x100', '600x600');
+    }
     // Priority: image array > artwork > image (500px preferred)
     if (json['image'] is List) {
       final images = json['image'] as List;

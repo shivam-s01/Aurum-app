@@ -66,7 +66,7 @@ class ApiService {
         final data = jsonDecode(res.body);
         final url = data['stream_url'] ?? data['url'] ?? data['media_url'];
         if (url != null && url.toString().isNotEmpty) {
-          if (!url.toString().startsWith('http')) return '$_base/api/stream?id=${song.id}';
+          if (!url.toString().startsWith('http')) return '$_base${url.toString()}';
           return url.toString();
         }
       }
