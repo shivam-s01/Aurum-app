@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AurumTheme {
   static const Color gold = Color(0xFFB89640);
@@ -26,44 +25,6 @@ class AurumTheme {
         background: bg,
         onPrimary: bg,
         onSurface: textPrimary,
-      ),
-      textTheme: GoogleFonts.soraTextTheme(ThemeData.dark().textTheme).copyWith(
-        displayLarge: GoogleFonts.sora(
-          color: textPrimary,
-          fontSize: 32,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.5,
-        ),
-        displayMedium: GoogleFonts.sora(
-          color: textPrimary,
-          fontSize: 24,
-          fontWeight: FontWeight.w600,
-        ),
-        titleLarge: GoogleFonts.sora(
-          color: textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-        ),
-        titleMedium: GoogleFonts.sora(
-          color: textPrimary,
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
-        ),
-        bodyLarge: GoogleFonts.sora(
-          color: textPrimary,
-          fontSize: 14,
-          fontWeight: FontWeight.w400,
-        ),
-        bodyMedium: GoogleFonts.sora(
-          color: textSecondary,
-          fontSize: 13,
-          fontWeight: FontWeight.w400,
-        ),
-        labelSmall: GoogleFonts.sora(
-          color: textMuted,
-          fontSize: 11,
-          fontWeight: FontWeight.w400,
-        ),
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: bg,
@@ -92,7 +53,6 @@ class AurumTheme {
     );
   }
 
-  // Gold gradient
   static const LinearGradient goldGradient = LinearGradient(
     colors: [goldDark, gold, goldLight],
     begin: Alignment.topLeft,
