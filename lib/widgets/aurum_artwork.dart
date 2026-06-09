@@ -1,65 +1,80 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:shimmer/shimmer.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 import '../theme/aurum_theme.dart';
 
 class AurumArtwork extends StatelessWidget {
-  final String? url;
+  final String url;
   final double size;
   final double borderRadius;
-  final bool showShadow;
+
+  /// Pass the numeric part of a local song id like 'local_123' → '123'
+  /// so we can fetch artwork from MediaStore.
+  final String? localSongId;
 
   const AurumArtwork({
     super.key,
-    this.url,
-    this.size = 56,
+    required this.url,
+    required this.size,
     this.borderRadius = 8,
-    this.showShadow = false,
+    this.localSongId,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
+    // Local song — use on_audio_query artwork widget
+    if (localSongId != null) {
+      return ClipRRect(
         borderRadius: BorderRadius.circular(borderRadius),
-        boxShadow: showShadow
-            ? [
-                BoxShadow(
-                  color: AurumTheme.gold.withOpacity(0.3),
-                  blurRadius: 24,
-                  offset: const Offset(0, 8),
-                ),
-              ]
-            : null,
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(borderRadius),
-        child: url != null && url!.isNotEmpty
-            ? CachedNetworkImage(
-                imageUrl: url!,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => _shimmer(),
-                errorWidget: (_, __, ___) => _placeholder(),
-              )
-            : _placeholder(),
+        child: QueryArtworkWidget(
+          id: int.tryParse(localSongId!) ?? 0,
+          type: ArtworkType.AUDIO,
+          artworkWidth: size,
+          artworkHeight: size,
+          artworkBorder: BorderRadius.zero,
+          artworkFit: BoxFit.cover,
+          nullArtworkWidget: _placeholder(context),
+          errorBuilder: (_, __, ___) => _placeholder(context),
+        ),
+      );
+    }
+
+    // Online song — cached network image
+    if (url.isEmpty) return _placeholder(context);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: CachedNetworkImage(
+        imageUrl: url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => _shimmer(context),
+        errorWidget: (_, __, ___) => _placeholder(context),
       ),
     );
   }
 
-  Widget _shimmer() => Shimmer.fromColors(
-    baseColor: AurumTheme.bgCard,
-    highlightColor: AurumTheme.bgSurface,
-    child: Container(color: AurumTheme.bgCard),
-  );
+  Widget _placeholder(BuildContext context) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: AurumTheme.bgSurfaceOf(context),
+          borderRadius: BorderRadius.circular(borderRadius),
+        ),
+        child: Icon(
+          Icons.music_note_rounded,
+          color: AurumTheme.textMutedOf(context),
+          size: size * 0.4,
+        ),
+      );
 
-  Widget _placeholder() => Container(
-    color: AurumTheme.bgCard,
-    child: Icon(
-      Icons.music_note_rounded,
-      color: AurumTheme.gold.withOpacity(0.4),
-      size: size * 0.4,
-    ),
-  );
+  Widget _shimmer(BuildContext context) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: AurumTheme.bgSurfaceOf(context),
+          borderRadius: BorderRadius.circular(borderRadius),
+        ),
+      );
 }

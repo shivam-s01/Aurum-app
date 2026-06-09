@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
@@ -16,16 +17,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   Future<void> _init() async {
-    // ── Audio Session (audio focus, call handling) ──
+    // Audio session (audio focus, call handling)
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
     session.interruptionEventStream.listen((event) {
       if (event.begin) {
-        // Phone call / other app took focus
         _player.pause();
       } else {
-        // Focus returned
         if (event.type == AudioInterruptionType.pause) {
           _player.play();
         }
@@ -37,7 +36,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       _player.pause();
     });
 
-    // ── Playback event broadcast ──
     _player.playbackEventStream.listen(_broadcastState);
 
     _player.durationStream.listen((d) {
@@ -60,28 +58,45 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
   }
 
-  // ── QUEUE BUG FIXED: each song gets a placeholder first,
-  //    then background resolver replaces with real URL ──
+  // ── Resolve AudioSource for any song (online or local) ──────────────────
+
+  Future<AudioSource?> _sourceForSong(Song song) async {
+    if (song.isLocal) {
+      // Local file — play from device storage
+      final file = File(song.localPath!);
+      if (!await file.exists()) return null;
+      return AudioSource.uri(
+        Uri.file(song.localPath!),
+        tag: _songToMediaItem(song),
+      );
+    } else {
+      // Online song — resolve stream URL from backend
+      final url = await ApiService.resolveStreamUrl(song);
+      if (url == null) return null;
+      return AudioSource.uri(
+        Uri.parse(url),
+        tag: _songToMediaItem(song),
+      );
+    }
+  }
+
+  // ── Play queue ───────────────────────────────────────────────────────────
+
   Future<void> playQueue(List<Song> songs, int startIndex) async {
     _queue = songs;
     _currentIndex = startIndex;
 
-    final currentSong = songs[startIndex];
-    final currentUrl = await ApiService.resolveStreamUrl(currentSong);
-    if (currentUrl == null) return;
+    final startSource = await _sourceForSong(songs[startIndex]);
+    if (startSource == null) return;
 
     await _playlist.clear();
 
-    // Build sources: real URL only for startIndex, placeholder for rest
     final sources = <AudioSource>[];
     for (int i = 0; i < songs.length; i++) {
       if (i == startIndex) {
-        sources.add(AudioSource.uri(
-          Uri.parse(currentUrl),
-          tag: _songToMediaItem(songs[i]),
-        ));
+        sources.add(startSource);
       } else {
-        // Placeholder — will be replaced by background resolver
+        // Placeholder — replaced by background resolver
         sources.add(AudioSource.uri(
           Uri.parse('https://example.com/placeholder.mp3'),
           tag: _songToMediaItem(songs[i]),
@@ -97,10 +112,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       await _player.setAudioSource(_playlist, initialIndex: 0);
     }
 
-    _updateMediaItem(currentSong);
+    _updateMediaItem(songs[startIndex]);
     await _player.play();
-
-    // Resolve remaining URLs in background
     _resolveQueueInBackground(songs, startIndex);
   }
 
@@ -108,63 +121,44 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     for (int i = 0; i < songs.length; i++) {
       if (i == startIndex) continue;
       try {
-        final url = await ApiService.resolveStreamUrl(songs[i]);
-        if (url != null && i < _playlist.length) {
+        final source = await _sourceForSong(songs[i]);
+        if (source != null && i < _playlist.length) {
           await _playlist.removeAt(i);
-          await _playlist.insert(
-            i,
-            AudioSource.uri(
-              Uri.parse(url),
-              tag: _songToMediaItem(songs[i]),
-            ),
-          );
+          await _playlist.insert(i, source);
         }
       } catch (_) {}
     }
   }
 
+  // ── Play single song ─────────────────────────────────────────────────────
+
   Future<void> playSong(Song song) async {
     _queue = [song];
     _currentIndex = 0;
 
-    final url = await ApiService.resolveStreamUrl(song);
-    if (url == null) return;
+    final source = await _sourceForSong(song);
+    if (source == null) return;
 
     await _playlist.clear();
-    await _playlist.add(AudioSource.uri(
-      Uri.parse(url),
-      tag: _songToMediaItem(song),
-    ));
-
+    await _playlist.add(source);
     await _player.setAudioSource(_playlist);
     _updateMediaItem(song);
     await _player.play();
   }
 
+  // ── Queue management ─────────────────────────────────────────────────────
+
   Future<void> addToQueue(Song song) async {
     _queue.add(song);
-    final url = await ApiService.resolveStreamUrl(song);
-    if (url != null) {
-      await _playlist.add(AudioSource.uri(
-        Uri.parse(url),
-        tag: _songToMediaItem(song),
-      ));
-    }
+    final source = await _sourceForSong(song);
+    if (source != null) await _playlist.add(source);
   }
 
   Future<void> playNext(Song song) async {
     final insertIdx = _currentIndex + 1;
     _queue.insert(insertIdx, song);
-    final url = await ApiService.resolveStreamUrl(song);
-    if (url != null) {
-      await _playlist.insert(
-        insertIdx,
-        AudioSource.uri(
-          Uri.parse(url),
-          tag: _songToMediaItem(song),
-        ),
-      );
-    }
+    final source = await _sourceForSong(song);
+    if (source != null) await _playlist.insert(insertIdx, source);
   }
 
   Future<void> removeFromQueue(int index) async {
@@ -180,23 +174,28 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     await _playlist.move(from, to);
   }
 
+  // ── Getters ──────────────────────────────────────────────────────────────
+
   List<Song> get currentQueue => List.unmodifiable(_queue);
   Song? get currentSong => _queue.isNotEmpty ? _queue[_currentIndex] : null;
   int get currentIndex => _currentIndex;
   AudioPlayer get player => _player;
 
-  void _updateMediaItem(Song song) {
-    mediaItem.add(_songToMediaItem(song));
-  }
+  // ── Media item ───────────────────────────────────────────────────────────
+
+  void _updateMediaItem(Song song) => mediaItem.add(_songToMediaItem(song));
 
   MediaItem _songToMediaItem(Song song) => MediaItem(
-    id: song.id,
-    title: song.title,
-    artist: song.artist,
-    album: song.album,
-    artUri: song.artworkUrl.isNotEmpty ? Uri.parse(song.artworkUrl) : null,
-    duration: song.duration != null ? Duration(seconds: song.duration!) : null,
-  );
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        album: song.album,
+        artUri: song.artworkUrl.isNotEmpty ? Uri.parse(song.artworkUrl) : null,
+        duration:
+            song.duration != null ? Duration(seconds: song.duration!) : null,
+      );
+
+  // ── Playback state ───────────────────────────────────────────────────────
 
   void _broadcastState(PlaybackEvent event) {
     final playing = _player.playing;
@@ -227,16 +226,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     ));
   }
 
-  @override Future<void> play()   => _player.play();
-  @override Future<void> pause()  => _player.pause();
-  @override Future<void> stop()   => _player.stop();
+  // ── BaseAudioHandler overrides ───────────────────────────────────────────
+
+  @override Future<void> play()  => _player.play();
+  @override Future<void> pause() => _player.pause();
+  @override Future<void> stop()  => _player.stop();
   @override Future<void> seek(Duration position) => _player.seek(position);
 
   @override
   Future<void> skipToNext() async {
-    if (_currentIndex < _queue.length - 1) {
-      await _player.seekToNext();
-    }
+    if (_currentIndex < _queue.length - 1) await _player.seekToNext();
   }
 
   @override

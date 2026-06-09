@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'services/audio_handler.dart';
 import 'providers/player_provider.dart';
+import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
@@ -14,6 +16,9 @@ late AurumAudioHandler _audioHandler;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Hive init for local DB (favorites, playlists, recently played)
+  await Hive.initFlutter();
 
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
@@ -54,10 +59,10 @@ class AurumApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => PlayerProvider(handler)),
+        ChangeNotifierProvider(create: (_) => LibraryProvider()), // ← offline
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
-          // Update system UI based on theme
           final isDark = themeProvider.themeMode == ThemeMode.dark ||
               themeProvider.isAmoled ||
               (themeProvider.themeMode == ThemeMode.system &&

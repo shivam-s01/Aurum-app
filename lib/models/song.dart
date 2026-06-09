@@ -5,9 +5,10 @@ class Song {
   final String album;
   final String artworkUrl;
   final String? streamUrl;
-  final int? duration; // in seconds
+  final int? duration;
   final String? language;
   final String? year;
+  final String? localPath; // ← NEW: set for local songs, null for online
 
   Song({
     required this.id,
@@ -19,7 +20,11 @@ class Song {
     this.duration,
     this.language,
     this.year,
+    this.localPath,
   });
+
+  /// True when this song came from the device library
+  bool get isLocal => localPath != null && localPath!.isNotEmpty;
 
   factory Song.fromJson(Map<String, dynamic> json) {
     return Song(
@@ -29,27 +34,29 @@ class Song {
       album: _clean((json['collectionName'] ?? json['album'] ?? '').toString()),
       artworkUrl: _resolveArtwork(json),
       streamUrl: json['stream_url'] ?? json['media_url'] ?? json['previewUrl'],
-      duration: _parseDuration(json['trackTimeMillis'] != null ? (json['trackTimeMillis'] / 1000).round() : json['duration']),
+      duration: _parseDuration(json['trackTimeMillis'] != null
+          ? (json['trackTimeMillis'] / 1000).round()
+          : json['duration']),
       language: json['primaryGenreName'] ?? json['language'],
       year: json['releaseDate']?.toString().substring(0, 4) ?? json['year']?.toString(),
+      localPath: json['localPath'],
     );
   }
 
-  static String _clean(String s) {
-    // Remove HTML entities
-    return s
-        .replaceAll('&amp;', '&')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#039;', "'")
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>');
-  }
+  static String _clean(String s) => s
+      .replaceAll('&amp;', '&')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#039;', "'")
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>');
 
   static String _resolveArtwork(Map<String, dynamic> json) {
     if (json['artworkUrl100'] != null) {
-      return json['artworkUrl100'].toString().replaceAll('100x100bb', '600x600bb').replaceAll('100x100', '600x600');
+      return json['artworkUrl100']
+          .toString()
+          .replaceAll('100x100bb', '600x600bb')
+          .replaceAll('100x100', '600x600');
     }
-    // Priority: image array > artwork > image (500px preferred)
     if (json['image'] is List) {
       final images = json['image'] as List;
       final hq = images.lastWhere(
@@ -60,7 +67,9 @@ class Song {
     }
     final raw = json['artwork'] ?? json['image'] ?? json['thumbnail'] ?? '';
     if (raw is String) {
-      return raw.replaceAll('150x150', '500x500').replaceAll('50x50', '500x500');
+      return raw
+          .replaceAll('150x150', '500x500')
+          .replaceAll('50x50', '500x500');
     }
     return '';
   }
@@ -89,9 +98,10 @@ class Song {
     'duration': duration,
     'language': language,
     'year': year,
+    'localPath': localPath,
   };
 
-  Song copyWith({String? streamUrl}) => Song(
+  Song copyWith({String? streamUrl, String? localPath}) => Song(
     id: id,
     title: title,
     artist: artist,
@@ -101,6 +111,7 @@ class Song {
     duration: duration,
     language: language,
     year: year,
+    localPath: localPath ?? this.localPath,
   );
 }
 
