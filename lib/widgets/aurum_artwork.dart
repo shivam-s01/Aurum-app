@@ -1,15 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:on_audio_query/on_audio_query.dart';
 import '../theme/aurum_theme.dart';
 
 class AurumArtwork extends StatelessWidget {
   final String url;
   final double size;
   final double borderRadius;
-
-  /// Pass the numeric part of a local song id like 'local_123' → '123'
-  /// so we can fetch artwork from MediaStore.
   final String? localSongId;
 
   const AurumArtwork({
@@ -22,24 +19,25 @@ class AurumArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Local song — use on_audio_query artwork widget
+    // Local song - use Image.file
     if (localSongId != null) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(borderRadius),
-        child: QueryArtworkWidget(
-          id: int.tryParse(localSongId!) ?? 0,
-          type: ArtworkType.AUDIO,
-          artworkWidth: size,
-          artworkHeight: size,
-          artworkBorder: BorderRadius.zero,
-          artworkFit: BoxFit.cover,
-          nullArtworkWidget: _placeholder(context),
-          errorBuilder: (_, __, ___) => _placeholder(context),
-        ),
-      );
+      final file = File(localSongId!);
+      if (file.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(borderRadius),
+          child: Image.file(
+            file,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _placeholder(context),
+          ),
+        );
+      }
+      return _placeholder(context);
     }
 
-    // Online song — cached network image
+    // Online song - cached network image
     if (url.isEmpty) return _placeholder(context);
 
     return ClipRRect(
