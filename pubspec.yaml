@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  
+
   # Audio
   just_audio: ^0.9.36
   just_audio_background: ^0.0.1-beta.11
@@ -18,19 +18,28 @@ dependencies:
 
   # State Management
   provider: ^6.1.1
-  
+
   # HTTP
   http: ^1.2.0
-  
+
   # UI
   cached_network_image: ^3.3.1
   shimmer: ^3.0.0
   palette_generator: ^0.3.3+3
-  
-  # Utils
+
+  # Persistence
   shared_preferences: ^2.2.2
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # Local Music
+  on_audio_query: ^2.9.0
+  permission_handler: ^11.3.1
+
+  # Utils
   rxdart: ^0.27.7
   uuid: ^4.3.3
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

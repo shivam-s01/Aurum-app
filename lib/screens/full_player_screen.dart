@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:palette_generator/palette_generator.dart';
 import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_loader.dart';
 import 'queue_screen.dart';
 
 class FullPlayerScreen extends StatefulWidget {
@@ -16,8 +18,12 @@ class FullPlayerScreen extends StatefulWidget {
 class _FullPlayerScreenState extends State<FullPlayerScreen>
     with TickerProviderStateMixin {
   late AnimationController _rotateController;
+  late AnimationController _colorController;
   bool _draggingSlider = false;
   double _sliderValue = 0.0;
+  Color _dominantColor = AurumTheme.gold;
+  Color _prevColor = AurumTheme.gold;
+  String? _lastArtworkUrl;
 
   @override
   void initState() {
@@ -26,12 +32,40 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       vsync: this,
       duration: const Duration(seconds: 20),
     )..repeat();
+
+    _colorController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
   }
 
   @override
   void dispose() {
     _rotateController.dispose();
+    _colorController.dispose();
     super.dispose();
+  }
+
+  Future<void> _extractColor(String? url) async {
+    if (url == null || url.isEmpty || url == _lastArtworkUrl) return;
+    _lastArtworkUrl = url;
+    try {
+      final generator = await PaletteGenerator.fromImageProvider(
+        NetworkImage(url),
+        size: const Size(100, 100),
+        maximumColorCount: 8,
+      );
+      final color = generator.vibrantColor?.color ??
+          generator.dominantColor?.color ??
+          AurumTheme.gold;
+      if (mounted) {
+        setState(() {
+          _prevColor = _dominantColor;
+          _dominantColor = color;
+        });
+        _colorController.forward(from: 0);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -44,7 +78,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         }
         final song = player.currentSong!;
 
-        // Keep rotating only when playing
+        // Extract color when song changes
+        _extractColor(song.artworkUrl);
+
         if (player.isPlaying) {
           _rotateController.repeat();
         } else {
@@ -52,78 +88,91 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         }
 
         return Scaffold(
-          backgroundColor: AurumTheme.bg,
-          body: Stack(
-            children: [
-              // Background gradient
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        AurumTheme.gold.withOpacity(0.05),
-                        AurumTheme.bg,
-                        AurumTheme.bg,
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              SafeArea(
-                child: Column(
-                  children: [
-                    _buildTopBar(context),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Column(
-                            children: [
-                              const SizedBox(height: 24),
-                              _buildArtwork(player, song),
-                              const SizedBox(height: 32),
-                              _buildSongInfo(song),
-                              const SizedBox(height: 28),
-                              _buildProgressBar(player),
-                              const SizedBox(height: 24),
-                              _buildControls(player),
-                              const SizedBox(height: 20),
-                              _buildExtras(context, player),
-                              const SizedBox(height: 24),
-                            ],
-                          ),
+          backgroundColor: AurumTheme.bgOf(context),
+          body: AnimatedBuilder(
+            animation: _colorController,
+            builder: (_, child) {
+              final animColor = Color.lerp(
+                _prevColor,
+                _dominantColor,
+                _colorController.value,
+              )!;
+              return Stack(
+                children: [
+                  // Dynamic background gradient
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            animColor.withOpacity(0.18),
+                            animColor.withOpacity(0.06),
+                            AurumTheme.bgOf(context),
+                            AurumTheme.bgOf(context),
+                          ],
+                          stops: const [0.0, 0.25, 0.55, 1.0],
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ],
+                  ),
+                  SafeArea(
+                    child: Column(
+                      children: [
+                        _buildTopBar(context, animColor),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 24),
+                              child: Column(
+                                children: [
+                                  const SizedBox(height: 24),
+                                  _buildArtwork(player, song),
+                                  const SizedBox(height: 32),
+                                  _buildSongInfo(context, song, animColor),
+                                  const SizedBox(height: 28),
+                                  _buildProgressBar(context, player),
+                                  const SizedBox(height: 24),
+                                  _buildControls(context, player, animColor),
+                                  const SizedBox(height: 20),
+                                  _buildExtras(context, player),
+                                  const SizedBox(height: 24),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         );
       },
     );
   }
 
-  Widget _buildTopBar(BuildContext context) {
+  Widget _buildTopBar(BuildContext context, Color accent) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
       child: Row(
         children: [
           IconButton(
             icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 28),
-            color: AurumTheme.textSecondary,
+            color: AurumTheme.textSecondaryOf(context),
             onPressed: () => Navigator.pop(context),
           ),
           Expanded(
             child: Column(
               children: [
-                const Text(
+                Text(
                   'NOW PLAYING',
                   style: TextStyle(
-                    color: AurumTheme.textMuted,
+                    color: AurumTheme.textMutedOf(context),
                     fontSize: 10,
                     letterSpacing: 2,
                     fontWeight: FontWeight.w600,
@@ -134,7 +183,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           ),
           IconButton(
             icon: const Icon(Icons.queue_music_rounded, size: 24),
-            color: AurumTheme.textSecondary,
+            color: AurumTheme.textSecondaryOf(context),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const QueueScreen()),
@@ -150,7 +199,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       animation: _rotateController,
       builder: (_, child) {
         return Transform.rotate(
-          angle: player.isPlaying ? _rotateController.value * 2 * 3.14159 : 0,
+          angle: player.isPlaying
+              ? _rotateController.value * 2 * 3.14159
+              : 0,
           child: child,
         );
       },
@@ -161,8 +212,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: AurumTheme.gold.withOpacity(0.25),
-              blurRadius: 40,
+              color: _dominantColor.withOpacity(0.35),
+              blurRadius: 50,
               spreadRadius: 5,
             ),
           ],
@@ -178,13 +229,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     );
   }
 
-  Widget _buildSongInfo(song) {
+  Widget _buildSongInfo(BuildContext context, song, Color accent) {
     return Column(
       children: [
         Text(
           song.title,
-          style: const TextStyle(
-            color: AurumTheme.textPrimary,
+          style: TextStyle(
+            color: AurumTheme.textPrimaryOf(context),
             fontSize: 22,
             fontWeight: FontWeight.w700,
           ),
@@ -195,8 +246,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         const SizedBox(height: 6),
         Text(
           song.artist,
-          style: const TextStyle(
-            color: AurumTheme.textSecondary,
+          style: TextStyle(
+            color: AurumTheme.textSecondaryOf(context),
             fontSize: 15,
           ),
           textAlign: TextAlign.center,
@@ -207,7 +258,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           const SizedBox(height: 4),
           Text(
             song.album,
-            style: const TextStyle(color: AurumTheme.textMuted, fontSize: 12),
+            style: TextStyle(
+              color: AurumTheme.textMutedOf(context),
+              fontSize: 12,
+            ),
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -217,16 +271,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     );
   }
 
-  Widget _buildProgressBar(PlayerProvider player) {
+  Widget _buildProgressBar(BuildContext context, PlayerProvider player) {
     return Column(
       children: [
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
             trackHeight: 3,
-            activeTrackColor: AurumTheme.gold,
-            inactiveTrackColor: AurumTheme.bgSurface,
-            thumbColor: AurumTheme.gold,
-            overlayColor: AurumTheme.gold.withOpacity(0.2),
+            activeTrackColor: _dominantColor,
+            inactiveTrackColor: AurumTheme.bgSurfaceOf(context),
+            thumbColor: _dominantColor,
+            overlayColor: _dominantColor.withOpacity(0.2),
             thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
           ),
           child: Slider(
@@ -236,14 +290,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                     ? 0.0
                     : player.progress,
             onChangeStart: (v) {
-              setState(() { _draggingSlider = true; _sliderValue = v; });
+              setState(() {
+                _draggingSlider = true;
+                _sliderValue = v;
+              });
             },
             onChanged: (v) {
-              setState(() { _sliderValue = v; });
+              setState(() => _sliderValue = v);
             },
             onChangeEnd: (v) {
               player.seek(v);
-              setState(() { _draggingSlider = false; });
+              setState(() => _draggingSlider = false);
             },
           ),
         ),
@@ -252,8 +309,20 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(player.positionString, style: const TextStyle(color: AurumTheme.textMuted, fontSize: 12)),
-              Text(player.durationString, style: const TextStyle(color: AurumTheme.textMuted, fontSize: 12)),
+              Text(
+                player.positionString,
+                style: TextStyle(
+                  color: AurumTheme.textMutedOf(context),
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                player.durationString,
+                style: TextStyle(
+                  color: AurumTheme.textMutedOf(context),
+                  fontSize: 12,
+                ),
+              ),
             ],
           ),
         ),
@@ -261,62 +330,73 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     );
   }
 
-  Widget _buildControls(PlayerProvider player) {
+  Widget _buildControls(
+      BuildContext context, PlayerProvider player, Color accent) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        // Shuffle
         IconButton(
           icon: Icon(
             Icons.shuffle_rounded,
-            color: player.shuffle ? AurumTheme.gold : AurumTheme.textMuted,
+            color: player.shuffle ? accent : AurumTheme.textMutedOf(context),
           ),
           iconSize: 22,
           onPressed: player.toggleShuffle,
         ),
-        // Prev
         IconButton(
-          icon: const Icon(Icons.skip_previous_rounded),
-          color: AurumTheme.textPrimary,
+          icon: Icon(
+            Icons.skip_previous_rounded,
+            color: AurumTheme.textPrimaryOf(context),
+          ),
           iconSize: 36,
           onPressed: player.skipPrev,
         ),
-        // Play/pause
+        // Play/Pause with AurumLoader
         GestureDetector(
           onTap: player.togglePlay,
           child: Container(
             width: 68,
             height: 68,
-            decoration: const BoxDecoration(
-              color: AurumTheme.gold,
+            decoration: BoxDecoration(
+              color: accent,
               shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: accent.withOpacity(0.45),
+                  blurRadius: 20,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
             child: player.isLoading
-                ? const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: CircularProgressIndicator(color: AurumTheme.bg, strokeWidth: 2.5),
+                ? const Center(
+                    child: AurumLoader(size: 32, color: Colors.white),
                   )
                 : Icon(
-                    player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    color: AurumTheme.bg,
+                    player.isPlaying
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    color: Colors.white,
                     size: 36,
                   ),
           ),
         ),
-        // Next
         IconButton(
-          icon: const Icon(Icons.skip_next_rounded),
-          color: AurumTheme.textPrimary,
+          icon: Icon(
+            Icons.skip_next_rounded,
+            color: AurumTheme.textPrimaryOf(context),
+          ),
           iconSize: 36,
           onPressed: player.skipNext,
         ),
-        // Loop
         IconButton(
           icon: Icon(
             player.loopMode == LoopMode.one
                 ? Icons.repeat_one_rounded
                 : Icons.repeat_rounded,
-            color: player.loopMode != LoopMode.off ? AurumTheme.gold : AurumTheme.textMuted,
+            color: player.loopMode != LoopMode.off
+                ? accent
+                : AurumTheme.textMutedOf(context),
           ),
           iconSize: 22,
           onPressed: player.toggleLoop,
@@ -329,9 +409,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _ExtraButton(
+        _ExtraBtn(
           icon: Icons.queue_music_rounded,
           label: 'Queue',
+          context: context,
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const QueueScreen()),
@@ -342,22 +423,34 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   }
 }
 
-class _ExtraButton extends StatelessWidget {
+class _ExtraBtn extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final BuildContext context;
 
-  const _ExtraButton({required this.icon, required this.label, required this.onTap});
+  const _ExtraBtn({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    required this.context,
+  });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext ctx) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
         children: [
-          Icon(icon, color: AurumTheme.textSecondary, size: 22),
+          Icon(icon, color: AurumTheme.textSecondaryOf(context), size: 22),
           const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: AurumTheme.textMuted, fontSize: 11)),
+          Text(
+            label,
+            style: TextStyle(
+              color: AurumTheme.textMutedOf(context),
+              fontSize: 11,
+            ),
+          ),
         ],
       ),
     );

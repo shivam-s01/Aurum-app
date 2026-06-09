@@ -5,6 +5,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'services/audio_handler.dart';
 import 'providers/player_provider.dart';
+import 'providers/theme_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
 import 'screens/splash_screen.dart';
@@ -13,13 +14,9 @@ late AurumAudioHandler _audioHandler;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: AurumTheme.bgCard,
-    systemNavigationBarIconBrightness: Brightness.light,
-  ));
+
   try {
     await JustAudioBackground.init(
       androidNotificationChannelId: 'com.aurum.music.channel.audio',
@@ -29,6 +26,7 @@ Future<void> main() async {
       androidNotificationIcon: 'mipmap/ic_launcher',
     ).timeout(const Duration(seconds: 5));
   } catch (_) {}
+
   try {
     _audioHandler = await AudioService.init(
       builder: () => AurumAudioHandler(),
@@ -42,23 +40,55 @@ Future<void> main() async {
   } catch (_) {
     _audioHandler = AurumAudioHandler();
   }
+
   runApp(AurumApp(handler: _audioHandler));
 }
 
 class AurumApp extends StatelessWidget {
   final AurumAudioHandler handler;
   const AurumApp({super.key, required this.handler});
+
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => PlayerProvider(handler),
-      child: MaterialApp(
-        title: 'Aurum Music',
-        debugShowCheckedModeBanner: false,
-        theme: AurumTheme.theme,
-        home: SplashScreen(child: const MainShell()),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => PlayerProvider(handler)),
+      ],
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) {
+          // Update system UI based on theme
+          final isDark = themeProvider.themeMode == ThemeMode.dark ||
+              themeProvider.isAmoled ||
+              (themeProvider.themeMode == ThemeMode.system &&
+                  WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+                      Brightness.dark);
+
+          SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness:
+                isDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarColor: isDark
+                ? (themeProvider.isAmoled
+                    ? AurumTheme.amoledBgCard
+                    : AurumTheme.darkBgCard)
+                : AurumTheme.lightBgCard,
+            systemNavigationBarIconBrightness:
+                isDark ? Brightness.light : Brightness.dark,
+          ));
+
+          return MaterialApp(
+            title: 'Aurum Music',
+            debugShowCheckedModeBanner: false,
+            themeMode: themeProvider.themeMode,
+            theme: AurumTheme.lightTheme,
+            darkTheme: themeProvider.isAmoled
+                ? AurumTheme.amoledTheme
+                : AurumTheme.darkTheme,
+            home: SplashScreen(child: const MainShell()),
+          );
+        },
       ),
     );
   }
 }
-// Tue Jun  9 02:39:36 IST 2026
