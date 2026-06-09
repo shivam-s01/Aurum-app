@@ -57,7 +57,8 @@ class LocalMusicService {
               final name = entity.uri.pathSegments.last;
               final title = name
                   .replaceAll(RegExp(r'\.(mp3|flac|m4a|aac|ogg|wav)$', caseSensitive: false), '')
-                  .replaceAll('_', ' ').trim();
+                  .replaceAll('_', ' ')
+                  .trim();
               songs.add(Song(
                 id: 'local_${entity.path.hashCode.abs()}',
                 title: title.isEmpty ? name : title,
@@ -100,8 +101,10 @@ class LocalMusicService {
         title: m['title'] ?? 'Unknown',
         artist: m['artist'] ?? 'Unknown Artist',
         album: m['album'] ?? '',
-        artworkUrl: '',
-        duration: m['duration'] != null ? (int.tryParse(m['duration'].toString()) ?? 0) ~/ 1000 : null,
+        artworkUrl: m['artwork'] ?? '',
+        duration: m['duration'] != null
+            ? (int.tryParse(m['duration'].toString()) ?? 0) ~/ 1000
+            : null,
         localPath: m['path'] ?? m['data'] ?? '',
       );
 }

@@ -1,12 +1,12 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:palette_generator/palette_generator.dart';
 import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_loader.dart';
-import 'queue_screen.dart';
 
 class FullPlayerScreen extends StatefulWidget {
   const FullPlayerScreen({super.key});
@@ -17,442 +17,452 @@ class FullPlayerScreen extends StatefulWidget {
 
 class _FullPlayerScreenState extends State<FullPlayerScreen>
     with TickerProviderStateMixin {
-  late AnimationController _rotateController;
-  late AnimationController _colorController;
-  bool _draggingSlider = false;
-  double _sliderValue = 0.0;
-  Color _dominantColor = AurumTheme.gold;
-  Color _prevColor = AurumTheme.gold;
-  String? _lastArtworkUrl;
+  late AnimationController _slideController;
+  late Animation<Offset> _slideAnim;
+  late AnimationController _artworkPulse;
+
+  double _dragOffset = 0;
 
   @override
   void initState() {
     super.initState();
-    _rotateController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 20),
-    )..repeat();
 
-    _colorController = AnimationController(
+    _slideController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 380),
     );
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic));
+    _slideController.forward();
+
+    _artworkPulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+      lowerBound: 0.97,
+      upperBound: 1.0,
+    )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
-    _rotateController.dispose();
-    _colorController.dispose();
+    _slideController.dispose();
+    _artworkPulse.dispose();
     super.dispose();
   }
 
-  Future<void> _extractColor(String? url) async {
-    if (url == null || url.isEmpty || url == _lastArtworkUrl) return;
-    _lastArtworkUrl = url;
-    try {
-      final generator = await PaletteGenerator.fromImageProvider(
-        NetworkImage(url),
-        size: const Size(100, 100),
-        maximumColorCount: 8,
-      );
-      final color = generator.vibrantColor?.color ??
-          generator.dominantColor?.color ??
-          AurumTheme.gold;
-      if (mounted) {
-        setState(() {
-          _prevColor = _dominantColor;
-          _dominantColor = color;
-        });
-        _colorController.forward(from: 0);
-      }
-    } catch (_) {}
+  void _close() {
+    _slideController.reverse().then((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  void _onDragUpdate(DragUpdateDetails d) {
+    if (d.delta.dy > 0) setState(() => _dragOffset += d.delta.dy);
+  }
+
+  void _onDragEnd(DragEndDetails d) {
+    if (_dragOffset > 100 || (d.primaryVelocity ?? 0) > 700) {
+      _close();
+    } else {
+      setState(() => _dragOffset = 0);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<PlayerProvider>(
       builder: (context, player, _) {
-        if (!player.hasSong) {
-          Navigator.pop(context);
-          return const SizedBox.shrink();
-        }
-        final song = player.currentSong!;
+        final song = player.currentSong;
+        if (song == null) return const SizedBox.shrink();
 
-        // Extract color when song changes
-        _extractColor(song.artworkUrl);
-
-        if (player.isPlaying) {
-          _rotateController.repeat();
-        } else {
-          _rotateController.stop();
-        }
-
-        return Scaffold(
-          backgroundColor: AurumTheme.bgOf(context),
-          body: AnimatedBuilder(
-            animation: _colorController,
-            builder: (_, child) {
-              final animColor = Color.lerp(
-                _prevColor,
-                _dominantColor,
-                _colorController.value,
-              )!;
-              return Stack(
-                children: [
-                  // Dynamic background gradient
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            animColor.withOpacity(0.18),
-                            animColor.withOpacity(0.06),
-                            AurumTheme.bgOf(context),
-                            AurumTheme.bgOf(context),
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle.light,
+          child: GestureDetector(
+            onVerticalDragUpdate: _onDragUpdate,
+            onVerticalDragEnd: _onDragEnd,
+            child: SlideTransition(
+              position: _slideAnim,
+              child: Transform.translate(
+                offset: Offset(0, _dragOffset * 0.35),
+                child: Scaffold(
+                  backgroundColor: Colors.black,
+                  body: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // ── Dynamic blurred background ──
+                      _DynamicBackground(artworkUrl: song.artworkUrl),
+                      // ── Content ──
+                      SafeArea(
+                        child: Column(
+                          children: [
+                            _buildHandle(),
+                            _buildHeader(),
+                            const SizedBox(height: 24),
+                            // ── Artwork ──
+                            _buildArtwork(player, song.artworkUrl),
+                            const SizedBox(height: 32),
+                            // ── Song info ──
+                            _buildSongInfo(context, player, song),
+                            const SizedBox(height: 20),
+                            // ── Progress ──
+                            _buildProgress(context, player),
+                            const SizedBox(height: 28),
+                            // ── Controls ──
+                            _buildControls(context, player),
+                            const SizedBox(height: 24),
                           ],
-                          stops: const [0.0, 0.25, 0.55, 1.0],
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                  SafeArea(
-                    child: Column(
-                      children: [
-                        _buildTopBar(context, animColor),
-                        Expanded(
-                          child: SingleChildScrollView(
-                            child: Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 24),
-                              child: Column(
-                                children: [
-                                  const SizedBox(height: 24),
-                                  _buildArtwork(player, song),
-                                  const SizedBox(height: 32),
-                                  _buildSongInfo(context, song, animColor),
-                                  const SizedBox(height: 28),
-                                  _buildProgressBar(context, player),
-                                  const SizedBox(height: 24),
-                                  _buildControls(context, player, animColor),
-                                  const SizedBox(height: 20),
-                                  _buildExtras(context, player),
-                                  const SizedBox(height: 24),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildTopBar(BuildContext context, Color accent) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 28),
-            color: AurumTheme.textSecondaryOf(context),
-            onPressed: () => Navigator.pop(context),
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                Text(
-                  'NOW PLAYING',
-                  style: TextStyle(
-                    color: AurumTheme.textMutedOf(context),
-                    fontSize: 10,
-                    letterSpacing: 2,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.queue_music_rounded, size: 24),
-            color: AurumTheme.textSecondaryOf(context),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const QueueScreen()),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildArtwork(PlayerProvider player, song) {
-    return AnimatedBuilder(
-      animation: _rotateController,
-      builder: (_, child) {
-        return Transform.rotate(
-          angle: player.isPlaying
-              ? _rotateController.value * 2 * 3.14159
-              : 0,
-          child: child,
-        );
-      },
-      child: Container(
-        width: 270,
-        height: 270,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: _dominantColor.withOpacity(0.35),
-              blurRadius: 50,
-              spreadRadius: 5,
-            ),
-          ],
-        ),
-        child: ClipOval(
-          child: AurumArtwork(
-            url: song.artworkUrl,
-            size: 270,
-            borderRadius: 135,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSongInfo(BuildContext context, song, Color accent) {
-    return Column(
-      children: [
-        Text(
-          song.title,
-          style: TextStyle(
-            color: AurumTheme.textPrimaryOf(context),
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-          ),
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 6),
-        Text(
-          song.artist,
-          style: TextStyle(
-            color: AurumTheme.textSecondaryOf(context),
-            fontSize: 15,
-          ),
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        if (song.album.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Text(
-            song.album,
-            style: TextStyle(
-              color: AurumTheme.textMutedOf(context),
-              fontSize: 12,
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildProgressBar(BuildContext context, PlayerProvider player) {
-    return Column(
-      children: [
-        SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            trackHeight: 3,
-            activeTrackColor: _dominantColor,
-            inactiveTrackColor: AurumTheme.bgSurfaceOf(context),
-            thumbColor: _dominantColor,
-            overlayColor: _dominantColor.withOpacity(0.2),
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-          ),
-          child: Slider(
-            value: _draggingSlider
-                ? _sliderValue
-                : player.progress.isNaN
-                    ? 0.0
-                    : player.progress,
-            onChangeStart: (v) {
-              setState(() {
-                _draggingSlider = true;
-                _sliderValue = v;
-              });
-            },
-            onChanged: (v) {
-              setState(() => _sliderValue = v);
-            },
-            onChangeEnd: (v) {
-              player.seek(v);
-              setState(() => _draggingSlider = false);
-            },
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                player.positionString,
-                style: TextStyle(
-                  color: AurumTheme.textMutedOf(context),
-                  fontSize: 12,
                 ),
               ),
-              Text(
-                player.durationString,
-                style: TextStyle(
-                  color: AurumTheme.textMutedOf(context),
-                  fontSize: 12,
-                ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHandle() {
+    return GestureDetector(
+      onTap: _close,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Center(
+          child: Container(
+            width: 36, height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.25),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: _close,
+            child: Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
+              ),
+              child: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 26),
+            ),
+          ),
+          const Expanded(
+            child: Text('Now Playing',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w500, letterSpacing: 1.5)),
+          ),
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), shape: BoxShape.circle),
+            child: const Icon(Icons.more_vert_rounded, color: Colors.white60, size: 20),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildArtwork(PlayerProvider player, String url) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: AnimatedScale(
+        scale: player.isPlaying ? 1.0 : 0.9,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOutCubic,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.6),
+                blurRadius: 50,
+                offset: const Offset(0, 25),
+              ),
+              BoxShadow(
+                color: AurumTheme.gold.withOpacity(0.15),
+                blurRadius: 40,
+                spreadRadius: -10,
               ),
             ],
           ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: AurumArtwork(
+              url: url,
+              size: MediaQuery.of(context).size.width - 64,
+              borderRadius: 24,
+            ),
+          ),
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildControls(
-      BuildContext context, PlayerProvider player, Color accent) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        IconButton(
-          icon: Icon(
-            Icons.shuffle_rounded,
-            color: player.shuffle ? accent : AurumTheme.textMutedOf(context),
-          ),
-          iconSize: 22,
-          onPressed: player.toggleShuffle,
-        ),
-        IconButton(
-          icon: Icon(
-            Icons.skip_previous_rounded,
-            color: AurumTheme.textPrimaryOf(context),
-          ),
-          iconSize: 36,
-          onPressed: player.skipPrev,
-        ),
-        // Play/Pause with AurumLoader
-        GestureDetector(
-          onTap: player.togglePlay,
-          child: Container(
-            width: 68,
-            height: 68,
-            decoration: BoxDecoration(
-              color: accent,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: accent.withOpacity(0.45),
-                  blurRadius: 20,
-                  offset: const Offset(0, 4),
+  Widget _buildSongInfo(BuildContext context, PlayerProvider player, song) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(song.title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(song.artist,
+                  style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 14),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
-            child: player.isLoading
-                ? const Center(
-                    child: AurumLoader(size: 32, color: Colors.white),
-                  )
-                : Icon(
-                    player.isPlaying
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                    color: Colors.white,
-                    size: 36,
-                  ),
           ),
-        ),
-        IconButton(
-          icon: Icon(
-            Icons.skip_next_rounded,
-            color: AurumTheme.textPrimaryOf(context),
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: player.toggleShuffle,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 42, height: 42,
+              decoration: BoxDecoration(
+                color: player.shuffle
+                    ? AurumTheme.gold.withOpacity(0.2)
+                    : Colors.white.withOpacity(0.08),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: player.shuffle ? AurumTheme.gold.withOpacity(0.4) : Colors.transparent,
+                ),
+              ),
+              child: Icon(Icons.shuffle_rounded,
+                color: player.shuffle ? AurumTheme.gold : Colors.white38,
+                size: 20),
+            ),
           ),
-          iconSize: 36,
-          onPressed: player.skipNext,
-        ),
-        IconButton(
-          icon: Icon(
-            player.loopMode == LoopMode.one
-                ? Icons.repeat_one_rounded
-                : Icons.repeat_rounded,
-            color: player.loopMode != LoopMode.off
-                ? accent
-                : AurumTheme.textMutedOf(context),
-          ),
-          iconSize: 22,
-          onPressed: player.toggleLoop,
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildExtras(BuildContext context, PlayerProvider player) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _ExtraBtn(
-          icon: Icons.queue_music_rounded,
-          label: 'Queue',
-          context: context,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const QueueScreen()),
+  Widget _buildProgress(BuildContext context, PlayerProvider player) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        children: [
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+              activeTrackColor: Colors.white,
+              inactiveTrackColor: Colors.white.withOpacity(0.15),
+              thumbColor: Colors.white,
+              overlayColor: Colors.white.withOpacity(0.15),
+            ),
+            child: Slider(value: player.progress, onChanged: player.seek),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(player.positionString,
+                  style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+                Text(player.durationString,
+                  style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControls(BuildContext context, PlayerProvider player) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Loop
+          GestureDetector(
+            onTap: player.toggleLoop,
+            child: Icon(
+              player.loopMode == LoopMode.one
+                  ? Icons.repeat_one_rounded
+                  : Icons.repeat_rounded,
+              color: player.loopMode != LoopMode.off
+                  ? AurumTheme.gold
+                  : Colors.white30,
+              size: 22,
+            ),
+          ),
+          // Prev
+          GestureDetector(
+            onTap: player.skipPrev,
+            child: Container(
+              width: 54, height: 54,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.skip_previous_rounded, color: Colors.white, size: 30),
+            ),
+          ),
+          // Play/Pause — big gold button
+          GestureDetector(
+            onTap: player.togglePlay,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 70, height: 70,
+              decoration: BoxDecoration(
+                gradient: AurumTheme.goldGradient,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AurumTheme.gold.withOpacity(0.5),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: player.isLoading
+                  ? const Center(child: AurumLoader(size: 30))
+                  : Icon(
+                      player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                      color: Colors.black,
+                      size: 36,
+                    ),
+            ),
+          ),
+          // Next
+          GestureDetector(
+            onTap: player.skipNext,
+            child: Container(
+              width: 54, height: 54,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.skip_next_rounded, color: Colors.white, size: 30),
+            ),
+          ),
+          // Queue
+          GestureDetector(
+            onTap: () => _showQueue(context, player),
+            child: const Icon(Icons.queue_music_rounded, color: Colors.white30, size: 22),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showQueue(BuildContext context, PlayerProvider player) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AurumTheme.bgCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => Column(children: [
+        const SizedBox(height: 8),
+        Container(width: 36, height: 4,
+          decoration: BoxDecoration(color: AurumTheme.divider, borderRadius: BorderRadius.circular(2))),
+        const SizedBox(height: 12),
+        const Text('Queue', style: TextStyle(color: AurumTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Expanded(
+          child: ListView.builder(
+            physics: const BouncingScrollPhysics(),
+            itemCount: player.queue.length,
+            itemBuilder: (context, i) {
+              final s = player.queue[i];
+              final isCurrent = i == player.currentIndex;
+              return ListTile(
+                leading: Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(
+                    color: isCurrent ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgSurface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: isCurrent ? Border.all(color: AurumTheme.gold.withOpacity(0.5)) : null,
+                  ),
+                  child: isCurrent
+                      ? const Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 18)
+                      : const Icon(Icons.music_note_rounded, color: AurumTheme.textMuted, size: 18),
+                ),
+                title: Text(s.title,
+                  style: TextStyle(
+                    color: isCurrent ? AurumTheme.gold : AurumTheme.textPrimary,
+                    fontSize: 13,
+                    fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w400),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(s.artist,
+                  style: const TextStyle(color: AurumTheme.textSecondary, fontSize: 11),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                onTap: () { player.skipToIndex(i); Navigator.pop(context); },
+              );
+            },
           ),
         ),
-      ],
+      ]),
     );
   }
 }
 
-class _ExtraBtn extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final BuildContext context;
+// ── Dynamic blurred background ───────────────────────────────────────────────
 
-  const _ExtraBtn({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    required this.context,
-  });
+class _DynamicBackground extends StatelessWidget {
+  final String artworkUrl;
+  const _DynamicBackground({required this.artworkUrl});
 
   @override
-  Widget build(BuildContext ctx) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Icon(icon, color: AurumTheme.textSecondaryOf(context), size: 22),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: AurumTheme.textMutedOf(context),
-              fontSize: 11,
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Artwork stretched as background
+        AurumArtwork(
+          url: artworkUrl,
+          size: MediaQuery.of(context).size.height,
+          borderRadius: 0,
+        ),
+        // Heavy blur
+        BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withOpacity(0.45),
+                  Colors.black.withOpacity(0.75),
+                  Colors.black.withOpacity(0.92),
+                ],
+              ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

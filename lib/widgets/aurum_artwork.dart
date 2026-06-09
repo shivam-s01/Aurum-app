@@ -19,14 +19,16 @@ class AurumArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Local song - use Image.file
     if (localSongId != null) {
-      final file = File(localSongId!);
-      if (file.existsSync()) {
+      if (url.startsWith('content://')) {
         return ClipRRect(
           borderRadius: BorderRadius.circular(borderRadius),
-          child: Image.file(
-            file,
+          child: Image(
+            image: ResizeImage(
+              NetworkImage(url),
+              width: size.toInt(),
+              height: size.toInt(),
+            ),
             width: size,
             height: size,
             fit: BoxFit.cover,
@@ -34,10 +36,24 @@ class AurumArtwork extends StatelessWidget {
           ),
         );
       }
+      if (url.isNotEmpty) {
+        final file = File(url);
+        if (file.existsSync()) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(borderRadius),
+            child: Image.file(
+              file,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _placeholder(context),
+            ),
+          );
+        }
+      }
       return _placeholder(context);
     }
 
-    // Online song - cached network image
     if (url.isEmpty) return _placeholder(context);
 
     return ClipRRect(
