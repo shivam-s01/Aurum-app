@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/library_provider.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/song_tile.dart';
 import 'settings_screen.dart';
 import 'liked_screen.dart';
 
@@ -51,14 +53,10 @@ class LibraryScreen extends StatelessWidget {
           icon: Icon(Icons.settings_outlined, color: AurumTheme.textSecondaryOf(context)),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
         ),
-        const SizedBox(width: 4),
       ],
       flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        title: ShaderMask(
-          shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
-          child: const Text('Library', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.5)),
-        ),
+        titlePadding: const EdgeInsets.fromLTRB(20, 0, 0, 16),
+        title: Text('Library', style: TextStyle(color: AurumTheme.gold, fontSize: 28, fontWeight: FontWeight.w800)),
       ),
     );
   }
@@ -68,16 +66,12 @@ class LibraryScreen extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          _QuickChip(
-            icon: Icons.favorite_rounded,
-            label: 'Liked',
-            color: const Color(0xFFE1306C),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LikedScreen())),
-          ),
+          _QuickChip(icon: Icons.favorite_rounded, label: 'Liked', color: Colors.pinkAccent,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LikedScreen()))),
           const SizedBox(width: 10),
-          _QuickChip(icon: Icons.download_rounded, label: 'Downloads', color: AurumTheme.gold, onTap: () {}),
+          _QuickChip(icon: Icons.download_rounded, label: 'Downloads', color: Colors.amber),
           const SizedBox(width: 10),
-          _QuickChip(icon: Icons.history_rounded, label: 'History', color: const Color(0xFF4CAF50), onTap: () {}),
+          _QuickChip(icon: Icons.history_rounded, label: 'History', color: Colors.teal),
         ],
       ),
     );
@@ -85,131 +79,144 @@ class LibraryScreen extends StatelessWidget {
 
   Widget _buildSectionTitle(BuildContext context, String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Text(title, style: const TextStyle(color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      child: Text(title, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
     );
   }
 
   Widget _buildCollectionGrid(BuildContext context) {
-    return Consumer<FavoritesProvider>(
-      builder: (context, fav, _) {
-        final items = [
-          _CollectionItem(
-            icon: Icons.favorite_rounded,
-            title: 'Liked Songs',
-            subtitle: fav.favorites.isEmpty ? 'No liked songs' : '${fav.favorites.length} songs',
-            color: const Color(0xFFE1306C),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LikedScreen())),
-          ),
-          _CollectionItem(icon: Icons.queue_music_rounded, title: 'Playlists', subtitle: 'Your playlists', color: AurumTheme.gold, onTap: () {}),
-          _CollectionItem(icon: Icons.album_rounded, title: 'Albums', subtitle: 'Saved albums', color: const Color(0xFF9C27B0), onTap: () {}),
-          _CollectionItem(icon: Icons.person_rounded, title: 'Artists', subtitle: 'Following', color: const Color(0xFF2196F3), onTap: () {}),
-          _CollectionItem(icon: Icons.folder_rounded, title: 'Local Files', subtitle: 'On this device', color: const Color(0xFF4CAF50), onTap: () {}),
-          _CollectionItem(icon: Icons.history_rounded, title: 'Recently Played', subtitle: 'Listen history', color: const Color(0xFFFF9800), onTap: () {}),
-        ];
+    final favCount = context.watch<FavoritesProvider>().favorites.length;
+    final lib = context.watch<LibraryProvider>();
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 1.6,
-            ),
-            itemCount: items.length,
-            itemBuilder: (context, i) => _CollectionCard(item: items[i]),
-          ),
-        );
-      },
+    final items = [
+      _CollectionItem(icon: Icons.favorite_rounded, label: 'Liked Songs', subtitle: '$favCount songs', color: Colors.pinkAccent,
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LikedScreen()))),
+      _CollectionItem(icon: Icons.queue_music_rounded, label: 'Playlists', subtitle: 'Your playlists', color: Colors.purpleAccent),
+      _CollectionItem(icon: Icons.album_rounded, label: 'Albums', subtitle: 'Saved albums', color: Colors.deepPurple),
+      _CollectionItem(icon: Icons.person_rounded, label: 'Artists', subtitle: 'Following', color: Colors.blueAccent),
+      _CollectionItem(
+        icon: Icons.folder_rounded,
+        label: 'Local Files',
+        subtitle: lib.hasLoaded ? '${lib.allSongs.length} songs' : 'On this device',
+        color: Colors.green,
+        onTap: () async {
+          if (!lib.hasLoaded) await lib.load();
+          if (context.mounted) {
+            Navigator.push(context, MaterialPageRoute(
+              builder: (_) => const _LocalFilesScreen(),
+            ));
+          }
+        },
+      ),
+      _CollectionItem(icon: Icons.history_rounded, label: 'Recently Played', subtitle: 'Listen history', color: Colors.orange),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: GridView.count(
+        crossAxisCount: 2,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 2.2,
+        children: items.map((item) => _CollectionCard(item: item)).toList(),
+      ),
     );
   }
 
   Widget _buildRecentlyPlayed(BuildContext context) {
-    return Consumer<PlayerProvider>(
-      builder: (context, player, _) {
-        if (!player.hasSong) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            child: Center(
-              child: Column(children: [
-                Icon(Icons.music_note_rounded, color: AurumTheme.gold.withOpacity(0.2), size: 48),
-                const SizedBox(height: 12),
-                Text('Play something to see history', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
-              ]),
-            ),
-          );
-        }
-        final queue = player.queue;
-        return SizedBox(
-          height: 155,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: queue.length,
-            itemBuilder: (context, i) {
-              final song = queue[i];
-              final isCurrent = i == player.currentIndex;
-              return GestureDetector(
-                onTap: () => player.skipToIndex(i),
-                child: Container(
-                  width: 110,
-                  margin: const EdgeInsets.only(right: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Stack(children: [
-                        AurumArtwork(url: song.artworkUrl, size: 110, borderRadius: 12),
-                        if (isCurrent)
-                          Container(
-                            width: 110, height: 110,
-                            decoration: BoxDecoration(color: Colors.black.withOpacity(0.4), borderRadius: BorderRadius.circular(12)),
-                            child: const Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 28),
-                          ),
-                      ]),
-                      const SizedBox(height: 6),
-                      Text(song.title, style: TextStyle(color: isCurrent ? AurumTheme.gold : AurumTheme.textPrimaryOf(context), fontSize: 11, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      Text(song.artist, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 10), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ],
-                  ),
-                ),
-              );
-            },
+    final player = context.watch<PlayerProvider>();
+    final song = player.currentSong;
+    if (song == null) {
+      return Padding(
+        padding: const EdgeInsets.all(32),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.music_note_rounded, size: 40, color: AurumTheme.textMutedOf(context).withOpacity(0.3)),
+              const SizedBox(height: 8),
+              Text('Play something to see history', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
+            ],
           ),
-        );
-      },
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: SongTile(song: song, queue: [song], index: 0),
     );
   }
 }
 
+// ── Local Files Screen ─────────────────────────────────────────────────────
+class _LocalFilesScreen extends StatelessWidget {
+  const _LocalFilesScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final lib = context.watch<LibraryProvider>();
+    return Scaffold(
+      backgroundColor: AurumTheme.bgOf(context),
+      appBar: AppBar(
+        backgroundColor: AurumTheme.bgOf(context),
+        title: Text('Local Files', style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontWeight: FontWeight.w700)),
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_rounded, color: AurumTheme.textPrimaryOf(context)),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh_rounded, color: AurumTheme.gold),
+            onPressed: () => lib.refresh(),
+          ),
+        ],
+      ),
+      body: lib.status == LibraryStatus.loading
+          ? Center(child: CircularProgressIndicator(color: AurumTheme.gold))
+          : lib.status == LibraryStatus.noPermission
+              ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.lock_rounded, size: 48, color: AurumTheme.textMutedOf(context)),
+                  const SizedBox(height: 12),
+                  Text('Permission required', style: TextStyle(color: AurumTheme.textMutedOf(context))),
+                  const SizedBox(height: 16),
+                  ElevatedButton(onPressed: () => lib.load(), child: const Text('Grant Permission')),
+                ]))
+              : lib.allSongs.isEmpty
+                  ? Center(child: Text('No local songs found', style: TextStyle(color: AurumTheme.textMutedOf(context))))
+                  : ListView.builder(
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: lib.allSongs.length,
+                      itemBuilder: (_, i) => SongTile(song: lib.allSongs[i], queue: lib.allSongs, index: i),
+                    ),
+    );
+  }
+}
+
+// ── Helper Widgets ─────────────────────────────────────────────────────────
 class _QuickChip extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
-  final VoidCallback onTap;
-  const _QuickChip({required this.icon, required this.label, required this.color, required this.onTap});
+  final VoidCallback? onTap;
+  const _QuickChip({required this.icon, required this.label, required this.color, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withOpacity(0.25), width: 0.8),
-          ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
-          ]),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.3)),
         ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w600)),
+        ]),
       ),
     );
   }
@@ -217,11 +224,11 @@ class _QuickChip extends StatelessWidget {
 
 class _CollectionItem {
   final IconData icon;
-  final String title;
+  final String label;
   final String subtitle;
   final Color color;
-  final VoidCallback onTap;
-  const _CollectionItem({required this.icon, required this.title, required this.subtitle, required this.color, required this.onTap});
+  final VoidCallback? onTap;
+  const _CollectionItem({required this.icon, required this.label, required this.subtitle, required this.color, this.onTap});
 }
 
 class _CollectionCard extends StatelessWidget {
@@ -247,15 +254,11 @@ class _CollectionCard extends StatelessWidget {
               child: Icon(item.icon, color: item.color, size: 20),
             ),
             const SizedBox(width: 10),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(item.title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 2),
-                Text(item.subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
-              ],
-            )),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text(item.label, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 2),
+              Text(item.subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ])),
           ]),
         ),
       ),
