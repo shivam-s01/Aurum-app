@@ -88,7 +88,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
 
     _updateMediaItem(songs[startIndex]);
-    await _player.play();
+    _player.play();
+    _broadcastState(null);
     _resolveQueueInBackground(songs, startIndex);
   }
 
@@ -123,7 +124,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       return;
     }
     _updateMediaItem(song);
-    await _player.play();
+    _player.play();
+    _broadcastState(null);
   }
 
   Future<void> addToQueue(Song song) async {
@@ -232,7 +234,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   @override
   Future<void> skipToQueueItem(int index) async {
     await _player.seek(Duration.zero, index: index);
-    await _player.play();
+    _player.play();
+    _broadcastState(null);
   }
 
   @override
