@@ -1,10 +1,8 @@
-import 'package:on_audio_query/on_audio_query.dart';
+import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/song.dart';
 
 class LocalMusicService {
-  static final _query = OnAudioQuery();
-
   static Future<bool> hasPermission() async {
     if (await Permission.audio.isGranted) return true;
     if (await Permission.storage.isGranted) return true;
@@ -12,8 +10,6 @@ class LocalMusicService {
   }
 
   static Future<bool> requestPermission() async {
-    final granted = await _query.permissionsRequest();
-    if (granted) return true;
     final audio = await Permission.audio.request();
     if (audio.isGranted) return true;
     final storage = await Permission.storage.request();
@@ -22,47 +18,41 @@ class LocalMusicService {
 
   static Future<List<Song>> scanLibrary() async {
     try {
-      final songs = await _query.querySongs(
-        sortType: SongSortType.DATE_ADDED,
-        orderType: OrderType.DESC_OR_GREATER,
-        uriType: UriType.EXTERNAL,
-        ignoreCase: true,
-      );
-      return songs
-          .where((s) => s.duration != null && s.duration! > 30000)
-          .map(_toSong)
-          .toList();
+      final dirs = [
+        '/storage/emulated/0/Music',
+        '/storage/emulated/0/Download',
+        '/storage/emulated/0/Downloads',
+      ];
+      final songs = <Song>[];
+      for (final dirPath in dirs) {
+        final dir = Directory(dirPath);
+        if (!await dir.exists()) continue;
+        await for (final entity in dir.list(recursive: true)) {
+          if (entity is File) {
+            final path = entity.path;
+            if (path.endsWith('.mp3') || path.endsWith('.m4a') || path.endsWith('.flac') || path.endsWith('.wav')) {
+              final name = path.split('/').last.replaceAll(RegExp(r'\.(mp3|m4a|flac|wav)$'), '');
+              songs.add(Song(
+                id: 'local_${path.hashCode}',
+                title: name,
+                artist: 'Unknown',
+                album: dirPath.split('/').last,
+                artworkUrl: '',
+                localPath: path,
+              ));
+            }
+          }
+        }
+      }
+      return songs;
     } catch (_) {
       return [];
     }
   }
 
   static Future<List<SongSection>> scanLibrarySections() async {
-    try {
-      final songs = await scanLibrary();
-      if (songs.isEmpty) return [];
-      final sections = <String, List<Song>>{};
-      for (final s in songs) {
-        final album = s.album.isEmpty ? 'Unknown Album' : s.album;
-        sections.putIfAbsent(album, () => []).add(s);
-      }
-      return sections.entries
-          .map((e) => SongSection(title: e.key, songs: e.value))
-          .toList();
-    } catch (_) {
-      return [];
-    }
-  }
-
-  static Song _toSong(SongModel s) {
-    return Song(
-      id: 'local_${s.id}',
-      title: s.title,
-      artist: s.artist ?? 'Unknown',
-      album: s.album ?? '',
-      artworkUrl: '',
-      duration: s.duration != null ? (s.duration! / 1000).round() : null,
-      localPath: s.data,
-    );
+    final songs = await scanLibrary();
+    if (songs.isEmpty) return [];
+    return [SongSection(title: 'Device Songs', songs: songs)];
   }
 }
