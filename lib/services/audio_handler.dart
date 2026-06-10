@@ -30,7 +30,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     session.becomingNoisyEventStream.listen((_) => _player.pause());
 
-    // Broadcast state on every playback event
     _player.playbackEventStream.listen(_broadcastState, onError: (e) {});
 
     _player.durationStream.listen((d) {
@@ -52,17 +51,20 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       }
     });
 
-    // Also broadcast on playing state changes explicitly
     _player.playingStream.listen((_) => _broadcastState(null));
   }
 
   Future<AudioSource?> _sourceForSong(Song song) async {
-    if (song.isLocal) {
-      return AudioSource.uri(Uri.file(song.localPath!), tag: _songToMediaItem(song));
+    try {
+      if (song.isLocal) {
+        return AudioSource.uri(Uri.file(song.localPath!), tag: _songToMediaItem(song));
+      }
+      final url = await ApiService.resolveStreamUrl(song);
+      if (url == null) return null;
+      return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
+    } catch (_) {
+      return null;
     }
-    final url = await ApiService.resolveStreamUrl(song);
-    if (url == null) return null;
-    return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
   }
 
   Future<void> playQueue(List<Song> songs, int startIndex) async {
@@ -73,38 +75,38 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (startSource == null) return;
 
     await _playlist.clear();
-    final sources = <AudioSource>[];
-    for (int i = 0; i < songs.length; i++) {
-      if (i == startIndex) {
-        sources.add(startSource);
-      } else {
-        sources.add(AudioSource.uri(
-          Uri.parse('https://example.com/placeholder.mp3'),
-          tag: _songToMediaItem(songs[i]),
-        ));
-      }
-    }
-    await _playlist.addAll(sources);
+    await _playlist.add(startSource);
 
     try {
-      await _player.setAudioSource(_playlist, initialIndex: startIndex);
-    } catch (_) {
       await _player.setAudioSource(_playlist, initialIndex: 0);
+    } catch (_) {
+      return;
     }
 
     _updateMediaItem(songs[startIndex]);
     await _player.play();
+
+    // Resolve rest of queue in background
     _resolveQueueInBackground(songs, startIndex);
   }
 
   void _resolveQueueInBackground(List<Song> songs, int startIndex) async {
-    for (int i = 0; i < songs.length; i++) {
-      if (i == startIndex) continue;
+    // Add songs before startIndex
+    for (int i = startIndex - 1; i >= 0; i--) {
       try {
         final source = await _sourceForSong(songs[i]);
-        if (source != null && i < _playlist.length) {
-          await _playlist.removeAt(i);
-          await _playlist.insert(i, source);
+        if (source != null) {
+          await _playlist.insert(0, source);
+          _currentIndex = _player.currentIndex ?? 0;
+        }
+      } catch (_) {}
+    }
+    // Add songs after startIndex
+    for (int i = startIndex + 1; i < songs.length; i++) {
+      try {
+        final source = await _sourceForSong(songs[i]);
+        if (source != null) {
+          await _playlist.add(source);
         }
       } catch (_) {}
     }
