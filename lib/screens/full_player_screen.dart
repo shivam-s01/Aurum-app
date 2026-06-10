@@ -97,7 +97,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         }
 
         return SlideTransition(
-          position: _slideAnim,
+          position: _slideAnim!,
           child: GestureDetector(
             onVerticalDragStart: (_) => setState(() => _dragging = true),
             onVerticalDragUpdate: (d) {
@@ -259,9 +259,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: AnimatedBuilder(
-        animation: _artworkPulse,
+        animation: _artworkPulse!,
         builder: (_, child) => Transform.scale(
-          scale: isPlaying ? _artworkPulse.value : 0.93,
+          scale: isPlaying ? (_artworkPulse?.value ?? 0.93) : 0.93,
           child: child,
         ),
         child: Container(
