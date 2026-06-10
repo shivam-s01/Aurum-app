@@ -179,7 +179,7 @@ class _SearchScreenState extends State<SearchScreen> {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: _focused
-                ? AurumTheme.gold.withValues(alpha: 0.5)
+                ? AurumTheme.gold.withOpacity(0.5)
                 : AurumTheme.dividerOf(context),
             width: _focused ? 1 : 0.5,
           ),
@@ -187,7 +187,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ? [
                   BoxShadow(
                     color: AurumTheme.gold
-                        .withValues(alpha: 0.08),
+                        .withOpacity(0.08),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   )
@@ -323,7 +323,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       'Clear',
                       style: TextStyle(
                         color: AurumTheme.gold
-                            .withValues(alpha: 0.7),
+                            .withOpacity(0.7),
                         fontSize: 12,
                       ),
                     ),

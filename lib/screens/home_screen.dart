@@ -188,8 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text(
                   'See all',
                   style: TextStyle(
-                    color: AurumTheme.gold.withValues(
-                        alpha: 0.7),
+                    color: AurumTheme.gold.withOpacity(0.7),
                     fontSize: 12,
                   ),
                 ),
@@ -300,7 +299,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Icon(Icons.wifi_off_rounded,
               color:
-                  AurumTheme.gold.withValues(alpha: 0.3),
+                  AurumTheme.gold.withOpacity(0.3),
               size: 52),
           const SizedBox(height: 16),
           Text(
@@ -484,7 +483,7 @@ class _HorizontalCards extends StatelessWidget {
                 border: Border.all(
                   color: isPlaying
                       ? AurumTheme.gold
-                          .withValues(alpha: 0.5)
+                          .withOpacity(0.5)
                       : AurumTheme.dividerOf(context),
                   width: 0.5,
                 ),
@@ -492,7 +491,7 @@ class _HorizontalCards extends StatelessWidget {
                     ? [
                         BoxShadow(
                           color: AurumTheme.gold
-                              .withValues(alpha: 0.18),
+                              .withOpacity(0.18),
                           blurRadius: 16,
                           offset: const Offset(0, 4),
                         )
@@ -521,7 +520,7 @@ class _HorizontalCards extends StatelessWidget {
                           height: 140,
                           decoration: BoxDecoration(
                             color: Colors.black
-                                .withValues(alpha: 0.35),
+                                .withOpacity(0.35),
                             borderRadius:
                                 const BorderRadius
                                     .vertical(

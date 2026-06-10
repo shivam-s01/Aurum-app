@@ -50,19 +50,19 @@ class _MiniPlayerBody extends StatelessWidget {
             height: 72,
             decoration: BoxDecoration(
               color: isDark
-                  ? Colors.white.withValues(alpha: 0.07)
-                  : Colors.black.withValues(alpha: 0.04),
+                  ? Colors.white.withOpacity(0.07)
+                  : Colors.black.withOpacity(0.04),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: isDark
-                    ? AurumTheme.gold.withValues(alpha: 0.22)
-                    : AurumTheme.gold.withValues(alpha: 0.30),
+                    ? AurumTheme.gold.withOpacity(0.22)
+                    : AurumTheme.gold.withOpacity(0.30),
                 width: 0.8,
               ),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black
-                      .withValues(alpha: isDark ? 0.45 : 0.12),
+                      .withOpacity(isDark ? 0.45 : 0.12),
                   blurRadius: 24,
                   offset: const Offset(0, 6),
                 ),
@@ -182,7 +182,7 @@ class _ArtworkWithIndicator extends StatelessWidget {
         boxShadow: isPlaying
             ? [
                 BoxShadow(
-                  color: AurumTheme.gold.withValues(alpha: 0.3),
+                  color: AurumTheme.gold.withOpacity(0.3),
                   blurRadius: 10,
                   offset: const Offset(0, 3),
                 )
@@ -197,7 +197,7 @@ class _ArtworkWithIndicator extends StatelessWidget {
             AurumArtwork(url: url, size: 46, borderRadius: 12),
             if (isPlaying)
               Container(
-                color: Colors.black.withValues(alpha: 0.3),
+                color: Colors.black.withOpacity(0.3),
                 child: Center(
                   child: Icon(
                     Icons.graphic_eq_rounded,
@@ -237,7 +237,7 @@ class _MiniPlayButton extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: AurumTheme.gold.withValues(alpha: 0.35),
+              color: AurumTheme.gold.withOpacity(0.35),
               blurRadius: 10,
               offset: const Offset(0, 3),
             )

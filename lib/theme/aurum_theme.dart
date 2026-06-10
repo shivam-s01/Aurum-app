@@ -150,7 +150,7 @@ class AurumTheme {
         activeTrackColor: gold,
         inactiveTrackColor: bgSurface,
         thumbColor: gold,
-        overlayColor: gold.withValues(alpha: 0.2),
+        overlayColor: gold.withOpacity(0.2),
         trackHeight: 3,
         thumbShape:
             const RoundSliderThumbShape(enabledThumbRadius: 6),
@@ -237,10 +237,10 @@ class AurumTheme {
         color: bgCardOf(context),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-            color: gold.withValues(alpha: 0.3), width: 0.5),
+            color: gold.withOpacity(0.3), width: 0.5),
         boxShadow: [
           BoxShadow(
-            color: gold.withValues(alpha: 0.08),
+            color: gold.withOpacity(0.08),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -257,10 +257,10 @@ class AurumTheme {
   static BoxDecoration get goldCardDecoration => BoxDecoration(
         color: bgCard,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: gold.withValues(alpha: 0.3), width: 0.5),
+        border: Border.all(color: gold.withOpacity(0.3), width: 0.5),
         boxShadow: [
           BoxShadow(
-            color: gold.withValues(alpha: 0.08),
+            color: gold.withOpacity(0.08),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),

@@ -166,7 +166,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.25),
+              color: Colors.white.withOpacity(0.25),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -222,7 +222,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       child: Container(
         height: 34,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.08),
+          color: Colors.white.withOpacity(0.08),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
@@ -236,13 +236,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   duration: const Duration(milliseconds: 200),
                   decoration: BoxDecoration(
                     color: isActive
-                        ? AurumTheme.gold.withValues(alpha: 0.2)
+                        ? AurumTheme.gold.withOpacity(0.2)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(20),
                     border: isActive
                         ? Border.all(
                             color: AurumTheme.gold
-                                .withValues(alpha: 0.5),
+                                .withOpacity(0.5),
                             width: 0.8)
                         : null,
                   ),
@@ -343,13 +343,13 @@ class _RotatingDisc extends StatelessWidget {
                   color: const Color(0xFF1A1A1A),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.7),
+                      color: Colors.black.withOpacity(0.7),
                       blurRadius: 50,
                       offset: const Offset(0, 20),
                     ),
                     BoxShadow(
                       color:
-                          AurumTheme.gold.withValues(alpha: 0.15),
+                          AurumTheme.gold.withOpacity(0.15),
                       blurRadius: 40,
                       spreadRadius: -5,
                     ),
@@ -409,7 +409,7 @@ class _GroovesPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.04)
+      ..color = Colors.white.withOpacity(0.04)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.8;
 
@@ -457,7 +457,7 @@ class _SongInfoRow extends StatelessWidget {
                 Text(
                   song.artist,
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.5),
+                    color: Colors.white.withOpacity(0.5),
                     fontSize: 14,
                   ),
                   maxLines: 1,
@@ -475,12 +475,12 @@ class _SongInfoRow extends StatelessWidget {
               height: 44,
               decoration: BoxDecoration(
                 color: player.shuffle
-                    ? AurumTheme.gold.withValues(alpha: 0.2)
-                    : Colors.white.withValues(alpha: 0.07),
+                    ? AurumTheme.gold.withOpacity(0.2)
+                    : Colors.white.withOpacity(0.07),
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: player.shuffle
-                      ? AurumTheme.gold.withValues(alpha: 0.5)
+                      ? AurumTheme.gold.withOpacity(0.5)
                       : Colors.transparent,
                 ),
               ),
@@ -523,9 +523,9 @@ class _ProgressSection extends StatelessWidget {
                   overlayShape:
                       const RoundSliderOverlayShape(overlayRadius: 0),
                   activeTrackColor:
-                      Colors.white.withValues(alpha: 0.2),
+                      Colors.white.withOpacity(0.2),
                   inactiveTrackColor:
-                      Colors.white.withValues(alpha: 0.08),
+                      Colors.white.withOpacity(0.08),
                 ),
                 child: Slider(
                     value: player.bufferedProgress,
@@ -543,7 +543,7 @@ class _ProgressSection extends StatelessWidget {
                   inactiveTrackColor: Colors.transparent,
                   thumbColor: Colors.white,
                   overlayColor:
-                      Colors.white.withValues(alpha: 0.15),
+                      Colors.white.withOpacity(0.15),
                 ),
                 child: Slider(
                     value: player.progress,
@@ -559,13 +559,13 @@ class _ProgressSection extends StatelessWidget {
                 Text(
                   player.positionString,
                   style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.4),
+                      color: Colors.white.withOpacity(0.4),
                       fontSize: 11),
                 ),
                 Text(
                   player.durationString,
                   style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.4),
+                      color: Colors.white.withOpacity(0.4),
                       fontSize: 11),
                 ),
               ],
@@ -599,7 +599,7 @@ class _ControlsRow extends StatelessWidget {
               height: 44,
               decoration: BoxDecoration(
                 color: player.loopMode != LoopMode.off
-                    ? AurumTheme.gold.withValues(alpha: 0.15)
+                    ? AurumTheme.gold.withOpacity(0.15)
                     : Colors.transparent,
                 shape: BoxShape.circle,
               ),
@@ -622,7 +622,7 @@ class _ControlsRow extends StatelessWidget {
               height: 56,
               decoration: BoxDecoration(
                 color:
-                    Colors.white.withValues(alpha: 0.07),
+                    Colors.white.withOpacity(0.07),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.skip_previous_rounded,
@@ -642,7 +642,7 @@ class _ControlsRow extends StatelessWidget {
                 boxShadow: [
                   BoxShadow(
                     color:
-                        AurumTheme.gold.withValues(alpha: 0.5),
+                        AurumTheme.gold.withOpacity(0.5),
                     blurRadius: 28,
                     offset: const Offset(0, 10),
                   ),
@@ -668,7 +668,7 @@ class _ControlsRow extends StatelessWidget {
               height: 56,
               decoration: BoxDecoration(
                 color:
-                    Colors.white.withValues(alpha: 0.07),
+                    Colors.white.withOpacity(0.07),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.skip_next_rounded,
@@ -723,7 +723,7 @@ class _QueueView extends StatelessWidget {
               border: isCurrent
                   ? Border.all(
                       color:
-                          AurumTheme.gold.withValues(alpha: 0.6),
+                          AurumTheme.gold.withOpacity(0.6),
                       width: 1.5)
                   : null,
             ),
@@ -813,9 +813,9 @@ class _PlayerBackground extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withValues(alpha: 0.50),
-                  Colors.black.withValues(alpha: 0.72),
-                  Colors.black.withValues(alpha: 0.92),
+                  Colors.black.withOpacity(0.50),
+                  Colors.black.withOpacity(0.72),
+                  Colors.black.withOpacity(0.92),
                 ],
               ),
             ),
@@ -849,10 +849,10 @@ class _GlassButton extends StatelessWidget {
         width: 42,
         height: 42,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.09),
+          color: Colors.white.withOpacity(0.09),
           shape: BoxShape.circle,
           border: Border.all(
-            color: Colors.white.withValues(alpha: 0.1),
+            color: Colors.white.withOpacity(0.1),
           ),
         ),
         child: Icon(

@@ -121,10 +121,10 @@ class _LibraryViewState extends State<_LibraryView>
         labelPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
         indicator: BoxDecoration(
-          color: AurumTheme.gold.withValues(alpha: 0.15),
+          color: AurumTheme.gold.withOpacity(0.15),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-              color: AurumTheme.gold.withValues(alpha: 0.4), width: 0.8),
+              color: AurumTheme.gold.withOpacity(0.4), width: 0.8),
         ),
         indicatorSize: TabBarIndicatorSize.tab,
         dividerColor: Colors.transparent,
@@ -548,7 +548,7 @@ class _PlaylistTile extends StatelessWidget {
             value: 'delete',
             child: Row(children: [
               Icon(Icons.delete_outline_rounded,
-                  color: Colors.redAccent.withValues(alpha: 0.8),
+                  color: Colors.redAccent.withOpacity(0.8),
                   size: 18),
               const SizedBox(width: 10),
               const Text('Delete',
@@ -631,7 +631,7 @@ class _EmptyState extends StatelessWidget {
               ),
               child: Icon(icon,
                   color:
-                      AurumTheme.gold.withValues(alpha: 0.4),
+                      AurumTheme.gold.withOpacity(0.4),
                   size: 32),
             ),
             const SizedBox(height: 20),
@@ -685,7 +685,7 @@ class _PermissionPrompt extends StatelessWidget {
                 shape: BoxShape.circle,
                 border: Border.all(
                     color:
-                        AurumTheme.gold.withValues(alpha: 0.3)),
+                        AurumTheme.gold.withOpacity(0.3)),
               ),
               child: const Icon(Icons.folder_rounded,
                   color: AurumTheme.gold, size: 36),

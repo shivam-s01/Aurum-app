@@ -415,13 +415,13 @@ class _Section extends StatelessWidget {
           Row(
             children: [
               Icon(icon,
-                  color: AurumTheme.gold.withValues(alpha: 0.7),
+                  color: AurumTheme.gold.withOpacity(0.7),
                   size: 16),
               const SizedBox(width: 8),
               Text(
                 title.toUpperCase(),
                 style: TextStyle(
-                  color: AurumTheme.gold.withValues(alpha: 0.7),
+                  color: AurumTheme.gold.withOpacity(0.7),
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.2,
@@ -506,7 +506,7 @@ class _SettingsTile extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 color: (iconColor ?? AurumTheme.textMutedOf(context))
-                    .withValues(alpha: 0.12),
+                    .withOpacity(0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
@@ -576,12 +576,12 @@ class _ThemeOption extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: isSelected
-                ? AurumTheme.gold.withValues(alpha: 0.15)
+                ? AurumTheme.gold.withOpacity(0.15)
                 : AurumTheme.bgElevatedOf(context),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isSelected
-                  ? AurumTheme.gold.withValues(alpha: 0.5)
+                  ? AurumTheme.gold.withOpacity(0.5)
                   : AurumTheme.dividerOf(context),
               width: 1,
             ),
