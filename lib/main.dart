@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'services/audio_handler.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
@@ -19,6 +20,9 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+
+  // Request notification permission (Android 13+)
+  await Permission.notification.request();
 
   try {
     _audioHandler = await AudioService.init(
