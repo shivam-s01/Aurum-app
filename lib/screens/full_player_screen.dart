@@ -40,8 +40,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 1),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic));
-    _slideController.forward();
+    ).animate(CurvedAnimation(parent: _slideController!, curve: Curves.easeOutCubic));
+    _slideController?.forward();
 
     _artworkPulse = AnimationController(
       vsync: this,
@@ -79,7 +79,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   }
 
   void _close() {
-    _slideController.reverse().then((_) {
+    _slideController?.reverse().then((_) {
       if (mounted) context.read<PlayerProvider>().closeFullPlayer();
     });
   }
