@@ -63,8 +63,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<AudioSource?> _sourceForSong(Song song) async {
     if (song.isLocal) {
       // Local file — play from device storage
-      final file = File(song.localPath!);
-      if (!await file.exists()) return null;
       return AudioSource.uri(
         Uri.file(song.localPath!),
         tag: _songToMediaItem(song),
