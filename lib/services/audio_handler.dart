@@ -17,7 +17,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   Future<void> _init() async {
-    // Audio session (audio focus, call handling)
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
@@ -25,18 +24,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (event.begin) {
         _player.pause();
       } else {
-        if (event.type == AudioInterruptionType.pause) {
-          _player.play();
-        }
+        if (event.type == AudioInterruptionType.pause) _player.play();
       }
     });
 
-    session.becomingNoisyEventStream.listen((_) {
-      // Headphones unplugged — pause
-      _player.pause();
-    });
+    session.becomingNoisyEventStream.listen((_) => _player.pause());
 
-    _player.playbackEventStream.listen(_broadcastState);
+    // Broadcast state on every playback event
+    _player.playbackEventStream.listen(_broadcastState, onError: (e) {});
 
     _player.durationStream.listen((d) {
       if (d != null && mediaItem.value != null) {
@@ -45,7 +40,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
 
     _player.currentIndexStream.listen((index) {
-      if (index != null && index != _currentIndex && index < _queue.length) {
+      if (index != null && index < _queue.length && index != _currentIndex) {
         _currentIndex = index;
         _updateMediaItem(_queue[index]);
       }
@@ -56,29 +51,19 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         skipToNext();
       }
     });
-  }
 
-  // ── Resolve AudioSource for any song (online or local) ──────────────────
+    // Also broadcast on playing state changes explicitly
+    _player.playingStream.listen((_) => _broadcastState(null));
+  }
 
   Future<AudioSource?> _sourceForSong(Song song) async {
     if (song.isLocal) {
-      // Local file — play from device storage
-      return AudioSource.uri(
-        Uri.file(song.localPath!),
-        tag: _songToMediaItem(song),
-      );
-    } else {
-      // Online song — resolve stream URL from backend
-      final url = await ApiService.resolveStreamUrl(song);
-      if (url == null) return null;
-      return AudioSource.uri(
-        Uri.parse(url),
-        tag: _songToMediaItem(song),
-      );
+      return AudioSource.uri(Uri.file(song.localPath!), tag: _songToMediaItem(song));
     }
+    final url = await ApiService.resolveStreamUrl(song);
+    if (url == null) return null;
+    return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
   }
-
-  // ── Play queue ───────────────────────────────────────────────────────────
 
   Future<void> playQueue(List<Song> songs, int startIndex) async {
     _queue = songs;
@@ -88,20 +73,17 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (startSource == null) return;
 
     await _playlist.clear();
-
     final sources = <AudioSource>[];
     for (int i = 0; i < songs.length; i++) {
       if (i == startIndex) {
         sources.add(startSource);
       } else {
-        // Placeholder — replaced by background resolver
         sources.add(AudioSource.uri(
           Uri.parse('https://example.com/placeholder.mp3'),
           tag: _songToMediaItem(songs[i]),
         ));
       }
     }
-
     await _playlist.addAll(sources);
 
     try {
@@ -128,23 +110,17 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
   }
 
-  // ── Play single song ─────────────────────────────────────────────────────
-
   Future<void> playSong(Song song) async {
     _queue = [song];
     _currentIndex = 0;
-
     final source = await _sourceForSong(song);
     if (source == null) return;
-
     await _playlist.clear();
     await _playlist.add(source);
     await _player.setAudioSource(_playlist);
     _updateMediaItem(song);
     await _player.play();
   }
-
-  // ── Queue management ─────────────────────────────────────────────────────
 
   Future<void> addToQueue(Song song) async {
     _queue.add(song);
@@ -153,10 +129,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   Future<void> playNext(Song song) async {
-    final insertIdx = _currentIndex + 1;
-    _queue.insert(insertIdx, song);
+    final idx = _currentIndex + 1;
+    _queue.insert(idx, song);
     final source = await _sourceForSong(song);
-    if (source != null) await _playlist.insert(insertIdx, source);
+    if (source != null) await _playlist.insert(idx, source);
   }
 
   Future<void> removeFromQueue(int index) async {
@@ -172,14 +148,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     await _playlist.move(from, to);
   }
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
   List<Song> get currentQueue => List.unmodifiable(_queue);
   Song? get currentSong => _queue.isNotEmpty ? _queue[_currentIndex] : null;
   int get currentIndex => _currentIndex;
   AudioPlayer get player => _player;
-
-  // ── Media item ───────────────────────────────────────────────────────────
 
   void _updateMediaItem(Song song) => mediaItem.add(_songToMediaItem(song));
 
@@ -187,35 +159,42 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         id: song.id,
         title: song.title,
         artist: song.artist,
-        album: song.album,
+        album: song.album.isNotEmpty ? song.album : song.artist,
         artUri: song.artworkUrl.isNotEmpty ? Uri.parse(song.artworkUrl) : null,
-        duration:
-            song.duration != null ? Duration(seconds: song.duration!) : null,
+        duration: song.duration != null ? Duration(seconds: song.duration!) : null,
+        displayTitle: song.title,
+        displaySubtitle: song.artist,
       );
 
-  // ── Playback state ───────────────────────────────────────────────────────
-
-  void _broadcastState(PlaybackEvent event) {
+  void _broadcastState(PlaybackEvent? event) {
     final playing = _player.playing;
-    playbackState.add(playbackState.value.copyWith(
+    final processingState = {
+      ProcessingState.idle:      AudioProcessingState.idle,
+      ProcessingState.loading:   AudioProcessingState.loading,
+      ProcessingState.buffering: AudioProcessingState.buffering,
+      ProcessingState.ready:     AudioProcessingState.ready,
+      ProcessingState.completed: AudioProcessingState.completed,
+    }[_player.processingState] ?? AudioProcessingState.idle;
+
+    playbackState.add(PlaybackState(
       controls: [
         MediaControl.skipToPrevious,
         playing ? MediaControl.pause : MediaControl.play,
         MediaControl.skipToNext,
+        MediaControl.stop,
       ],
       systemActions: const {
         MediaAction.seek,
         MediaAction.seekForward,
         MediaAction.seekBackward,
+        MediaAction.skipToPrevious,
+        MediaAction.skipToNext,
+        MediaAction.play,
+        MediaAction.pause,
+        MediaAction.stop,
       },
       androidCompactActionIndices: const [0, 1, 2],
-      processingState: {
-        ProcessingState.idle:      AudioProcessingState.idle,
-        ProcessingState.loading:   AudioProcessingState.loading,
-        ProcessingState.buffering: AudioProcessingState.buffering,
-        ProcessingState.ready:     AudioProcessingState.ready,
-        ProcessingState.completed: AudioProcessingState.completed,
-      }[_player.processingState]!,
+      processingState: processingState,
       playing: playing,
       updatePosition: _player.position,
       bufferedPosition: _player.bufferedPosition,
@@ -224,11 +203,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     ));
   }
 
-  // ── BaseAudioHandler overrides ───────────────────────────────────────────
-
   @override Future<void> play()  => _player.play();
   @override Future<void> pause() => _player.pause();
-  @override Future<void> stop()  => _player.stop();
+  @override Future<void> stop()  async {
+    await _player.stop();
+    _broadcastState(null);
+  }
   @override Future<void> seek(Duration position) => _player.seek(position);
 
   @override
@@ -254,17 +234,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   @override
   Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
     switch (repeatMode) {
-      case AudioServiceRepeatMode.none:
-        await _player.setLoopMode(LoopMode.off);
-        break;
-      case AudioServiceRepeatMode.one:
-        await _player.setLoopMode(LoopMode.one);
-        break;
-      case AudioServiceRepeatMode.all:
-        await _player.setLoopMode(LoopMode.all);
-        break;
-      default:
-        break;
+      case AudioServiceRepeatMode.none: await _player.setLoopMode(LoopMode.off); break;
+      case AudioServiceRepeatMode.one:  await _player.setLoopMode(LoopMode.one); break;
+      case AudioServiceRepeatMode.all:  await _player.setLoopMode(LoopMode.all); break;
+      default: break;
     }
     playbackState.add(playbackState.value.copyWith(repeatMode: repeatMode));
   }
