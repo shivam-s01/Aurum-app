@@ -24,13 +24,15 @@ Future<void> main() async {
 
   await Permission.notification.request();
 
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.aurum.music.channel.audio',
-    androidNotificationChannelName: 'Aurum Music',
-    androidNotificationOngoing: true,
-    androidStopForegroundOnPause: false,
-    androidNotificationIcon: 'mipmap/ic_launcher',
-  );
+  try {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.aurum.music.channel.audio',
+      androidNotificationChannelName: 'Aurum Music',
+      androidNotificationOngoing: true,
+      androidStopForegroundOnPause: false,
+      androidNotificationIcon: 'mipmap/ic_launcher',
+    ).timeout(const Duration(seconds: 5));
+  } catch (_) {}
 
   try {
     _audioHandler = await AudioService.init(
