@@ -40,7 +40,7 @@ Future<void> main() async {
       androidNotificationChannelId: 'com.aurum.music.channel.audio',
       androidNotificationChannelName: 'Aurum Music',
       androidNotificationOngoing: true,
-      androidStopForegroundOnPause: false,
+      androidStopForegroundOnPause: true,
       notificationColor: Color(0xFFD4AF37),
       androidNotificationIcon: 'mipmap/ic_launcher',
       androidShowNotificationBadge: true,
