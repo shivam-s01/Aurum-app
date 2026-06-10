@@ -21,8 +21,19 @@ Future<void> main() async {
   await Hive.initFlutter();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
+  // Step 1: Notification
   await Permission.notification.request();
 
+  // Step 2: Storage (local music)
+  await Permission.audio.request();
+  await Permission.storage.request();
+
+  // Step 3: Battery optimization bypass — background kill band
+  if (!(await Permission.ignoreBatteryOptimizations.isGranted)) {
+    await Permission.ignoreBatteryOptimizations.request();
+  }
+
+  // Step 4: AudioService init
   _audioHandler = await AudioService.init(
     builder: () => AurumAudioHandler(),
     config: const AudioServiceConfig(
