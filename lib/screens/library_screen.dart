@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
+import '../providers/favorites_provider.dart';
 import '../widgets/aurum_artwork.dart';
 import 'settings_screen.dart';
+import 'liked_screen.dart';
 
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key});
@@ -66,7 +68,12 @@ class LibraryScreen extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          _QuickChip(icon: Icons.favorite_rounded, label: 'Liked', color: const Color(0xFFE1306C), onTap: () {}),
+          _QuickChip(
+            icon: Icons.favorite_rounded,
+            label: 'Liked',
+            color: const Color(0xFFE1306C),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LikedScreen())),
+          ),
           const SizedBox(width: 10),
           _QuickChip(icon: Icons.download_rounded, label: 'Downloads', color: AurumTheme.gold, onTap: () {}),
           const SizedBox(width: 10),
@@ -84,29 +91,39 @@ class LibraryScreen extends StatelessWidget {
   }
 
   Widget _buildCollectionGrid(BuildContext context) {
-    final items = [
-      _CollectionItem(icon: Icons.favorite_rounded, title: 'Liked Songs', subtitle: 'Your favorites', color: const Color(0xFFE1306C)),
-      _CollectionItem(icon: Icons.queue_music_rounded, title: 'Playlists', subtitle: 'Your playlists', color: AurumTheme.gold),
-      _CollectionItem(icon: Icons.album_rounded, title: 'Albums', subtitle: 'Saved albums', color: const Color(0xFF9C27B0)),
-      _CollectionItem(icon: Icons.person_rounded, title: 'Artists', subtitle: 'Following', color: const Color(0xFF2196F3)),
-      _CollectionItem(icon: Icons.folder_rounded, title: 'Local Files', subtitle: 'On this device', color: const Color(0xFF4CAF50)),
-      _CollectionItem(icon: Icons.history_rounded, title: 'Recently Played', subtitle: 'Listen history', color: const Color(0xFFFF9800)),
-    ];
+    return Consumer<FavoritesProvider>(
+      builder: (context, fav, _) {
+        final items = [
+          _CollectionItem(
+            icon: Icons.favorite_rounded,
+            title: 'Liked Songs',
+            subtitle: fav.favorites.isEmpty ? 'No liked songs' : '${fav.favorites.length} songs',
+            color: const Color(0xFFE1306C),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LikedScreen())),
+          ),
+          _CollectionItem(icon: Icons.queue_music_rounded, title: 'Playlists', subtitle: 'Your playlists', color: AurumTheme.gold, onTap: () {}),
+          _CollectionItem(icon: Icons.album_rounded, title: 'Albums', subtitle: 'Saved albums', color: const Color(0xFF9C27B0), onTap: () {}),
+          _CollectionItem(icon: Icons.person_rounded, title: 'Artists', subtitle: 'Following', color: const Color(0xFF2196F3), onTap: () {}),
+          _CollectionItem(icon: Icons.folder_rounded, title: 'Local Files', subtitle: 'On this device', color: const Color(0xFF4CAF50), onTap: () {}),
+          _CollectionItem(icon: Icons.history_rounded, title: 'Recently Played', subtitle: 'Listen history', color: const Color(0xFFFF9800), onTap: () {}),
+        ];
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 1.6,
-        ),
-        itemCount: items.length,
-        itemBuilder: (context, i) => _CollectionCard(item: items[i]),
-      ),
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 1.6,
+            ),
+            itemCount: items.length,
+            itemBuilder: (context, i) => _CollectionCard(item: items[i]),
+          ),
+        );
+      },
     );
   }
 
@@ -203,7 +220,8 @@ class _CollectionItem {
   final String title;
   final String subtitle;
   final Color color;
-  const _CollectionItem({required this.icon, required this.title, required this.subtitle, required this.color});
+  final VoidCallback onTap;
+  const _CollectionItem({required this.icon, required this.title, required this.subtitle, required this.color, required this.onTap});
 }
 
 class _CollectionCard extends StatelessWidget {
@@ -213,7 +231,7 @@ class _CollectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {},
+      onTap: item.onTap,
       child: Container(
         decoration: BoxDecoration(
           color: AurumTheme.bgCardOf(context),

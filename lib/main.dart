@@ -7,6 +7,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'services/audio_handler.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
+import 'providers/favorites_provider.dart';
 import 'providers/theme_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
@@ -60,6 +61,7 @@ class AurumApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => PlayerProvider(handler)),
         ChangeNotifierProvider(create: (_) => LibraryProvider()), // ← offline
+        ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
