@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'services/audio_handler.dart';
@@ -21,8 +22,15 @@ Future<void> main() async {
   await Hive.initFlutter();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
-  // Request notification permission (Android 13+)
   await Permission.notification.request();
+
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.aurum.music.channel.audio',
+    androidNotificationChannelName: 'Aurum Music',
+    androidNotificationOngoing: true,
+    androidStopForegroundOnPause: false,
+    androidNotificationIcon: 'mipmap/ic_launcher',
+  );
 
   try {
     _audioHandler = await AudioService.init(
