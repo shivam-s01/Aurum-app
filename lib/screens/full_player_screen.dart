@@ -18,9 +18,9 @@ class FullPlayerScreen extends StatefulWidget {
 
 class _FullPlayerScreenState extends State<FullPlayerScreen>
     with TickerProviderStateMixin {
-  AnimationController? _slideController;
-  Animation<Offset>? _slideAnim;
-  AnimationController? _artworkPulse;
+  late AnimationController _slideController;
+  late Animation<Offset> _slideAnim;
+  late AnimationController _artworkPulse;
 
   Color _bgColor1 = const Color(0xFF1A0A00);
   Color _bgColor2 = const Color(0xFF0A0500);
@@ -40,8 +40,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 1),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _slideController!, curve: Curves.easeOutCubic));
-    _slideController?.forward();
+    ).animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic));
+    _slideController.forward();
 
     _artworkPulse = AnimationController(
       vsync: this,
@@ -53,8 +53,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   @override
   void dispose() {
-    _slideController?.dispose();
-    _artworkPulse?.dispose();
+    _slideController.dispose();
+    _artworkPulse.dispose();
     super.dispose();
   }
 
@@ -79,7 +79,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   }
 
   void _close() {
-    _slideController?.reverse().then((_) {
+    _slideController.reverse().then((_) {
       if (mounted) context.read<PlayerProvider>().closeFullPlayer();
     });
   }
@@ -97,7 +97,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         }
 
         return SlideTransition(
-          position: _slideAnim!,
+          position: _slideAnim,
           child: GestureDetector(
             onVerticalDragStart: (_) => setState(() => _dragging = true),
             onVerticalDragUpdate: (d) {
@@ -259,9 +259,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: AnimatedBuilder(
-        animation: _artworkPulse!,
+        animation: _artworkPulse,
         builder: (_, child) => Transform.scale(
-          scale: isPlaying ? (_artworkPulse?.value ?? 0.93) : 0.93,
+          scale: isPlaying ? (_artworkPulse.value) : 0.93,
           child: child,
         ),
         child: Container(
