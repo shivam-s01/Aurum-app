@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:audio_service/audio_service.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -34,19 +33,7 @@ Future<void> main() async {
     ).timeout(const Duration(seconds: 5));
   } catch (_) {}
 
-  try {
-    _audioHandler = await AudioService.init(
-      builder: () => AurumAudioHandler(),
-      config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.aurum.music.channel.audio',
-        androidNotificationChannelName: 'Aurum Music',
-        androidNotificationOngoing: true,
-        notificationColor: AurumTheme.gold,
-      ),
-    ).timeout(const Duration(seconds: 6));
-  } catch (_) {
-    _audioHandler = AurumAudioHandler();
-  }
+  _audioHandler = AurumAudioHandler();
 
   runApp(AurumApp(handler: _audioHandler));
 }
