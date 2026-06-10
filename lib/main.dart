@@ -21,18 +21,21 @@ Future<void> main() async {
   await Hive.initFlutter();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
-  // AudioService pehle init karo
-  _audioHandler = await AudioService.init(
-    builder: () => AurumAudioHandler(),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.aurum.music.channel.audio',
-      androidNotificationChannelName: 'Aurum Music',
-      androidNotificationOngoing: true,
-      notificationColor: Color(0xFFD4AF37),
-      androidNotificationIcon: 'mipmap/ic_launcher',
-      androidShowNotificationBadge: true,
-    ),
-  );
+  try {
+    _audioHandler = await AudioService.init(
+      builder: () => AurumAudioHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.aurum.music.channel.audio',
+        androidNotificationChannelName: 'Aurum Music',
+        androidNotificationOngoing: true,
+        notificationColor: Color(0xFFD4AF37),
+        androidNotificationIcon: 'mipmap/ic_launcher',
+        androidShowNotificationBadge: true,
+      ),
+    ).timeout(const Duration(seconds: 6));
+  } catch (_) {
+    _audioHandler = AurumAudioHandler();
+  }
 
   runApp(AurumApp(handler: _audioHandler));
 }
@@ -84,7 +87,6 @@ class AurumApp extends StatelessWidget {
   }
 }
 
-// Permissions app open hone ke baad maango
 class PermissionWrapper extends StatefulWidget {
   final Widget child;
   const PermissionWrapper({super.key, required this.child});
