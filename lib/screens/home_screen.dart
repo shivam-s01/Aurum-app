@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/song.dart';
 import '../providers/player_provider.dart';
 import '../providers/source_provider.dart';
+import '../providers/library_provider.dart';
 import '../services/api_service.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
@@ -35,7 +36,22 @@ class _HomeScreenState extends State<HomeScreen> {
       final sections = await ApiService.fetchHome();
       if (mounted) setState(() { _sections = sections; _loading = false; });
     } catch (e) {
-      if (mounted) setState(() { _error = 'Failed to load. Check your connection.'; _loading = false; });
+      // Backend down — fallback to local songs
+      try {
+        final lib = context.read<LibraryProvider>();
+        if (!lib.hasLoaded) await lib.load();
+        if (mounted) {
+          setState(() {
+            _sections = lib.allSongs.isNotEmpty
+                ? [SongSection(title: 'Local Songs', songs: lib.allSongs)]
+                : [];
+            _loading = false;
+            _error = lib.allSongs.isEmpty ? 'No songs found. Check connection or add local music.' : null;
+          });
+        }
+      } catch (_) {
+        if (mounted) setState(() { _error = 'Failed to load. Check your connection.'; _loading = false; });
+      }
     }
   }
 
@@ -49,7 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildAppBar(context),
           if (_loading)
             SliverToBoxAdapter(child: _buildShimmer())
-          else if (_error != null)
+          else if (_error != null && _sections.isEmpty)
             SliverFillRemaining(child: _buildError())
           else
             ..._sections.map(_buildSection),
@@ -177,7 +193,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ── Premium Online/Offline Toggle ──────────────────────────────────────────
 class _SourceToggle extends StatelessWidget {
   const _SourceToggle();
 
@@ -236,7 +251,6 @@ class _SourceToggle extends StatelessWidget {
   }
 }
 
-// ── Song Card ──────────────────────────────────────────────────────────────
 class _SongCard extends StatelessWidget {
   final Song song;
   final List<Song> queue;
