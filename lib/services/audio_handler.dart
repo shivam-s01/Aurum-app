@@ -29,7 +29,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
 
     session.becomingNoisyEventStream.listen((_) => _player.pause());
-
     _player.playbackEventStream.listen(_broadcastState, onError: (e) {});
 
     _player.durationStream.listen((d) {
@@ -57,7 +56,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<AudioSource?> _sourceForSong(Song song) async {
     try {
       if (song.isLocal) {
-        return AudioSource.uri(Uri.file(song.localPath!), tag: _songToMediaItem(song));
+        final file = File(song.localPath!);
+        if (!await file.exists()) return null;
+        return ProgressiveAudioSource(
+          Uri.file(song.localPath!),
+          tag: _songToMediaItem(song),
+        );
       }
       final url = await ApiService.resolveStreamUrl(song);
       if (url == null) return null;
@@ -85,13 +89,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     _updateMediaItem(songs[startIndex]);
     await _player.play();
-
-    // Resolve rest of queue in background
     _resolveQueueInBackground(songs, startIndex);
   }
 
   void _resolveQueueInBackground(List<Song> songs, int startIndex) async {
-    // Add songs before startIndex
     for (int i = startIndex - 1; i >= 0; i--) {
       try {
         final source = await _sourceForSong(songs[i]);
@@ -101,13 +102,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         }
       } catch (_) {}
     }
-    // Add songs after startIndex
     for (int i = startIndex + 1; i < songs.length; i++) {
       try {
         final source = await _sourceForSong(songs[i]);
-        if (source != null) {
-          await _playlist.add(source);
-        }
+        if (source != null) await _playlist.add(source);
       } catch (_) {}
     }
   }
@@ -119,7 +117,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (source == null) return;
     await _playlist.clear();
     await _playlist.add(source);
-    await _player.setAudioSource(_playlist);
+    try {
+      await _player.setAudioSource(_playlist);
+    } catch (_) {
+      return;
+    }
     _updateMediaItem(song);
     await _player.play();
   }
