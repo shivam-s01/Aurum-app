@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'services/audio_handler.dart';
 import 'providers/player_provider.dart';
@@ -19,34 +18,19 @@ late AurumAudioHandler _audioHandler;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Hive init for local DB (favorites, playlists, recently played)
   await Hive.initFlutter();
-
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
-  try {
-    await JustAudioBackground.init(
+  // Use ONLY AudioService.init — do NOT use just_audio_background alongside it
+  _audioHandler = await AudioService.init(
+    builder: () => AurumAudioHandler(),
+    config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.aurum.music.channel.audio',
       androidNotificationChannelName: 'Aurum Music',
       androidNotificationOngoing: true,
-      androidStopForegroundOnPause: true,
-      androidNotificationIcon: 'mipmap/ic_launcher',
-    ).timeout(const Duration(seconds: 5));
-  } catch (_) {}
-
-  try {
-    _audioHandler = await AudioService.init(
-      builder: () => AurumAudioHandler(),
-      config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.aurum.music.channel.audio',
-        androidNotificationChannelName: 'Aurum Music',
-        androidNotificationOngoing: true,
-        notificationColor: AurumTheme.gold,
-      ),
-    ).timeout(const Duration(seconds: 5));
-  } catch (_) {
-    _audioHandler = AurumAudioHandler();
-  }
+      notificationColor: AurumTheme.gold,
+    ),
+  );
 
   runApp(AurumApp(handler: _audioHandler));
 }
@@ -61,7 +45,7 @@ class AurumApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => PlayerProvider(handler)),
-        ChangeNotifierProvider(create: (_) => LibraryProvider()), // ← offline
+        ChangeNotifierProvider(create: (_) => LibraryProvider()),
         ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()),
         ChangeNotifierProvider(create: (_) => SourceProvider()..init()),
       ],

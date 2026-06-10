@@ -99,10 +99,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         return SlideTransition(
           position: _slideAnim,
           child: GestureDetector(
-            onVerticalDragStart: (_) => setState(() => _dragging = true),
+            onVerticalDragStart: (_) => setState(() {
+              _dragging = true;
+              _dragOffset = 0;
+            }),
             onVerticalDragUpdate: (d) {
-              if (d.delta.dy > 0) {
-                setState(() => _dragOffset = d.localPosition.dy);
+              if (d.delta.dy > 0 || _dragOffset > 0) {
+                setState(() {
+                  _dragOffset = (_dragOffset + d.delta.dy).clamp(0.0, 300.0);
+                });
               }
             },
             onVerticalDragEnd: (d) {

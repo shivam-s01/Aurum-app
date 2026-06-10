@@ -5,22 +5,21 @@
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
-    <!-- Audio playback -->
+    <!-- Foreground service + wake lock for background audio -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+
+    <!-- Notification permission (Android 13+ requires explicit request) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
-    <!-- Offline: read local music — Android 13+ -->
+    <!-- Local music: Android 13+ -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
-    <!-- Offline: read local music — Android 12 and below -->
+    <!-- Local music: Android 12 and below -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"/>
 
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <application
         android:label="Aurum Music"
         android:name="${applicationName}"
@@ -47,6 +46,7 @@
             </intent-filter>
         </activity>
 
+        <!-- audio_service background service -->
         <service
             android:name="com.ryanheise.audioservice.AudioService"
             android:foregroundServiceType="mediaPlayback"
