@@ -21,26 +21,13 @@ Future<void> main() async {
   await Hive.initFlutter();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
-  // Step 1: Notification
-  await Permission.notification.request();
-
-  // Step 2: Storage (local music)
-  await Permission.audio.request();
-  await Permission.storage.request();
-
-  // Step 3: Battery optimization bypass — background kill band
-  if (!(await Permission.ignoreBatteryOptimizations.isGranted)) {
-    await Permission.ignoreBatteryOptimizations.request();
-  }
-
-  // Step 4: AudioService init
+  // AudioService pehle init karo
   _audioHandler = await AudioService.init(
     builder: () => AurumAudioHandler(),
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.aurum.music.channel.audio',
       androidNotificationChannelName: 'Aurum Music',
       androidNotificationOngoing: true,
-      androidStopForegroundOnPause: true,
       notificationColor: Color(0xFFD4AF37),
       androidNotificationIcon: 'mipmap/ic_launcher',
       androidShowNotificationBadge: true,
@@ -89,10 +76,39 @@ class AurumApp extends StatelessWidget {
             darkTheme: themeProvider.isAmoled
                 ? AurumTheme.amoledTheme
                 : AurumTheme.darkTheme,
-            home: SplashScreen(child: const MainShell()),
+            home: SplashScreen(child: PermissionWrapper(child: const MainShell())),
           );
         },
       ),
     );
   }
+}
+
+// Permissions app open hone ke baad maango
+class PermissionWrapper extends StatefulWidget {
+  final Widget child;
+  const PermissionWrapper({super.key, required this.child});
+
+  @override
+  State<PermissionWrapper> createState() => _PermissionWrapperState();
+}
+
+class _PermissionWrapperState extends State<PermissionWrapper> {
+  @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+  }
+
+  Future<void> _requestPermissions() async {
+    await Permission.notification.request();
+    await Permission.audio.request();
+    await Permission.storage.request();
+    if (!(await Permission.ignoreBatteryOptimizations.isGranted)) {
+      await Permission.ignoreBatteryOptimizations.request();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
