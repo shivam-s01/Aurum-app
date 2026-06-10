@@ -17,20 +17,22 @@ late AurumAudioHandler _audioHandler;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await Hive.initFlutter();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
-  // Use ONLY AudioService.init — do NOT use just_audio_background alongside it
-  _audioHandler = await AudioService.init(
-    builder: () => AurumAudioHandler(),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.aurum.music.channel.audio',
-      androidNotificationChannelName: 'Aurum Music',
-      androidNotificationOngoing: true,
-      notificationColor: AurumTheme.gold,
-    ),
-  );
+  try {
+    _audioHandler = await AudioService.init(
+      builder: () => AurumAudioHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.aurum.music.channel.audio',
+        androidNotificationChannelName: 'Aurum Music',
+        androidNotificationOngoing: true,
+        notificationColor: AurumTheme.gold,
+      ),
+    ).timeout(const Duration(seconds: 6));
+  } catch (_) {
+    _audioHandler = AurumAudioHandler();
+  }
 
   runApp(AurumApp(handler: _audioHandler));
 }
@@ -59,15 +61,11 @@ class AurumApp extends StatelessWidget {
 
           SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
-            statusBarIconBrightness:
-                isDark ? Brightness.light : Brightness.dark,
+            statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
             systemNavigationBarColor: isDark
-                ? (themeProvider.isAmoled
-                    ? AurumTheme.amoledBgCard
-                    : AurumTheme.darkBgCard)
+                ? (themeProvider.isAmoled ? AurumTheme.amoledBgCard : AurumTheme.darkBgCard)
                 : AurumTheme.lightBgCard,
-            systemNavigationBarIconBrightness:
-                isDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
           ));
 
           return MaterialApp(
