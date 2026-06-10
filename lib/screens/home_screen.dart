@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
 import '../providers/player_provider.dart';
+import '../providers/source_provider.dart';
 import '../services/api_service.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
@@ -59,97 +61,78 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildAppBar(BuildContext context) {
     return SliverAppBar(
-      expandedHeight: 100,
+      backgroundColor: AurumTheme.bgOf(context),
       floating: true,
       snap: true,
-      pinned: false,
-      backgroundColor: AurumTheme.bgOf(context),
-      automaticallyImplyLeading: false,
+      elevation: 0,
+      titleSpacing: 20,
+      title: RichText(
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: 'Aurum ',
+              style: TextStyle(
+                color: AurumTheme.gold,
+                fontSize: 26,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
+            ),
+            TextSpan(
+              text: 'Music',
+              style: TextStyle(
+                color: AurumTheme.textSecondaryOf(context),
+                fontSize: 26,
+                fontWeight: FontWeight.w300,
+              ),
+            ),
+          ],
+        ),
+      ),
       actions: [
+        const _SourceToggle(),
         IconButton(
           icon: Icon(Icons.settings_outlined, color: AurumTheme.textSecondaryOf(context)),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const SettingsScreen()),
-          ),
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
         ),
         IconButton(
           icon: Icon(Icons.refresh_rounded, color: AurumTheme.textSecondaryOf(context)),
           onPressed: _load,
         ),
       ],
-      flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        title: Row(
-          children: [
-            ShaderMask(
-              shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
-              child: const Text('Aurum', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.5)),
-            ),
-            const Text(' Music', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w300, color: AurumTheme.textSecondary, letterSpacing: -0.5)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  SliverToBoxAdapter _buildSection(SongSection section) {
-    return SliverToBoxAdapter(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
-            child: Text(section.title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 17, fontWeight: FontWeight.w600)),
-          ),
-          if (_sections.indexOf(section) == 0)
-            _HorizontalCards(songs: section.songs)
-          else
-            _SongList(songs: section.songs),
-        ],
-      ),
     );
   }
 
   Widget _buildShimmer() {
     return Shimmer.fromColors(
       baseColor: AurumTheme.bgCardOf(context),
-      highlightColor: AurumTheme.bgSurfaceOf(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 20),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: Container(height: 20, width: 160, color: AurumTheme.darkBgCard),
-          ),
-          SizedBox(
-            height: 180,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: 5,
-              itemBuilder: (_, __) => Container(
-                width: 140,
-                margin: const EdgeInsets.only(right: 12),
-                decoration: BoxDecoration(color: AurumTheme.darkBgCard, borderRadius: BorderRadius.circular(12)),
-              ),
+      highlightColor: AurumTheme.bgElevatedOf(context),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: List.generate(3, (_) => Padding(
+            padding: const EdgeInsets.only(bottom: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(width: 140, height: 18, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6))),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 160,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: 4,
+                    itemBuilder: (_, __) => Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: Container(width: 120, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12))),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 20),
-          ...List.generate(6, (_) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(children: [
-              Container(width: 50, height: 50, color: AurumTheme.darkBgCard),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Container(height: 14, color: AurumTheme.darkBgCard),
-                const SizedBox(height: 6),
-                Container(height: 12, width: 100, color: AurumTheme.darkBgCard),
-              ])),
-            ]),
           )),
-        ],
+        ),
       ),
     );
   }
@@ -159,71 +142,140 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.wifi_off_rounded, color: AurumTheme.gold.withOpacity(0.4), size: 48),
+          Icon(Icons.wifi_off_rounded, size: 48, color: AurumTheme.textMutedOf(context)),
+          const SizedBox(height: 12),
+          Text(_error!, style: TextStyle(color: AurumTheme.textMutedOf(context))),
           const SizedBox(height: 16),
-          Text(_error!, style: TextStyle(color: AurumTheme.textSecondaryOf(context))),
-          const SizedBox(height: 16),
-          TextButton(onPressed: _load, child: const Text('Retry', style: TextStyle(color: AurumTheme.gold))),
+          TextButton(onPressed: _load, child: Text('Retry', style: TextStyle(color: AurumTheme.gold))),
         ],
+      ),
+    );
+  }
+
+  SliverToBoxAdapter _buildSection(SongSection section) {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.only(top: 24, left: 16, right: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(section.title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 190,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                itemCount: section.songs.length,
+                itemBuilder: (_, i) => _SongCard(song: section.songs[i], queue: section.songs, index: i),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _HorizontalCards extends StatelessWidget {
-  final List<Song> songs;
-  const _HorizontalCards({required this.songs});
+// ── Premium Online/Offline Toggle ──────────────────────────────────────────
+class _SourceToggle extends StatelessWidget {
+  const _SourceToggle();
+
+  @override
+  Widget build(BuildContext context) {
+    final src = context.watch<SourceProvider>();
+    final isOnline = src.isOnline;
+
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        src.toggle();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+        width: 72,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: isOnline
+              ? AurumTheme.gold.withOpacity(0.15)
+              : AurumTheme.bgCardOf(context),
+          border: Border.all(
+            color: isOnline ? AurumTheme.gold : AurumTheme.dividerOf(context),
+            width: 1.2,
+          ),
+        ),
+        child: Stack(
+          children: [
+            AnimatedAlign(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              alignment: isOnline ? Alignment.centerLeft : Alignment.centerRight,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isOnline ? AurumTheme.gold : AurumTheme.bgElevatedOf(context),
+                  boxShadow: isOnline ? [BoxShadow(color: AurumTheme.gold.withOpacity(0.4), blurRadius: 8)] : [],
+                ),
+                child: Icon(
+                  isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                  size: 14,
+                  color: isOnline ? Colors.black : AurumTheme.textMutedOf(context),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Song Card ──────────────────────────────────────────────────────────────
+class _SongCard extends StatelessWidget {
+  final Song song;
+  final List<Song> queue;
+  final int index;
+  const _SongCard({required this.song, required this.queue, required this.index});
 
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerProvider>();
-    return SizedBox(
-      height: 185,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: songs.length,
-        itemBuilder: (context, i) {
-          final song = songs[i];
-          final isPlaying = player.currentSong?.id == song.id && player.isPlaying;
-          return GestureDetector(
-            onTap: () => player.playSong(song, queue: songs, index: i),
-            child: Container(
-              width: 140,
-              margin: const EdgeInsets.only(right: 12),
-              decoration: BoxDecoration(
-                color: AurumTheme.bgCardOf(context),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: isPlaying ? AurumTheme.gold.withOpacity(0.5) : AurumTheme.dividerOf(context), width: 0.5),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Stack(
-                    children: [
-                      AurumArtwork(url: song.artworkUrl, size: 140, borderRadius: 0),
-                      if (isPlaying)
-                        Container(
-                          width: 140, height: 140,
-                          decoration: BoxDecoration(color: Colors.black.withOpacity(0.4), borderRadius: const BorderRadius.vertical(top: Radius.circular(12))),
-                          child: const Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 32),
-                        ),
-                    ],
+    final isPlaying = player.currentSong?.id == song.id;
+    return GestureDetector(
+      onTap: () => player.playSong(song, queue: queue, index: index),
+      child: Container(
+        width: 140,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                AurumArtwork(url: song.artworkUrl, size: 140, borderRadius: 0),
+                if (isPlaying)
+                  Container(
+                    width: 140, height: 140,
+                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.4), borderRadius: const BorderRadius.vertical(top: Radius.circular(12))),
+                    child: const Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 32),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-                    child: Text(song.title, style: TextStyle(color: isPlaying ? AurumTheme.gold : AurumTheme.textPrimaryOf(context), fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text(song.artist, style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ),
-                ],
-              ),
+              ],
             ),
-          );
-        },
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+              child: Text(song.title, style: TextStyle(color: isPlaying ? AurumTheme.gold : AurumTheme.textPrimaryOf(context), fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(song.artist, style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -236,8 +288,8 @@ class _SongList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      children: songs.take(8).toList().asMap().entries
-          .map((e) => SongTile(song: e.value, queue: songs, index: e.key, showIndex: true, displayIndex: e.key + 1))
+      children: songs.asMap().entries
+          .map((e) => SongTile(song: e.value, queue: songs, index: e.key, displayIndex: e.key + 1))
           .toList(),
     );
   }
