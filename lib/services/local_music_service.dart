@@ -1,67 +1,82 @@
-import 'package:flutter/services.dart';
+import 'package:on_audio_query/on_audio_query.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/song.dart';
 
-/// Fetches local songs from Android MediaStore via MethodChannel.
-/// Returns a list of [Song] with title, artist, album, duration & artwork URI.
 class LocalMusicService {
-  static const _channel = MethodChannel('com.aurum.music/media_store');
+  static final OnAudioQuery _query = OnAudioQuery();
 
-  /// Scan device for music files.
-  /// Returns an empty list on error (permission denied, etc.).
-  static Future<List<Song>> getSongs() async {
-    try {
-      final raw = await _channel.invokeMethod<List<dynamic>>('getSongs');
-      if (raw == null) return [];
-
-      return raw
-          .cast<Map<dynamic, dynamic>>()
-          .map((m) => _songFromMap(Map<String, dynamic>.from(m)))
-          .toList();
-    } on PlatformException catch (e) {
-      // Permission denied or MediaStore unavailable
-      debugPrint('[LocalMusicService] getSongs error: ${e.message}');
-      return [];
-    } catch (e) {
-      debugPrint('[LocalMusicService] unexpected error: $e');
-      return [];
-    }
+  /// Request storage/audio permission.
+  static Future<bool> requestPermission() async {
+    final audio = await Permission.audio.request();
+    if (audio.isGranted) return true;
+    final storage = await Permission.storage.request();
+    return storage.isGranted;
   }
 
-  static Song _songFromMap(Map<String, dynamic> m) {
-    // Duration comes from MediaStore as milliseconds (String)
-    final durMs = int.tryParse(m['duration']?.toString() ?? '0') ?? 0;
+  /// Check without prompting.
+  static Future<bool> hasPermission() async {
+    if (await Permission.audio.isGranted) return true;
+    return Permission.storage.isGranted;
+  }
 
-    // Artwork: content URI supplied by MainActivity
-    final artwork = (m['artwork'] as String?) ?? '';
+  /// Scan device and return all songs.
+  static Future<List<Song>> scanLibrary() async {
+    final granted = await requestPermission();
+    if (!granted) return [];
 
-    // Clean up "unknown" placeholders that MediaStore sometimes emits
-    String artist = (m['artist'] as String?) ?? '';
-    if (artist.isEmpty || artist == '<unknown>') artist = 'Unknown Artist';
-
-    String title = (m['title'] as String?) ?? '';
-    if (title.isEmpty) title = 'Unknown Title';
-
-    return Song(
-      id: m['id']?.toString() ?? '',
-      title: title,
-      artist: artist,
-      album: (m['album'] as String?) ?? '',
-      artworkUrl: artwork,
-      // Local songs have no stream URL — audio_handler uses localPath instead
-      streamUrl: '',
-      localPath: (m['path'] as String?) ?? '',
-      duration: Duration(milliseconds: durMs),
-      isLocal: true,
+    final audioFiles = await _query.querySongs(
+      sortType: SongSortType.TITLE,
+      orderType: OrderType.ASC_OR_SMALLER,
+      uriType: UriType.EXTERNAL,
+      ignoreCase: true,
     );
-  }
-}
 
-// Tiny debug helper — import 'package:flutter/foundation.dart' not needed
-// when the file already imports services.dart (which re-exports foundation).
-void debugPrint(String msg) {
-  assert(() {
-    // ignore: avoid_print
-    print(msg);
-    return true;
-  }());
+    return audioFiles
+        .where((s) =>
+            s.isMusic == true &&
+            s.duration != null &&
+            s.duration! > 30000 && // skip clips under 30s
+            s.data.isNotEmpty)
+        .map(_toSong)
+        .toList();
+  }
+
+  /// Scan and return grouped sections for LibraryScreen.
+  static Future<List<SongSection>> scanLibrarySections() async {
+    final songs = await scanLibrary();
+    if (songs.isEmpty) return [];
+
+    final sections = <SongSection>[
+      SongSection(title: '🎵 All Songs', songs: songs),
+    ];
+
+    // Group by album (top 5 with 2+ songs)
+    final albumMap = <String, List<Song>>{};
+    for (final song in songs) {
+      if (song.album.isNotEmpty && song.album != 'Unknown') {
+        albumMap.putIfAbsent(song.album, () => []).add(song);
+      }
+    }
+    final topAlbums = albumMap.entries
+        .where((e) => e.value.length >= 2)
+        .toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+
+    for (final entry in topAlbums.take(5)) {
+      sections.add(SongSection(title: '💿 ${entry.key}', songs: entry.value));
+    }
+
+    return sections;
+  }
+
+  static Song _toSong(SongModel s) => Song(
+        id: 'local_${s.id}',
+        title: s.title ?? s.displayName,
+        artist: s.artist ?? 'Unknown Artist',
+        album: s.album ?? '',
+        artworkUrl: '',
+        streamUrl: null,
+        duration: s.duration != null ? (s.duration! / 1000).round() : null,
+        localPath: s.data,
+      );
 }
