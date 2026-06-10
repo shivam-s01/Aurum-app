@@ -18,27 +18,31 @@ class LocalMusicService {
 
   static Future<List<Song>> scanLibrary() async {
     try {
+      final songs = <Song>[];
       final dirs = [
         '/storage/emulated/0/Music',
         '/storage/emulated/0/Download',
         '/storage/emulated/0/Downloads',
+        '/storage/emulated/0/WhatsApp/Media/WhatsApp Audio',
       ];
-      final songs = <Song>[];
       for (final dirPath in dirs) {
         final dir = Directory(dirPath);
         if (!await dir.exists()) continue;
-        await for (final entity in dir.list(recursive: true)) {
+        await for (final entity in dir.list(recursive: false)) {
           if (entity is File) {
-            final path = entity.path;
-            if (path.endsWith('.mp3') || path.endsWith('.m4a') || path.endsWith('.flac') || path.endsWith('.wav')) {
-              final name = path.split('/').last.replaceAll(RegExp(r'\.(mp3|m4a|flac|wav)$'), '');
+            final path = entity.path.toLowerCase();
+            if (path.endsWith('.mp3') || path.endsWith('.m4a') ||
+                path.endsWith('.flac') || path.endsWith('.wav') ||
+                path.endsWith('.aac') || path.endsWith('.ogg')) {
+              final name = entity.path.split('/').last
+                  .replaceAll(RegExp(r'\.(mp3|m4a|flac|wav|aac|ogg)$', caseSensitive: false), '');
               songs.add(Song(
-                id: 'local_${path.hashCode}',
+                id: 'local_${entity.path.hashCode}',
                 title: name,
                 artist: 'Unknown',
                 album: dirPath.split('/').last,
                 artworkUrl: '',
-                localPath: path,
+                localPath: entity.path,
               ));
             }
           }
