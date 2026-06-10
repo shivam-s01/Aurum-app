@@ -18,9 +18,9 @@ class FullPlayerScreen extends StatefulWidget {
 
 class _FullPlayerScreenState extends State<FullPlayerScreen>
     with TickerProviderStateMixin {
-  late AnimationController _slideController;
-  late Animation<Offset> _slideAnim;
-  late AnimationController _artworkPulse;
+  AnimationController? _slideController;
+  Animation<Offset>? _slideAnim;
+  AnimationController? _artworkPulse;
 
   Color _bgColor1 = const Color(0xFF1A0A00);
   Color _bgColor2 = const Color(0xFF0A0500);
@@ -53,8 +53,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   @override
   void dispose() {
-    _slideController.dispose();
-    _artworkPulse.dispose();
+    _slideController?.dispose();
+    _artworkPulse?.dispose();
     super.dispose();
   }
 
