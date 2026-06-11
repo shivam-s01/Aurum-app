@@ -2,9 +2,9 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:android_intent_plus/android_intent.dart';
 
 class UpdateService {
   static const _repo = 'shivam-s01/Aurum-app';
@@ -69,13 +69,17 @@ class _UpdateDialogState extends State<_UpdateDialog> {
         widget.url,
         path,
         onReceiveProgress: (received, total) {
-          if (total > 0) {
-            setState(() { _progress = received / total; });
-          }
+          if (total > 0) setState(() => _progress = received / total);
         },
       );
       setState(() { _status = 'Installing...'; });
-      await OpenFile.open(path);
+      final intent = AndroidIntent(
+        action: 'action_view',
+        data: Uri.fromFile(File(path)).toString(),
+        type: 'application/vnd.android.package-archive',
+        flags: [0x10000000],
+      );
+      await intent.launch();
       if (mounted) Navigator.pop(context);
     } catch (e) {
       setState(() { _downloading = false; _status = 'Failed. Try again.'; });
