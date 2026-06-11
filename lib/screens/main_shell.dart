@@ -27,7 +27,7 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
-    UpdateService.setCurrentBuild(1);
+    UpdateService.setCurrentBuild(81);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final prefs = await SharedPreferences.getInstance();
       final checkUpdates = prefs.getBool('check_updates') ?? true;

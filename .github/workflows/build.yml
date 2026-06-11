@@ -21,7 +21,10 @@ jobs:
         with:
           flutter-version: '3.22.0'
 
-      - name: Get dependencies
+      - name: Update build number
+      run: sed -i "s/setCurrentBuild([0-9]*)/setCurrentBuild(${{ github.run_number }})/g" lib/screens/main_shell.dart
+
+    - name: Get dependencies
         run: flutter pub get
 
       - name: Analyze code
