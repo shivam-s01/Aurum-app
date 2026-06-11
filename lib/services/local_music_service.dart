@@ -1,76 +1,55 @@
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 import '../models/song.dart';
 
 class LocalMusicService {
-  static Future<bool> hasPermission() async {
+  static final _audioQuery = OnAudioQuery();
+
+  static Future<bool> requestPermission() async {
     if (Platform.isAndroid) {
-      if (await Permission.audio.isGranted) return true;
-      if (await Permission.storage.isGranted) return true;
+      final status = await Permission.storage.request();
+      if (status.isDenied) {
+        final audio = await Permission.audio.request();
+        return audio.isGranted;
+      }
+      return status.isGranted;
     }
     return false;
   }
 
-  static Future<bool> requestPermission() async {
-    if (await Permission.notification.isDenied) {
-      await Permission.notification.request();
-    }
+  static Future<bool> hasPermission() async {
     if (Platform.isAndroid) {
-      PermissionStatus audio = await Permission.audio.request();
-      if (audio.isGranted) return true;
-      PermissionStatus storage = await Permission.storage.request();
+      final storage = await Permission.storage.status;
       if (storage.isGranted) return true;
-      if (audio.isPermanentlyDenied || storage.isPermanentlyDenied) {
-        await openAppSettings();
-      }
-      return false;
+      final audio = await Permission.audio.status;
+      return audio.isGranted;
     }
     return false;
   }
 
   static Future<List<Song>> scanLibrary() async {
     final songs = <Song>[];
-    final dirs = [
-      '/storage/emulated/0/Music',
-      '/storage/emulated/0/Download',
-      '/storage/emulated/0/Downloads',
-      '/storage/emulated/0/WhatsApp/Media/WhatsApp Audio',
-    ];
-    for (final dirPath in dirs) {
-      try {
-        final dir = Directory(dirPath);
-        if (!await dir.exists()) continue;
-        await for (final entity in dir.list(recursive: true)) {
-          if (entity is File) {
-            final path = entity.path.toLowerCase();
-            if (path.endsWith('.mp3') ||
-                path.endsWith('.m4a') ||
-                path.endsWith('.flac') ||
-                path.endsWith('.wav') ||
-                path.endsWith('.aac') ||
-                path.endsWith('.ogg')) {
-              final name = entity.path
-                  .split('/')
-                  .last
-                  .replaceAll(
-                      RegExp(r'\.(mp3|m4a|flac|wav|aac|ogg)$',
-                          caseSensitive: false),
-                      '');
-              songs.add(Song(
-                id: 'local_${entity.path.hashCode}',
-                title: name,
-                artist: 'Unknown',
-                album: dirPath.split('/').last,
-                artworkUrl: '',
-                localPath: entity.path,
-              ));
-            }
-          }
+    try {
+      final deviceSongs = await _audioQuery.querySongs(
+        sortType: SongSortType.TITLE,
+        orderType: OrderType.ASC_OR_SMALLER,
+        uriType: UriType.EXTERNAL,
+        ignoreCase: true,
+      );
+      for (final s in deviceSongs) {
+        if (s.duration != null && s.duration! > 30000) {
+          songs.add(Song(
+            id: 'local_${s.id}',
+            title: s.title,
+            artist: s.artist ?? 'Unknown',
+            album: s.album ?? '',
+            artworkUrl: 'content://media/external/audio/albumart/${s.albumId}',
+            localPath: s.data,
+          ));
         }
-      } catch (_) {
-        continue;
       }
-    }
+    } catch (_) {}
     return songs;
   }
 
