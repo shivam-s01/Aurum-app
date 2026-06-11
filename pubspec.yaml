@@ -14,7 +14,9 @@ dependencies:
   audio_service: ^0.18.13
   audio_session: ^0.1.18
   provider: ^6.1.1
-  http: ^1.2.0
+  http: ^1.1.0
+  package_info_plus: ^8.0.0
+  path_provider: ^2.1.0
   cached_network_image: ^3.3.1
   shimmer: ^3.0.0
   palette_generator: ^0.3.3+3
