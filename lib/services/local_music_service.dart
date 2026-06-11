@@ -1,10 +1,8 @@
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:on_audio_query/on_audio_query.dart';
 import '../models/song.dart';
 
 class LocalMusicService {
-  static final _audioQuery = OnAudioQuery();
 
   static Future<bool> requestPermission() async {
     if (Platform.isAndroid) {
