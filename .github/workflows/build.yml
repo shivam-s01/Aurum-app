@@ -36,7 +36,7 @@ jobs:
           storePassword=${{ secrets.STORE_PASSWORD }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=app/aurum-release.jks
+          storeFile=aurum-release.jks
           PROPS
           echo "key.properties written:"
           cat android/key.properties
