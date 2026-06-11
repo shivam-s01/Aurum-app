@@ -7,7 +7,8 @@ import 'search_screen.dart';
 import 'library_screen.dart';
 import '../providers/player_provider.dart';
 import '../services/update_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import "package:shared_preferences/shared_preferences.dart";
+import "package:package_info_plus/package_info_plus.dart";
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -27,7 +28,7 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
-    UpdateService.setCurrentBuild(81);
+    
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final prefs = await SharedPreferences.getInstance();
       final checkUpdates = prefs.getBool('check_updates') ?? true;
