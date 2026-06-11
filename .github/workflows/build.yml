@@ -26,11 +26,20 @@ jobs:
           channel: 'stable'
 
       - name: Decode Keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/aurum-release.jks
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/aurum-release.jks
+          echo "Keystore size: $(wc -c < android/app/aurum-release.jks) bytes"
 
       - name: Write key.properties
         run: |
-          printf 'storePassword=${{ secrets.STORE_PASSWORD }}\nkeyPassword=${{ secrets.KEY_PASSWORD }}\nkeyAlias=${{ secrets.KEY_ALIAS }}\nstoreFile=aurum-release.jks\n' > android/key.properties
+          cat > android/key.properties << PROPS
+          storePassword=${{ secrets.STORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=app/aurum-release.jks
+          PROPS
+          echo "key.properties written:"
+          cat android/key.properties
 
       - name: Get dependencies
         run: flutter pub get
@@ -38,8 +47,13 @@ jobs:
       - name: Build Release APK
         run: flutter build apk --release
 
+      - name: Rename APK
+        run: |
+          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Aurum-Music-release.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: aurum-music-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: Aurum-Music-APK
+          path: build/app/outputs/flutter-apk/Aurum-Music-release.apk
+          retention-days: 30
