@@ -36,7 +36,27 @@ class MainActivity : AudioServiceActivity() {
                             result.error("GET_SONGS_ERROR", e.message, null)
                         }
                     }
-                    "getAlbumArt" -> {
+                    
+                "installApk" -> {
+                    try {
+                        val file = java.io.File(path)
+                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                            this,
+                            "${packageName}.fileprovider",
+                            file
+                        )
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/vnd.android.package-archive")
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(intent)
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.error("INSTALL_ERROR", e.message, null)
+                    }
+                }
+                "getAlbumArt" -> {
                         try {
                             val uri = call.argument<String>("uri")
                             if (uri.isNullOrEmpty()) {

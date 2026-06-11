@@ -10,7 +10,7 @@ import 'package:android_intent_plus/android_intent.dart';
 class UpdateService {
   static const _repo = 'shivam-s01/Aurum-app';
   static const _apiUrl = 'https://api.github.com/repos/$_repo/releases/latest';
-  static const _channel = MethodChannel('com.aurum.music/install');
+  static const _channel = MethodChannel('com.aurum.music/media_store');
   static int _currentBuild = 0;
 
   static void setCurrentBuild(int build) => _currentBuild = build;
