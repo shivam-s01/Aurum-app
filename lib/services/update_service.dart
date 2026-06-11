@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:android_intent_plus/android_intent.dart';
@@ -9,6 +10,7 @@ import 'package:android_intent_plus/android_intent.dart';
 class UpdateService {
   static const _repo = 'shivam-s01/Aurum-app';
   static const _apiUrl = 'https://api.github.com/repos/$_repo/releases/latest';
+  static const _channel = MethodChannel('com.aurum.music/install');
   static int _currentBuild = 0;
 
   static void setCurrentBuild(int build) => _currentBuild = build;
@@ -43,6 +45,20 @@ class UpdateService {
       builder: (_) => _UpdateDialog(version: version, url: url),
     );
   }
+
+  static Future<void> installApk(String path) async {
+    try {
+      await _channel.invokeMethod('installApk', {'path': path});
+    } catch (_) {
+      final intent = AndroidIntent(
+        action: 'action_view',
+        data: 'file://$path',
+        type: 'application/vnd.android.package-archive',
+        flags: [0x10000000, 0x00000001],
+      );
+      await intent.launch();
+    }
+  }
 }
 
 class _UpdateDialog extends StatefulWidget {
@@ -72,14 +88,9 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           if (total > 0) setState(() => _progress = received / total);
         },
       );
-      setState(() { _status = 'Installing...'; });
-      final intent = AndroidIntent(
-        action: 'action_view',
-        data: 'file://',
-        type: 'application/vnd.android.package-archive',
-        flags: [0x10000000],
-      );
-      await intent.launch();
+      setState(() { _status = 'Installing...'; _progress = 1.0; });
+      await Future.delayed(const Duration(milliseconds: 500));
+      await UpdateService.installApk(path);
       if (mounted) Navigator.pop(context);
     } catch (e) {
       setState(() { _downloading = false; _status = 'Failed. Try again.'; });
@@ -115,7 +126,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           ),
           const SizedBox(height: 8),
           Text(
-            _progress > 0 ? '$_status ${(_progress * 100).toInt()}%' : _status,
+            _progress > 0 && _progress < 1.0 ? '$_status ${(_progress * 100).toInt()}%' : _status,
             style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
           ),
         ],
