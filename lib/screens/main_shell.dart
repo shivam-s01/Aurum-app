@@ -6,6 +6,8 @@ import 'home_screen.dart';
 import 'search_screen.dart';
 import 'library_screen.dart';
 import '../providers/player_provider.dart';
+import '../services/update_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -21,6 +23,19 @@ class _MainShellState extends State<MainShell> {
     SearchScreen(),
     LibraryScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    UpdateService.setCurrentBuild(1);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final prefs = await SharedPreferences.getInstance();
+      final checkUpdates = prefs.getBool('check_updates') ?? true;
+      if (checkUpdates && mounted) {
+        await UpdateService.checkForUpdate(context);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

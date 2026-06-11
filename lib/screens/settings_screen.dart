@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/theme_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/constants.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -59,7 +60,42 @@ class SettingsScreen extends StatelessWidget {
                   title: Text('Aurum Music', style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14)),
                   subtitle: Text('Version ${AppConstants.appVersion}', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
                 ),
-                const SizedBox(height: 100),
+                _sectionTitle('OTHER'),
+            StatefulBuilder(
+              builder: (context, setTileState) {
+                return FutureBuilder<SharedPreferences>(
+                  future: SharedPreferences.getInstance(),
+                  builder: (context, snap) {
+                    if (!snap.hasData) return const SizedBox();
+                    final prefs = snap.data!;
+                    final val = prefs.getBool('check_updates') ?? true;
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                      leading: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: val ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgSurfaceOf(context),
+                          borderRadius: BorderRadius.circular(10),
+                          border: val ? Border.all(color: AurumTheme.gold.withOpacity(0.5)) : null,
+                        ),
+                        child: Icon(Icons.system_update_rounded, color: val ? AurumTheme.gold : AurumTheme.textSecondaryOf(context), size: 20),
+                      ),
+                      title: Text('Check for Updates', style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w600)),
+                      subtitle: Text('Auto-check on app launch', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+                      trailing: Switch(
+                        value: val,
+                        onChanged: (v) async {
+                          await prefs.setBool('check_updates', v);
+                          setTileState(() {});
+                        },
+                        activeColor: AurumTheme.gold,
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+            const SizedBox(height: 100),
               ],
             ),
           ),
