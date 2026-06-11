@@ -27,15 +27,15 @@ jobs:
 
       - name: Decode Keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/aurum-release.jks
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > aurum-release.jks
 
       - name: Write key.properties
         run: |
-          cat > android/key.properties << KEYEOF
+          cat > key.properties << KEYEOF
           storePassword=${{ secrets.STORE_PASSWORD }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=aurum-release.jks
+          storeFile=../aurum-release.jks
           KEYEOF
 
       - name: Get dependencies
