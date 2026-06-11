@@ -26,17 +26,11 @@ jobs:
           channel: 'stable'
 
       - name: Decode Keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > aurum-release.jks
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > aurum-release.jks
 
       - name: Write key.properties
         run: |
-          cat > key.properties << KEYEOF
-storePassword=${{ secrets.STORE_PASSWORD }}
-keyPassword=${{ secrets.KEY_PASSWORD }}
-keyAlias=${{ secrets.KEY_ALIAS }}
-storeFile=../aurum-release.jks
-          KEYEOF
+          printf 'storePassword=${{ secrets.STORE_PASSWORD }}\nkeyPassword=${{ secrets.KEY_PASSWORD }}\nkeyAlias=${{ secrets.KEY_ALIAS }}\nstoreFile=../aurum-release.jks\n' > android/key.properties
 
       - name: Get dependencies
         run: flutter pub get
