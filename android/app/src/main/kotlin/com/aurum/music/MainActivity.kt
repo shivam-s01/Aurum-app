@@ -39,7 +39,8 @@ class MainActivity : AudioServiceActivity() {
                     
                 "installApk" -> {
                     try {
-                        val file = java.io.File(path)
+                        val apkPath = call.argument<String>("path") ?: run { result.error("NO_PATH", "No path", null); return@setMethodCallHandler }
+                        val file = java.io.File(apkPath)
                         val uri = androidx.core.content.FileProvider.getUriForFile(
                             this,
                             "${packageName}.fileprovider",
