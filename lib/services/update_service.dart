@@ -75,7 +75,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       setState(() { _status = 'Installing...'; });
       final intent = AndroidIntent(
         action: 'action_view',
-        data: Uri.fromFile(File(path)).toString(),
+        data: 'file://',
         type: 'application/vnd.android.package-archive',
         flags: [0x10000000],
       );
