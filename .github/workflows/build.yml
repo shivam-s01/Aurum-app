@@ -35,7 +35,7 @@ jobs:
           storePassword=${{ secrets.STORE_PASSWORD }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=aurum-release.jks
+          storeFile=../../aurum-release.jks
           KEYEOF
 
       - name: Get dependencies
