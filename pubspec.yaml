@@ -1,7 +1,7 @@
 name: aurum_music
 description: Aurum Music - Premium Gold Music Experience
 publish_to: 'none'
-version: 1.0.0+87
+version: 1.0.0+88
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
