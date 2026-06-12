@@ -193,11 +193,11 @@ class ApiService {
       'context': {
         'client': {
           'clientName':        'ANDROID_MUSIC',
-          'clientVersion':     '7.27.52',
+          'clientVersion':     '8.13.50',
           'androidSdkVersion': 30,
           'hl': 'en', 'gl': 'IN',
           'userAgent':
-              'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip',
+              'com.google.android.apps.youtube.music/8.13.50 (Linux; U; Android 11) gzip',
         }
       },
       'base': _ytBase,
@@ -207,7 +207,7 @@ class ApiService {
       'context': {
         'client': {
           'clientName':    'IOS_MUSIC',
-          'clientVersion': '6.21',
+          'clientVersion': '8.13',
           'deviceMake':    'Apple',
           'deviceModel':   'iPhone16,2',
           'osName':        'iPhone',
@@ -233,7 +233,7 @@ class ApiService {
       'context': {
         'client': {
           'clientName':    'WEB',
-          'clientVersion': '2.20240726.00.00',
+          'clientVersion': '2.20260120.01.00',
           'hl': 'en', 'gl': 'IN',
         }
       },
@@ -244,7 +244,7 @@ class ApiService {
   static const _ctxWebRemix = {
     'client': {
       'clientName':    'WEB_REMIX',
-      'clientVersion': '1.20240724.00.00',
+      'clientVersion': '1.20260121.03.00',
       'hl': 'en', 'gl': 'IN',
     }
   };
@@ -623,7 +623,7 @@ class ApiService {
     final headers = <String, String>{
       'Content-Type': 'application/json',
       'User-Agent':
-          'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip',
+          'com.google.android.apps.youtube.music/8.13.50 (Linux; U; Android 11) gzip',
     };
 
     final body = {
