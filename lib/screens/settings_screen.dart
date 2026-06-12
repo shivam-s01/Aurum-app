@@ -5,6 +5,7 @@ import '../providers/theme_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/api_service.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -95,6 +96,38 @@ class SettingsScreen extends StatelessWidget {
                 );
               },
             ),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  leading: Icon(Icons.bug_report_rounded, color: AurumTheme.gold),
+                  title: Text('Debug YT API', style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14)),
+                  onTap: () async {
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => const AlertDialog(
+                        content: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(width: 16),
+                            Text('Running debug...'),
+                          ],
+                        ),
+                      ),
+                    );
+                    final result = await ApiService.debugYtSearch();
+                    if (!context.mounted) return;
+                    Navigator.pop(context);
+                    showDialog(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Debug Result'),
+                        content: SingleChildScrollView(child: Text(result, style: const TextStyle(fontSize: 11, fontFamily: 'monospace'))),
+                        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+                      ),
+                    );
+                  },
+                ),
             const SizedBox(height: 100),
               ],
             ),
