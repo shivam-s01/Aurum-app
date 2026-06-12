@@ -26,20 +26,11 @@ jobs:
           channel: 'stable'
 
       - name: Decode Keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/aurum-release.jks
-          echo "Keystore size: $(wc -c < android/app/aurum-release.jks) bytes"
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/aurum-release.jks
 
       - name: Write key.properties
         run: |
-          cat > android/key.properties << PROPS
-          storePassword=${{ secrets.STORE_PASSWORD }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=aurum-release.jks
-          PROPS
-          echo "key.properties written:"
-          cat android/key.properties
+          printf 'storePassword=${{ secrets.STORE_PASSWORD }}\nkeyPassword=${{ secrets.KEY_PASSWORD }}\nkeyAlias=${{ secrets.KEY_ALIAS }}\nstoreFile=aurum-release.jks\n' > android/key.properties
 
       - name: Get dependencies
         run: flutter pub get
@@ -47,13 +38,23 @@ jobs:
       - name: Build Release APK
         run: flutter build apk --release
 
-      - name: Rename APK
+      - name: Get version
+        id: ver
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Aurum-Music-release.apk
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d '\r')
+          BUILD=$(echo $VERSION | cut -d'+' -f2)
+          echo "build=$BUILD" >> $GITHUB_OUTPUT
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Aurum-Music-APK
-          path: build/app/outputs/flutter-apk/Aurum-Music-release.apk
-          retention-days: 30
+          name: aurum-music-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build${{ steps.ver.outputs.build }}
+          name: Build ${{ steps.ver.outputs.build }}
+          files: build/app/outputs/flutter-apk/app-release.apk
+          token: ${{ secrets.GITHUB_TOKEN }}
