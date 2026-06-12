@@ -11,6 +11,7 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+    afterEvaluate { p -> if (p.hasProperty("android")) { p.android { if (namespace == null) { namespace p.group.toString() } } } }
 }
 
 tasks.register("clean", Delete) {
