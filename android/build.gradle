@@ -11,7 +11,7 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
-    afterEvaluate { p -> if (p.hasProperty("android")) { p.android { if (namespace == null) { namespace p.group.toString() } } } }
+    plugins.withId("com.android.library") { extensions.configure("com.android.build.gradle.LibraryExtension") { ext -> if (ext.namespace == null) { ext.namespace = project.group.toString() } } }
 }
 
 tasks.register("clean", Delete) {
