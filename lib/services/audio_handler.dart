@@ -23,7 +23,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (event.begin) {
         _player.pause();
       } else {
-        if (event.type == AudioInterruptionType.pause) _player.play();
+        if (event.type == AudioInterruptionType.pause) {
+          ApiService.onNetworkRestored();
+          _player.play();
+        }
       }
     });
 
@@ -34,6 +37,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _player.durationStream.listen((d) {
       if (d != null && mediaItem.value != null) {
         mediaItem.add(mediaItem.value!.copyWith(duration: d));
+      }
+    });
+
+    // Smart prefetch: resolve next track's stream URL at 80% of current track
+    _player.positionStream.listen((pos) {
+      final dur = _player.duration;
+      if (dur == null || dur.inSeconds < 5) return;
+      final pct = pos.inMilliseconds / dur.inMilliseconds;
+      if (pct >= 0.80 && _currentIndex < _queue.length - 1) {
+        ApiService.prefetchNext(_queue[_currentIndex + 1]);
       }
     });
 
@@ -204,7 +217,15 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     playbackState.add(playbackState.value.copyWith(queueIndex: _currentIndex));
   }
 
-  @override Future<void> play()  => _player.play();
+  @override Future<void> play() async {
+    // Refresh stream URL if it may have expired (e.g. app backgrounded for hours)
+    final song = currentSong;
+    if (song != null && !song.isLocal) {
+      final cached = ApiService.resolveStreamUrl(song); // uses cache, non-blocking
+      unawaited(cached); // fire-and-forget; just warm the cache
+    }
+    return _player.play();
+  }
   @override Future<void> pause() => _player.pause();
   @override Future<void> stop()  => _player.stop();
   @override Future<void> seek(Duration position) => _player.seek(position);

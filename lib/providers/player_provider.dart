@@ -3,6 +3,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/song.dart';
 import '../services/audio_handler.dart';
+import '../services/api_service.dart';
 
 class PlayerProvider extends ChangeNotifier {
   final AurumAudioHandler _handler;
@@ -158,4 +159,12 @@ class PlayerProvider extends ChangeNotifier {
     _showFullPlayer = false;
     notifyListeners();
   }
+
+  Future<String?> fetchLyrics() async {
+    final song = currentSong;
+    if (song == null) return null;
+    return ApiService.fetchLyrics(song);
+  }
 }
+
+// Note: append above the closing brace manually, or use the method below

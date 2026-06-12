@@ -935,56 +935,90 @@ class _EqualizerIconState extends State<_EqualizerIcon>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Lyrics Sheet — Apple Music inspired
+// Lyrics Sheet — fetches from Saavn → LRCLib → YouTube
 // ─────────────────────────────────────────────────────────────────────────────
-class _LyricsSheet extends StatelessWidget {
+class _LyricsSheet extends StatefulWidget {
   final Color bg1;
   final Color bg2;
   const _LyricsSheet({required this.bg1, required this.bg2});
 
   @override
+  State<_LyricsSheet> createState() => _LyricsSheetState();
+}
+
+class _LyricsSheetState extends State<_LyricsSheet> {
+  String? _lyrics;
+  bool _loading = true;
+  bool _notFound = false;
+  Song? _loadedFor;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final song = context.read<PlayerProvider>().currentSong;
+    if (song != null && song.id != _loadedFor?.id) {
+      _loadedFor = song;
+      _fetchLyrics(song);
+    }
+  }
+
+  Future<void> _fetchLyrics(Song song) async {
+    if (!mounted) return;
+    setState(() { _loading = true; _notFound = false; _lyrics = null; });
+    final lyrics = await context.read<PlayerProvider>().fetchLyrics();
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (lyrics != null && lyrics.trim().isNotEmpty) {
+        _lyrics = lyrics.trim();
+      } else {
+        _notFound = true;
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return _BaseSheet(
-      bg1: bg1,
-      bg2: bg2,
+      bg1: widget.bg1,
+      bg2: widget.bg2,
       title: 'Lyrics',
       titleIcon: Icons.lyrics_rounded,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 64, height: 64,
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(12),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                      color: Colors.white.withAlpha(20), width: 0.5),
-                ),
-                child: Icon(Icons.lyrics_rounded,
-                    color: Colors.white.withAlpha(60), size: 28),
-              ),
-              const SizedBox(height: 20),
-              Text('Lyrics Coming Soon',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(200),
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  )),
-              const SizedBox(height: 8),
-              Text('Synced lyrics will display here\nwith real-time highlighting',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(70),
-                    fontSize: 13,
-                    height: 1.6,
+      child: _loading
+          ? const Center(child: CircularProgressIndicator(
+              color: Colors.white54, strokeWidth: 2))
+          : _notFound
+              ? Center(child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.lyrics_rounded,
+                          color: Colors.white.withAlpha(40), size: 48),
+                      const SizedBox(height: 16),
+                      Text('No lyrics found',
+                          style: TextStyle(color: Colors.white.withAlpha(160),
+                              fontSize: 16, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      Text('Not available for this song',
+                          style: TextStyle(color: Colors.white.withAlpha(70),
+                              fontSize: 13)),
+                    ],
                   ),
-                  textAlign: TextAlign.center),
-            ],
-          ),
-        ),
-      ),
+                ))
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
+                  child: Text(
+                    _lyrics!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      height: 1.85,
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: 0.1,
+                    ),
+                  ),
+                ),
     );
   }
 }
