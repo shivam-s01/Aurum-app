@@ -17,3 +17,13 @@ tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
 
+
+subprojects { sub ->
+    sub.pluginManager.withPlugin("com.android.library") {
+        sub.extensions.configure("android") {
+            if (it.namespace == null) {
+                it.namespace = "com.aurum.${sub.name.replace('-', '_')}"
+            }
+        }
+    }
+}
