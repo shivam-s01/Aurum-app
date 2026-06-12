@@ -7,15 +7,17 @@ import 'api_service.dart';
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   final _player = AudioPlayer();
+  final _playlist = ConcatenatingAudioSource(children: []);
+
   List<Song> _queue = [];
   int _currentIndex = 0;
-  bool _isResolvingNext = false;
 
   AurumAudioHandler() {
     _init();
   }
 
   Future<void> _init() async {
+    // Audio session (audio focus, call handling)
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
@@ -23,11 +25,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (event.begin) {
         _player.pause();
       } else {
-        if (event.type == AudioInterruptionType.pause) _player.play();
+        if (event.type == AudioInterruptionType.pause) {
+          _player.play();
+        }
       }
     });
 
-    session.becomingNoisyEventStream.listen((_) => _player.pause());
+    session.becomingNoisyEventStream.listen((_) {
+      // Headphones unplugged — pause
+      _player.pause();
+    });
 
     _player.playbackEventStream.listen(_broadcastState);
 
@@ -37,128 +44,144 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       }
     });
 
-    _player.playerStateStream.listen((state) async {
-      if (state.processingState == ProcessingState.completed && !_isResolvingNext) {
-        _isResolvingNext = true;
-        await skipToNext();
-        _isResolvingNext = false;
+    _player.currentIndexStream.listen((index) {
+      if (index != null && index != _currentIndex && index < _queue.length) {
+        _currentIndex = index;
+        _updateMediaItem(_queue[index]);
+      }
+    });
+
+    _player.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed) {
+        skipToNext();
       }
     });
   }
 
+  // ── Resolve AudioSource for any song (online or local) ──────────────────
+
   Future<AudioSource?> _sourceForSong(Song song) async {
     if (song.isLocal) {
+      // Local file — play from device storage
       final file = File(song.localPath!);
       if (!await file.exists()) return null;
-      return AudioSource.uri(Uri.file(song.localPath!), tag: _songToMediaItem(song));
+      return AudioSource.uri(
+        Uri.file(song.localPath!),
+        tag: _songToMediaItem(song),
+      );
     } else {
+      // Online song — resolve stream URL from backend
       final url = await ApiService.resolveStreamUrl(song);
-      if (url == null || url.isEmpty) return null;
-      return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
+      if (url == null) return null;
+      return AudioSource.uri(
+        Uri.parse(url),
+        tag: _songToMediaItem(song),
+      );
     }
   }
+
+  // ── Play queue ───────────────────────────────────────────────────────────
+
+  Future<void> playQueue(List<Song> songs, int startIndex) async {
+    _queue = songs;
+    _currentIndex = startIndex;
+
+    final startSource = await _sourceForSong(songs[startIndex]);
+    if (startSource == null) return;
+
+    await _playlist.clear();
+
+    final sources = <AudioSource>[];
+    for (int i = 0; i < songs.length; i++) {
+      if (i == startIndex) {
+        sources.add(startSource);
+      } else {
+        // Placeholder — replaced by background resolver
+        sources.add(AudioSource.uri(
+          Uri.parse('https://example.com/placeholder.mp3'),
+          tag: _songToMediaItem(songs[i]),
+        ));
+      }
+    }
+
+    await _playlist.addAll(sources);
+
+    try {
+      await _player.setAudioSource(_playlist, initialIndex: startIndex);
+    } catch (_) {
+      await _player.setAudioSource(_playlist, initialIndex: 0);
+    }
+
+    _updateMediaItem(songs[startIndex]);
+    await _player.play();
+    _resolveQueueInBackground(songs, startIndex);
+  }
+
+  void _resolveQueueInBackground(List<Song> songs, int startIndex) async {
+    for (int i = 0; i < songs.length; i++) {
+      if (i == startIndex) continue;
+      try {
+        final source = await _sourceForSong(songs[i]);
+        if (source != null && i < _playlist.length) {
+          await _playlist.removeAt(i);
+          await _playlist.insert(i, source);
+        }
+      } catch (_) {}
+    }
+  }
+
+  // ── Play single song ─────────────────────────────────────────────────────
 
   Future<void> playSong(Song song) async {
     _queue = [song];
     _currentIndex = 0;
+
     final source = await _sourceForSong(song);
     if (source == null) return;
+
+    await _playlist.clear();
+    await _playlist.add(source);
+    await _player.setAudioSource(_playlist);
     _updateMediaItem(song);
-    await _player.setAudioSource(source);
     await _player.play();
   }
 
-  Future<void> playQueue(List<Song> songs, int startIndex) async {
-    _queue = List.from(songs);
-    _currentIndex = startIndex;
-    final source = await _sourceForSong(songs[startIndex]);
-    if (source == null) return;
-    _updateMediaItem(songs[startIndex]);
-    await _player.setAudioSource(source);
-    await _player.play();
-  }
-
-  @override
-  Future<void> skipToNext() async {
-    if (_currentIndex < _queue.length - 1) {
-      _currentIndex++;
-      final source = await _sourceForSong(_queue[_currentIndex]);
-      if (source == null) {
-        await skipToNext();
-        return;
-      }
-      _updateMediaItem(_queue[_currentIndex]);
-      await _player.setAudioSource(source);
-      await _player.play();
-    }
-    _broadcastStateManual();
-  }
-
-  @override
-  Future<void> skipToPrevious() async {
-    if (_player.position.inSeconds > 3) {
-      await _player.seek(Duration.zero);
-      return;
-    }
-    if (_currentIndex > 0) {
-      _currentIndex--;
-      final source = await _sourceForSong(_queue[_currentIndex]);
-      if (source == null) return;
-      _updateMediaItem(_queue[_currentIndex]);
-      await _player.setAudioSource(source);
-      await _player.play();
-    }
-    _broadcastStateManual();
-  }
-
-  @override
-  Future<void> skipToQueueItem(int index) async {
-    if (index < 0 || index >= _queue.length) return;
-    _currentIndex = index;
-    final source = await _sourceForSong(_queue[index]);
-    if (source == null) return;
-    _updateMediaItem(_queue[index]);
-    await _player.setAudioSource(source);
-    await _player.play();
-    _broadcastStateManual();
-  }
+  // ── Queue management ─────────────────────────────────────────────────────
 
   Future<void> addToQueue(Song song) async {
     _queue.add(song);
-    _broadcastStateManual();
+    final source = await _sourceForSong(song);
+    if (source != null) await _playlist.add(source);
   }
 
   Future<void> playNext(Song song) async {
-    _queue.insert(_currentIndex + 1, song);
-    _broadcastStateManual();
+    final insertIdx = _currentIndex + 1;
+    _queue.insert(insertIdx, song);
+    final source = await _sourceForSong(song);
+    if (source != null) await _playlist.insert(insertIdx, source);
   }
 
   Future<void> removeFromQueue(int index) async {
-    if (index >= 0 && index < _queue.length) {
+    if (index < _queue.length) {
       _queue.removeAt(index);
-      if (index < _currentIndex) _currentIndex--;
-      _broadcastStateManual();
+      await _playlist.removeAt(index);
     }
   }
 
   Future<void> moveQueueItem(int from, int to) async {
-    if (from < 0 || from >= _queue.length || to < 0 || to >= _queue.length) return;
     final song = _queue.removeAt(from);
     _queue.insert(to, song);
-    if (_currentIndex == from) {
-      _currentIndex = to;
-    } else if (from < _currentIndex && to >= _currentIndex) {
-      _currentIndex--;
-    } else if (from > _currentIndex && to <= _currentIndex) {
-      _currentIndex++;
-    }
-    _broadcastStateManual();
+    await _playlist.move(from, to);
   }
+
+  // ── Getters ──────────────────────────────────────────────────────────────
 
   List<Song> get currentQueue => List.unmodifiable(_queue);
   Song? get currentSong => _queue.isNotEmpty ? _queue[_currentIndex] : null;
   int get currentIndex => _currentIndex;
   AudioPlayer get player => _player;
+
+  // ── Media item ───────────────────────────────────────────────────────────
 
   void _updateMediaItem(Song song) => mediaItem.add(_songToMediaItem(song));
 
@@ -168,8 +191,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         artist: song.artist,
         album: song.album,
         artUri: song.artworkUrl.isNotEmpty ? Uri.parse(song.artworkUrl) : null,
-        duration: song.duration != null ? Duration(seconds: song.duration!) : null,
+        duration:
+            song.duration != null ? Duration(seconds: song.duration!) : null,
       );
+
+  // ── Playback state ───────────────────────────────────────────────────────
 
   void _broadcastState(PlaybackEvent event) {
     final playing = _player.playing;
@@ -200,14 +226,32 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     ));
   }
 
-  void _broadcastStateManual() {
-    playbackState.add(playbackState.value.copyWith(queueIndex: _currentIndex));
-  }
+  // ── BaseAudioHandler overrides ───────────────────────────────────────────
 
   @override Future<void> play()  => _player.play();
   @override Future<void> pause() => _player.pause();
   @override Future<void> stop()  => _player.stop();
   @override Future<void> seek(Duration position) => _player.seek(position);
+
+  @override
+  Future<void> skipToNext() async {
+    if (_currentIndex < _queue.length - 1) await _player.seekToNext();
+  }
+
+  @override
+  Future<void> skipToPrevious() async {
+    if (_player.position.inSeconds > 3) {
+      await _player.seek(Duration.zero);
+    } else if (_currentIndex > 0) {
+      await _player.seekToPrevious();
+    }
+  }
+
+  @override
+  Future<void> skipToQueueItem(int index) async {
+    await _player.seek(Duration.zero, index: index);
+    await _player.play();
+  }
 
   @override
   Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
