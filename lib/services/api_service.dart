@@ -1060,7 +1060,7 @@ class ApiService {
       .replaceAll('&hellip;','…')
       .replaceAll('&mdash;', '—')
       .replaceAll('&ndash;', '–')
-      .replaceAll(RegExp(r'&#(\d+);'),
+      .replaceAllMapped(RegExp(r'&#(\d+);'),
           (m) => String.fromCharCode(int.parse(m.group(1)!)));
 
   static String _norm(String s) =>
