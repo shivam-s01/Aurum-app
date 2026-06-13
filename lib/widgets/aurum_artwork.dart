@@ -23,6 +23,11 @@ class AurumArtwork extends StatelessWidget {
     this.borderRadius = 8,
   });
 
+  int? get _cacheSize {
+    if (!size.isFinite || size <= 0) return null;
+    return (size * 2).toInt();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (url.isEmpty) return _placeholder(context);
@@ -48,7 +53,7 @@ class AurumArtwork extends StatelessWidget {
           width: size,
           height: size,
           fit: BoxFit.cover,
-          cacheWidth: (size * 2).toInt(),
+          cacheWidth: _cacheSize,
           errorBuilder: (_, __, ___) => _placeholder(context),
         ),
       );
@@ -62,7 +67,7 @@ class AurumArtwork extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.cover,
-        memCacheWidth: (size * 2).toInt(),
+        memCacheWidth: _cacheSize,
         placeholder: (_, __) => _shimmer(context),
         errorWidget: (_, __, ___) => _placeholder(context),
       ),
@@ -196,7 +201,9 @@ class _ContentUriImageState extends State<_ContentUriImage> {
         width: widget.size,
         height: widget.size,
         fit: BoxFit.cover,
-        cacheWidth: (widget.size * 2).toInt(),
+        cacheWidth: (widget.size.isFinite && widget.size > 0)
+            ? (widget.size * 2).toInt()
+            : null,
         errorBuilder: (_, __, ___) => widget.placeholder,
       ),
     );
