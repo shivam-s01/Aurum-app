@@ -1,3 +1,7 @@
+/// Where a song's data/stream comes from.
+/// Explicit field — avoids fragile ID-pattern guessing.
+enum SongSource { saavn, youtube, local }
+
 class Song {
   final String id;
   final String title;
@@ -9,6 +13,7 @@ class Song {
   final String? language;
   final String? year;
   final String? localPath; // ← NEW: set for local songs, null for online
+  final SongSource source;
 
   Song({
     required this.id,
@@ -21,12 +26,19 @@ class Song {
     this.language,
     this.year,
     this.localPath,
+    this.source = SongSource.saavn,
   });
 
   /// True when this song came from the device library
   bool get isLocal => localPath != null && localPath!.isNotEmpty;
 
   factory Song.fromJson(Map<String, dynamic> json) {
+    final sourceStr = json['source']?.toString();
+    final source = sourceStr == 'youtube'
+        ? SongSource.youtube
+        : sourceStr == 'local'
+            ? SongSource.local
+            : SongSource.saavn;
     return Song(
       id: (json['trackId'] ?? json['id'] ?? json['song_id'] ?? '').toString(),
       title: _clean((json['trackName'] ?? json['title'] ?? json['song'] ?? 'Unknown').toString()),
@@ -40,6 +52,7 @@ class Song {
       language: json['primaryGenreName'] ?? json['language'],
       year: json['releaseDate']?.toString().substring(0, 4) ?? json['year']?.toString(),
       localPath: json['localPath'],
+      source: source,
     );
   }
 
@@ -99,6 +112,7 @@ class Song {
     'language': language,
     'year': year,
     'localPath': localPath,
+    'source': source.name,
   };
 
   Song copyWith({String? streamUrl, String? localPath}) => Song(
@@ -112,6 +126,7 @@ class Song {
     language: language,
     year: year,
     localPath: localPath ?? this.localPath,
+    source: source,
   );
 }
 

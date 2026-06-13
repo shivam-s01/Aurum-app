@@ -13,6 +13,15 @@ class ApiService {
 
   static const _saavn = 'https://jiosavan.onrender.com';
 
+  // ─────────────────────────────────────────────────────────
+  //  STREAM URL CACHE
+  //  Avoids re-resolving the same song's stream repeatedly.
+  //  YouTube URLs expire (~6hrs), Saavn URLs are longer-lived
+  //  but we cache both with a conservative TTL.
+  // ─────────────────────────────────────────────────────────
+  static final Map<String, _CachedStream> _streamCache = {};
+  static const _streamTtl = Duration(minutes: 50);
+
   // ═══════════════════════════════════════════════════════════
   //  HOME
   // ═══════════════════════════════════════════════════════════
@@ -22,19 +31,13 @@ class ApiService {
       _saavnSection('trending hindi songs', '🔥 Trending Now'),
       _saavnSection('bollywood hits', '🎬 Bollywood Hits'),
       _saavnSection('hindi top charts', '🎵 Hindi Top Charts'),
-      _ytSection('top english songs 2024', '🎧 YouTube Picks'),
+      _saavnSection('english pop hits', '🎧 English Hits'),
     ]);
     return results.whereType<SongSection>().toList();
   }
 
   static Future<SongSection?> _saavnSection(String query, String label) async {
     final songs = await _searchSaavn(query, limit: 15);
-    if (songs.isNotEmpty) return SongSection(title: label, songs: songs);
-    return null;
-  }
-
-  static Future<SongSection?> _ytSection(String query, String label) async {
-    final songs = await _searchYt(query, limit: 15);
     if (songs.isNotEmpty) return SongSection(title: label, songs: songs);
     return null;
   }
@@ -104,7 +107,7 @@ class ApiService {
 
   static Future<List<Song>> _searchYt(String query, {int limit = 15}) async {
     try {
-      final results = await _yt.search.search(query).timeout(const Duration(seconds: 12));
+      final results = await _yt.search.search(query).timeout(const Duration(seconds: 6));
       return results
           .whereType<Video>()
           .take(limit)
@@ -128,6 +131,7 @@ class ApiService {
       artworkUrl: thumb,
       streamUrl: null, // resolved fresh on play
       duration: v.duration?.inSeconds,
+      source: SongSource.youtube,
     );
   }
 
@@ -164,35 +168,73 @@ class ApiService {
 
   // ═══════════════════════════════════════════════════════════
   //  STREAM URL RESOLUTION
-  //  Priority: JioSaavn 320kbps → YouTube fallback (client-side)
+  //  Priority: cache → JioSaavn 320kbps → YouTube fallback
+  //  Cached, retried, and source-aware (no ID guessing).
   // ═══════════════════════════════════════════════════════════
 
-  static Future<String?> resolveStreamUrl(Song song) async {
+  static Future<String?> resolveStreamUrl(Song song, {bool forceRefresh = false}) async {
     if (song.isLocal) return song.localPath;
 
-    // If song came from YouTube (id looks like YT video id, no saavn stream)
-    final isYtSong = _isYouTubeId(song.id);
+    final cacheKey = '${song.source.name}:${song.id}';
 
-    // 1. Pre-fetched streamUrl use karo (Saavn search sets this)
-    if (song.streamUrl != null && song.streamUrl!.startsWith('http')) {
+    // 1. Cache hit — return instantly if not expired
+    if (!forceRefresh) {
+      final cached = _streamCache[cacheKey];
+      if (cached != null && !cached.isExpired) {
+        return cached.url;
+      }
+    }
+
+    // 2. Pre-fetched streamUrl from search results (Saavn sets this)
+    if (!forceRefresh && song.streamUrl != null && song.streamUrl!.startsWith('http')) {
+      _streamCache[cacheKey] = _CachedStream(song.streamUrl!);
       return song.streamUrl;
     }
 
-    if (!isYtSong && song.id.isNotEmpty) {
-      final url = await _saavnStreamById(song.id);
-      if (url != null) return url;
-      return _ytStreamBySearch('${song.title} ${song.artist}');
+    String? url;
+
+    // 3. Source-aware resolution (no ID-pattern guessing)
+    switch (song.source) {
+      case SongSource.youtube:
+        url = await _retry(() => _ytStreamByVideoId(song.id));
+        url ??= await _retry(() => _ytStreamBySearch('${song.title} ${song.artist}'));
+        break;
+
+      case SongSource.saavn:
+        if (song.id.isNotEmpty) {
+          url = await _retry(() => _saavnStreamById(song.id));
+        }
+        url ??= await _retry(() => _ytStreamBySearch('${song.title} ${song.artist}'));
+        break;
+
+      case SongSource.local:
+        return song.localPath;
     }
 
-    if (isYtSong) {
-      return _ytStreamByVideoId(song.id);
+    if (url != null) {
+      _streamCache[cacheKey] = _CachedStream(url);
+    }
+    return url;
+  }
+
+  /// Retry a resolver up to 2 times with a short delay — handles transient
+  /// network blips without giving up on the first failure.
+  static Future<String?> _retry(Future<String?> Function() fn, {int attempts = 2}) async {
+    for (var i = 0; i < attempts; i++) {
+      try {
+        final result = await fn();
+        if (result != null && result.isNotEmpty) return result;
+      } catch (_) {}
+      if (i < attempts - 1) await Future.delayed(const Duration(milliseconds: 400));
     }
     return null;
   }
 
-  /// YouTube video IDs are 11 chars, alphanumeric + - _
-  static bool _isYouTubeId(String id) =>
-      RegExp(r'^[A-Za-z0-9_\-]{11}$').hasMatch(id);
+  /// Call this when a song fails to play (e.g. 403/expired URL) — clears the
+  /// cached stream so the next attempt re-resolves fresh.
+  static void invalidateStream(Song song) {
+    _streamCache.remove('${song.source.name}:${song.id}');
+  }
 
   // ── JioSaavn stream ───────────────────────────────────────
 
@@ -368,7 +410,7 @@ class ApiService {
   /// Fetch lyrics for a song via JioSaavn API.
   static Future<String?> fetchLyrics(Song song) async {
     if (song.isLocal || song.id.isEmpty) return null;
-    if (_isYouTubeId(song.id)) return null; // YT songs have no Saavn lyrics
+    if (song.source != SongSource.saavn) return null; // YT/local songs have no Saavn lyrics
     try {
       final res = await _client
           .get(Uri.parse('$_saavn/lyrics/?id=${song.id}'))
@@ -416,4 +458,15 @@ class ApiService {
     }
     return buf.toString();
   }
+}
+
+/// A resolved stream URL with an expiry timestamp.
+class _CachedStream {
+  final String url;
+  final DateTime _resolvedAt;
+
+  _CachedStream(this.url) : _resolvedAt = DateTime.now();
+
+  bool get isExpired =>
+      DateTime.now().difference(_resolvedAt) > ApiService._streamTtl;
 }

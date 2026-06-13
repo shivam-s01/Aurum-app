@@ -61,49 +61,79 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
   }
 
-  Future<AudioSource?> _sourceForSong(Song song) async {
+  Future<AudioSource?> _sourceForSong(Song song, {bool forceRefresh = false}) async {
     if (song.isLocal) {
       final file = File(song.localPath!);
       if (!await file.exists()) return null;
       return AudioSource.uri(Uri.file(song.localPath!), tag: _songToMediaItem(song));
     } else {
-      final url = await ApiService.resolveStreamUrl(song);
+      final url = await ApiService.resolveStreamUrl(song, forceRefresh: forceRefresh);
       if (url == null || url.isEmpty) return null;
       return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
+    }
+  }
+
+  /// Set the audio source for a song, with one automatic retry using a
+  /// freshly-resolved (non-cached) stream URL if the first attempt fails
+  /// to load (e.g. expired/expired YouTube URL, 403, etc).
+  Future<bool> _setSourceWithRetry(Song song) async {
+    var source = await _sourceForSong(song);
+    if (source == null) return false;
+    try {
+      await _player.setAudioSource(source);
+      return true;
+    } catch (_) {
+      // Stream URL likely expired/invalid — invalidate cache and retry once
+      ApiService.invalidateStream(song);
+      source = await _sourceForSong(song, forceRefresh: true);
+      if (source == null) return false;
+      try {
+        await _player.setAudioSource(source);
+        return true;
+      } catch (_) {
+        return false;
+      }
     }
   }
 
   Future<void> playSong(Song song) async {
     _queue = [song];
     _currentIndex = 0;
-    final source = await _sourceForSong(song);
-    if (source == null) return;
     _updateMediaItem(song);
-    await _player.setAudioSource(source);
+    final ok = await _setSourceWithRetry(song);
+    if (!ok) return;
     await _player.play();
   }
 
   Future<void> playQueue(List<Song> songs, int startIndex) async {
     _queue = List.from(songs);
     _currentIndex = startIndex;
-    final source = await _sourceForSong(songs[startIndex]);
-    if (source == null) return;
     _updateMediaItem(songs[startIndex]);
-    await _player.setAudioSource(source);
+    final ok = await _setSourceWithRetry(songs[startIndex]);
+    if (!ok) return;
     await _player.play();
   }
+
+  /// Tracks consecutive skip failures to avoid infinite recursion if every
+  /// remaining song in the queue fails to resolve.
+  int _consecutiveSkipFailures = 0;
 
   @override
   Future<void> skipToNext() async {
     if (_currentIndex < _queue.length - 1) {
       _currentIndex++;
-      final source = await _sourceForSong(_queue[_currentIndex]);
-      if (source == null) {
-        await skipToNext();
+      _updateMediaItem(_queue[_currentIndex]);
+      final ok = await _setSourceWithRetry(_queue[_currentIndex]);
+      if (!ok) {
+        _consecutiveSkipFailures++;
+        if (_consecutiveSkipFailures < _queue.length) {
+          await skipToNext();
+          return;
+        }
+        _consecutiveSkipFailures = 0;
         return;
       }
-      _updateMediaItem(_queue[_currentIndex]);
-      await _player.setAudioSource(source);
+      _consecutiveSkipFailures = 0;
       await _player.play();
     }
     _broadcastStateManual();
@@ -117,10 +147,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
     if (_currentIndex > 0) {
       _currentIndex--;
-      final source = await _sourceForSong(_queue[_currentIndex]);
-      if (source == null) return;
       _updateMediaItem(_queue[_currentIndex]);
-      await _player.setAudioSource(source);
+      final ok = await _setSourceWithRetry(_queue[_currentIndex]);
+      if (!ok) return;
       await _player.play();
     }
     _broadcastStateManual();
@@ -130,10 +159,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> skipToQueueItem(int index) async {
     if (index < 0 || index >= _queue.length) return;
     _currentIndex = index;
-    final source = await _sourceForSong(_queue[index]);
-    if (source == null) return;
     _updateMediaItem(_queue[index]);
-    await _player.setAudioSource(source);
+    final ok = await _setSourceWithRetry(_queue[index]);
+    if (!ok) return;
     await _player.play();
     _broadcastStateManual();
   }
