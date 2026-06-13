@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
-import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/library_provider.dart';
+import '../providers/recently_played_provider.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/song_tile.dart';
 import 'settings_screen.dart';
@@ -126,9 +126,8 @@ class LibraryScreen extends StatelessWidget {
   }
 
   Widget _buildRecentlyPlayed(BuildContext context) {
-    final player = context.watch<PlayerProvider>();
-    final song = player.currentSong;
-    if (song == null) {
+    final history = context.watch<RecentlyPlayedProvider>().history;
+    if (history.isEmpty) {
       return Padding(
         padding: const EdgeInsets.all(32),
         child: Center(
@@ -142,9 +141,14 @@ class LibraryScreen extends StatelessWidget {
         ),
       );
     }
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: SongTile(song: song, queue: [song], index: 0),
+    return Column(
+      children: [
+        for (int i = 0; i < history.length; i++)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+            child: SongTile(song: history[i], queue: history, index: i),
+          ),
+      ],
     );
   }
 }

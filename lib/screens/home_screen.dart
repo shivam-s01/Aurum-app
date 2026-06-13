@@ -5,6 +5,7 @@ import '../models/song.dart';
 import '../providers/player_provider.dart';
 import '../providers/source_provider.dart';
 import '../providers/library_provider.dart';
+import '../providers/recently_played_provider.dart';
 import '../services/api_service.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
@@ -37,7 +38,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadOnline() async {
     setState(() { _onlineLoading = true; _onlineError = null; });
     try {
-      final sections = await ApiService.fetchHome();
+      final topArtists = context.read<RecentlyPlayedProvider>().topArtists();
+      final sections = await ApiService.fetchHome(topArtists: topArtists);
       if (mounted) setState(() { _onlineSections = sections; _onlineLoading = false; });
     } catch (e) {
       if (mounted) setState(() { _onlineError = 'Failed to load. Check connection.'; _onlineLoading = false; });

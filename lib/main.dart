@@ -11,6 +11,8 @@ import 'providers/theme_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
 import 'providers/source_provider.dart';
+import 'providers/favorites_provider.dart';
+import 'providers/recently_played_provider.dart';
 import 'screens/splash_screen.dart';
 
 late AurumAudioHandler _audioHandler;
@@ -62,6 +64,8 @@ class AurumApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => PlayerProvider(handler)),
         ChangeNotifierProvider(create: (_) => LibraryProvider()),
         ChangeNotifierProvider(create: (_) => SourceProvider()), // ← offline
+        ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()), // was missing — used by liked/library/song_tile
+        ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()), // for Library "Recently Played" + Home "Made For You"
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {

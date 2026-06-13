@@ -33,10 +33,38 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   }
 
   // Call this whenever a song starts playing.
+  //
+  // FIX 1: Local songs (source == local) are skipped — their "artist" field
+  // is often unreliable/missing, and running a Saavn search for a local
+  // artist's name in topArtists() would just waste an API call for nothing.
+  // Local play history can still be tracked separately via LibraryProvider
+  // if needed — this provider is specifically for online recommendations.
+  //
+  // FIX 2: We strip `streamUrl` before persisting. Saavn/YouTube stream URLs
+  // expire after ~50 min (see ApiService._streamTtl) and are never read back
+  // from history — keeping them in Hive is just dead weight.
   Future<void> addPlay(Song song) async {
+    if (song.source == SongSource.local) return;
+
     // Avoid duplicate back-to-back entries (e.g. user replays same song).
     _history.removeWhere((s) => s.id == song.id);
-    _history.insert(0, song);
+
+    final entry = song.streamUrl == null
+        ? song
+        : Song(
+            id: song.id,
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+            artworkUrl: song.artworkUrl,
+            streamUrl: null,
+            duration: song.duration,
+            language: song.language,
+            year: song.year,
+            localPath: song.localPath,
+            source: song.source,
+          );
+    _history.insert(0, entry);
 
     // Trim to limit.
     if (_history.length > AppConstants.recentlyPlayedLimit) {
@@ -56,13 +84,17 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // Returns up to `count` most-listened artist names, ranked by play
   // frequency (ties broken by recency). Used to build "Made For You"
   // home sections. Empty list if no history yet (cold start).
+  //
+  // FIX 3: "Unknown" artist (Song's fallback when no artist data exists)
+  // is excluded — searching Saavn for "Unknown hits" returns junk results.
   List<String> topArtists({int count = 2}) {
     if (_history.isEmpty) return [];
 
     final freq = <String, int>{};
     for (final song in _history) {
-      if (song.artist.trim().isEmpty) continue;
-      freq[song.artist] = (freq[song.artist] ?? 0) + 1;
+      final artist = song.artist.trim();
+      if (artist.isEmpty || artist.toLowerCase() == 'unknown') continue;
+      freq[artist] = (freq[artist] ?? 0) + 1;
     }
 
     final sorted = freq.keys.toList()

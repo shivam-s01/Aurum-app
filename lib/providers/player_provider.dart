@@ -48,6 +48,39 @@ class PlayerProvider extends ChangeNotifier {
       _shuffle = s;
       notifyListeners();
     });
+    // --- "Next Play" auto-queue ---
+    // Whenever the queue index advances and only 2 songs remain after it,
+    // fetch more "same vibe" songs in the background and append them.
+    // This runs silently — user just sees the playlist never end.
+    _handler.player.currentIndexStream.listen((index) {
+      if (index == null) return;
+      _maybeExtendQueue(index);
+    });
+  }
+
+  bool _isExtendingQueue = false;
+
+  Future<void> _maybeExtendQueue(int index) async {
+    final q = _handler.currentQueue;
+    if (q.isEmpty) return;
+
+    final remaining = q.length - 1 - index;
+    if (remaining > 2 || _isExtendingQueue) return; // enough songs left, or already fetching
+
+    final current = q[index];
+    _isExtendingQueue = true;
+    try {
+      final nextSongs = await ApiService.getAutoQueue(current);
+      for (final song in nextSongs) {
+        await _handler.addToQueue(song);
+      }
+      if (nextSongs.isNotEmpty) notifyListeners();
+    } catch (_) {
+      // Silent fail — if it doesn't work, playlist just ends normally.
+      // No error shown to user; this is a background enhancement only.
+    } finally {
+      _isExtendingQueue = false;
+    }
   }
 
   bool get isPlaying => _isPlaying;
@@ -170,5 +203,3 @@ class PlayerProvider extends ChangeNotifier {
     return ApiService.fetchLyrics(song);
   }
 }
-
-// Note: append above the closing brace manually, or use the method below

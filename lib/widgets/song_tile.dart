@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/song.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/recently_played_provider.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_artwork.dart';
 
@@ -30,7 +31,10 @@ class SongTile extends StatelessWidget {
     final isLiked = fav.isFavorite(song.id);
 
     return InkWell(
-      onTap: () => player.playSong(song, queue: queue ?? [song], index: index ?? 0),
+      onTap: () {
+        context.read<RecentlyPlayedProvider>().addPlay(song);
+        player.playSong(song, queue: queue ?? [song], index: index ?? 0);
+      },
       onLongPress: () => _showOptions(context, player, fav),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
