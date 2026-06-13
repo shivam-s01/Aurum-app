@@ -194,17 +194,21 @@ class ApiService {
     // If song came from YouTube (id looks like YT video id, no saavn stream)
     final isYtSong = _isYouTubeId(song.id);
 
-    if (!isYtSong && song.id.isNotEmpty) {
-      // Try JioSaavn first
-      final url = await _saavnStreamById(song.id);
-      if (url != null) return url;
+    // 1. Pre-fetched streamUrl use karo (Saavn search sets this)
+    if (song.streamUrl != null && song.streamUrl!.startsWith('http')) {
+      return song.streamUrl;
     }
 
-    // Piped stream: if YT song use id directly, else search by title+artist
+    if (!isYtSong && song.id.isNotEmpty) {
+      final url = await _saavnStreamById(song.id);
+      if (url != null) return url;
+      return _pipedStreamBySearch('${song.title} ${song.artist}');
+    }
+
     if (isYtSong) {
       return _pipedStreamByVideoId(song.id);
     }
-    return _pipedStreamBySearch('${song.title} ${song.artist}');
+    return null;
   }
 
   /// YouTube video IDs are 11 chars, alphanumeric + - _
