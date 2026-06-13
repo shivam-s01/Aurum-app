@@ -155,6 +155,10 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> pause() async {
+    await _handler.pause();
+  }
+
   void closeFullPlayer() {
     _showFullPlayer = false;
     notifyListeners();
