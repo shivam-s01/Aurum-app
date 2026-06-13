@@ -408,7 +408,7 @@ class ApiService {
 
   // Returns the best available thumbnail URL from a VideoThumbnails object.
   // Tries from highest to lowest quality. Returns '' if none available.
-  static String _bestThumbnail(VideoThumbnails t) {
+  static String _bestThumbnail(dynamic t) {
     // Try all quality levels from best to worst
     for (final url in [
       t.maxResUrl,
