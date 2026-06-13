@@ -1,30 +1,41 @@
 import 'dart:convert';
+import 'dart:developer' as dev;
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/song.dart';
+import '../utils/constants.dart';
 
-/// Sources:
-///   Search  → JioSaavn + YouTube (youtube_explode_dart, client-side) combined results
-///   Home    → JioSaavn trending sections + YouTube trending
-///   Stream  → JioSaavn 320kbps → YouTube audio (resolved on-device via youtube_explode_dart)
+/// ═══════════════════════════════════════════════════════════════
+///  AURUM API SERVICE  —  production-grade, audited
+///
+///  Stream resolution priority (all sources):
+///    1. Cache hit (50-min TTL) → return immediately
+///    2. SongSource.saavn  → Saavn /song/?id= → 320kbps URL
+///                           → YT search fallback
+///    3. SongSource.youtube → Cloudflare worker /api/yt-stream?id=
+///                           → youtube_explode_dart fallback
+///                           → YT search fallback
+///    4. SongSource.local  → localPath
+///
+///  Source detection is based SOLELY on song.source enum, which is
+///  set at parse time from the origin API response — no ID-regex
+///  guessing anywhere.
+/// ═══════════════════════════════════════════════════════════════
 class ApiService {
   static final _client = http.Client();
   static final _yt = YoutubeExplode();
 
-  static const _saavn = 'https://jiosavan.onrender.com';
+  // ── Base URLs ──────────────────────────────────────────────────
+  static const _saavn  = 'https://jiosavan.onrender.com';
+  static const _worker = AppConstants.apiBase; // https://aurum-stream.sharmashivam9109.workers.dev
 
-  // ─────────────────────────────────────────────────────────
-  //  STREAM URL CACHE
-  //  Avoids re-resolving the same song's stream repeatedly.
-  //  YouTube URLs expire (~6hrs), Saavn URLs are longer-lived
-  //  but we cache both with a conservative TTL.
-  // ─────────────────────────────────────────────────────────
+  // ── Stream cache ───────────────────────────────────────────────
   static final Map<String, _CachedStream> _streamCache = {};
   static const _streamTtl = Duration(minutes: 50);
 
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
   //  HOME
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
 
   static Future<List<SongSection>> fetchHome() async {
     final results = await Future.wait([
@@ -42,22 +53,19 @@ class ApiService {
     return null;
   }
 
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
   //  SEARCH — JioSaavn + YouTube combined
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
 
   static Future<List<Song>> search(String query) async {
-    // Run both in parallel
     final both = await Future.wait([
       _searchSaavn(query, limit: 20),
       _searchYt(query, limit: 15),
     ]);
 
     final saavnResults = both[0];
-    final ytResults = both[1];
+    final ytResults    = both[1];
 
-    // Merge: interleave so both sources visible (Saavn first, then YT)
-    // De-duplicate by title+artist similarity
     final merged = <Song>[...saavnResults];
     final existingTitles = saavnResults
         .map((s) => _normalise(s.title))
@@ -68,17 +76,15 @@ class ApiService {
         merged.add(yt);
       }
     }
-
     return merged;
   }
 
-  static String _normalise(String s) =>
-      s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '').substring(
-            0,
-            s.length > 20 ? 20 : s.length,
-          );
+  static String _normalise(String s) {
+    final clean = s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return clean.substring(0, clean.length.clamp(0, 20));
+  }
 
-  // ── JioSaavn search ───────────────────────────────────────
+  // ── JioSaavn search ───────────────────────────────────────────
 
   static Future<List<Song>> _searchSaavn(String query, {int limit = 20}) async {
     try {
@@ -88,8 +94,9 @@ class ApiService {
       final res = await _client.get(url).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        // onrender returns a List directly
-        final results = data is List ? data : (data['data']?['results'] ?? data['data'] ?? []);
+        final results = data is List
+            ? data
+            : (data['data']?['results'] ?? data['data'] ?? []);
         if (results is List && results.isNotEmpty) {
           return results
               .whereType<Map<String, dynamic>>()
@@ -99,27 +106,32 @@ class ApiService {
               .toList();
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      dev.log('[Aurum] Saavn search error: $e', name: 'ApiService');
+    }
     return [];
   }
 
-  // ── YouTube search (client-side via youtube_explode_dart) ──
+  // ── YouTube search (client-side via youtube_explode_dart) ──────
 
   static Future<List<Song>> _searchYt(String query, {int limit = 15}) async {
     try {
-      final results = await _yt.search.search(query).timeout(const Duration(seconds: 6));
+      final results = await _yt.search
+          .search(query)
+          .timeout(const Duration(seconds: 6));
       return results
           .whereType<Video>()
           .take(limit)
           .map(_songFromYtVideo)
           .where((s) => s.id.isNotEmpty)
           .toList();
-    } catch (_) {}
+    } catch (e) {
+      dev.log('[Aurum] YT search error: $e', name: 'ApiService');
+    }
     return [];
   }
 
   static Song _songFromYtVideo(Video v) {
-    // Pick the highest-resolution thumbnail available
     final thumb = v.thumbnails.maxResUrl.isNotEmpty
         ? v.thumbnails.maxResUrl
         : v.thumbnails.highResUrl;
@@ -129,15 +141,15 @@ class ApiService {
       artist: _cleanText(v.author),
       album: '',
       artworkUrl: thumb,
-      streamUrl: null, // resolved fresh on play
+      streamUrl: null,
       duration: v.duration?.inSeconds,
-      source: SongSource.youtube,
+      source: SongSource.youtube, // ← EXPLICIT, never guessed
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
   //  SUGGESTIONS
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
 
   static Future<List<String>> suggest(String query) async {
     final results = await _suggestSaavn(query);
@@ -156,7 +168,8 @@ class ApiService {
         if (results is List) {
           return results
               .whereType<Map<String, dynamic>>()
-              .map((j) => _cleanText((j['song'] ?? j['name'] ?? j['title'] ?? '').toString()))
+              .map((j) => _cleanText(
+                    (j['song'] ?? j['name'] ?? j['title'] ?? '').toString()))
               .where((s) => s.isNotEmpty)
               .take(5)
               .toList();
@@ -166,45 +179,106 @@ class ApiService {
     return [];
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  STREAM URL RESOLUTION
-  //  Priority: cache → JioSaavn 320kbps → YouTube fallback
-  //  Cached, retried, and source-aware (no ID guessing).
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
+  //  STREAM URL RESOLUTION  ← THE AUDITED CORE
+  //
+  //  BUG FIXED: source detection is now 100% based on song.source
+  //  enum, which is set at search/parse time. No regex. No guessing.
+  //
+  //  FLOW:
+  //    Step 1 → cache check (return immediately if hit)
+  //    Step 2 → local shortcut
+  //    Step 3 → switch on song.source (saavn / youtube / local)
+  //    Step 4 → cache resolved URL, return
+  // ═══════════════════════════════════════════════════════════════
 
-  static Future<String?> resolveStreamUrl(Song song, {bool forceRefresh = false}) async {
-    if (song.isLocal) return song.localPath;
+  static Future<String?> resolveStreamUrl(
+    Song song, {
+    bool forceRefresh = false,
+  }) async {
+    // ── Step 1: local shortcut ─────────────────────────────────
+    if (song.isLocal) {
+      dev.log('[Aurum] resolveStreamUrl: local path ${song.localPath}',
+          name: 'ApiService');
+      return song.localPath;
+    }
 
     final cacheKey = '${song.source.name}:${song.id}';
 
-    // 1. Cache hit — return instantly if not expired
+    // ── Step 2: cache hit ──────────────────────────────────────
     if (!forceRefresh) {
       final cached = _streamCache[cacheKey];
       if (cached != null && !cached.isExpired) {
+        dev.log('[Aurum] resolveStreamUrl: cache HIT for ${song.title} '
+            '(${song.source.name}:${song.id})',
+            name: 'ApiService');
         return cached.url;
       }
     }
 
-    // 2. Pre-fetched streamUrl from search results (Saavn sets this)
-    if (!forceRefresh && song.streamUrl != null && song.streamUrl!.startsWith('http')) {
+    // ── Step 3: pre-fetched streamUrl shortcut (Saavn 320kbps) ─
+    // Only trust if the song is explicitly Saavn and the URL looks valid.
+    if (!forceRefresh &&
+        song.source == SongSource.saavn &&
+        song.streamUrl != null &&
+        song.streamUrl!.startsWith('http')) {
+      dev.log('[Aurum] resolveStreamUrl: using pre-fetched Saavn URL '
+          'for "${song.title}"',
+          name: 'ApiService');
       _streamCache[cacheKey] = _CachedStream(song.streamUrl!);
       return song.streamUrl;
     }
 
+    dev.log('[Aurum] resolveStreamUrl: resolving "${song.title}" '
+        'source=${song.source.name} id=${song.id} forceRefresh=$forceRefresh',
+        name: 'ApiService');
+
     String? url;
 
-    // 3. Source-aware resolution (no ID-pattern guessing)
+    // ── Step 4: source-aware resolution ───────────────────────
     switch (song.source) {
-      case SongSource.youtube:
-        url = await _retry(() => _ytStreamByVideoId(song.id));
-        url ??= await _retry(() => _ytStreamBySearch('${song.title} ${song.artist}'));
-        break;
 
+      // ── SAAVN ──────────────────────────────────────────────
       case SongSource.saavn:
         if (song.id.isNotEmpty) {
           url = await _retry(() => _saavnStreamById(song.id));
+          dev.log('[Aurum] Saavn stream by ID: ${url != null ? "OK" : "FAILED"}',
+              name: 'ApiService');
         }
-        url ??= await _retry(() => _ytStreamBySearch('${song.title} ${song.artist}'));
+        if (url == null) {
+          dev.log('[Aurum] Saavn stream failed, falling back to YT search '
+              'for "${song.title} ${song.artist}"',
+              name: 'ApiService');
+          url = await _retry(
+              () => _ytStreamBySearch('${song.title} ${song.artist}'));
+        }
+        break;
+
+      // ── YOUTUBE ────────────────────────────────────────────
+      //  Priority: Worker → youtube_explode_dart → YT search
+      case SongSource.youtube:
+        if (song.id.isNotEmpty) {
+          // PRIMARY: Cloudflare worker (avoids client-IP Innertube blocks)
+          url = await _retry(() => _workerYtStream(song.id));
+          dev.log('[Aurum] Worker YT stream for ${song.id}: '
+              '${url != null ? "OK" : "FAILED"}',
+              name: 'ApiService');
+
+          // FALLBACK 1: youtube_explode_dart direct
+          if (url == null) {
+            dev.log('[Aurum] Falling back to youtube_explode_dart for ${song.id}',
+                name: 'ApiService');
+            url = await _retry(() => _ytExplodeStream(song.id));
+          }
+        }
+        // FALLBACK 2: search-based resolution
+        if (url == null) {
+          dev.log('[Aurum] Falling back to YT search stream for '
+              '"${song.title} ${song.artist}"',
+              name: 'ApiService');
+          url = await _retry(
+              () => _ytStreamBySearch('${song.title} ${song.artist}'));
+        }
         break;
 
       case SongSource.local:
@@ -212,50 +286,117 @@ class ApiService {
     }
 
     if (url != null) {
+      dev.log('[Aurum] resolveStreamUrl: resolved "${song.title}" → '
+          '${url.substring(0, url.length.clamp(0, 80))}...',
+          name: 'ApiService');
       _streamCache[cacheKey] = _CachedStream(url);
+    } else {
+      dev.log('[Aurum] resolveStreamUrl: FAILED for "${song.title}" '
+          '(${song.source.name}:${song.id})',
+          name: 'ApiService');
     }
+
     return url;
   }
 
-  /// Retry a resolver up to 2 times with a short delay — handles transient
-  /// network blips without giving up on the first failure.
-  static Future<String?> _retry(Future<String?> Function() fn, {int attempts = 2}) async {
-    for (var i = 0; i < attempts; i++) {
-      try {
-        final result = await fn();
-        if (result != null && result.isNotEmpty) return result;
-      } catch (_) {}
-      if (i < attempts - 1) await Future.delayed(const Duration(milliseconds: 400));
+  // ═══════════════════════════════════════════════════════════════
+  //  YOUTUBE STREAM METHODS
+  // ═══════════════════════════════════════════════════════════════
+
+  /// PRIMARY: Route through Cloudflare worker to avoid client-IP
+  /// Innertube bot-detection blocks. The worker calls Innertube
+  /// from a trusted server IP, which is exactly what SimpMusic,
+  /// InnerTune, and RiMusic do behind their reverse proxies.
+  static Future<String?> _workerYtStream(String videoId) async {
+    try {
+      final uri = Uri.parse('$_worker/api/yt-stream?id=$videoId');
+      dev.log('[Aurum] Worker request: $uri', name: 'ApiService');
+      final res = await _client
+          .get(uri)
+          .timeout(const Duration(seconds: 15));
+      dev.log('[Aurum] Worker response: status=${res.statusCode} '
+          'headers=${res.headers}',
+          name: 'ApiService');
+      if (res.statusCode == 200) {
+        // Worker may return: { "url": "..." } or redirect or raw audio
+        final ct = res.headers['content-type'] ?? '';
+        if (ct.contains('application/json')) {
+          final data = jsonDecode(res.body);
+          final url = (data['url'] ?? data['stream_url'] ?? data['audio_url'])
+              ?.toString();
+          if (url != null && url.startsWith('http')) return url;
+          dev.log('[Aurum] Worker JSON body had no URL: ${res.body.substring(0, res.body.length.clamp(0, 200))}',
+              name: 'ApiService');
+          return null;
+        }
+        // If worker returns redirect or direct stream URL in body as text
+        final body = res.body.trim();
+        if (body.startsWith('http')) return body;
+      } else {
+        dev.log('[Aurum] Worker error body: ${res.body.substring(0, res.body.length.clamp(0, 300))}',
+            name: 'ApiService');
+      }
+    } catch (e) {
+      dev.log('[Aurum] Worker request exception: $e', name: 'ApiService');
     }
     return null;
   }
 
-  /// Call this when a song fails to play (e.g. 403/expired URL) — clears the
-  /// cached stream so the next attempt re-resolves fresh.
-  static void invalidateStream(Song song) {
-    _streamCache.remove('${song.source.name}:${song.id}');
+  /// FALLBACK 1: youtube_explode_dart direct Innertube (may hit bot-detection
+  /// on residential/mobile IPs — hence worker is primary).
+  static Future<String?> _ytExplodeStream(String videoId) async {
+    try {
+      final manifest = await _yt.videos.streamsClient
+          .getManifest(VideoId(videoId))
+          .timeout(const Duration(seconds: 12));
+      if (manifest.audioOnly.isEmpty) return null;
+      final best = manifest.audioOnly.withHighestBitrate();
+      return best.url.toString();
+    } catch (e) {
+      dev.log('[Aurum] youtube_explode_dart error for $videoId: $e',
+          name: 'ApiService');
+    }
+    return null;
   }
 
-  // ── JioSaavn stream ───────────────────────────────────────
+  /// FALLBACK 2: search → pick first video → resolve stream.
+  static Future<String?> _ytStreamBySearch(String query) async {
+    try {
+      final results = await _yt.search
+          .search(query)
+          .timeout(const Duration(seconds: 12));
+      final videos = results.whereType<Video>().toList();
+      if (videos.isEmpty) return null;
+      final id = videos.first.id.value;
+      // Try worker first, then explode
+      return await _workerYtStream(id) ?? await _ytExplodeStream(id);
+    } catch (e) {
+      dev.log('[Aurum] YT search stream error: $e', name: 'ApiService');
+    }
+    return null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SAAVN STREAM METHODS
+  // ═══════════════════════════════════════════════════════════════
 
   static Future<String?> _saavnStreamById(String songId) async {
     try {
-      // onrender: /song/?id=SONGID
       final res = await _client
           .get(Uri.parse('$_saavn/song/?id=$songId'))
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        // onrender returns list or single object
         final Map<String, dynamic>? songData = data is List && data.isNotEmpty
             ? data[0] as Map<String, dynamic>?
             : (data is Map ? data as Map<String, dynamic> : null);
         if (songData != null) {
-          final url = _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
-          return url;
+          return _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      dev.log('[Aurum] Saavn stream by ID error: $e', name: 'ApiService');
+    }
     return null;
   }
 
@@ -270,47 +411,69 @@ class ApiService {
         if (match != null) return match['url'] as String;
       }
       final last = downloads.last;
-      if ((last['url'] as String?)?.startsWith('http') == true) return last['url'] as String;
+      if ((last['url'] as String?)?.startsWith('http') == true) {
+        return last['url'] as String;
+      }
     }
     final mediaUrl = song['media_url'] ?? song['streamUrl'];
     if (mediaUrl is String && mediaUrl.startsWith('http')) return mediaUrl;
     return null;
   }
 
-  // ── YouTube stream (client-side via youtube_explode_dart) ──
+  // ═══════════════════════════════════════════════════════════════
+  //  RETRY HELPER
+  // ═══════════════════════════════════════════════════════════════
 
-  static Future<String?> _ytStreamByVideoId(String videoId) async {
-    try {
-      final manifest = await _yt.videos.streamsClient
-          .getManifest(VideoId(videoId))
-          .timeout(const Duration(seconds: 12));
-      if (manifest.audioOnly.isEmpty) return null;
-      final best = manifest.audioOnly.withHighestBitrate();
-      return best.url.toString();
-    } catch (_) {}
+  static Future<String?> _retry(
+    Future<String?> Function() fn, {
+    int attempts = 2,
+  }) async {
+    for (var i = 0; i < attempts; i++) {
+      try {
+        final result = await fn();
+        if (result != null && result.isNotEmpty) return result;
+      } catch (_) {}
+      if (i < attempts - 1) {
+        await Future.delayed(const Duration(milliseconds: 400));
+      }
+    }
     return null;
   }
 
-  static Future<String?> _ytStreamBySearch(String query) async {
-    try {
-      final results = await _yt.search.search(query).timeout(const Duration(seconds: 12));
-      final videos = results.whereType<Video>().toList();
-      if (videos.isEmpty) return null;
-      return _ytStreamByVideoId(videos.first.id.value);
-    } catch (_) {}
-    return null;
+  // ═══════════════════════════════════════════════════════════════
+  //  CACHE MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+
+  static void invalidateStream(Song song) {
+    final key = '${song.source.name}:${song.id}';
+    _streamCache.remove(key);
+    dev.log('[Aurum] Stream cache invalidated for ${song.source.name}:${song.id}',
+        name: 'ApiService');
   }
 
-  // ═══════════════════════════════════════════════════════════
+  static void onNetworkRestored() {
+    dev.log('[Aurum] Network restored — cache intact, URLs will re-resolve on demand',
+        name: 'ApiService');
+  }
+
+  static void prefetchNext(Song song) {
+    if (song.isLocal) return;
+    Future.microtask(() async {
+      try {
+        await resolveStreamUrl(song);
+      } catch (_) {}
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   //  SONG PARSERS
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
 
   static Song _songFromSaavn(Map<String, dynamic> j) {
-    // onrender keys: song, primary_artists, singers, image, albumid, id, 320kbps, duration, language, year
-    final title = _cleanText((j['song'] ?? j['name'] ?? j['title'] ?? 'Unknown').toString());
+    final title  = _cleanText((j['song'] ?? j['name'] ?? j['title'] ?? 'Unknown').toString());
     final artist = _cleanText((j['primary_artists'] ?? j['singers'] ?? j['artist'] ?? 'Unknown').toString());
-    final album = _cleanText((j['album'] ?? '').toString());
-    final artwork = _onrenderArtwork(j);
+    final album  = _cleanText((j['album'] ?? '').toString());
+    final artwork   = _onrenderArtwork(j);
     final streamUrl = _onrenderStreamUrl(j);
     return Song(
       id: (j['id'] ?? '').toString(),
@@ -320,42 +483,17 @@ class ApiService {
       artworkUrl: artwork,
       streamUrl: streamUrl,
       duration: _parseInt(j['duration']),
-      language: j['language']?.toString() ?? 'hindi', // onrender songs are Saavn = always set
+      language: j['language']?.toString() ?? 'hindi',
       year: j['year']?.toString(),
+      source: SongSource.saavn, // ← ALWAYS explicit, never regex-guessed
     );
   }
 
-
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
   //  HELPERS
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
 
-  static String _saavnArtists(Map<String, dynamic> j) {
-    final primary = j['artists']?['primary'];
-    if (primary is List && primary.isNotEmpty) {
-      return primary
-          .map((a) => a['name'] ?? '')
-          .where((n) => n.toString().isNotEmpty)
-          .join(', ');
-    }
-    return (j['primary_artists'] ?? j['primaryArtists'] ?? j['singers'] ?? 'Unknown').toString();
-  }
-
-  static String _saavnArtwork(Map<String, dynamic> j) {
-    final images = j['image'];
-    if (images is List && images.isNotEmpty) {
-      for (final img in images.reversed) {
-        final link = (img['url'] ?? img['link'] ?? '').toString();
-        if (link.isNotEmpty) return link;
-      }
-    }
-    final raw = (j['artwork'] ?? j['thumbnail'] ?? '').toString();
-    return raw.replaceAll('150x150', '500x500').replaceAll('50x50', '500x500');
-  }
-
-  // onrender-specific helpers
   static String _onrenderArtwork(Map<String, dynamic> j) {
-    // onrender: image field is a direct URL string
     final img = (j['image'] ?? '').toString();
     if (img.startsWith('http')) {
       return img
@@ -366,7 +504,6 @@ class ApiService {
   }
 
   static String? _onrenderStreamUrl(Map<String, dynamic> j) {
-    // onrender: 320kbps field has the stream URL directly
     final url320 = (j['320kbps'] ?? '').toString();
     if (url320.startsWith('http')) return url320;
     final urlMedia = (j['media_url'] ?? '').toString();
@@ -388,29 +525,13 @@ class ApiService {
     return null;
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  NETWORK / PREFETCH / LYRICS / DEBUG
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
+  //  LYRICS
+  // ═══════════════════════════════════════════════════════════════
 
-  /// Called when network is restored (e.g. after audio interruption).
-  /// No-op here — stream URLs are re-fetched on demand.
-  static void onNetworkRestored() {}
-
-  /// Pre-resolve next track's stream URL so playback is instant.
-  static void prefetchNext(Song song) {
-    if (song.isLocal) return;
-    // Fire-and-forget — ignore result, just warm the streamUrl
-    Future.microtask(() async {
-      try {
-        await resolveStreamUrl(song);
-      } catch (_) {}
-    });
-  }
-
-  /// Fetch lyrics for a song via JioSaavn API.
   static Future<String?> fetchLyrics(Song song) async {
     if (song.isLocal || song.id.isEmpty) return null;
-    if (song.source != SongSource.saavn) return null; // YT/local songs have no Saavn lyrics
+    if (song.source != SongSource.saavn) return null;
     try {
       final res = await _client
           .get(Uri.parse('$_saavn/lyrics/?id=${song.id}'))
@@ -424,38 +545,96 @@ class ApiService {
     return null;
   }
 
-  /// Debug helper — tests YouTube stream resolution and returns a report.
-  static Future<String> debugYtSearch() async {
+  // ═══════════════════════════════════════════════════════════════
+  //  DEBUG
+  // ═══════════════════════════════════════════════════════════════
+
+  static Future<String> debugPlaybackPath() async {
     final buf = StringBuffer();
-    const testId = 'dQw4w9WgXcQ'; // Rick Astley — reliable test video
-    buf.writeln('=== Aurum Debug Report ===');
+    buf.writeln('=== Aurum Playback Path Debug ===');
     buf.writeln('Time: ${DateTime.now()}');
+    buf.writeln('Worker base: $_worker');
+    buf.writeln('Saavn base:  $_saavn');
     buf.writeln('');
-    buf.writeln('▶ Testing YouTube stream for id: $testId');
+
+    // ── Test 1: Worker endpoint ──
+    buf.writeln('▶ 1. Testing Cloudflare worker /api/yt-stream?id=dQw4w9WgXcQ');
     try {
-      final url = await _ytStreamByVideoId(testId);
+      final url = await _workerYtStream('dQw4w9WgXcQ');
       if (url != null) {
-        buf.writeln('✅ YouTube stream OK');
-        buf.writeln('   URL: ${url.substring(0, url.length.clamp(0, 80))}...');
+        buf.writeln('   ✅ Worker OK → ${url.substring(0, url.length.clamp(0, 80))}...');
       } else {
-        buf.writeln('❌ YouTube stream returned null');
+        buf.writeln('   ❌ Worker returned null — check worker logs');
       }
     } catch (e) {
-      buf.writeln('❌ YouTube stream error: $e');
+      buf.writeln('   ❌ Worker exception: $e');
     }
     buf.writeln('');
-    buf.writeln('▶ Testing Saavn search...');
+
+    // ── Test 2: youtube_explode_dart ──
+    buf.writeln('▶ 2. Testing youtube_explode_dart for dQw4w9WgXcQ');
+    try {
+      final url = await _ytExplodeStream('dQw4w9WgXcQ');
+      if (url != null) {
+        buf.writeln('   ✅ youtube_explode OK');
+      } else {
+        buf.writeln('   ❌ youtube_explode returned null (possible Innertube block)');
+      }
+    } catch (e) {
+      buf.writeln('   ❌ youtube_explode exception: $e');
+    }
+    buf.writeln('');
+
+    // ── Test 3: Saavn search ──
+    buf.writeln('▶ 3. Testing Saavn search (arijit singh)');
     try {
       final songs = await _searchSaavn('arijit singh', limit: 1);
       if (songs.isNotEmpty) {
-        buf.writeln('✅ Saavn search OK — "${songs.first.title}"');
-        buf.writeln('   streamUrl: ${songs.first.streamUrl != null ? "present" : "null"}');
+        buf.writeln('   ✅ Saavn search OK — "${songs.first.title}"');
+        buf.writeln('   source: ${songs.first.source.name}');
+        buf.writeln('   streamUrl present: ${songs.first.streamUrl != null}');
       } else {
-        buf.writeln('❌ Saavn search returned 0 results');
+        buf.writeln('   ❌ Saavn search returned 0 results');
       }
     } catch (e) {
-      buf.writeln('❌ Saavn search error: $e');
+      buf.writeln('   ❌ Saavn search exception: $e');
     }
+    buf.writeln('');
+
+    // ── Test 4: Full resolveStreamUrl for a Saavn song ──
+    buf.writeln('▶ 4. Testing resolveStreamUrl for a Saavn song');
+    try {
+      final songs = await _searchSaavn('arijit singh', limit: 1);
+      if (songs.isNotEmpty) {
+        final url = await resolveStreamUrl(songs.first);
+        buf.writeln(url != null
+            ? '   ✅ Saavn resolveStreamUrl OK'
+            : '   ❌ Saavn resolveStreamUrl returned null');
+      }
+    } catch (e) {
+      buf.writeln('   ❌ Exception: $e');
+    }
+    buf.writeln('');
+
+    // ── Test 5: Full resolveStreamUrl for a YouTube song ──
+    buf.writeln('▶ 5. Testing resolveStreamUrl for a YouTube song (Rick Astley)');
+    try {
+      final ytSong = Song(
+        id: 'dQw4w9WgXcQ',
+        title: 'Never Gonna Give You Up',
+        artist: 'Rick Astley',
+        album: '',
+        artworkUrl: '',
+        source: SongSource.youtube,
+      );
+      final url = await resolveStreamUrl(ytSong, forceRefresh: true);
+      buf.writeln(url != null
+          ? '   ✅ YouTube resolveStreamUrl OK'
+          : '   ❌ YouTube resolveStreamUrl returned null — BOTH worker and explode failed');
+    } catch (e) {
+      buf.writeln('   ❌ Exception: $e');
+    }
+
     return buf.toString();
   }
 }
