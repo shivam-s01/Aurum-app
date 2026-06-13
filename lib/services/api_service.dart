@@ -1,16 +1,17 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/song.dart';
 
 /// Sources:
-///   Search  → JioSaavn + YouTube (Piped) combined results
+///   Search  → JioSaavn + YouTube (youtube_explode_dart, client-side) combined results
 ///   Home    → JioSaavn trending sections + YouTube trending
-///   Stream  → JioSaavn 320kbps → Piped YouTube fallback
+///   Stream  → JioSaavn 320kbps → YouTube audio (resolved on-device via youtube_explode_dart)
 class ApiService {
   static final _client = http.Client();
+  static final _yt = YoutubeExplode();
 
   static const _saavn = 'https://jiosavan.onrender.com';
-  static const _piped = 'https://pipedapi.kavin.rocks';
 
   // ═══════════════════════════════════════════════════════════
   //  HOME
@@ -21,7 +22,7 @@ class ApiService {
       _saavnSection('trending hindi songs', '🔥 Trending Now'),
       _saavnSection('bollywood hits', '🎬 Bollywood Hits'),
       _saavnSection('hindi top charts', '🎵 Hindi Top Charts'),
-      _pipedSection('top english songs 2024', '🎧 YouTube Picks'),
+      _ytSection('top english songs 2024', '🎧 YouTube Picks'),
     ]);
     return results.whereType<SongSection>().toList();
   }
@@ -32,8 +33,8 @@ class ApiService {
     return null;
   }
 
-  static Future<SongSection?> _pipedSection(String query, String label) async {
-    final songs = await _searchPiped(query, limit: 15);
+  static Future<SongSection?> _ytSection(String query, String label) async {
+    final songs = await _searchYt(query, limit: 15);
     if (songs.isNotEmpty) return SongSection(title: label, songs: songs);
     return null;
   }
@@ -46,11 +47,11 @@ class ApiService {
     // Run both in parallel
     final both = await Future.wait([
       _searchSaavn(query, limit: 20),
-      _searchPiped(query, limit: 15),
+      _searchYt(query, limit: 15),
     ]);
 
     final saavnResults = both[0];
-    final pipedResults = both[1];
+    final ytResults = both[1];
 
     // Merge: interleave so both sources visible (Saavn first, then YT)
     // De-duplicate by title+artist similarity
@@ -59,7 +60,7 @@ class ApiService {
         .map((s) => _normalise(s.title))
         .toSet();
 
-    for (final yt in pipedResults) {
+    for (final yt in ytResults) {
       if (!existingTitles.contains(_normalise(yt.title))) {
         merged.add(yt);
       }
@@ -99,25 +100,35 @@ class ApiService {
     return [];
   }
 
-  // ── Piped (YouTube) search ────────────────────────────────
+  // ── YouTube search (client-side via youtube_explode_dart) ──
 
-  static Future<List<Song>> _searchPiped(String query, {int limit = 15}) async {
+  static Future<List<Song>> _searchYt(String query, {int limit = 15}) async {
     try {
-      final url = Uri.parse(
-        '$_piped/search?q=${Uri.encodeQueryComponent(query)}&filter=music_songs',
-      );
-      final res = await _client.get(url).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final items = (data['items'] as List? ?? [])
-            .whereType<Map<String, dynamic>>()
-            .where((j) => j['url'] != null && j['type'] != 'playlist')
-            .take(limit)
-            .toList();
-        return items.map(_songFromPiped).where((s) => s.id.isNotEmpty).toList();
-      }
+      final results = await _yt.search.search(query).timeout(const Duration(seconds: 12));
+      return results
+          .whereType<Video>()
+          .take(limit)
+          .map(_songFromYtVideo)
+          .where((s) => s.id.isNotEmpty)
+          .toList();
     } catch (_) {}
     return [];
+  }
+
+  static Song _songFromYtVideo(Video v) {
+    // Pick the highest-resolution thumbnail available
+    final thumb = v.thumbnails.maxResUrl.isNotEmpty
+        ? v.thumbnails.maxResUrl
+        : v.thumbnails.highResUrl;
+    return Song(
+      id: v.id.value,
+      title: _cleanText(v.title),
+      artist: _cleanText(v.author),
+      album: '',
+      artworkUrl: thumb,
+      streamUrl: null, // resolved fresh on play
+      duration: v.duration?.inSeconds,
+    );
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -125,21 +136,8 @@ class ApiService {
   // ═══════════════════════════════════════════════════════════
 
   static Future<List<String>> suggest(String query) async {
-    // Run both in parallel, merge unique suggestions
-    final both = await Future.wait([
-      _suggestSaavn(query),
-      _suggestPiped(query),
-    ]);
-    final seen = <String>{};
-    final merged = <String>[];
-    for (final list in both) {
-      for (final s in list) {
-        if (seen.add(s.toLowerCase())) merged.add(s);
-        if (merged.length >= 8) break;
-      }
-      if (merged.length >= 8) break;
-    }
-    return merged;
+    final results = await _suggestSaavn(query);
+    return results.take(8).toList();
   }
 
   static Future<List<String>> _suggestSaavn(String query) async {
@@ -164,30 +162,9 @@ class ApiService {
     return [];
   }
 
-  static Future<List<String>> _suggestPiped(String query) async {
-    try {
-      final url = Uri.parse(
-        '$_piped/search?q=${Uri.encodeQueryComponent(query)}&filter=music_songs',
-      );
-      final res = await _client.get(url).timeout(const Duration(seconds: 5));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final items = data['items'] as List? ?? [];
-        return items
-            .whereType<Map<String, dynamic>>()
-            .where((j) => j['title'] != null)
-            .map((j) => _cleanText(j['title'].toString()))
-            .where((s) => s.isNotEmpty)
-            .take(4)
-            .toList();
-      }
-    } catch (_) {}
-    return [];
-  }
-
   // ═══════════════════════════════════════════════════════════
   //  STREAM URL RESOLUTION
-  //  Priority: JioSaavn 320kbps → Piped YouTube fallback
+  //  Priority: JioSaavn 320kbps → YouTube fallback (client-side)
   // ═══════════════════════════════════════════════════════════
 
   static Future<String?> resolveStreamUrl(Song song) async {
@@ -204,11 +181,11 @@ class ApiService {
     if (!isYtSong && song.id.isNotEmpty) {
       final url = await _saavnStreamById(song.id);
       if (url != null) return url;
-      return _pipedStreamBySearch('${song.title} ${song.artist}');
+      return _ytStreamBySearch('${song.title} ${song.artist}');
     }
 
     if (isYtSong) {
-      return _pipedStreamByVideoId(song.id);
+      return _ytStreamByVideoId(song.id);
     }
     return null;
   }
@@ -258,47 +235,28 @@ class ApiService {
     return null;
   }
 
-  // ── Piped stream ──────────────────────────────────────────
+  // ── YouTube stream (client-side via youtube_explode_dart) ──
 
-  static Future<String?> _pipedStreamByVideoId(String videoId) async {
+  static Future<String?> _ytStreamByVideoId(String videoId) async {
     try {
-      final res = await _client
-          .get(Uri.parse('$_piped/streams/$videoId'))
-          .timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        return _bestAudioFromPipedStreams(jsonDecode(res.body));
-      }
+      final manifest = await _yt.videos.streamsClient
+          .getManifest(VideoId(videoId))
+          .timeout(const Duration(seconds: 12));
+      if (manifest.audioOnly.isEmpty) return null;
+      final best = manifest.audioOnly.withHighestBitrate();
+      return best.url.toString();
     } catch (_) {}
     return null;
   }
 
-  static Future<String?> _pipedStreamBySearch(String query) async {
+  static Future<String?> _ytStreamBySearch(String query) async {
     try {
-      final searchRes = await _client
-          .get(Uri.parse('$_piped/search?q=${Uri.encodeQueryComponent(query)}&filter=music_songs'))
-          .timeout(const Duration(seconds: 8));
-      if (searchRes.statusCode != 200) return null;
-
-      final items = (jsonDecode(searchRes.body)['items'] as List? ?? []);
-      final first = items.whereType<Map<String, dynamic>>().firstWhere(
-            (i) => i['url'] != null,
-            orElse: () => {},
-          );
-      if (first.isEmpty) return null;
-
-      final videoId = (first['url'] as String).replaceAll('/watch?v=', '');
-      return _pipedStreamByVideoId(videoId);
+      final results = await _yt.search.search(query).timeout(const Duration(seconds: 12));
+      final videos = results.whereType<Video>().toList();
+      if (videos.isEmpty) return null;
+      return _ytStreamByVideoId(videos.first.id.value);
     } catch (_) {}
     return null;
-  }
-
-  static String? _bestAudioFromPipedStreams(dynamic data) {
-    final audioStreams = data['audioStreams'] as List? ?? [];
-    if (audioStreams.isEmpty) return null;
-    audioStreams.sort((a, b) =>
-        ((b['bitrate'] ?? 0) as int).compareTo((a['bitrate'] ?? 0) as int));
-    final url = audioStreams.first['url'] as String?;
-    return (url != null && url.startsWith('http')) ? url : null;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -325,20 +283,6 @@ class ApiService {
     );
   }
 
-  static Song _songFromPiped(Map<String, dynamic> j) {
-    final url = (j['url'] ?? '').toString();
-    // Extract 11-char video ID from /watch?v=XXXXXXXXXXX
-    final videoId = url.contains('?v=') ? url.split('?v=').last : url;
-    return Song(
-      id: videoId,
-      title: _cleanText((j['title'] ?? 'Unknown').toString()),
-      artist: _cleanText((j['uploaderName'] ?? 'Unknown').toString()),
-      album: '',
-      artworkUrl: (j['thumbnail'] ?? '').toString(),
-      streamUrl: null, // always resolved fresh on play
-      duration: j['duration'] as int?,
-    );
-  }
 
   // ═══════════════════════════════════════════════════════════
   //  HELPERS
@@ -445,17 +389,17 @@ class ApiService {
     buf.writeln('=== Aurum Debug Report ===');
     buf.writeln('Time: ${DateTime.now()}');
     buf.writeln('');
-    buf.writeln('▶ Testing Piped stream for YT id: $testId');
+    buf.writeln('▶ Testing YouTube stream for id: $testId');
     try {
-      final url = await _pipedStreamByVideoId(testId);
+      final url = await _ytStreamByVideoId(testId);
       if (url != null) {
-        buf.writeln('✅ Piped stream OK');
+        buf.writeln('✅ YouTube stream OK');
         buf.writeln('   URL: ${url.substring(0, url.length.clamp(0, 80))}...');
       } else {
-        buf.writeln('❌ Piped stream returned null');
+        buf.writeln('❌ YouTube stream returned null');
       }
     } catch (e) {
-      buf.writeln('❌ Piped stream error: $e');
+      buf.writeln('❌ YouTube stream error: $e');
     }
     buf.writeln('');
     buf.writeln('▶ Testing Saavn search...');

@@ -22,6 +22,9 @@ dependencies:
   # HTTP
   http: ^1.2.0
 
+  # YouTube (client-side resolution, no backend needed)
+  youtube_explode_dart: ^2.2.1
+
   # UI
   cached_network_image: ^3.3.1
   shimmer: ^3.0.0
