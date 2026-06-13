@@ -115,7 +115,7 @@ class SettingsScreen extends StatelessWidget {
                         ),
                       ),
                     );
-                    final result = await ApiService.debugYtSearch();
+                    final result = await ApiService.debugPlaybackPath();
                     if (!context.mounted) return;
                     Navigator.pop(context);
                     showDialog(
