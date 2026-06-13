@@ -24,9 +24,9 @@ class SongTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<PlayerProvider>();
+    final player = context.read<PlayerProvider>();
     final fav = context.watch<FavoritesProvider>();
-    final isCurrentSong = player.currentSong?.id == song.id;
+    final isCurrentSong = context.select<PlayerProvider, bool>((p) => p.currentSong?.id == song.id);
     final isLiked = fav.isFavorite(song.id);
 
     return InkWell(
