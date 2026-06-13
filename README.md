@@ -64,12 +64,3 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-## API Endpoints Used
-| Endpoint | Purpose |
-|---|---|
-| `/api/songs` | Home trending songs |
-| `/api/saavn?query=X` | Category sections |
-| `/api/search?q=X` | Search results |
-| `/api/suggest?q=X` | Autocomplete suggestions |
-| `/api/play?id=X` | Resolve stream URL |
-| `/api/stream?id=X` | Fallback stream |
