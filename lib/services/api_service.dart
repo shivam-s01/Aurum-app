@@ -9,7 +9,7 @@ import '../models/song.dart';
 class ApiService {
   static final _client = http.Client();
 
-  static const _saavn = 'https://saavn.dev/api';
+  static const _saavn = 'https://jiosavan.onrender.com';
   static const _piped = 'https://pipedapi.kavin.rocks';
 
   // ═══════════════════════════════════════════════════════════
@@ -79,15 +79,17 @@ class ApiService {
   static Future<List<Song>> _searchSaavn(String query, {int limit = 20}) async {
     try {
       final url = Uri.parse(
-        '$_saavn/search/songs?query=${Uri.encodeQueryComponent(query)}&page=1&limit=$limit',
+        '$_saavn/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
       );
       final res = await _client.get(url).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        final results = data['data']?['results'] ?? data['data'] ?? [];
+        // onrender returns a List directly
+        final results = data is List ? data : (data['data']?['results'] ?? data['data'] ?? []);
         if (results is List && results.isNotEmpty) {
           return results
               .whereType<Map<String, dynamic>>()
+              .take(limit)
               .map(_songFromSaavn)
               .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
               .toList();
@@ -143,16 +145,16 @@ class ApiService {
   static Future<List<String>> _suggestSaavn(String query) async {
     try {
       final url = Uri.parse(
-        '$_saavn/search/songs?query=${Uri.encodeQueryComponent(query)}&page=1&limit=5',
+        '$_saavn/result/?query=${Uri.encodeQueryComponent(query)}&limit=5',
       );
       final res = await _client.get(url).timeout(const Duration(seconds: 5));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        final results = data['data']?['results'] ?? [];
+        final results = data is List ? data : (data['data']?['results'] ?? []);
         if (results is List) {
           return results
               .whereType<Map<String, dynamic>>()
-              .map((j) => _cleanText((j['name'] ?? j['title'] ?? '').toString()))
+              .map((j) => _cleanText((j['song'] ?? j['name'] ?? j['title'] ?? '').toString()))
               .where((s) => s.isNotEmpty)
               .take(5)
               .toList();
@@ -219,16 +221,20 @@ class ApiService {
 
   static Future<String?> _saavnStreamById(String songId) async {
     try {
+      // onrender: /song/?id=SONGID
       final res = await _client
-          .get(Uri.parse('$_saavn/songs/$songId'))
+          .get(Uri.parse('$_saavn/song/?id=$songId'))
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        final song = data['data'];
-        final Map<String, dynamic>? songData = song is List && song.isNotEmpty
-            ? song[0]
-            : (song is Map ? song as Map<String, dynamic> : null);
-        if (songData != null) return _extractSaavnStreamUrl(songData);
+        // onrender returns list or single object
+        final Map<String, dynamic>? songData = data is List && data.isNotEmpty
+            ? data[0] as Map<String, dynamic>?
+            : (data is Map ? data as Map<String, dynamic> : null);
+        if (songData != null) {
+          final url = _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
+          return url;
+        }
       }
     } catch (_) {}
     return null;
@@ -300,15 +306,21 @@ class ApiService {
   // ═══════════════════════════════════════════════════════════
 
   static Song _songFromSaavn(Map<String, dynamic> j) {
+    // onrender keys: song, primary_artists, singers, image, albumid, id, 320kbps, duration, language, year
+    final title = _cleanText((j['song'] ?? j['name'] ?? j['title'] ?? 'Unknown').toString());
+    final artist = _cleanText((j['primary_artists'] ?? j['singers'] ?? j['artist'] ?? 'Unknown').toString());
+    final album = _cleanText((j['album'] ?? '').toString());
+    final artwork = _onrenderArtwork(j);
+    final streamUrl = _onrenderStreamUrl(j);
     return Song(
       id: (j['id'] ?? '').toString(),
-      title: _cleanText((j['name'] ?? j['title'] ?? 'Unknown').toString()),
-      artist: _cleanText(_saavnArtists(j)),
-      album: _cleanText((j['album']?['name'] ?? j['album'] ?? '').toString()),
-      artworkUrl: _saavnArtwork(j),
-      streamUrl: _extractSaavnStreamUrl(j),
+      title: title,
+      artist: artist.isEmpty ? 'Unknown Artist' : artist,
+      album: album,
+      artworkUrl: artwork,
+      streamUrl: streamUrl,
       duration: _parseInt(j['duration']),
-      language: j['language']?.toString(),
+      language: j['language']?.toString() ?? 'hindi', // onrender songs are Saavn = always set
       year: j['year']?.toString(),
     );
   }
@@ -340,7 +352,7 @@ class ApiService {
           .where((n) => n.toString().isNotEmpty)
           .join(', ');
     }
-    return (j['primaryArtists'] ?? j['primary_artists'] ?? j['singers'] ?? 'Unknown').toString();
+    return (j['primary_artists'] ?? j['primaryArtists'] ?? j['singers'] ?? 'Unknown').toString();
   }
 
   static String _saavnArtwork(Map<String, dynamic> j) {
@@ -353,6 +365,27 @@ class ApiService {
     }
     final raw = (j['artwork'] ?? j['thumbnail'] ?? '').toString();
     return raw.replaceAll('150x150', '500x500').replaceAll('50x50', '500x500');
+  }
+
+  // onrender-specific helpers
+  static String _onrenderArtwork(Map<String, dynamic> j) {
+    // onrender: image field is a direct URL string
+    final img = (j['image'] ?? '').toString();
+    if (img.startsWith('http')) {
+      return img
+          .replaceAll('150x150', '500x500')
+          .replaceAll('50x50', '500x500');
+    }
+    return '';
+  }
+
+  static String? _onrenderStreamUrl(Map<String, dynamic> j) {
+    // onrender: 320kbps field has the stream URL directly
+    final url320 = (j['320kbps'] ?? '').toString();
+    if (url320.startsWith('http')) return url320;
+    final urlMedia = (j['media_url'] ?? '').toString();
+    if (urlMedia.startsWith('http')) return urlMedia;
+    return null;
   }
 
   static String _cleanText(String s) => s
@@ -394,7 +427,7 @@ class ApiService {
     if (_isYouTubeId(song.id)) return null; // YT songs have no Saavn lyrics
     try {
       final res = await _client
-          .get(Uri.parse('$_saavn/songs/${song.id}/lyrics'))
+          .get(Uri.parse('$_saavn/lyrics/?id=${song.id}'))
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
