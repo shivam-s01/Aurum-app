@@ -40,6 +40,12 @@ class LikedScreen extends StatelessWidget {
           ),
           Consumer<FavoritesProvider>(
             builder: (context, fav, _) {
+              if (fav.isLoading) {
+                return SliverFillRemaining(
+                  child: Center(child: CircularProgressIndicator(color: AurumTheme.gold)),
+                );
+              }
+
               if (fav.favorites.isEmpty) {
                 return SliverFillRemaining(
                   child: Center(

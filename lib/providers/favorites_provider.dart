@@ -6,8 +6,10 @@ class FavoritesProvider extends ChangeNotifier {
   static const _boxName = 'aurum_favorites';
   late Box<Map> _box;
   List<Song> _favorites = [];
+  bool _isLoading = true;
 
   List<Song> get favorites => List.unmodifiable(_favorites);
+  bool get isLoading => _isLoading;
   bool isFavorite(String id) => _favorites.any((s) => s.id == id);
 
   Future<void> init() async {
@@ -17,6 +19,7 @@ class FavoritesProvider extends ChangeNotifier {
         .toList()
         .reversed
         .toList();
+    _isLoading = false;
     notifyListeners();
   }
 
