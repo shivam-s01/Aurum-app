@@ -20,62 +20,73 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<SongSection> _sections = [];
-  bool _loading = true;
-  String? _error;
+  List<SongSection> _onlineSections = [];
+  bool _onlineLoading = true;
+  String? _onlineError;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadOnline();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final lib = context.read<LibraryProvider>();
+      if (!lib.hasLoaded) lib.load();
+    });
   }
 
-  Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+  Future<void> _loadOnline() async {
+    setState(() { _onlineLoading = true; _onlineError = null; });
     try {
       final sections = await ApiService.fetchHome();
-      if (mounted) setState(() { _sections = sections; _loading = false; });
+      if (mounted) setState(() { _onlineSections = sections; _onlineLoading = false; });
     } catch (e) {
-      // Backend down — fallback to local songs
-      try {
-        final lib = context.read<LibraryProvider>();
-        if (!lib.hasLoaded) await lib.load();
-        if (mounted) {
-          setState(() {
-            _sections = lib.allSongs.isNotEmpty
-                ? [SongSection(title: 'Local Songs', songs: lib.allSongs)]
-                : [];
-            _loading = false;
-            _error = lib.allSongs.isEmpty ? 'No songs found. Check connection or add local music.' : null;
-          });
-        }
-      } catch (_) {
-        if (mounted) setState(() { _error = 'Failed to load. Check your connection.'; _loading = false; });
-      }
+      if (mounted) setState(() { _onlineError = 'Failed to load. Check connection.'; _onlineLoading = false; });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final src = context.watch<SourceProvider>();
+    final isOnline = src.isOnline;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
-          _buildAppBar(context),
-          if (_loading)
-            SliverToBoxAdapter(child: _buildShimmer())
-          else if (_error != null && _sections.isEmpty)
-            SliverFillRemaining(child: _buildError())
-          else
-            ..._sections.map(_buildSection),
+          _buildAppBar(context, src),
+          SliverToBoxAdapter(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 400),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: isOnline ? const Offset(-0.08, 0) : const Offset(0.08, 0),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: child,
+                ),
+              ),
+              child: isOnline
+                  ? _OnlineContent(
+                      key: const ValueKey('online'),
+                      sections: _onlineSections,
+                      loading: _onlineLoading,
+                      error: _onlineError,
+                      onRetry: _loadOnline,
+                    )
+                  : const _OfflineContent(key: ValueKey('offline')),
+            ),
+          ),
           const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ),
     );
   }
 
-  Widget _buildAppBar(BuildContext context) {
+  Widget _buildAppBar(BuildContext context, SourceProvider src) {
     return SliverAppBar(
       backgroundColor: AurumTheme.bgOf(context),
       floating: true,
@@ -87,39 +98,46 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             TextSpan(
               text: 'Aurum ',
-              style: TextStyle(
-                color: AurumTheme.gold,
-                fontSize: 26,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
+              style: TextStyle(color: AurumTheme.gold, fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.5),
             ),
             TextSpan(
               text: 'Music',
-              style: TextStyle(
-                color: AurumTheme.textSecondaryOf(context),
-                fontSize: 26,
-                fontWeight: FontWeight.w300,
-              ),
+              style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 26, fontWeight: FontWeight.w300),
             ),
           ],
         ),
       ),
       actions: [
-        const _SourceToggle(),
+        _SourceToggle(onToggle: () { HapticFeedback.mediumImpact(); src.toggle(); }),
         IconButton(
           icon: Icon(Icons.settings_outlined, color: AurumTheme.textSecondaryOf(context)),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
         ),
         IconButton(
           icon: Icon(Icons.refresh_rounded, color: AurumTheme.textSecondaryOf(context)),
-          onPressed: _load,
+          onPressed: src.isOnline ? _loadOnline : () => context.read<LibraryProvider>().refresh(),
         ),
       ],
     );
   }
+}
 
-  Widget _buildShimmer() {
+class _OnlineContent extends StatelessWidget {
+  final List<SongSection> sections;
+  final bool loading;
+  final String? error;
+  final VoidCallback onRetry;
+
+  const _OnlineContent({super.key, required this.sections, required this.loading, required this.error, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return _buildShimmer(context);
+    if (error != null && sections.isEmpty) return _buildError(context);
+    return Column(children: sections.map((s) => _buildSection(context, s)).toList());
+  }
+
+  Widget _buildShimmer(BuildContext context) {
     return Shimmer.fromColors(
       baseColor: AurumTheme.bgCardOf(context),
       highlightColor: AurumTheme.bgElevatedOf(context),
@@ -153,59 +171,106 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildError() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.wifi_off_rounded, size: 48, color: AurumTheme.textMutedOf(context)),
-          const SizedBox(height: 12),
-          Text(_error!, style: TextStyle(color: AurumTheme.textMutedOf(context))),
-          const SizedBox(height: 16),
-          TextButton(onPressed: _load, child: Text('Retry', style: TextStyle(color: AurumTheme.gold))),
-        ],
-      ),
-    );
+  Widget _buildError(BuildContext context) {
+    return SizedBox(height: 300, child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(Icons.wifi_off_rounded, size: 48, color: AurumTheme.textMutedOf(context)),
+      const SizedBox(height: 12),
+      Text(error!, style: TextStyle(color: AurumTheme.textMutedOf(context))),
+      const SizedBox(height: 16),
+      TextButton(onPressed: onRetry, child: Text('Retry', style: TextStyle(color: AurumTheme.gold))),
+    ])));
   }
 
-  SliverToBoxAdapter _buildSection(SongSection section) {
-    return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.only(top: 24, left: 16, right: 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(section.title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 190,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                itemCount: section.songs.length,
-                itemBuilder: (_, i) => _SongCard(song: section.songs[i], queue: section.songs, index: i),
-              ),
+  Widget _buildSection(BuildContext context, SongSection section) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 24, left: 16, right: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(section.title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 190,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: section.songs.length,
+              itemBuilder: (_, i) => _SongCard(song: section.songs[i], queue: section.songs, index: i),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _SourceToggle extends StatelessWidget {
-  const _SourceToggle();
+class _OfflineContent extends StatelessWidget {
+  const _OfflineContent({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final src = context.watch<SourceProvider>();
-    final isOnline = src.isOnline;
+    final lib = context.watch<LibraryProvider>();
 
+    if (lib.status == LibraryStatus.idle || lib.status == LibraryStatus.loading) {
+      return const Padding(padding: EdgeInsets.only(top: 80), child: Center(child: AurumLoader()));
+    }
+    if (lib.status == LibraryStatus.noPermission) {
+      return _msg(context, Icons.folder_off_rounded, 'Storage permission needed', 'Grant Permission', () => lib.load());
+    }
+    if (lib.allSongs.isEmpty) {
+      return _msg(context, Icons.music_off_rounded, 'No local songs found', 'Scan Again', () => lib.refresh());
+    }
+
+    final sections = lib.sections.isNotEmpty
+        ? lib.sections
+        : [SongSection(title: '🎵 Local Songs', songs: lib.allSongs)];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+          child: Row(children: [
+            Icon(Icons.download_done_rounded, color: AurumTheme.gold, size: 18),
+            const SizedBox(width: 8),
+            Text('${lib.allSongs.length} songs on device', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
+          ]),
+        ),
+        ...sections.map((s) => Padding(
+          padding: const EdgeInsets.only(top: 20, left: 16, right: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(s.title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              ...s.songs.map((song) => SongTile(song: song, queue: lib.allSongs, index: lib.allSongs.indexOf(song))),
+            ],
+          ),
+        )),
+      ],
+    );
+  }
+
+  Widget _msg(BuildContext context, IconData icon, String msg, String label, VoidCallback onTap) {
+    return SizedBox(height: 300, child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(icon, size: 48, color: AurumTheme.textMutedOf(context)),
+      const SizedBox(height: 12),
+      Text(msg, style: TextStyle(color: AurumTheme.textMutedOf(context))),
+      const SizedBox(height: 16),
+      TextButton(onPressed: onTap, child: Text(label, style: TextStyle(color: AurumTheme.gold))),
+    ])));
+  }
+}
+
+class _SourceToggle extends StatelessWidget {
+  final VoidCallback onToggle;
+  const _SourceToggle({required this.onToggle});
+
+  @override
+  Widget build(BuildContext context) {
+    final isOnline = context.watch<SourceProvider>().isOnline;
     return GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        src.toggle();
-      },
+      onTap: onToggle,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
@@ -214,38 +279,26 @@ class _SourceToggle extends StatelessWidget {
         width: 72,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          color: isOnline
-              ? AurumTheme.gold.withOpacity(0.15)
-              : AurumTheme.bgCardOf(context),
-          border: Border.all(
-            color: isOnline ? AurumTheme.gold : AurumTheme.dividerOf(context),
-            width: 1.2,
-          ),
+          color: isOnline ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgCardOf(context),
+          border: Border.all(color: isOnline ? AurumTheme.gold : AurumTheme.dividerOf(context), width: 1.2),
         ),
-        child: Stack(
-          children: [
-            AnimatedAlign(
+        child: Stack(children: [
+          AnimatedAlign(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            alignment: isOnline ? Alignment.centerLeft : Alignment.centerRight,
+            child: AnimatedContainer(
               duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              alignment: isOnline ? Alignment.centerLeft : Alignment.centerRight,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isOnline ? AurumTheme.gold : AurumTheme.bgElevatedOf(context),
-                  boxShadow: isOnline ? [BoxShadow(color: AurumTheme.gold.withOpacity(0.4), blurRadius: 8)] : [],
-                ),
-                child: Icon(
-                  isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                  size: 14,
-                  color: isOnline ? Colors.black : AurumTheme.textMutedOf(context),
-                ),
+              width: 28, height: 28,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isOnline ? AurumTheme.gold : AurumTheme.bgElevatedOf(context),
+                boxShadow: isOnline ? [BoxShadow(color: AurumTheme.gold.withOpacity(0.4), blurRadius: 8)] : [],
               ),
+              child: Icon(isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded, size: 14, color: isOnline ? Colors.black : AurumTheme.textMutedOf(context)),
             ),
-          ],
-        ),
+          ),
+        ]),
       ),
     );
   }
@@ -259,27 +312,24 @@ class _SongCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<PlayerProvider>();
-    final isPlaying = player.currentSong?.id == song.id;
+    final isPlaying = context.select<PlayerProvider, bool>((p) => p.currentSong?.id == song.id);
     return GestureDetector(
-      onTap: () => player.playSong(song, queue: queue, index: index),
+      onTap: () => context.read<PlayerProvider>().playSong(song, queue: queue, index: index),
       child: Container(
         width: 140,
         margin: const EdgeInsets.only(right: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Stack(
-              children: [
-                AurumArtwork(url: song.artworkUrl, size: 140, borderRadius: 0),
-                if (isPlaying)
-                  Container(
-                    width: 140, height: 140,
-                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.4), borderRadius: const BorderRadius.vertical(top: Radius.circular(12))),
-                    child: const Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 32),
-                  ),
-              ],
-            ),
+            Stack(children: [
+              AurumArtwork(url: song.artworkUrl, size: 140, borderRadius: 0),
+              if (isPlaying)
+                Container(
+                  width: 140, height: 140,
+                  decoration: BoxDecoration(color: Colors.black.withOpacity(0.4), borderRadius: const BorderRadius.vertical(top: Radius.circular(12))),
+                  child: const Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 32),
+                ),
+            ]),
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
               child: Text(song.title, style: TextStyle(color: isPlaying ? AurumTheme.gold : AurumTheme.textPrimaryOf(context), fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -291,20 +341,6 @@ class _SongCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _SongList extends StatelessWidget {
-  final List<Song> songs;
-  const _SongList({required this.songs});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: songs.asMap().entries
-          .map((e) => SongTile(song: e.value, queue: songs, index: e.key, displayIndex: e.key + 1))
-          .toList(),
     );
   }
 }

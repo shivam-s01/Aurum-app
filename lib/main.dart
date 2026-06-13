@@ -10,6 +10,7 @@ import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
+import 'providers/source_provider.dart';
 import 'screens/splash_screen.dart';
 
 late AurumAudioHandler _audioHandler;
@@ -59,7 +60,8 @@ class AurumApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => PlayerProvider(handler)),
-        ChangeNotifierProvider(create: (_) => LibraryProvider()), // ← offline
+        ChangeNotifierProvider(create: (_) => LibraryProvider()),
+        ChangeNotifierProvider(create: (_) => SourceProvider()), // ← offline
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
