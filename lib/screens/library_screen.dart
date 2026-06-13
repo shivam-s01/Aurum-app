@@ -1,271 +1,300 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../theme/aurum_theme.dart';
-import '../providers/favorites_provider.dart';
 import '../providers/library_provider.dart';
-import '../providers/recently_played_provider.dart';
-import '../widgets/aurum_artwork.dart';
+import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
-import 'settings_screen.dart';
-import 'liked_screen.dart';
+import '../models/song.dart';
 
-class LibraryScreen extends StatelessWidget {
+class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
   @override
+  State<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends State<LibraryScreen> {
+  final _searchCtrl = TextEditingController();
+  bool _searching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final lib = context.read<LibraryProvider>();
+      if (!lib.hasLoaded) lib.load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AurumTheme.bgOf(context),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          _buildAppBar(context),
-          SliverToBoxAdapter(
+    return Consumer<LibraryProvider>(
+      builder: (context, lib, _) {
+        return Scaffold(
+          backgroundColor: AurumTheme.bgOf(context),
+          body: SafeArea(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 8),
-                _buildQuickAccess(context),
-                const SizedBox(height: 24),
-                _buildSectionTitle(context, 'YOUR COLLECTION'),
-                _buildCollectionGrid(context),
-                const SizedBox(height: 24),
-                _buildSectionTitle(context, 'RECENTLY PLAYED'),
-                _buildRecentlyPlayed(context),
-                const SizedBox(height: 100),
+                _buildHeader(context, lib),
+                if (_searching) _buildSearchBar(context, lib),
+                Expanded(child: _buildBody(context, lib)),
               ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildAppBar(BuildContext context) {
-    return SliverAppBar(
-      expandedHeight: 100,
-      floating: true,
-      snap: true,
-      backgroundColor: AurumTheme.bgOf(context),
-      automaticallyImplyLeading: false,
-      actions: [
-        IconButton(
-          icon: Icon(Icons.settings_outlined, color: AurumTheme.textSecondaryOf(context)),
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
-        ),
-      ],
-      flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.fromLTRB(20, 0, 0, 16),
-        title: Text('Library', style: TextStyle(color: AurumTheme.gold, fontSize: 28, fontWeight: FontWeight.w800)),
-      ),
-    );
-  }
-
-  Widget _buildQuickAccess(BuildContext context) {
+  Widget _buildHeader(BuildContext context, LibraryProvider lib) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
       child: Row(
         children: [
-          _QuickChip(icon: Icons.favorite_rounded, label: 'Liked', color: Colors.pinkAccent,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LikedScreen()))),
-          const SizedBox(width: 10),
-          _QuickChip(icon: Icons.download_rounded, label: 'Downloads', color: Colors.amber),
-          const SizedBox(width: 10),
-          _QuickChip(icon: Icons.history_rounded, label: 'History', color: Colors.teal),
+          Text(
+            'Library',
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const Spacer(),
+          if (lib.status == LibraryStatus.loaded) ...[
+            IconButton(
+              icon: Icon(
+                _searching ? Icons.search_off_rounded : Icons.search_rounded,
+                color: _searching ? AurumTheme.gold : AurumTheme.textSecondaryOf(context),
+              ),
+              onPressed: () {
+                setState(() => _searching = !_searching);
+                if (!_searching) {
+                  _searchCtrl.clear();
+                  lib.clearSearch();
+                }
+              },
+            ),
+            IconButton(
+              icon: Icon(Icons.refresh_rounded, color: AurumTheme.textSecondaryOf(context)),
+              onPressed: lib.refresh,
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildSectionTitle(BuildContext context, String title) {
+  Widget _buildSearchBar(BuildContext context, LibraryProvider lib) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      child: Text(title, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
-    );
-  }
-
-  Widget _buildCollectionGrid(BuildContext context) {
-    final favCount = context.watch<FavoritesProvider>().favorites.length;
-    final lib = context.watch<LibraryProvider>();
-
-    final items = [
-      _CollectionItem(icon: Icons.favorite_rounded, label: 'Liked Songs', subtitle: '$favCount songs', color: Colors.pinkAccent,
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LikedScreen()))),
-      _CollectionItem(icon: Icons.queue_music_rounded, label: 'Playlists', subtitle: 'Your playlists', color: Colors.purpleAccent),
-      _CollectionItem(icon: Icons.album_rounded, label: 'Albums', subtitle: 'Saved albums', color: Colors.deepPurple),
-      _CollectionItem(icon: Icons.person_rounded, label: 'Artists', subtitle: 'Following', color: Colors.blueAccent),
-      _CollectionItem(
-        icon: Icons.folder_rounded,
-        label: 'Local Files',
-        subtitle: lib.hasLoaded ? '${lib.allSongs.length} songs' : 'On this device',
-        color: Colors.green,
-        onTap: () async {
-          if (!lib.hasLoaded) await lib.load();
-          if (context.mounted) {
-            Navigator.push(context, MaterialPageRoute(
-              builder: (_) => const _LocalFilesScreen(),
-            ));
-          }
-        },
-      ),
-      _CollectionItem(icon: Icons.history_rounded, label: 'Recently Played', subtitle: 'Listen history', color: Colors.orange),
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.count(
-        crossAxisCount: 2,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 2.2,
-        children: items.map((item) => _CollectionCard(item: item)).toList(),
-      ),
-    );
-  }
-
-  Widget _buildRecentlyPlayed(BuildContext context) {
-    final history = context.watch<RecentlyPlayedProvider>().history;
-    if (history.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.all(32),
-        child: Center(
-          child: Column(
-            children: [
-              Icon(Icons.music_note_rounded, size: 40, color: AurumTheme.textMutedOf(context).withOpacity(0.3)),
-              const SizedBox(height: 8),
-              Text('Play something to see history', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
-            ],
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: TextField(
+        controller: _searchCtrl,
+        autofocus: true,
+        style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14),
+        onChanged: lib.setSearch,
+        decoration: InputDecoration(
+          hintText: 'Search your library...',
+          hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
+          prefixIcon: Icon(Icons.search_rounded, color: AurumTheme.textMutedOf(context), size: 20),
+          suffixIcon: _searchCtrl.text.isNotEmpty
+              ? IconButton(
+                  icon: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 18),
+                  onPressed: () {
+                    _searchCtrl.clear();
+                    lib.clearSearch();
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: AurumTheme.bgElevatedOf(context),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, LibraryProvider lib) {
+    switch (lib.status) {
+      case LibraryStatus.idle:
+      case LibraryStatus.loading:
+        return const Center(
+          child: CircularProgressIndicator(color: AurumTheme.gold, strokeWidth: 2),
+        );
+      case LibraryStatus.noPermission:
+        return _buildPermissionPrompt(context, lib);
+      case LibraryStatus.empty:
+        return _buildEmptyState(context);
+      case LibraryStatus.loaded:
+        if (_searching) return _buildSearchResults(context, lib);
+        return _buildSections(context, lib);
+    }
+  }
+
+  Widget _buildSections(BuildContext context, LibraryProvider lib) {
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 140),
+      itemCount: lib.sections.length,
+      itemBuilder: (context, i) => _SectionBlock(section: lib.sections[i]),
+    );
+  }
+
+  Widget _buildSearchResults(BuildContext context, LibraryProvider lib) {
+    final results = lib.filteredSongs;
+    if (results.isEmpty) {
+      return Center(
+        child: Text(
+          'No songs found',
+          style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
         ),
       );
     }
-    return Column(
-      children: [
-        for (int i = 0; i < history.length; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-            child: SongTile(song: history[i], queue: history, index: i),
-          ),
-      ],
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 140),
+      itemCount: results.length,
+      itemBuilder: (context, i) => SongTile(song: results[i], queue: results, index: i),
     );
   }
-}
 
-// ── Local Files Screen ─────────────────────────────────────────────────────
-class _LocalFilesScreen extends StatelessWidget {
-  const _LocalFilesScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    final lib = context.watch<LibraryProvider>();
-    return Scaffold(
-      backgroundColor: AurumTheme.bgOf(context),
-      appBar: AppBar(
-        backgroundColor: AurumTheme.bgOf(context),
-        title: Text('Local Files', style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontWeight: FontWeight.w700)),
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_rounded, color: AurumTheme.textPrimaryOf(context)),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.refresh_rounded, color: AurumTheme.gold),
-            onPressed: () => lib.refresh(),
-          ),
-        ],
-      ),
-      body: lib.status == LibraryStatus.loading
-          ? Center(child: CircularProgressIndicator(color: AurumTheme.gold))
-          : lib.status == LibraryStatus.noPermission
-              ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Icon(Icons.lock_rounded, size: 48, color: AurumTheme.textMutedOf(context)),
-                  const SizedBox(height: 12),
-                  Text('Permission required', style: TextStyle(color: AurumTheme.textMutedOf(context))),
-                  const SizedBox(height: 16),
-                  ElevatedButton(onPressed: () => lib.load(), child: const Text('Grant Permission')),
-                ]))
-              : lib.allSongs.isEmpty
-                  ? Center(child: Text('No local songs found', style: TextStyle(color: AurumTheme.textMutedOf(context))))
-                  : ListView.builder(
-                      physics: const BouncingScrollPhysics(),
-                      itemCount: lib.allSongs.length,
-                      itemBuilder: (_, i) => SongTile(song: lib.allSongs[i], queue: lib.allSongs, index: i),
-                    ),
-    );
-  }
-}
-
-// ── Helper Widgets ─────────────────────────────────────────────────────────
-class _QuickChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback? onTap;
-  const _QuickChip({required this.icon, required this.label, required this.color, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.3)),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 16, color: color),
-          const SizedBox(width: 6),
-          Text(label, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w600)),
-        ]),
-      ),
-    );
-  }
-}
-
-class _CollectionItem {
-  final IconData icon;
-  final String label;
-  final String subtitle;
-  final Color color;
-  final VoidCallback? onTap;
-  const _CollectionItem({required this.icon, required this.label, required this.subtitle, required this.color, this.onTap});
-}
-
-class _CollectionCard extends StatelessWidget {
-  final _CollectionItem item;
-  const _CollectionCard({required this.item});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: item.onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AurumTheme.bgCardOf(context),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: item.color.withOpacity(0.2), width: 0.8),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(children: [
+  Widget _buildPermissionPrompt(BuildContext context, LibraryProvider lib) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
             Container(
-              width: 40, height: 40,
-              decoration: BoxDecoration(color: item.color.withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
-              child: Icon(item.icon, color: item.color, size: 20),
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: AurumTheme.bgElevatedOf(context),
+                shape: BoxShape.circle,
+                border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+              ),
+              child: const Icon(Icons.folder_rounded, color: AurumTheme.gold, size: 32),
             ),
-            const SizedBox(width: 10),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text(item.label, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 2),
-              Text(item.subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
-            ])),
-          ]),
+            const SizedBox(height: 20),
+            Text(
+              'Allow Music Access',
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Aurum needs permission to read your music library.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AurumTheme.textSecondaryOf(context),
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            GestureDetector(
+              onTap: lib.load,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: AurumTheme.goldGradient,
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: const Text(
+                  'Grant Permission',
+                  style: TextStyle(
+                    color: AurumTheme.bg,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _buildEmptyState(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.music_off_rounded, color: AurumTheme.textMutedOf(context), size: 48),
+            const SizedBox(height: 16),
+            Text(
+              'No music found',
+              style: TextStyle(
+                color: AurumTheme.textSecondaryOf(context),
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Add songs to your device and they\'ll appear here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AurumTheme.textMutedOf(context),
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionBlock extends StatelessWidget {
+  final SongSection section;
+  const _SectionBlock({required this.section});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 16, 10),
+          child: Row(
+            children: [
+              Text(
+                section.title,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${section.songs.length} songs',
+                style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        ...section.songs.asMap().entries.map(
+              (e) => SongTile(song: e.value, queue: section.songs, index: e.key),
+            ),
+        const SizedBox(height: 4),
+        Divider(color: AurumTheme.dividerOf(context), height: 1),
+      ],
     );
   }
 }

@@ -36,6 +36,9 @@ class MainActivity : AudioServiceActivity() {
                             result.error("GET_SONGS_ERROR", e.message, null)
                         }
                     }
+                    "getSdkInt" -> {
+                        result.success(Build.VERSION.SDK_INT)
+                    }
                     
                 "installApk" -> {
                     try {

@@ -1,79 +1,82 @@
-import 'dart:io';
-import 'package:flutter/services.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/song.dart';
 
 class LocalMusicService {
-  static const _channel = MethodChannel('com.aurum.music/media_store');
+  static final OnAudioQuery _query = OnAudioQuery();
 
+  /// Request storage/audio permission.
   static Future<bool> requestPermission() async {
-    if (Platform.isAndroid) {
-      final status = await Permission.storage.request();
-      if (status.isDenied) {
-        final audio = await Permission.audio.request();
-        return audio.isGranted;
-      }
-      return status.isGranted;
-    }
-    return false;
+    final audio = await Permission.audio.request();
+    if (audio.isGranted) return true;
+    final storage = await Permission.storage.request();
+    return storage.isGranted;
   }
 
+  /// Check without prompting.
   static Future<bool> hasPermission() async {
-    if (Platform.isAndroid) {
-      final storage = await Permission.storage.status;
-      if (storage.isGranted) return true;
-      final audio = await Permission.audio.status;
-      return audio.isGranted;
-    }
-    return false;
+    if (await Permission.audio.isGranted) return true;
+    return Permission.storage.isGranted;
   }
 
+  /// Scan device and return all songs.
   static Future<List<Song>> scanLibrary() async {
-    if (Platform.isAndroid) {
-      final hasAudio = await Permission.audio.isGranted;
-      final hasStorage = await Permission.storage.isGranted;
-      if (!hasAudio && !hasStorage) {
-        await requestPermission();
-      }
-    }
+    final granted = await requestPermission();
+    if (!granted) return [];
 
-    try {
-      final List<dynamic> raw =
-          await _channel.invokeMethod('getSongs') ?? [];
+    final audioFiles = await _query.querySongs(
+      sortType: SongSortType.TITLE,
+      orderType: OrderType.ASC_OR_SMALLER,
+      uriType: UriType.EXTERNAL,
+      ignoreCase: true,
+    );
 
-      return raw.map((item) {
-        final map = Map<String, dynamic>.from(item as Map);
-        return Song(
-          id: map['id']?.toString() ?? '',
-          title: _cleanTitle(map['title']?.toString() ?? ''),
-          artist: _cleanArtist(map['artist']?.toString()),
-          album: map['album']?.toString() ?? '',
-          artworkUrl: map['artworkUrl']?.toString() ?? '',
-          localPath: map['localPath']?.toString() ?? map['contentUri']?.toString() ?? '',
-          duration: map['duration'] is int ? map['duration'] as int : null,
-        );
-      }).where((s) => s.id.isNotEmpty).toList();
-    } on PlatformException catch (_) {
-      return [];
-    }
+    return audioFiles
+        .where((s) =>
+            s.isMusic == true &&
+            s.duration != null &&
+            s.duration! > 30000 && // skip clips under 30s
+            s.data.isNotEmpty)
+        .map(_toSong)
+        .toList();
   }
 
+  /// Scan and return grouped sections for LibraryScreen.
   static Future<List<SongSection>> scanLibrarySections() async {
     final songs = await scanLibrary();
     if (songs.isEmpty) return [];
-    return [SongSection(title: 'Device Songs', songs: songs)];
+
+    final sections = <SongSection>[
+      SongSection(title: '🎵 All Songs', songs: songs),
+    ];
+
+    // Group by album (top 5 with 2+ songs)
+    final albumMap = <String, List<Song>>{};
+    for (final song in songs) {
+      if (song.album.isNotEmpty && song.album != 'Unknown') {
+        albumMap.putIfAbsent(song.album, () => []).add(song);
+      }
+    }
+    final topAlbums = albumMap.entries
+        .where((e) => e.value.length >= 2)
+        .toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+
+    for (final entry in topAlbums.take(5)) {
+      sections.add(SongSection(title: '💿 ${entry.key}', songs: entry.value));
+    }
+
+    return sections;
   }
 
-  static String _cleanTitle(String raw) {
-    return raw
-        .replaceAll(RegExp(r'\.(mp3|m4a|flac|wav|aac|ogg)$',
-            caseSensitive: false), '')
-        .replaceAll(RegExp(r'^\d+[\.\-_\s]+'), '')
-        .trim();
-  }
-
-  static String _cleanArtist(String? raw) {
-    if (raw == null || raw.isEmpty || raw == '<unknown>') return 'Unknown';
-    return raw.trim();
-  }
+  static Song _toSong(SongModel s) => Song(
+        id: 'local_${s.id}',
+        title: s.title ?? s.displayName,
+        artist: s.artist ?? 'Unknown Artist',
+        album: s.album ?? '',
+        artworkUrl: '',
+        streamUrl: null,
+        duration: s.duration != null ? (s.duration! / 1000).round() : null,
+        localPath: s.data,
+      );
 }
