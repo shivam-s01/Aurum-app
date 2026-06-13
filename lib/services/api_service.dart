@@ -158,6 +158,7 @@ class ApiService {
 
   // ─── InnerTube constants ────────────────────────────────────────────────────
   static const _ytKey   = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-KOEQ9cGuw';
+  static const _workerBase = 'https://aurum-stream.sharmashivam9109.workers.dev';
   static const _ytMusic = 'https://music.youtube.com/youtubei/v1';
   static const _ytBase  = 'https://www.youtube.com/youtubei/v1';
 
@@ -634,7 +635,15 @@ class ApiService {
   // ══════════════════════════════════════════════════════════════════════════════
 
   static Future<String?> _ytStreamUrl(String videoId) async {
-    // 1. Try all InnerTube clients
+    // 1. Cloudflare Worker
+    try {
+      final res = await _client.get(Uri.parse(_workerBase + '/api/yt-stream?id=' + videoId)).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        if (data['success'] == true && data['url'] != null) return data['url'] as String;
+      }
+    } catch (_) {}
+    // 2. InnerTube fallback
     for (final clientCfg in _ytClients) {
       final url = await _ytStreamFromClient(videoId, clientCfg);
       if (url != null) return url;
