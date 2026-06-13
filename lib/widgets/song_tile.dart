@@ -1,14 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/recently_played_provider.dart';
-import '../providers/recently_played_provider.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_artwork.dart';
 
-class SongTile extends StatelessWidget {
+class SongTile extends StatefulWidget {
   final Song song;
   final List<Song>? queue;
   final int? index;
@@ -24,52 +24,69 @@ class SongTile extends StatelessWidget {
     this.displayIndex,
   });
 
-  // Debounce: prevent rapid double-taps from pushing multiple FullPlayerScreens
-  static bool _isTapping = false;
+  @override
+  State<SongTile> createState() => _SongTileState();
+}
+
+class _SongTileState extends State<SongTile> {
+  // FIX: per-instance debounce (was static — one tile blocked ALL tiles)
+  bool _isTapping = false;
+
+  Future<void> _handleTap(BuildContext context) async {
+    if (_isTapping) return;
+    _isTapping = true;
+    try {
+      // Fire-and-forget — no await so UI responds instantly
+      unawaited(context.read<RecentlyPlayedProvider>().addPlay(widget.song));
+      unawaited(context.read<PlayerProvider>().playSong(
+            widget.song,
+            queue: widget.queue ?? [widget.song],
+            index: widget.index ?? 0,
+          ));
+    } finally {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted) _isTapping = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final player = context.read<PlayerProvider>();
+    // FIX: watch fav live (not read) so heart updates reactively
     final fav = context.watch<FavoritesProvider>();
-    final isCurrentSong = context.select<PlayerProvider, bool>((p) => p.currentSong?.id == song.id);
-    final isLiked = fav.isFavorite(song.id);
+    final isCurrentSong = context.select<PlayerProvider, bool>(
+      (p) => p.currentSong?.id == widget.song.id,
+    );
+    final isLiked = fav.isFavorite(widget.song.id);
 
     return InkWell(
-      onTap: () async {
-        if (_isTapping) return;
-        _isTapping = true;
-        context.read<RecentlyPlayedProvider>().addPlay(song);
-        player.playSong(song, queue: queue ?? [song], index: index ?? 0);
-        await Future.delayed(const Duration(milliseconds: 300));
-        _isTapping = false;
-      },
-      onLongPress: () => _showOptions(context, player, fav),
+      onTap: () => _handleTap(context),
+      onLongPress: () => _showOptions(context),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
           children: [
-            if (showIndex) ...[
+            if (widget.showIndex) ...[
               SizedBox(
                 width: 28,
                 child: isCurrentSong
                     ? const Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 18)
                     : Text(
-                        '${displayIndex ?? (index ?? 0) + 1}',
+                        '${widget.displayIndex ?? (widget.index ?? 0) + 1}',
                         style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
                         textAlign: TextAlign.center,
                       ),
               ),
               const SizedBox(width: 8),
             ],
-            AurumArtwork(url: song.artworkUrl, size: 50, borderRadius: 8),
+            AurumArtwork(url: widget.song.artworkUrl, size: 50, borderRadius: 8),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    song.title,
+                    widget.song.title,
                     style: TextStyle(
                       color: isCurrentSong ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
                       fontSize: 14,
@@ -80,7 +97,7 @@ class SongTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    song.artist,
+                    widget.song.artist,
                     style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 12),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -90,7 +107,7 @@ class SongTile extends StatelessWidget {
             ),
             // Heart button
             GestureDetector(
-              onTap: () => fav.toggleFavorite(song),
+              onTap: () => fav.toggleFavorite(widget.song),
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 250),
                 transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
@@ -103,11 +120,14 @@ class SongTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 4),
-            if (song.durationString.isNotEmpty)
-              Text(song.durationString, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+            if (widget.song.durationString.isNotEmpty)
+              Text(
+                widget.song.durationString,
+                style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12),
+              ),
             const SizedBox(width: 4),
             GestureDetector(
-              onTap: () => _showOptions(context, player, fav),
+              onTap: () => _showOptions(context),
               child: Padding(
                 padding: const EdgeInsets.all(4),
                 child: Icon(Icons.more_vert_rounded, color: AurumTheme.textMutedOf(context), size: 18),
@@ -119,36 +139,40 @@ class SongTile extends StatelessWidget {
     );
   }
 
-  void _showOptions(BuildContext context, PlayerProvider player, FavoritesProvider fav) {
+  void _showOptions(BuildContext context) {
+    // FIX: capture rootContext BEFORE sheet opens (sheet has its own context)
     final rootContext = context;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-      builder: (_) => _SongOptionsSheet(song: song, player: player, fav: fav, rootContext: rootContext),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      // FIX: don't pass stale player/fav — sheet reads providers itself
+      builder: (_) => _SongOptionsSheet(song: widget.song, rootContext: rootContext),
     );
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
 class _SongOptionsSheet extends StatefulWidget {
   final Song song;
-  final PlayerProvider player;
-  final FavoritesProvider fav;
   final BuildContext rootContext;
 
-  const _SongOptionsSheet({required this.song, required this.player, required this.fav, required this.rootContext});
+  // FIX: removed stale player/fav args — sheet reads live from providers
+  const _SongOptionsSheet({required this.song, required this.rootContext});
 
   @override
   State<_SongOptionsSheet> createState() => _SongOptionsSheetState();
 }
 
 class _SongOptionsSheetState extends State<_SongOptionsSheet> {
+  // FIX: use rootContext for snack so post-dismiss context is never stale
   void _snack(String msg) {
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    ScaffoldMessenger.of(widget.rootContext).showSnackBar(SnackBar(
       content: Text(msg),
-      backgroundColor: AurumTheme.bgElevatedOf(context),
+      backgroundColor: AurumTheme.bgElevatedOf(widget.rootContext),
       behavior: SnackBarBehavior.floating,
       duration: const Duration(seconds: 2),
     ));
@@ -159,10 +183,10 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
   @override
   Widget build(BuildContext context) {
     final song = widget.song;
-    final player = widget.player;
-    final fav = widget.fav;
+    // FIX: read live providers inside build — not stale snapshots from parent
+    final player = context.read<PlayerProvider>();
+    final fav = context.watch<FavoritesProvider>();
     final isLiked = fav.isFavorite(song.id);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
       decoration: BoxDecoration(
@@ -172,9 +196,10 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Drag handle ──
+          // Drag handle
           Container(
-            width: 40, height: 4,
+            width: 40,
+            height: 4,
             margin: const EdgeInsets.only(top: 12, bottom: 4),
             decoration: BoxDecoration(
               color: AurumTheme.dividerOf(context),
@@ -182,7 +207,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
             ),
           ),
 
-          // ── Song header ──
+          // Song header
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: Row(
@@ -228,15 +253,13 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                     ],
                   ),
                 ),
-                // Like button in header
+                // Like button in header — FIX: context.watch drives isLiked, no manual setState needed
                 GestureDetector(
-                  onTap: () {
-                    fav.toggleFavorite(song);
-                    setState(() {});
-                  },
+                  onTap: () => fav.toggleFavorite(song),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    width: 40, height: 40,
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
                       color: isLiked
                           ? const Color(0xFFE1306C).withOpacity(0.12)
@@ -256,7 +279,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
 
           Divider(color: AurumTheme.dividerOf(context), height: 1),
 
-          // ── Options grid (2 columns) ──
+          // Options grid
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: GridView.count(
@@ -273,8 +296,8 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                   color: AurumTheme.gold,
                   onTap: () {
                     Navigator.pop(context);
-                    widget.rootContext.read<RecentlyPlayedProvider>().addPlay(song);
-                    player.playSong(song);
+                    unawaited(widget.rootContext.read<RecentlyPlayedProvider>().addPlay(song));
+                    unawaited(player.playSong(song));
                   },
                 ),
                 _GridOption(
@@ -282,7 +305,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                   label: 'Play Next',
                   color: AurumTheme.gold,
                   onTap: () {
-                    player.playNext(song);
+                    unawaited(player.playNext(song));
                     _snack('Playing "${song.title}" next');
                   },
                 ),
@@ -291,7 +314,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                   label: 'Add to Queue',
                   color: Colors.purpleAccent,
                   onTap: () {
-                    player.addToQueue(song);
+                    unawaited(player.addToQueue(song));
                     _snack('Added to queue');
                   },
                 ),
@@ -300,8 +323,10 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                   label: isLiked ? 'Liked' : 'Like',
                   color: const Color(0xFFE1306C),
                   onTap: () {
+                    // FIX: toggle first, THEN check updated state for correct message
                     fav.toggleFavorite(song);
-                    _snack(isLiked ? 'Removed from Liked' : 'Added to Liked');
+                    final nowLiked = fav.isFavorite(song.id);
+                    _snack(nowLiked ? 'Added to Liked' : 'Removed from Liked');
                   },
                 ),
                 _GridOption(
@@ -332,14 +357,19 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
             ),
           ),
 
-          // ── Artist / Album chips ──
+          // Artist / Album chips
           if (song.artist.isNotEmpty && song.artist != 'Unknown') ...[
             Divider(color: AurumTheme.dividerOf(context), height: 16),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('GO TO', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
+                child: Text('GO TO',
+                    style: TextStyle(
+                        color: AurumTheme.textMutedOf(context),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.4)),
               ),
             ),
             SingleChildScrollView(
@@ -347,11 +377,10 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
               child: Row(
                 children: [
-                  // Each artist as a chip
                   ...song.artist.split(',').take(3).map((a) => _ArtistChip(
-                    name: a.trim(),
-                    onTap: () => _comingSoon('Artist: ${a.trim()}'),
-                  )),
+                        name: a.trim(),
+                        onTap: () => _comingSoon('Artist: ${a.trim()}'),
+                      )),
                   if (song.album.isNotEmpty)
                     _ArtistChip(
                       name: song.album,
@@ -371,7 +400,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
   }
 }
 
-// ── Grid option tile ──────────────────────────────────────────────────────
+// ── Grid option tile ──────────────────────────────────────────────────────────
 class _GridOption extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -419,7 +448,7 @@ class _GridOption extends StatelessWidget {
   }
 }
 
-// ── Artist / Album chip ───────────────────────────────────────────────────
+// ── Artist / Album chip ───────────────────────────────────────────────────────
 class _ArtistChip extends StatelessWidget {
   final String name;
   final IconData icon;

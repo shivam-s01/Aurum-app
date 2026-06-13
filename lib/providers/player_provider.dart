@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
@@ -17,67 +18,74 @@ class PlayerProvider extends ChangeNotifier {
   bool _shuffle = false;
   bool _showFullPlayer = false;
 
+  bool _isExtendingQueue = false;
+
+  // FIX: store subscriptions so we can cancel on dispose (memory leak fix)
+  final List<StreamSubscription<dynamic>> _subs = [];
+
   PlayerProvider(this._handler) {
-    _handler.player.playingStream.listen((playing) {
+    _subs.add(_handler.player.playingStream.listen((playing) {
       _isPlaying = playing;
       notifyListeners();
-    });
-    _handler.player.positionStream.listen((pos) {
+    }));
+    _subs.add(_handler.player.positionStream.listen((pos) {
       _position = pos;
       notifyListeners();
-    });
-    _handler.player.durationStream.listen((dur) {
+    }));
+    _subs.add(_handler.player.durationStream.listen((dur) {
       if (dur != null) {
         _duration = dur;
         notifyListeners();
       }
-    });
-    _handler.player.bufferedPositionStream.listen((buf) {
+    }));
+    _subs.add(_handler.player.bufferedPositionStream.listen((buf) {
       _buffered = buf;
       notifyListeners();
-    });
-    _handler.player.processingStateStream.listen((state) {
+    }));
+    _subs.add(_handler.player.processingStateStream.listen((state) {
       _isLoading = state == ProcessingState.loading || state == ProcessingState.buffering;
       notifyListeners();
-    });
-    _handler.player.loopModeStream.listen((mode) {
+    }));
+    _subs.add(_handler.player.loopModeStream.listen((mode) {
       _loopMode = mode;
       notifyListeners();
-    });
-    _handler.player.shuffleModeEnabledStream.listen((s) {
+    }));
+    _subs.add(_handler.player.shuffleModeEnabledStream.listen((s) {
       _shuffle = s;
       notifyListeners();
-    });
-    // --- "Next Play" auto-queue ---
-    // Whenever the queue index advances and only 2 songs remain after it,
-    // fetch more "same vibe" songs in the background and append them.
-    // This runs silently — user just sees the playlist never end.
-    _handler.player.currentIndexStream.listen((index) {
+    }));
+    // Auto-queue extension: silently appends more songs when queue is nearly done
+    _subs.add(_handler.player.currentIndexStream.listen((index) {
       if (index == null) return;
       _maybeExtendQueue(index);
-    });
+    }));
   }
-
-  bool _isExtendingQueue = false;
 
   Future<void> _maybeExtendQueue(int index) async {
     final q = _handler.currentQueue;
     if (q.isEmpty) return;
 
     final remaining = q.length - 1 - index;
-    if (remaining > 2 || _isExtendingQueue) return; // enough songs left, or already fetching
+    if (remaining > 2 || _isExtendingQueue) return;
 
-    final current = q[index];
     _isExtendingQueue = true;
     try {
+      final current = q[index];
+      // FIX: local songs have no "vibe" — skip but let finally reset flag
+      if (current.source == SongSource.local) return;
+
       final nextSongs = await ApiService.getAutoQueue(current);
-      for (final song in nextSongs) {
+
+      // FIX: dedup — don't re-add songs already in queue
+      final existingIds = q.map((s) => s.id).toSet();
+      final toAdd = nextSongs.where((s) => !existingIds.contains(s.id)).toList();
+
+      for (final song in toAdd) {
         await _handler.addToQueue(song);
       }
-      if (nextSongs.isNotEmpty) notifyListeners();
+      if (toAdd.isNotEmpty) notifyListeners();
     } catch (_) {
-      // Silent fail — if it doesn't work, playlist just ends normally.
-      // No error shown to user; this is a background enhancement only.
+      // Silent fail — background enhancement only
     } finally {
       _isExtendingQueue = false;
     }
@@ -104,7 +112,14 @@ class PlayerProvider extends ChangeNotifier {
   String get positionString => _formatDuration(_position);
   String get durationString => _formatDuration(_duration);
 
+  // FIX: handle songs longer than 1 hour
   String _formatDuration(Duration d) {
+    if (d.inHours > 0) {
+      final h = d.inHours.toString();
+      final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+      final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+      return '$h:$m:$s';
+    }
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$m:$s';
@@ -127,7 +142,9 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
+  // FIX: guard against seek on zero duration
   Future<void> seek(double ratio) async {
+    if (_duration == Duration.zero) return;
     final pos = Duration(milliseconds: (_duration.inMilliseconds * ratio).round());
     await _handler.seek(pos);
   }
@@ -192,7 +209,6 @@ class PlayerProvider extends ChangeNotifier {
     await _handler.pause();
   }
 
-  /// Stops playback AND clears song from state — used by mini player dismiss.
   Future<void> stopAndClear() async {
     await _handler.stop();
     await _handler.clearQueue();
@@ -208,5 +224,14 @@ class PlayerProvider extends ChangeNotifier {
     final song = currentSong;
     if (song == null) return null;
     return ApiService.fetchLyrics(song);
+  }
+
+  // FIX: cancel all stream subscriptions to prevent memory leaks
+  @override
+  void dispose() {
+    for (final sub in _subs) {
+      sub.cancel();
+    }
+    super.dispose();
   }
 }
