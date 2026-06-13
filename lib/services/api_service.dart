@@ -368,4 +368,75 @@ class ApiService {
     if (d is String) return int.tryParse(d);
     return null;
   }
+
+  // ═══════════════════════════════════════════════════════════
+  //  NETWORK / PREFETCH / LYRICS / DEBUG
+  // ═══════════════════════════════════════════════════════════
+
+  /// Called when network is restored (e.g. after audio interruption).
+  /// No-op here — stream URLs are re-fetched on demand.
+  static void onNetworkRestored() {}
+
+  /// Pre-resolve next track's stream URL so playback is instant.
+  static void prefetchNext(Song song) {
+    if (song.isLocal) return;
+    // Fire-and-forget — ignore result, just warm the streamUrl
+    Future.microtask(() async {
+      try {
+        await resolveStreamUrl(song);
+      } catch (_) {}
+    });
+  }
+
+  /// Fetch lyrics for a song via JioSaavn API.
+  static Future<String?> fetchLyrics(Song song) async {
+    if (song.isLocal || song.id.isEmpty) return null;
+    if (_isYouTubeId(song.id)) return null; // YT songs have no Saavn lyrics
+    try {
+      final res = await _client
+          .get(Uri.parse('$_saavn/songs/${song.id}/lyrics'))
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final lyrics = data['data']?['lyrics'] as String?;
+        return (lyrics != null && lyrics.isNotEmpty) ? lyrics : null;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Debug helper — tests YouTube stream resolution and returns a report.
+  static Future<String> debugYtSearch() async {
+    final buf = StringBuffer();
+    const testId = 'dQw4w9WgXcQ'; // Rick Astley — reliable test video
+    buf.writeln('=== Aurum Debug Report ===');
+    buf.writeln('Time: ${DateTime.now()}');
+    buf.writeln('');
+    buf.writeln('▶ Testing Piped stream for YT id: $testId');
+    try {
+      final url = await _pipedStreamByVideoId(testId);
+      if (url != null) {
+        buf.writeln('✅ Piped stream OK');
+        buf.writeln('   URL: ${url.substring(0, url.length.clamp(0, 80))}...');
+      } else {
+        buf.writeln('❌ Piped stream returned null');
+      }
+    } catch (e) {
+      buf.writeln('❌ Piped stream error: $e');
+    }
+    buf.writeln('');
+    buf.writeln('▶ Testing Saavn search...');
+    try {
+      final songs = await _searchSaavn('arijit singh', limit: 1);
+      if (songs.isNotEmpty) {
+        buf.writeln('✅ Saavn search OK — "${songs.first.title}"');
+        buf.writeln('   streamUrl: ${songs.first.streamUrl != null ? "present" : "null"}');
+      } else {
+        buf.writeln('❌ Saavn search returned 0 results');
+      }
+    } catch (e) {
+      buf.writeln('❌ Saavn search error: $e');
+    }
+    return buf.toString();
+  }
 }
