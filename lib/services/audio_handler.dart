@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
@@ -62,13 +61,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<AudioSource?> _sourceForSong(Song song) async {
     if (song.isLocal) {
-      // Local file — play from device storage
-      final file = File(song.localPath!);
-      if (!await file.exists()) return null;
-      return AudioSource.uri(
-        Uri.file(song.localPath!),
-        tag: _songToMediaItem(song),
-      );
+      // Local song — localPath holds a content:// URI (MediaStore) or file:// path.
+      // We use Uri.parse() directly so both schemes work on all Android versions.
+      // File() + Uri.file() breaks on Android 10+ for content:// URIs.
+      final path = song.localPath!;
+      final uri = path.startsWith('content://') || path.startsWith('file://')
+          ? Uri.parse(path)
+          : Uri.file(path); // fallback for bare paths
+      return AudioSource.uri(uri, tag: _songToMediaItem(song));
     } else {
       // Online song — resolve stream URL from backend
       final url = await ApiService.resolveStreamUrl(song);
@@ -180,6 +180,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Song? get currentSong => _queue.isNotEmpty ? _queue[_currentIndex] : null;
   int get currentIndex => _currentIndex;
   AudioPlayer get player => _player;
+
+  /// Clears queue and resets state — used when user swipe-dismisses mini player.
+  Future<void> clearQueue() async {
+    _queue = [];
+    _currentIndex = 0;
+    await _playlist.clear();
+    mediaItem.add(null);
+  }
 
   // ── Media item ───────────────────────────────────────────────────────────
 
