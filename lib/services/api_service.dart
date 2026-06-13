@@ -218,16 +218,83 @@ class ApiService {
   // from sections whose Saavn search returned 0 results — no crash.
   // ===========================================================================
 
-  static Future<List<SongSection>> fetchHome() async {
-    // Fire all 4 queries simultaneously — parallel, not sequential.
-    final results = await Future.wait([
-      _saavnSection('trending hindi songs', '🔥 Trending Now'),
-      _saavnSection('bollywood hits',       '🎬 Bollywood Hits'),
-      _saavnSection('hindi top charts',     '🎵 Hindi Top Charts'),
-      _saavnSection('english pop hits',     '🎧 English Hits'),
-    ]);
-    // whereType<SongSection>() skips null entries without crashing.
-    // A null entry means that Saavn search returned 0 results for that query.
+  // ===========================================================================
+  // SECTION 8: HOME FEED ALGORITHM
+  //
+  // GOAL: home page feels "bhara-bhara" (full) and fresh every day, while
+  // staying fast (everything fires in parallel via Future.wait — same as
+  // before, just more queries).
+  //
+  // HOW IT WORKS:
+  //   1. TRENDING POOL: a fixed pool of trending queries. Each day, we pick
+  //      3 of them using the date as a seed — so the home page rotates daily
+  //      without being random/flaky (same day = same picks = stable UI).
+  //   2. "MADE FOR YOU": built from the user's most-played artists (passed
+  //      in via `topArtists`, from RecentlyPlayedProvider). One section per
+  //      top artist. If history is empty (cold start / fresh install), we
+  //      skip this and fall back to one extra trending query instead — so
+  //      the home page is never sparse.
+  //   3. whereType<SongSection>() drops any section where Saavn returned 0
+  //      results — same safety net as before.
+  //
+  // `topArtists` is OPTIONAL and defaults to empty — callers that don't pass
+  // history (or during early app startup before Hive is ready) still get a
+  // full, working home page.
+  // ===========================================================================
+  static final List<String> _trendingPool = [
+    'trending hindi songs',
+    'bollywood hits',
+    'hindi top charts',
+    'english pop hits',
+    'arijit singh hits',
+    'lofi chill hindi',
+    'romantic hindi songs',
+    'party songs hindi',
+    'top 50 global',
+    'indie hindi hits',
+  ];
+
+  static const Map<String, String> _trendingLabels = {
+    'trending hindi songs': '🔥 Trending Now',
+    'bollywood hits':       '🎬 Bollywood Hits',
+    'hindi top charts':     '🎵 Hindi Top Charts',
+    'english pop hits':     '🎧 English Hits',
+    'arijit singh hits':    '🎤 Arijit Singh Hits',
+    'lofi chill hindi':     '🌙 Lofi & Chill',
+    'romantic hindi songs': '❤️ Romantic Vibes',
+    'party songs hindi':    '🎉 Party Anthems',
+    'top 50 global':        '🌍 Global Top 50',
+    'indie hindi hits':     '✨ Indie Picks',
+  };
+
+  static Future<List<SongSection>> fetchHome({List<String> topArtists = const []}) async {
+    // --- Pick today's 3 trending queries (date-seeded rotation) ---
+    final dayIndex = DateTime.now().difference(DateTime(2026, 1, 1)).inDays;
+    final poolSize = _trendingPool.length;
+    final picks = <String>{};
+    for (int i = 0; picks.length < 3 && i < poolSize; i++) {
+      picks.add(_trendingPool[(dayIndex + i) % poolSize]);
+    }
+
+    final futures = <Future<SongSection?>>[
+      for (final query in picks) _saavnSection(query, _trendingLabels[query]!),
+    ];
+
+    // --- "Made For You" from top artists (max 2) ---
+    if (topArtists.isNotEmpty) {
+      for (final artist in topArtists.take(2)) {
+        futures.add(_saavnSection('$artist hits', '✨ Made For You'));
+      }
+    } else {
+      // Cold start fallback: one more trending query so home isn't sparse.
+      final extra = _trendingPool[(dayIndex + 3) % poolSize];
+      futures.add(_saavnSection(extra, _trendingLabels[extra]!));
+    }
+
+    // Everything fires in parallel — total time ≈ slowest single request.
+    final results = await Future.wait(futures);
+
+    // whereType<SongSection>() skips null entries (0-result queries) without crashing.
     return results.whereType<SongSection>().toList();
   }
 
@@ -237,6 +304,40 @@ class ApiService {
     // Returning an empty section causes the UI to render an empty row.
     if (songs.isNotEmpty) return SongSection(title: label, songs: songs);
     return null;
+  }
+
+  // ===========================================================================
+  // SECTION 8B: AUTO-QUEUE — "NEXT PLAY" (same vibe continue)
+  //
+  // GOAL: when the current song finishes, the next songs feel like a
+  // continuation of the same playlist — same artist, same vibe — like a
+  // premium "radio" mode, without any heavy ML.
+  //
+  // HOW IT WORKS:
+  //   1. Search "<artist> songs" using the SAME source as the current song
+  //      (Saavn song → Saavn search, YouTube song → YouTube search). This
+  //      keeps stream-resolution consistent — no source-switching bugs.
+  //   2. Remove the current song itself from results (by id), so we don't
+  //      queue the same song again.
+  //   3. Return up to `limit` songs — caller appends these to the queue.
+  //
+  // WHEN TO CALL:
+  //   - When queue has 2-3 songs left (prefetch next batch in background,
+  //     so there's never a gap when the playlist runs out).
+  //   - If artist search returns nothing (rare), caller can fall back to
+  //     fetchHome()'s trending pool.
+  // ===========================================================================
+  static Future<List<Song>> getAutoQueue(Song currentSong, {int limit = 10}) async {
+    final query = '${currentSong.artist} songs';
+
+    final results = currentSong.source == SongSource.youtube
+        ? await _searchYt(query, limit: limit + 1)
+        : await _searchSaavn(query, limit: limit + 1);
+
+    // Drop the current song itself if it appears in results.
+    final filtered = results.where((s) => s.id != currentSong.id).toList();
+
+    return filtered.take(limit).toList();
   }
 
   // ===========================================================================
