@@ -2,13 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'services/audio_handler.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
-import 'providers/favorites_provider.dart';
-import 'providers/source_provider.dart';
 import 'providers/theme_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
@@ -18,8 +16,21 @@ late AurumAudioHandler _audioHandler;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Hive init for local DB (favorites, playlists, recently played)
   await Hive.initFlutter();
+
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+
+  try {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.aurum.music.channel.audio',
+      androidNotificationChannelName: 'Aurum Music',
+      androidNotificationOngoing: true,
+      androidStopForegroundOnPause: true,
+      androidNotificationIcon: 'mipmap/ic_launcher',
+    ).timeout(const Duration(seconds: 5));
+  } catch (_) {}
 
   try {
     _audioHandler = await AudioService.init(
@@ -28,11 +39,9 @@ Future<void> main() async {
         androidNotificationChannelId: 'com.aurum.music.channel.audio',
         androidNotificationChannelName: 'Aurum Music',
         androidNotificationOngoing: true,
-        notificationColor: Color(0xFFD4AF37),
-        androidNotificationIcon: 'mipmap/ic_launcher',
-        androidShowNotificationBadge: true,
+        notificationColor: AurumTheme.gold,
       ),
-    ).timeout(const Duration(seconds: 6));
+    ).timeout(const Duration(seconds: 5));
   } catch (_) {
     _audioHandler = AurumAudioHandler();
   }
@@ -50,9 +59,7 @@ class AurumApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => PlayerProvider(handler)),
-        ChangeNotifierProvider(create: (_) => LibraryProvider()),
-        ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()),
-        ChangeNotifierProvider(create: (_) => SourceProvider()..init()),
+        ChangeNotifierProvider(create: (_) => LibraryProvider()), // ← offline
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
@@ -64,11 +71,15 @@ class AurumApp extends StatelessWidget {
 
           SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
-            statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+            statusBarIconBrightness:
+                isDark ? Brightness.light : Brightness.dark,
             systemNavigationBarColor: isDark
-                ? (themeProvider.isAmoled ? AurumTheme.amoledBgCard : AurumTheme.darkBgCard)
+                ? (themeProvider.isAmoled
+                    ? AurumTheme.amoledBgCard
+                    : AurumTheme.darkBgCard)
                 : AurumTheme.lightBgCard,
-            systemNavigationBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarIconBrightness:
+                isDark ? Brightness.light : Brightness.dark,
           ));
 
           return MaterialApp(
@@ -79,38 +90,10 @@ class AurumApp extends StatelessWidget {
             darkTheme: themeProvider.isAmoled
                 ? AurumTheme.amoledTheme
                 : AurumTheme.darkTheme,
-            home: SplashScreen(child: PermissionWrapper(child: const MainShell())),
+            home: SplashScreen(child: const MainShell()),
           );
         },
       ),
     );
   }
-}
-
-class PermissionWrapper extends StatefulWidget {
-  final Widget child;
-  const PermissionWrapper({super.key, required this.child});
-
-  @override
-  State<PermissionWrapper> createState() => _PermissionWrapperState();
-}
-
-class _PermissionWrapperState extends State<PermissionWrapper> {
-  @override
-  void initState() {
-    super.initState();
-    _requestPermissions();
-  }
-
-  Future<void> _requestPermissions() async {
-    await Permission.notification.request();
-    await Permission.audio.request();
-    await Permission.storage.request();
-    if (!(await Permission.ignoreBatteryOptimizations.isGranted)) {
-      await Permission.ignoreBatteryOptimizations.request();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.child;
 }
