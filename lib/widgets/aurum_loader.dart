@@ -226,7 +226,7 @@ class _BlobPainter extends CustomPainter {
           c,
           r * 2.2,
           [
-            color.withValues(alpha: dark ? 0.22 : 0.10),
+            color.withOpacity(dark ? 0.22 : 0.10),
             Colors.transparent,
           ],
         );
@@ -238,7 +238,7 @@ class _BlobPainter extends CustomPainter {
           c,
           r * 1.6,
           [
-            color.withValues(alpha: dark ? 0.12 : 0.06),
+            color.withOpacity(dark ? 0.12 : 0.06),
             Colors.transparent,
           ],
         );
@@ -296,9 +296,9 @@ class _BlobPainter extends CustomPainter {
         c,
         r * 1.4,
         [
-          Color.lerp(Colors.white, color, 0.2)!.withValues(alpha: 0.95),
-          color.withValues(alpha: 0.92),
-          Colors.black.withValues(alpha: dark ? 0.22 : 0.05),
+          Color.lerp(Colors.white, color, 0.2)!.withOpacity(0.95),
+          color.withOpacity(0.92),
+          Colors.black.withOpacity(dark ? 0.22 : 0.05),
         ],
         const [0, 0.55, 1],
       );
@@ -316,8 +316,8 @@ class _BlobPainter extends CustomPainter {
         Offset(c.dx - r, c.dy - r),
         Offset(c.dx + r, c.dy + r),
         [
-          Colors.white.withValues(alpha: 0.18),
-          Colors.white.withValues(alpha: 0.05),
+          Colors.white.withOpacity(0.18),
+          Colors.white.withOpacity(0.05),
           Colors.transparent,
         ],
       );
@@ -333,7 +333,7 @@ class _BlobPainter extends CustomPainter {
     // 5. SMALL HIGHLIGHT (NO EXTRA BLUR, PURE PAINT)
     // =========================================================
     final highlight = Paint()
-      ..color = Colors.white.withValues(alpha: dark ? 0.08 : 0.12);
+      ..color = Colors.white.withOpacity(dark ? 0.08 : 0.12);
 
     canvas.drawCircle(
       Offset(c.dx - r * 0.18, c.dy - r * 0.22),
