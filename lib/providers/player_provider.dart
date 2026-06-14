@@ -66,7 +66,7 @@ class PlayerProvider extends ChangeNotifier {
     if (q.isEmpty) return;
 
     final remaining = q.length - 1 - index;
-    if (remaining > 2 || _isExtendingQueue) return;
+    if (q.length < 2 || remaining > 2 || _isExtendingQueue) return;
 
     _isExtendingQueue = true;
     try {

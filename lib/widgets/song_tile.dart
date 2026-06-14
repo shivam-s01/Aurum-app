@@ -35,6 +35,7 @@ class _SongTileState extends State<SongTile> {
   Future<void> _handleTap(BuildContext context) async {
     if (_isTapping) return;
     _isTapping = true;
+    HapticFeedback.lightImpact(); // instant tactile feedback before async work
     try {
       // Fire-and-forget — no await so UI responds instantly
       unawaited(context.read<RecentlyPlayedProvider>().addPlay(widget.song));
@@ -44,7 +45,7 @@ class _SongTileState extends State<SongTile> {
             index: widget.index ?? 0,
           ));
     } finally {
-      await Future.delayed(const Duration(milliseconds: 300));
+      await Future.delayed(const Duration(milliseconds: 800));
       if (mounted) _isTapping = false;
     }
   }
