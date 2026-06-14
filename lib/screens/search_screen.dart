@@ -46,17 +46,30 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _loadHistory();
-    _focusNode.addListener(() {
-      if (_focusNode.hasFocus && _controller.text.trim().isEmpty) {
-        setState(() => _showHistory = _history.isNotEmpty);
-      } else if (!_focusNode.hasFocus) {
-        setState(() => _showHistory = false);
+    _focusNode.addListener(_onFocusChange);
+  }
+
+  void _onFocusChange() {
+    if (!mounted) return;
+    if (_focusNode.hasFocus) {
+      if (_controller.text.trim().isEmpty && _history.isNotEmpty) {
+        if (!_showHistory) setState(() => _showHistory = true);
       }
-    });
+    } else {
+      if (_showHistory) setState(() => _showHistory = false);
+    }
+  }
+
+  void _dismissKeyboard() {
+    if (_focusNode.hasFocus) {
+      _suggestDebounce?.cancel();
+      _focusNode.unfocus();
+    }
   }
 
   @override
   void dispose() {
+    _focusNode.removeListener(_onFocusChange);
     _controller.dispose();
     _focusNode.dispose();
     _debounce?.cancel();
@@ -151,7 +164,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _debounce?.cancel();
     _suggestDebounce?.cancel();
     HapticFeedback.lightImpact();
-    FocusScope.of(context).unfocus();
+    _dismissKeyboard();
     setState(() {
       _loading     = true;
       _liveLoading = false;
@@ -182,22 +195,50 @@ class _SearchScreenState extends State<SearchScreen> {
 
   // ── Build ────────────────────────────────────────────────────
 
+  String _computeBodyKey() {
+    if (_loading) return 'loading';
+    if (_results.isNotEmpty) return 'results';
+    if (_controller.text.trim().isNotEmpty) return 'live';
+    if (_showHistory && _history.isNotEmpty) return 'history';
+    return 'empty';
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF000000),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(context),
-            _buildSearchBar(context),
-            Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: _buildBody(context),
+    return GestureDetector(
+      onTap: _dismissKeyboard,
+      behavior: HitTestBehavior.translucent,
+      child: Scaffold(
+        backgroundColor: AurumTheme.bgOf(context),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(context),
+              _buildSearchBar(context),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  transitionBuilder: (child, animation) {
+                    final slide = Tween<Offset>(
+                      begin: const Offset(0, 0.04),
+                      end: Offset.zero,
+                    ).animate(CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutCubic,
+                    ));
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(position: slide, child: child),
+                    );
+                  },
+                  child: KeyedSubtree(
+                    key: ValueKey(_computeBodyKey()),
+                    child: _buildBody(context),
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -235,11 +276,21 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildSearchBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
         decoration: BoxDecoration(
           color: AurumTheme.bgCardOf(context),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+          border: Border.all(
+            color: _focusNode.hasFocus
+                ? const Color(0xFF7C3AED).withOpacity(0.55)
+                : AurumTheme.dividerOf(context),
+            width: _focusNode.hasFocus ? 1.2 : 0.5,
+          ),
+          boxShadow: _focusNode.hasFocus
+              ? [BoxShadow(color: const Color(0xFF7C3AED).withOpacity(0.12), blurRadius: 12)]
+              : [],
         ),
         child: TextField(
           controller: _controller,
@@ -417,14 +468,8 @@ class _SearchScreenState extends State<SearchScreen> {
     // Tapping anywhere (e.g. a song result) immediately drops focus so the
     // keyboard closes and no further debounced live-search calls fire
     // mid-tap — this is what made taps feel "stuck" before.
-    return Listener(
+    return KeyedSubtree(
       key: const ValueKey('live'),
-      onPointerDown: (_) {
-        if (_focusNode.hasFocus) {
-          _suggestDebounce?.cancel();
-          FocusScope.of(context).unfocus();
-        }
-      },
       child: content,
     );
   }
@@ -434,7 +479,7 @@ class _SearchScreenState extends State<SearchScreen> {
       height: 2,
       child: LinearProgressIndicator(
         backgroundColor: Colors.transparent,
-        valueColor: AlwaysStoppedAnimation<Color>(AurumTheme.gold.withOpacity(0.7)),
+        valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF7C3AED).withOpacity(0.7)),
       ),
     );
   }

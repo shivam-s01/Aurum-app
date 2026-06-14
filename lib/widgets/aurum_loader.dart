@@ -289,7 +289,7 @@ class AurumLoaderScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: _AurumColors.amoledBlack,            // ← hardcoded AMOLED black
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
