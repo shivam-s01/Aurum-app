@@ -103,6 +103,7 @@ class PlayerProvider extends ChangeNotifier {
   List<Song> get queue => _handler.currentQueue;
   int get currentIndex => _handler.currentIndex;
   bool get hasSong => _handler.currentSong != null;
+  AurumAudioHandler get handler => _handler;
 
   double get progress {
     if (_duration.inMilliseconds == 0) return 0.0;

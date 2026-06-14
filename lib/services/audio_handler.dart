@@ -15,17 +15,15 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   List<Song> _queue = [];
   int _currentIndex = 0;
 
-  // Settings
   StreamSubscription<AccelerometerEvent>? _shakeSub;
   DateTime _lastShake = DateTime.now();
-  static const _shakeThreshold = 15.0; // m/s²
+  static const double _shakeThreshold = 15.0;
 
   AurumAudioHandler() {
     _init();
   }
 
   Future<void> _init() async {
-    // Audio session (handles call interruptions automatically)
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
@@ -40,9 +38,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       }
     });
 
-    session.becomingNoisyEventStream.listen((_) {
-      _player.pause();
-    });
+    session.becomingNoisyEventStream.listen((_) => _player.pause());
 
     _player.playbackEventStream.listen(_broadcastState);
 
@@ -59,38 +55,24 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       }
     });
 
-    // Apply saved settings on startup
     await _applySettings();
   }
 
-  // ── Apply all settings from SharedPrefs ─────────────────────────────────
-
   Future<void> _applySettings() async {
     final p = await SharedPreferences.getInstance();
-
-    // Playback speed
     final speed = p.getDouble('playback_speed') ?? 1.0;
     await _player.setSpeed(speed);
-
-    // Gapless — just_audio handles gapless by default with ConcatenatingAudioSource
-    // We just ensure no gap by not stopping between tracks (already the case)
-
-    // Shake to skip
     final shakeEnabled = p.getBool('shake_to_skip') ?? false;
-    _setShakeToSkip(shakeEnabled);
+    _updateShakeListener(shakeEnabled);
   }
 
-  // ── Shake to Skip ────────────────────────────────────────────────────────
-
-  void _setShakeToSkip(bool enabled) {
+  void _updateShakeListener(bool enabled) {
     _shakeSub?.cancel();
     _shakeSub = null;
     if (!enabled) return;
-
     _shakeSub = accelerometerEventStream().listen((event) {
       final magnitude = sqrt(
-        event.x * event.x + event.y * event.y + event.z * event.z,
-      );
+          event.x * event.x + event.y * event.y + event.z * event.z);
       final now = DateTime.now();
       if (magnitude > _shakeThreshold &&
           now.difference(_lastShake).inMilliseconds > 1000) {
@@ -100,24 +82,24 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
   }
 
-  /// Call this from settings when user toggles shake/speed
-  Future<void> reloadSettings() async {
-    await _applySettings();
-  }
-
-  // ── Stop on task removed (swipe from recents) ────────────────────────────
+  Future<void> reloadSettings() async => _applySettings();
 
   @override
   Future<void> onTaskRemoved() async {
     final p = await SharedPreferences.getInstance();
-    final stopOnSwipe = p.getBool('stop_on_swipe') ?? false;
-    if (stopOnSwipe) {
+    if (p.getBool('stop_on_swipe') ?? false) {
       await stop();
       await clearQueue();
     }
   }
 
-  // ── Resolve AudioSource ──────────────────────────────────────────────────
+  @override
+  Future<void> onNotificationDeleted() async => stop();
+
+  @override
+  Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
+    if (name == 'reloadSettings') await reloadSettings();
+  }
 
   Future<AudioSource?> _sourceForSong(Song song) async {
     if (song.isLocal) {
@@ -126,53 +108,37 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
           ? Uri.parse(path)
           : Uri.file(path);
       return AudioSource.uri(uri, tag: _songToMediaItem(song));
-    } else {
-      // Data saver — force low quality
-      final p = await SharedPreferences.getInstance();
-      final dataSaver = p.getBool('data_saver') ?? false;
-      final quality = dataSaver ? 'low' : (p.getString('stream_quality') ?? 'auto');
-
-      final url = await ApiService.resolveStreamUrl(song);
-      if (url == null) return null;
-      return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
     }
+    final url = await ApiService.resolveStreamUrl(song);
+    if (url == null) return null;
+    return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
   }
 
-  // ── Play queue ───────────────────────────────────────────────────────────
+  Future<void> _reapplySpeed() async {
+    final p = await SharedPreferences.getInstance();
+    await _player.setSpeed(p.getDouble('playback_speed') ?? 1.0);
+  }
 
   Future<void> playQueue(List<Song> songs, int startIndex) async {
     _queue = songs;
     _currentIndex = startIndex;
-
     final startSource = await _sourceForSong(songs[startIndex]);
     if (startSource == null) return;
-
     await _playlist.clear();
-
     final sources = <AudioSource>[];
     for (int i = 0; i < songs.length; i++) {
-      if (i == startIndex) {
-        sources.add(startSource);
-      } else {
-        sources.add(AudioSource.uri(
-          Uri.parse('https://example.com/placeholder.mp3'),
-          tag: _songToMediaItem(songs[i]),
-        ));
-      }
+      sources.add(i == startIndex
+          ? startSource
+          : AudioSource.uri(Uri.parse('https://example.com/placeholder.mp3'),
+              tag: _songToMediaItem(songs[i])));
     }
-
     await _playlist.addAll(sources);
-
     try {
       await _player.setAudioSource(_playlist, initialIndex: startIndex);
     } catch (_) {
       await _player.setAudioSource(_playlist, initialIndex: 0);
     }
-
-    // Re-apply speed after new source set
-    final p = await SharedPreferences.getInstance();
-    await _player.setSpeed(p.getDouble('playback_speed') ?? 1.0);
-
+    await _reapplySpeed();
     _updateMediaItem(songs[startIndex]);
     await _player.play();
     _resolveQueueInBackground(songs, startIndex);
@@ -191,27 +157,18 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
   }
 
-  // ── Play single song ─────────────────────────────────────────────────────
-
   Future<void> playSong(Song song) async {
     _queue = [song];
     _currentIndex = 0;
-
     final source = await _sourceForSong(song);
     if (source == null) return;
-
     await _playlist.clear();
     await _playlist.add(source);
     await _player.setAudioSource(_playlist);
-
-    final p = await SharedPreferences.getInstance();
-    await _player.setSpeed(p.getDouble('playback_speed') ?? 1.0);
-
+    await _reapplySpeed();
     _updateMediaItem(song);
     await _player.play();
   }
-
-  // ── Queue management ─────────────────────────────────────────────────────
 
   Future<void> addToQueue(Song song) async {
     _queue.add(song);
@@ -239,13 +196,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     await _playlist.move(from, to);
   }
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
-  List<Song> get currentQueue => List.unmodifiable(_queue);
-  Song? get currentSong => _queue.isNotEmpty ? _queue[_currentIndex] : null;
-  int get currentIndex => _currentIndex;
-  AudioPlayer get player => _player;
-
   Future<void> clearQueue() async {
     _queue = [];
     _currentIndex = 0;
@@ -253,7 +203,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     mediaItem.add(null);
   }
 
-  // ── Media item ───────────────────────────────────────────────────────────
+  List<Song> get currentQueue => List.unmodifiable(_queue);
+  Song? get currentSong => _queue.isNotEmpty ? _queue[_currentIndex] : null;
+  int get currentIndex => _currentIndex;
+  AudioPlayer get player => _player;
 
   void _updateMediaItem(Song song) => mediaItem.add(_songToMediaItem(song));
 
@@ -263,10 +216,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         artist: song.artist,
         album: song.album,
         artUri: song.artworkUrl.isNotEmpty ? Uri.parse(song.artworkUrl) : null,
-        duration: song.duration != null ? Duration(seconds: song.duration!) : null,
+        duration:
+            song.duration != null ? Duration(seconds: song.duration!) : null,
       );
-
-  // ── Playback state ───────────────────────────────────────────────────────
 
   void _broadcastState(PlaybackEvent event) {
     final playing = _player.playing;
@@ -296,8 +248,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       queueIndex: _currentIndex,
     ));
   }
-
-  // ── BaseAudioHandler overrides ───────────────────────────────────────────
 
   @override Future<void> play()  => _player.play();
   @override Future<void> pause() => _player.pause();
@@ -349,19 +299,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     playbackState.add(playbackState.value.copyWith(shuffleMode: shuffleMode));
   }
 
-  @override
-  Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
-    if (name == 'reloadSettings') await reloadSettings();
-  }
-
-  @override
-  Future<void> onNotificationDeleted() async {
-    await stop();
-  }
-
-  // ── Cleanup ──────────────────────────────────────────────────────────────
-
-  Future<void> dispose() async {
+  Future<void> disposeHandler() async {
     _shakeSub?.cancel();
     await _player.dispose();
   }

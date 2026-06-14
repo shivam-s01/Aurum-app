@@ -22,7 +22,7 @@ dependencies:
   # HTTP
   http: ^1.2.0
 
-  # YouTube (client-side resolution, no backend needed)
+  # YouTube
   youtube_explode_dart: ^2.2.1
 
   # UI
@@ -40,6 +40,7 @@ dependencies:
   uuid: ^4.3.3
   url_launcher: ^6.3.0
   permission_handler: ^11.3.1
+  async: ^2.11.0
 
   # Offline
   dio: ^5.4.0
