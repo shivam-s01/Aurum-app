@@ -185,7 +185,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AurumTheme.bgOf(context),
+      backgroundColor: const Color(0xFF000000),
       body: SafeArea(
         child: Column(
           children: [
@@ -443,16 +443,9 @@ class _SearchScreenState extends State<SearchScreen> {
     return Column(
       children: [
         _buildLiveProgressBar(context),
-        Expanded(
+        const Expanded(
           child: Center(
-            child: SizedBox(
-              width: 26,
-              height: 26,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.4,
-                valueColor: AlwaysStoppedAnimation<Color>(AurumTheme.gold.withOpacity(0.6)),
-              ),
-            ),
+            child: AurumLoaderSmall(),
           ),
         ),
       ],
