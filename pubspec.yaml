@@ -41,9 +41,12 @@ dependencies:
   url_launcher: ^6.3.0
   permission_handler: ^11.3.1
 
-  # ── Offline: local music library scanner ──
+  # Offline
   dio: ^5.4.0
   package_info_plus: ^4.2.0
+
+  # Settings features
+  sensors_plus: ^5.0.1
 
 dev_dependencies:
   flutter_test:

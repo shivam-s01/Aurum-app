@@ -1,6 +1,10 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:sensors_plus/sensors_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import 'api_service.dart';
 
@@ -11,15 +15,21 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   List<Song> _queue = [];
   int _currentIndex = 0;
 
+  // Settings
+  StreamSubscription<AccelerometerEvent>? _shakeSub;
+  DateTime _lastShake = DateTime.now();
+  static const _shakeThreshold = 15.0; // m/s²
+
   AurumAudioHandler() {
     _init();
   }
 
   Future<void> _init() async {
-    // Audio session (audio focus, call handling)
+    // Audio session (handles call interruptions automatically)
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
+    // Pause on call — audio_session handles this natively
     session.interruptionEventStream.listen((event) {
       if (event.begin) {
         _player.pause();
@@ -31,7 +41,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
 
     session.becomingNoisyEventStream.listen((_) {
-      // Headphones unplugged — pause
       _player.pause();
     });
 
@@ -50,28 +59,82 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       }
     });
 
+    // Apply saved settings on startup
+    await _applySettings();
   }
 
-  // ── Resolve AudioSource for any song (online or local) ──────────────────
+  // ── Apply all settings from SharedPrefs ─────────────────────────────────
+
+  Future<void> _applySettings() async {
+    final p = await SharedPreferences.getInstance();
+
+    // Playback speed
+    final speed = p.getDouble('playback_speed') ?? 1.0;
+    await _player.setSpeed(speed);
+
+    // Gapless — just_audio handles gapless by default with ConcatenatingAudioSource
+    // We just ensure no gap by not stopping between tracks (already the case)
+
+    // Shake to skip
+    final shakeEnabled = p.getBool('shake_to_skip') ?? false;
+    _setShakeToSkip(shakeEnabled);
+  }
+
+  // ── Shake to Skip ────────────────────────────────────────────────────────
+
+  void _setShakeToSkip(bool enabled) {
+    _shakeSub?.cancel();
+    _shakeSub = null;
+    if (!enabled) return;
+
+    _shakeSub = accelerometerEventStream().listen((event) {
+      final magnitude = sqrt(
+        event.x * event.x + event.y * event.y + event.z * event.z,
+      );
+      final now = DateTime.now();
+      if (magnitude > _shakeThreshold &&
+          now.difference(_lastShake).inMilliseconds > 1000) {
+        _lastShake = now;
+        skipToNext();
+      }
+    });
+  }
+
+  /// Call this from settings when user toggles shake/speed
+  Future<void> reloadSettings() async {
+    await _applySettings();
+  }
+
+  // ── Stop on task removed (swipe from recents) ────────────────────────────
+
+  @override
+  Future<void> onTaskRemoved() async {
+    final p = await SharedPreferences.getInstance();
+    final stopOnSwipe = p.getBool('stop_on_swipe') ?? false;
+    if (stopOnSwipe) {
+      await stop();
+      await clearQueue();
+    }
+  }
+
+  // ── Resolve AudioSource ──────────────────────────────────────────────────
 
   Future<AudioSource?> _sourceForSong(Song song) async {
     if (song.isLocal) {
-      // Local song — localPath holds a content:// URI (MediaStore) or file:// path.
-      // We use Uri.parse() directly so both schemes work on all Android versions.
-      // File() + Uri.file() breaks on Android 10+ for content:// URIs.
       final path = song.localPath!;
       final uri = path.startsWith('content://') || path.startsWith('file://')
           ? Uri.parse(path)
-          : Uri.file(path); // fallback for bare paths
+          : Uri.file(path);
       return AudioSource.uri(uri, tag: _songToMediaItem(song));
     } else {
-      // Online song — resolve stream URL from backend
-      final url = await ApiService.resolveStreamUrl(song);
+      // Data saver — force low quality
+      final p = await SharedPreferences.getInstance();
+      final dataSaver = p.getBool('data_saver') ?? false;
+      final quality = dataSaver ? 'low' : (p.getString('stream_quality') ?? 'auto');
+
+      final url = await ApiService.resolveStreamUrl(song, quality: quality);
       if (url == null) return null;
-      return AudioSource.uri(
-        Uri.parse(url),
-        tag: _songToMediaItem(song),
-      );
+      return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
     }
   }
 
@@ -91,7 +154,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (i == startIndex) {
         sources.add(startSource);
       } else {
-        // Placeholder — replaced by background resolver
         sources.add(AudioSource.uri(
           Uri.parse('https://example.com/placeholder.mp3'),
           tag: _songToMediaItem(songs[i]),
@@ -106,6 +168,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     } catch (_) {
       await _player.setAudioSource(_playlist, initialIndex: 0);
     }
+
+    // Re-apply speed after new source set
+    final p = await SharedPreferences.getInstance();
+    await _player.setSpeed(p.getDouble('playback_speed') ?? 1.0);
 
     _updateMediaItem(songs[startIndex]);
     await _player.play();
@@ -137,6 +203,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     await _playlist.clear();
     await _playlist.add(source);
     await _player.setAudioSource(_playlist);
+
+    final p = await SharedPreferences.getInstance();
+    await _player.setSpeed(p.getDouble('playback_speed') ?? 1.0);
+
     _updateMediaItem(song);
     await _player.play();
   }
@@ -176,7 +246,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   int get currentIndex => _currentIndex;
   AudioPlayer get player => _player;
 
-  /// Clears queue and resets state — used when user swipe-dismisses mini player.
   Future<void> clearQueue() async {
     _queue = [];
     _currentIndex = 0;
@@ -194,8 +263,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         artist: song.artist,
         album: song.album,
         artUri: song.artworkUrl.isNotEmpty ? Uri.parse(song.artworkUrl) : null,
-        duration:
-            song.duration != null ? Duration(seconds: song.duration!) : null,
+        duration: song.duration != null ? Duration(seconds: song.duration!) : null,
       );
 
   // ── Playback state ───────────────────────────────────────────────────────
@@ -279,5 +347,22 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final enabled = shuffleMode != AudioServiceShuffleMode.none;
     await _player.setShuffleModeEnabled(enabled);
     playbackState.add(playbackState.value.copyWith(shuffleMode: shuffleMode));
+  }
+
+  @override
+  Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
+    if (name == 'reloadSettings') await reloadSettings();
+  }
+
+  @override
+  Future<void> onNotificationDeleted() async {
+    await stop();
+  }
+
+  // ── Cleanup ──────────────────────────────────────────────────────────────
+
+  Future<void> dispose() async {
+    _shakeSub?.cancel();
+    await _player.dispose();
   }
 }
