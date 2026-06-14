@@ -9,11 +9,18 @@ import '../models/song.dart';
 import 'api_service.dart';
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
-  final _player = AudioPlayer();
+  final _player   = AudioPlayer();
   final _playlist = ConcatenatingAudioSource(children: []);
 
-  List<Song> _queue = [];
-  int _currentIndex = 0;
+  List<Song> _queue        = [];
+  int        _currentIndex = 0;
+
+  // Cancellation token — each new playQueue/playSong call gets a fresh ID.
+  // Background resolvers check this before touching the playlist.
+  int _playSessionId = 0;
+
+  // Prevent concurrent playQueue calls from racing each other.
+  bool _isLoadingNewSong = false;
 
   StreamSubscription<AccelerometerEvent>? _shakeSub;
   DateTime _lastShake = DateTime.now();
@@ -27,14 +34,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
-    // Pause on call — audio_session handles this natively
     session.interruptionEventStream.listen((event) {
       if (event.begin) {
         _player.pause();
       } else {
-        if (event.type == AudioInterruptionType.pause) {
-          _player.play();
-        }
+        if (event.type == AudioInterruptionType.pause) _player.play();
       }
     });
 
@@ -71,11 +75,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _shakeSub = null;
     if (!enabled) return;
     _shakeSub = accelerometerEventStream().listen((event) {
-      final magnitude = sqrt(
-          event.x * event.x + event.y * event.y + event.z * event.z);
+      final magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
       final now = DateTime.now();
-      if (magnitude > _shakeThreshold &&
-          now.difference(_lastShake).inMilliseconds > 1000) {
+      if (magnitude > _shakeThreshold && now.difference(_lastShake).inMilliseconds > 1000) {
         _lastShake = now;
         skipToNext();
       }
@@ -119,106 +121,187 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     await _player.setSpeed(p.getDouble('playback_speed') ?? 1.0);
   }
 
+  // ─── MAIN PLAY ENTRY POINT ───────────────────────────────────────────────
+  //
+  // Strategy:
+  //   1. Bump session ID — cancels any in-flight background resolver immediately.
+  //   2. Stop player hard — guarantees old audio dies before new starts.
+  //   3. Resolve only the clicked song URL (fast).
+  //   4. Build a fresh ConcatenatingAudioSource with just that one song.
+  //   5. setAudioSource → play → done. UI responds instantly.
+  //   6. Background: resolve remaining songs and splice them in safely,
+  //      always checking session ID so a subsequent tap cancels this work.
+
   Future<void> playQueue(List<Song> songs, int startIndex) async {
-    _queue = songs;
-    _currentIndex = startIndex;
-    final startSource = await _sourceForSong(songs[startIndex]);
-    if (startSource == null) return;
-    await _playlist.clear();
-    final sources = <AudioSource>[];
-    for (int i = 0; i < songs.length; i++) {
-      sources.add(i == startIndex
-          ? startSource
-          : AudioSource.uri(Uri.parse('https://example.com/placeholder.mp3'),
-              tag: _songToMediaItem(songs[i])));
-    }
-    await _playlist.addAll(sources);
+    // Debounce rapid taps — if already loading, cancel previous and take over
+    _playSessionId++;
+    final mySession = _playSessionId;
+    _isLoadingNewSong = true;
+
     try {
-      await _player.setAudioSource(_playlist, initialIndex: startIndex);
-    } catch (_) {
-      await _player.setAudioSource(_playlist, initialIndex: 0);
+      // 1. Hard stop — old song dies immediately, no bleed-through
+      await _player.stop();
+
+      // Check if superseded by an even newer tap
+      if (mySession != _playSessionId) return;
+
+      _queue        = List<Song>.from(songs);
+      _currentIndex = 0; // always 0 in fresh playlist; we adjust after prepend
+
+      // 2. Resolve clicked song
+      final startSource = await _sourceForSong(songs[startIndex]);
+      if (mySession != _playSessionId) return; // superseded
+      if (startSource == null) return;
+
+      // 3. Fresh single-song playlist — no placeholders, no auto-skip
+      final fresh = ConcatenatingAudioSource(children: [startSource]);
+      await _player.setAudioSource(fresh, initialIndex: 0, preload: true);
+      if (mySession != _playSessionId) return;
+
+      await _reapplySpeed();
+      _updateMediaItem(songs[startIndex]);
+      await _player.play();
+
+    } finally {
+      if (mySession == _playSessionId) _isLoadingNewSong = false;
     }
-    await _reapplySpeed();
-    _updateMediaItem(songs[startIndex]);
-    await _player.play();
-    _resolveQueueInBackground(songs, startIndex);
+
+    // 4. Background: build full queue without blocking playback
+    _resolveQueueInBackground(songs, startIndex, mySession);
   }
 
-  void _resolveQueueInBackground(List<Song> songs, int startIndex) async {
-    for (int i = 0; i < songs.length; i++) {
-      if (i == startIndex) continue;
+  // Resolves all other songs and splices them into the live playlist.
+  // Checks session ID at every async boundary — if user tapped a new song,
+  // this entire routine exits silently without touching the player.
+  void _resolveQueueInBackground(
+      List<Song> songs, int startIndex, int sessionId) async {
+    // --- Songs AFTER startIndex (append) ---
+    for (int i = startIndex + 1; i < songs.length; i++) {
+      if (sessionId != _playSessionId) return;
       try {
         final source = await _sourceForSong(songs[i]);
-        if (source != null && i < _playlist.length) {
-          await _playlist.removeAt(i);
-          await _playlist.insert(i, source);
+        if (sessionId != _playSessionId) return;
+        if (source != null) {
+          await _player.sequence?.last; // wait for player to be stable
+          // Get current ConcatenatingAudioSource from player
+          final seq = _player.audioSource;
+          if (seq is ConcatenatingAudioSource && sessionId == _playSessionId) {
+            await seq.add(source);
+          }
+        }
+      } catch (_) {}
+    }
+
+    // --- Songs BEFORE startIndex (prepend one by one, adjust index) ---
+    // We insert in reverse so final order is correct
+    for (int i = startIndex - 1; i >= 0; i--) {
+      if (sessionId != _playSessionId) return;
+      try {
+        final source = await _sourceForSong(songs[i]);
+        if (sessionId != _playSessionId) return;
+        if (source != null) {
+          final seq = _player.audioSource;
+          if (seq is ConcatenatingAudioSource && sessionId == _playSessionId) {
+            await seq.insert(0, source);
+            _currentIndex++;
+            // Seek to same position in same song (index shifted by 1)
+            await _player.seek(_player.position, index: _currentIndex);
+          }
         }
       } catch (_) {}
     }
   }
 
+  // ─── SINGLE SONG (no queue context) ──────────────────────────────────────
+
   Future<void> playSong(Song song) async {
-    _queue = [song];
+    _playSessionId++;
+    final mySession = _playSessionId;
+
+    await _player.stop();
+    if (mySession != _playSessionId) return;
+
+    _queue        = [song];
     _currentIndex = 0;
+
     final source = await _sourceForSong(song);
+    if (mySession != _playSessionId) return;
     if (source == null) return;
-    await _playlist.clear();
-    await _playlist.add(source);
-    await _player.setAudioSource(_playlist);
+
+    final fresh = ConcatenatingAudioSource(children: [source]);
+    await _player.setAudioSource(fresh, initialIndex: 0, preload: true);
+    if (mySession != _playSessionId) return;
+
     await _reapplySpeed();
     _updateMediaItem(song);
     await _player.play();
   }
 
+  // ─── QUEUE MUTATIONS ──────────────────────────────────────────────────────
+
   Future<void> addToQueue(Song song) async {
     _queue.add(song);
     final source = await _sourceForSong(song);
-    if (source != null) await _playlist.add(source);
+    if (source == null) return;
+    final seq = _player.audioSource;
+    if (seq is ConcatenatingAudioSource) await seq.add(source);
   }
 
   Future<void> playNext(Song song) async {
     final insertIdx = _currentIndex + 1;
     _queue.insert(insertIdx, song);
     final source = await _sourceForSong(song);
-    if (source != null) await _playlist.insert(insertIdx, source);
+    if (source == null) return;
+    final seq = _player.audioSource;
+    if (seq is ConcatenatingAudioSource) await seq.insert(insertIdx, source);
   }
 
   Future<void> removeFromQueue(int index) async {
-    if (index < _queue.length) {
-      _queue.removeAt(index);
-      await _playlist.removeAt(index);
+    if (index >= _queue.length) return;
+    _queue.removeAt(index);
+    final seq = _player.audioSource;
+    if (seq is ConcatenatingAudioSource && index < seq.length) {
+      await seq.removeAt(index);
     }
   }
 
   Future<void> moveQueueItem(int from, int to) async {
     final song = _queue.removeAt(from);
     _queue.insert(to, song);
-    await _playlist.move(from, to);
+    final seq = _player.audioSource;
+    if (seq is ConcatenatingAudioSource) await seq.move(from, to);
   }
 
   Future<void> clearQueue() async {
-    _queue = [];
+    _playSessionId++; // cancel any background work
+    _queue        = [];
     _currentIndex = 0;
-    await _playlist.clear();
+    final seq = _player.audioSource;
+    if (seq is ConcatenatingAudioSource) await seq.clear();
     mediaItem.add(null);
   }
 
-  List<Song> get currentQueue => List.unmodifiable(_queue);
-  Song? get currentSong => _queue.isNotEmpty ? _queue[_currentIndex] : null;
-  int get currentIndex => _currentIndex;
-  AudioPlayer get player => _player;
+  // ─── GETTERS ──────────────────────────────────────────────────────────────
+
+  List<Song> get currentQueue  => List.unmodifiable(_queue);
+  Song?      get currentSong   => _queue.isNotEmpty ? _queue[_currentIndex] : null;
+  int        get currentIndex  => _currentIndex;
+  AudioPlayer get player       => _player;
+
+  // ─── MEDIA ITEM ───────────────────────────────────────────────────────────
 
   void _updateMediaItem(Song song) => mediaItem.add(_songToMediaItem(song));
 
   MediaItem _songToMediaItem(Song song) => MediaItem(
-        id: song.id,
-        title: song.title,
-        artist: song.artist,
-        album: song.album,
-        artUri: song.artworkUrl.isNotEmpty ? Uri.parse(song.artworkUrl) : null,
-        duration:
-            song.duration != null ? Duration(seconds: song.duration!) : null,
+        id:      song.id,
+        title:   song.title,
+        artist:  song.artist,
+        album:   song.album,
+        artUri:  song.artworkUrl.isNotEmpty ? Uri.parse(song.artworkUrl) : null,
+        duration: song.duration != null ? Duration(seconds: song.duration!) : null,
       );
+
+  // ─── PLAYBACK STATE BROADCAST ─────────────────────────────────────────────
 
   void _broadcastState(PlaybackEvent event) {
     final playing = _player.playing;
@@ -241,13 +324,15 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         ProcessingState.ready:     AudioProcessingState.ready,
         ProcessingState.completed: AudioProcessingState.completed,
       }[_player.processingState]!,
-      playing: playing,
-      updatePosition: _player.position,
+      playing:          playing,
+      updatePosition:   _player.position,
       bufferedPosition: _player.bufferedPosition,
-      speed: _player.speed,
-      queueIndex: _currentIndex,
+      speed:            _player.speed,
+      queueIndex:       _currentIndex,
     ));
   }
+
+  // ─── TRANSPORT CONTROLS ───────────────────────────────────────────────────
 
   @override Future<void> play()  => _player.play();
   @override Future<void> pause() => _player.pause();
