@@ -132,7 +132,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       final dataSaver = p.getBool('data_saver') ?? false;
       final quality = dataSaver ? 'low' : (p.getString('stream_quality') ?? 'auto');
 
-      final url = await ApiService.resolveStreamUrl(song, quality: quality);
+      final url = await ApiService.resolveStreamUrl(song);
       if (url == null) return null;
       return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
     }
