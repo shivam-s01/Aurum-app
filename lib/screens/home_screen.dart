@@ -38,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadOnline() async {
     setState(() { _onlineLoading = true; _onlineError = null; });
     try {
-      final topArtists = context.read<RecentlyPlayedProvider>().topArtists();
+      final topArtists = context.read<RecentlyPlayedProvider>().topArtists(count: 3);
       final sections = await ApiService.fetchHome(topArtists: topArtists);
       if (mounted) setState(() { _onlineSections = sections; _onlineLoading = false; });
     } catch (e) {
@@ -78,6 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       loading: _onlineLoading,
                       error: _onlineError,
                       onRetry: _loadOnline,
+                      recentlyPlayed: context.watch<RecentlyPlayedProvider>().history,
                     )
                   : const _OfflineContent(key: ValueKey('offline')),
             ),
@@ -129,14 +130,35 @@ class _OnlineContent extends StatelessWidget {
   final bool loading;
   final String? error;
   final VoidCallback onRetry;
+  final List<Song> recentlyPlayed;
 
-  const _OnlineContent({super.key, required this.sections, required this.loading, required this.error, required this.onRetry});
+  const _OnlineContent({
+    super.key,
+    required this.sections,
+    required this.loading,
+    required this.error,
+    required this.onRetry,
+    this.recentlyPlayed = const [],
+  });
 
   @override
   Widget build(BuildContext context) {
     if (loading) return _buildShimmer(context);
     if (error != null && sections.isEmpty) return _buildError(context);
-    return Column(children: sections.map((s) => _buildSection(context, s)).toList());
+    return Column(
+      children: [
+        // "Continue Listening" — built instantly from local play history,
+        // no network call. Shows up immediately even while the rest of the
+        // feed is still loading, and gives the home page that
+        // "picks up where you left off" Spotify/YT Music feel.
+        if (recentlyPlayed.isNotEmpty)
+          _buildSection(
+            context,
+            SongSection(title: '⏱️ Continue Listening', songs: recentlyPlayed.take(15).toList()),
+          ),
+        ...sections.map((s) => _buildSection(context, s)),
+      ],
+    );
   }
 
   Widget _buildShimmer(BuildContext context) {

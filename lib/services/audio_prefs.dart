@@ -1,0 +1,89 @@
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Lightweight static bridge so service-layer code (ApiService,
+/// AurumAudioHandler) can read live Player & Audio settings without a
+/// BuildContext.
+///
+/// The Settings → Player & Audio screen calls the setters below directly
+/// (in addition to its own SharedPreferences writes) so changes take effect
+/// immediately — no app restart needed. [load] restores everything from
+/// disk once at startup.
+class AudioPrefs {
+  AudioPrefs._();
+
+  /// 'Auto' | 'Low' | 'Medium' | 'High' — matches the Stream Quality
+  /// dropdown values in Settings → Player & Audio.
+  static String streamQuality = 'Auto';
+
+  /// Forces the lowest available stream quality regardless of
+  /// [streamQuality] — used to save mobile data. Overrides streamQuality.
+  static bool dataSaver = false;
+
+  /// If true (default), playback pauses when a phone call interrupts audio.
+  /// If false, Aurum ignores call interruptions and keeps playing wherever
+  /// the OS allows the app to retain audio focus.
+  static bool pauseOnCall = true;
+
+  /// If true, playback volume is ducked/paused for short transient sounds
+  /// (e.g. a notification chime). Default false — notifications should NOT
+  /// lower or stop song playback.
+  static bool duckOnNotifications = false;
+
+  static const _kStreamQuality = 'stream_quality';
+  static const _kDataSaver     = 'data_saver';
+  static const _kPauseOnCall   = 'pause_on_call';
+  static const _kDuckNotif     = 'duck_on_notifications';
+
+  /// Restore all values from disk. Call once at startup (from the audio
+  /// handler's _init()).
+  static Future<void> load() async {
+    final p = await SharedPreferences.getInstance();
+    streamQuality       = p.getString(_kStreamQuality) ?? streamQuality;
+    dataSaver           = p.getBool(_kDataSaver) ?? dataSaver;
+    pauseOnCall         = p.getBool(_kPauseOnCall) ?? pauseOnCall;
+    duckOnNotifications = p.getBool(_kDuckNotif) ?? duckOnNotifications;
+  }
+
+  static Future<void> setStreamQuality(String v) async {
+    streamQuality = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_kStreamQuality, v);
+  }
+
+  static Future<void> setDataSaver(bool v) async {
+    dataSaver = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kDataSaver, v);
+  }
+
+  static Future<void> setPauseOnCall(bool v) async {
+    pauseOnCall = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kPauseOnCall, v);
+  }
+
+  static Future<void> setDuckOnNotifications(bool v) async {
+    duckOnNotifications = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kDuckNotif, v);
+  }
+
+  /// Ordered list of Saavn quality strings to try, highest priority first —
+  /// driven by [streamQuality] and [dataSaver]. Data Saver always wins and
+  /// forces the lowest tier regardless of the manual Stream Quality choice.
+  static List<String> qualityOrder() {
+    if (dataSaver) return const ['48kbps', '96kbps', '12kbps', '160kbps', '320kbps'];
+    switch (streamQuality) {
+      case 'Low':
+        return const ['96kbps', '48kbps', '12kbps', '160kbps', '320kbps'];
+      case 'Medium':
+        return const ['160kbps', '96kbps', '320kbps', '48kbps', '12kbps'];
+      case 'High':
+        return const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
+      case 'Auto':
+      default:
+        // Auto: best quality first — original/unchanged default behaviour.
+        return const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
+    }
+  }
+}

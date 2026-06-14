@@ -7,6 +7,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import 'api_service.dart';
+import 'audio_prefs.dart';
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   final _player   = AudioPlayer();
@@ -31,14 +32,46 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   Future<void> _init() async {
+    // Restore Player & Audio settings (Stream Quality, Data Saver, call /
+    // notification interruption behaviour) BEFORE the audio session is
+    // wired up — so the very first interruption event already respects them.
+    await AudioPrefs.load();
+
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
+    // ---------------------------------------------------------------------
+    // Interruption handling — driven by Settings → Player & Audio →
+    // Behaviour:
+    //
+    //   • AudioInterruptionType.pause → typically a phone call or another
+    //     media app taking over.
+    //       - AudioPrefs.pauseOnCall == true  (default): pause, and resume
+    //         automatically once the interruption ends.
+    //       - AudioPrefs.pauseOnCall == false: ignored entirely — playback
+    //         keeps going through calls wherever the OS allows it.
+    //
+    //   • AudioInterruptionType.duck → a short transient sound (e.g. a
+    //     notification chime).
+    //       - AudioPrefs.duckOnNotifications == false (default): IGNORED —
+    //         song volume does NOT drop and playback does NOT pause for
+    //         notifications.
+    //       - true: pause briefly and resume after, like other apps do.
+    // ---------------------------------------------------------------------
     session.interruptionEventStream.listen((event) {
+      final isDuck = event.type == AudioInterruptionType.duck;
+
+      if (isDuck && !AudioPrefs.duckOnNotifications) {
+        return; // Notification sound — ignore, keep playing at full volume.
+      }
+      if (!isDuck && !AudioPrefs.pauseOnCall) {
+        return; // Phone call / other app — ignore, keep playing.
+      }
+
       if (event.begin) {
         _player.pause();
       } else {
-        if (event.type == AudioInterruptionType.pause) _player.play();
+        _player.play();
       }
     });
 
@@ -63,6 +96,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   Future<void> _applySettings() async {
+    await AudioPrefs.load();
     final p = await SharedPreferences.getInstance();
     final speed = p.getDouble('playback_speed') ?? 1.0;
     await _player.setSpeed(speed);

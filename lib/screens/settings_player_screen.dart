@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_handler.dart';
+import '../services/audio_prefs.dart';
 
 class SettingsPlayerScreen extends StatefulWidget {
   final AurumAudioHandler? audioHandler;
@@ -18,6 +19,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   bool _keepQueue = true;
   bool _stopOnSwipe = false;
   bool _pauseOnCall = true;
+  bool _duckOnNotifications = false;
   bool _shakeToSkip = false;
   bool _swipeToChange = true;
   double _historyDuration = 50;
@@ -38,6 +40,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
       _keepQueue = p.getBool('keep_queue') ?? true;
       _stopOnSwipe = p.getBool('stop_on_swipe') ?? false;
       _pauseOnCall = p.getBool('pause_on_call') ?? true;
+      _duckOnNotifications = p.getBool('duck_on_notifications') ?? false;
       _shakeToSkip = p.getBool('shake_to_skip') ?? false;
       _swipeToChange = p.getBool('swipe_to_change') ?? true;
       _historyDuration = (p.getInt('history_duration') ?? 50).toDouble();
@@ -75,6 +78,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) {
                 setState(() => _streamQuality = v!);
                 _save('stream_quality', v!);
+                AudioPrefs.setStreamQuality(v); // applies immediately
               }),
           _switchTile(context,
               icon: Icons.data_saver_on_rounded,
@@ -84,6 +88,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) {
                 setState(() => _dataSaver = v);
                 _save('data_saver', v);
+                AudioPrefs.setDataSaver(v); // applies immediately
               }),
           _switchTile(context,
               icon: Icons.remove_done_rounded,
@@ -218,6 +223,17 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) {
                 setState(() => _pauseOnCall = v);
                 _save('pause_on_call', v);
+                AudioPrefs.setPauseOnCall(v); // applies immediately
+              }),
+          _switchTile(context,
+              icon: Icons.notifications_active_rounded,
+              title: 'Duck Volume for Notifications',
+              subtitle: 'OFF = notifications never lower or pause your song',
+              value: _duckOnNotifications,
+              onChanged: (v) {
+                setState(() => _duckOnNotifications = v);
+                _save('duck_on_notifications', v);
+                AudioPrefs.setDuckOnNotifications(v); // applies immediately
               }),
           _switchTile(context,
               icon: Icons.vibration_rounded,

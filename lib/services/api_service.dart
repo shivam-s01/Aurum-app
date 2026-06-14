@@ -55,6 +55,7 @@ import 'package:async/async.dart';
 
 import '../models/song.dart';
 import '../utils/constants.dart';
+import 'audio_prefs.dart';
 
 // =============================================================================
 //  AURUM API SERVICE — v2.0 Production
@@ -242,37 +243,59 @@ class ApiService {
   // full, working home page.
   // ===========================================================================
   static final List<String> _trendingPool = [
-    'trending hindi songs',
+    'trending hindi songs 2026',
+    'new bollywood songs 2026',
     'bollywood hits',
     'hindi top charts',
+    '90s bollywood hits',
+    '2000s bollywood songs',
     'english pop hits',
+    '90s english songs',
+    '2010s english hits',
+    'hip hop hits',
     'arijit singh hits',
+    'punjabi hits',
     'lofi chill hindi',
     'romantic hindi songs',
+    'sad songs hindi',
     'party songs hindi',
+    'workout motivation songs',
     'top 50 global',
     'indie hindi hits',
+    'old is gold hindi',
   ];
 
   static const Map<String, String> _trendingLabels = {
-    'trending hindi songs': '🔥 Trending Now',
-    'bollywood hits':       '🎬 Bollywood Hits',
-    'hindi top charts':     '🎵 Hindi Top Charts',
-    'english pop hits':     '🎧 English Hits',
-    'arijit singh hits':    '🎤 Arijit Singh Hits',
-    'lofi chill hindi':     '🌙 Lofi & Chill',
-    'romantic hindi songs': '❤️ Romantic Vibes',
-    'party songs hindi':    '🎉 Party Anthems',
-    'top 50 global':        '🌍 Global Top 50',
-    'indie hindi hits':     '✨ Indie Picks',
+    'trending hindi songs 2026': '🔥 Trending Now 2026',
+    'new bollywood songs 2026':  '🆕 New Bollywood',
+    'bollywood hits':            '🎬 Bollywood Hits',
+    'hindi top charts':          '🎵 Hindi Top Charts',
+    '90s bollywood hits':        '📻 90s Bollywood',
+    '2000s bollywood songs':     '💿 2000s Bollywood',
+    'english pop hits':          '🎧 English Hits',
+    '90s english songs':         '🕶️ 90s English',
+    '2010s english hits':        '⭐ 2010s English Hits',
+    'hip hop hits':              '🎤 Hip Hop',
+    'arijit singh hits':         '🎙️ Arijit Singh Hits',
+    'punjabi hits':              '🚜 Punjabi Hits',
+    'lofi chill hindi':          '🌙 Lofi & Chill',
+    'romantic hindi songs':      '❤️ Romantic Vibes',
+    'sad songs hindi':           '💔 Heartbreak Anthems',
+    'party songs hindi':         '🎉 Party Anthems',
+    'workout motivation songs':  '💪 Workout Energy',
+    'top 50 global':             '🌍 Global Top 50',
+    'indie hindi hits':          '✨ Indie Picks',
+    'old is gold hindi':         '🕰️ Old Is Gold',
   };
 
   static Future<List<SongSection>> fetchHome({List<String> topArtists = const []}) async {
-    // --- Pick today's 3 trending queries (date-seeded rotation) ---
+    // --- Pick today's 6 trending queries (date-seeded rotation) ---
+    // More picks than before so the home feed feels "bhara-bhara" (full)
+    // like Spotify/YT Music — genres, decades, moods all in one scroll.
     final dayIndex = DateTime.now().difference(DateTime(2026, 1, 1)).inDays;
     final poolSize = _trendingPool.length;
     final picks = <String>{};
-    for (int i = 0; picks.length < 3 && i < poolSize; i++) {
+    for (int i = 0; picks.length < 6 && i < poolSize; i++) {
       picks.add(_trendingPool[(dayIndex + i) % poolSize]);
     }
 
@@ -280,22 +303,36 @@ class ApiService {
       for (final query in picks) _saavnSection(query, _trendingLabels[query]!),
     ];
 
-    // --- "Made For You" from top artists (max 2) ---
+    // --- "Made For You" from top artists (up to 3) ---
+    // One personalised section per top artist — these are pushed to the
+    // FRONT of the result list below so "auto songs" (trending) load fast
+    // first, then personalised picks slot in right after.
+    final personalFutures = <Future<SongSection?>>[];
     if (topArtists.isNotEmpty) {
-      for (final artist in topArtists.take(2)) {
-        futures.add(_saavnSection('$artist hits', '✨ Made For You'));
+      for (final artist in topArtists.take(3)) {
+        personalFutures.add(_saavnSection('$artist hits', '✨ Mix for $artist'));
       }
     } else {
-      // Cold start fallback: one more trending query so home isn't sparse.
-      final extra = _trendingPool[(dayIndex + 3) % poolSize];
-      futures.add(_saavnSection(extra, _trendingLabels[extra]!));
+      // Cold start fallback: two more trending queries so home isn't sparse
+      // before the user has any listening history.
+      for (int i = 6; i < 8 && i < poolSize; i++) {
+        final extra = _trendingPool[(dayIndex + i) % poolSize];
+        futures.add(_saavnSection(extra, _trendingLabels[extra]!));
+      }
     }
 
     // Everything fires in parallel — total time ≈ slowest single request.
-    final results = await Future.wait(futures);
+    final trendingResults = await Future.wait(futures);
+    final personalResults = await Future.wait(personalFutures);
 
-    // whereType<SongSection>() skips null entries (0-result queries) without crashing.
-    return results.whereType<SongSection>().toList();
+    final sections = <SongSection>[
+      // Personalised sections first (after Recently Played, which the
+      // Home screen renders separately from local history — no API call).
+      ...personalResults.whereType<SongSection>(),
+      ...trendingResults.whereType<SongSection>(),
+    ];
+
+    return sections;
   }
 
   static Future<SongSection?> _saavnSection(String query, String label) async {
@@ -1137,8 +1174,11 @@ class ApiService {
   static String? _extractSaavnStreamUrl(Map<String, dynamic> song) {
     final downloads = song['downloadUrl'] as List?;
     if (downloads != null && downloads.isNotEmpty) {
-      // Try qualities from best to worst
-      for (final q in ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps']) {
+      // Quality priority comes from AudioPrefs — driven by the
+      // "Stream Quality" and "Data Saver" settings (Settings → Player &
+      // Audio). Defaults to the original best-first order
+      // ('320kbps' → ... → '12kbps') when both are at default values.
+      for (final q in AudioPrefs.qualityOrder()) {
         final match = downloads.firstWhere(
           (d) => d is Map &&
                  d['quality'] == q &&
