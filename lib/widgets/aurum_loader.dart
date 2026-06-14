@@ -402,7 +402,7 @@ class _AurumLoaderState extends State<AurumLoader>
 // ═══════════════════════════════════════════════════════════════════════════
 
 final class _AuroraScenePainter extends CustomPainter {
-  const _AuroraScenePainter({
+  _AuroraScenePainter({
     required this.size,
     required this.orbPhase,
     required this.ringFastPhase,
@@ -449,10 +449,10 @@ final class _AuroraScenePainter extends CustomPainter {
   double get cy => size / 2;
   double get r  => size / 2;
 
-  // ── Paint objects (const-ish — mutated in place, not reallocated) ────────
-  final _p0 = Paint()..style = PaintingStyle.fill;
-  final _p1 = Paint()..style = PaintingStyle.stroke;
-  final _p2 = Paint()..style = PaintingStyle.fill;
+  // ── Paint objects — mutated in place, not reallocated per segment ────────
+  final Paint _p0 = Paint()..style = PaintingStyle.fill;
+  final Paint _p1 = Paint()..style = PaintingStyle.stroke;
+  final Paint _p2 = Paint()..style = PaintingStyle.fill;
 
   // ─────────────────────────────────────────────────────────────────────────
   // COLOUR SYSTEM — aurora palette with optional album-art override
