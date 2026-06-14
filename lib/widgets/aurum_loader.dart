@@ -1,10 +1,6 @@
 // aurum_loader.dart
-// Aurum Music — Flagship v2 Loading Experience
+// Aurum Music — Blob Loading Experience
 // Pure Flutter · No external packages · 60 FPS · AMOLED optimised
-// Upgrades: Depth Parallax · Energy Burst · Album Art Colors · Glass Refraction
-//           Energy Trails · Advanced Liquid · Micro Shimmer · Smart Performance
-//           Cinematic Rings · Atmospheric Aura · Non-Repetitive Motion
-//           Audio-Inspired Breathing · Premium Transitions · Accessibility
 
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -23,126 +19,18 @@ abstract final class _AurumColors {
   static const white        = Color(0xFFFFFFFF);
 }
 
-/// Irrational-ratio timing: LCM of these values would take ~hours, preventing
-/// any perceived loop for sessions up to 30 s.
 abstract final class _Timing {
-  static const masterMs       = 3600;   // base period
-  static const orbMs          = 3600;   // harmonic 1×
-  static const ringFastMs     = 2333;   // prime, ~1.54×
-  static const ringMidMs      = 4111;   // prime, ~0.88×
-  static const ringSlowMs     = 5743;   // prime, ~0.63×
-  static const particleMs     = 4271;   // prime, ~0.84×
-  static const rippleMs       = 2617;   // prime, ~1.38×
-  static const glowMs         = 3187;   // prime, ~1.13×
-  static const shimmerMs      = 2027;   // prime, ~1.78×
-  static const breatheMs      = 5381;   // prime, ~0.67×  — audio breath
-  static const auraMs         = 7919;   // prime, ~0.45×  — ultra-slow aura
-  static const fadeInMs       = 900;
-  static const fadeOutMs      = 700;
-  static const burstMs        = 1200;
-}
-
-/// Depth layers — parallax speed multipliers (foreground > background)
-abstract final class _Depth {
-  static const aura        = 0.12;  // deepest
-  static const ripple      = 0.28;
-  static const ringBack    = 0.45;
-  static const ringMid     = 0.62;
-  static const ringFront   = 0.82;
-  static const particleBack = 0.50;
-  static const particleFront = 1.00;
-  static const orb         = 1.00;  // foreground
-}
-
-/// Performance tiers — set once at loader creation
-enum _QualityTier { low, mid, high }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// DATA MODELS — allocated once, never reallocated per frame
-// ═══════════════════════════════════════════════════════════════════════════
-
-final class _ParticleData {
-  _ParticleData(int seed) {
-    final rng = math.Random(seed * 1013 + 7);
-    orbitRadius   = 0.32 + rng.nextDouble() * 0.24;
-    orbitSpeed    = 0.35 + rng.nextDouble() * 1.10;
-    orbitPhase    = rng.nextDouble() * math.pi * 2;
-    orbitTilt     = rng.nextDouble() * math.pi;
-    size          = 1.0  + rng.nextDouble() * 2.4;
-    alphaPhase    = rng.nextDouble() * math.pi * 2;
-    alphaSpeed    = 0.40 + rng.nextDouble() * 1.20;
-    colorT        = rng.nextDouble();
-    depthLayer    = rng.nextDouble();                   // 0=back, 1=front
-    trailLength   = 3 + rng.nextInt(5);                // 3-7 trail steps
-  }
-
-  late final double orbitRadius;
-  late final double orbitSpeed;
-  late final double orbitPhase;
-  late final double orbitTilt;
-  late final double size;
-  late final double alphaPhase;
-  late final double alphaSpeed;
-  late final double colorT;
-  late final double depthLayer;
-  late final int    trailLength;
-}
-
-final class _RippleTrack {
-  const _RippleTrack({
-    required this.phaseOffset,
-    required this.colorT,
-    required this.maxScale,     // outer ripple reaches this * r
-  });
-  final double phaseOffset;
-  final double colorT;
-  final double maxScale;
-}
-
-/// Describes one cinematic ring.
-final class _RingSpec {
-  const _RingSpec({
-    required this.radiusFraction,
-    required this.direction,
-    required this.speedKey,       // references _Timing constant
-    required this.baseThickness,
-    required this.dashCount,
-    required this.colorShift,
-    required this.tiltX,
-    required this.tiltY,
-    required this.glowSigma,
-    required this.alphaBase,
-    required this.depthMultiplier,
-    required this.brightnessPhaseOffset,
-    required this.variableThickness, // adds pulse to thickness
-  });
-  final double radiusFraction;
-  final double direction;
-  final int    speedKey;
-  final double baseThickness;
-  final int    dashCount;
-  final double colorShift;
-  final double tiltX;
-  final double tiltY;
-  final double glowSigma;
-  final double alphaBase;
-  final double depthMultiplier;
-  final double brightnessPhaseOffset;
-  final bool   variableThickness;
+  static const masterMs  = 3600;
+  static const fadeInMs  = 900;
+  static const fadeOutMs = 700;
+  static const burstMs   = 1200;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LOADER STATE ENUM
+// LOADER STATE
 // ═══════════════════════════════════════════════════════════════════════════
 
-enum AurumLoaderState {
-  /// Normal infinite loading
-  loading,
-  /// Completion burst sequence playing
-  completing,
-  /// Fully dissolved — widget should be removed by caller
-  completed,
-}
+enum AurumLoaderState { loading, completing, completed }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PUBLIC WIDGET — AurumLoader
@@ -180,105 +68,27 @@ class AurumLoader extends StatefulWidget {
 class _AurumLoaderState extends State<AurumLoader>
     with SingleTickerProviderStateMixin {
 
-  // ── Single master AnimationController ───────────────────────────────────
   late final AnimationController _master;
 
-  // ── Derived phase animations (speed-ratio trick — no extra controllers) ─
-  late final Animation<double> _orbPhase;
-  late final Animation<double> _ringFastPhase;
-  late final Animation<double> _ringMidPhase;
-  late final Animation<double> _ringSlowPhase;
-  late final Animation<double> _particlePhase;
-  late final Animation<double> _ripplePhase;
-  late final Animation<double> _glowPhase;
-  late final Animation<double> _shimmerPhase;
-  late final Animation<double> _breathePhase;
-  late final Animation<double> _auraPhase;
+  late final Animation<double> _fadeIn;
+  double _burstProgress = 0.0;
+  double _dissolveAlpha = 1.0;
 
-  // ── One-shot animations driven off master value ──────────────────────────
-  late final Animation<double> _fadeIn;    // 0→1 at start
-  double _burstProgress = 0.0;            // 0→1 during completion
-  double _dissolveAlpha = 1.0;            // 1→0 during fade-out
-
-  // ── State machine ────────────────────────────────────────────────────────
   AurumLoaderState _internalState = AurumLoaderState.loading;
   bool _burstStarted = false;
 
-  // ── Static data (allocated once) ────────────────────────────────────────
-  late final List<_ParticleData> _particles;
-  late final _QualityTier _quality;
-
-  static const _rippleTracks = [
-    _RippleTrack(phaseOffset: 0.00, colorT: 0.00, maxScale: 0.92),
-    _RippleTrack(phaseOffset: 0.33, colorT: 0.50, maxScale: 0.85),
-    _RippleTrack(phaseOffset: 0.66, colorT: 1.00, maxScale: 0.78),
-  ];
-
-  static const _ringSpecs = [
-    _RingSpec(
-      radiusFraction: 0.60, direction:  1.0, speedKey: _Timing.ringFastMs,
-      baseThickness: 1.6,   dashCount: 7,    colorShift: 0.00,
-      tiltX: 0.28, tiltY: 0.00, glowSigma: 9, alphaBase: 0.60,
-      depthMultiplier: _Depth.ringFront, brightnessPhaseOffset: 0.0,
-      variableThickness: true,
-    ),
-    _RingSpec(
-      radiusFraction: 0.73, direction: -1.0, speedKey: _Timing.ringMidMs,
-      baseThickness: 1.1,   dashCount: 5,    colorShift: 0.33,
-      tiltX: 0.00, tiltY: 0.22, glowSigma: 7, alphaBase: 0.42,
-      depthMultiplier: _Depth.ringMid, brightnessPhaseOffset: 0.4,
-      variableThickness: true,
-    ),
-    _RingSpec(
-      radiusFraction: 0.84, direction:  1.0, speedKey: _Timing.ringSlowMs,
-      baseThickness: 0.7,   dashCount: 11,   colorShift: 0.66,
-      tiltX: 0.15, tiltY: 0.18, glowSigma: 5, alphaBase: 0.28,
-      depthMultiplier: _Depth.ringBack, brightnessPhaseOffset: 0.8,
-      variableThickness: false,
-    ),
-    _RingSpec(
-      radiusFraction: 0.50, direction: -1.0, speedKey: _Timing.ringFastMs,
-      baseThickness: 0.5,   dashCount: 3,    colorShift: 0.80,
-      tiltX: 0.35, tiltY: 0.10, glowSigma: 6, alphaBase: 0.20,
-      depthMultiplier: _Depth.ringFront, brightnessPhaseOffset: 0.6,
-      variableThickness: false,
-    ),
-  ];
-
-  // ── Timing accumulator for burst ─────────────────────────────────────────
   double _burstElapsed = 0.0;
   int _lastFrameTime   = 0;
 
   @override
   void initState() {
     super.initState();
-    _quality  = _detectQuality();
-    final count = switch (_quality) {
-      _QualityTier.low  => 10,
-      _QualityTier.mid  => 14,
-      _QualityTier.high => 20,
-    };
-    _particles = List.generate(count, (i) => _ParticleData(i));
 
     _master = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: _Timing.masterMs),
     )..addListener(_onTick)..repeat();
 
-    // Speed-ratio animations: ratio = masterMs / targetMs → completes ratio
-    // full cycles every master period.
-    _orbPhase       = _ratio(_Timing.orbMs);
-    _ringFastPhase  = _ratio(_Timing.ringFastMs);
-    _ringMidPhase   = _ratio(_Timing.ringMidMs);
-    _ringSlowPhase  = _ratio(_Timing.ringSlowMs);
-    _particlePhase  = _ratio(_Timing.particleMs);
-    _ripplePhase    = _ratio(_Timing.rippleMs);
-    _glowPhase      = _ratio(_Timing.glowMs);
-    _shimmerPhase   = _ratio(_Timing.shimmerMs);
-    _breathePhase   = _ratio(_Timing.breatheMs);
-    _auraPhase      = _ratio(_Timing.auraMs);
-
-    // Fade-in: first 900 ms of the animation
     _fadeIn = CurvedAnimation(
       parent: _master,
       curve: Interval(
@@ -289,24 +99,11 @@ class _AurumLoaderState extends State<AurumLoader>
     );
   }
 
-  Animation<double> _ratio(int ms) =>
-      Tween<double>(begin: 0, end: _Timing.masterMs / ms).animate(_master);
-
-  _QualityTier _detectQuality() {
-    // Use scheduler frame budget as proxy for device capability.
-    // On first frame the budget is unknown; default to mid and let it adapt.
-    final fps = SchedulerBinding.instance.currentFrameTimeStamp.inMicroseconds;
-    // Simple heuristic: rely on logical pixel density and platform.
-    // A full GPU profiler isn't available at init; use a conservative default.
-    // Callers can pass a quality hint via a subclass if needed.
-    return _QualityTier.high; // Override per-device via factory if desired.
-  }
-
   void _onTick() {
     if (_internalState == AurumLoaderState.completing) {
       final now = DateTime.now().microsecondsSinceEpoch;
       if (_lastFrameTime != 0) {
-        _burstElapsed += (now - _lastFrameTime) / 1000.0; // ms
+        _burstElapsed += (now - _lastFrameTime) / 1000.0;
       }
       _lastFrameTime = now;
 
@@ -319,7 +116,6 @@ class _AurumLoaderState extends State<AurumLoader>
         widget.onCompleted?.call();
       } else {
         _burstProgress = newBurst;
-        // Dissolve starts at 70% of burst
         if (newBurst > 0.70) {
           _dissolveAlpha = 1.0 - ((newBurst - 0.70) / 0.30).clamp(0.0, 1.0);
         }
@@ -331,7 +127,7 @@ class _AurumLoaderState extends State<AurumLoader>
   void didUpdateWidget(AurumLoader old) {
     super.didUpdateWidget(old);
     if (widget.state == AurumLoaderState.completing && !_burstStarted) {
-      _burstStarted = true;
+      _burstStarted  = true;
       _lastFrameTime = 0;
       _burstElapsed  = 0;
       setState(() => _internalState = AurumLoaderState.completing);
@@ -352,6 +148,10 @@ class _AurumLoaderState extends State<AurumLoader>
 
     final reducedMotion = MediaQuery.of(context).disableAnimations;
     final s = widget.size;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
+    // Pick color: dominantColor → aurora purple fallback
+    final color = widget.dominantColor ?? _AurumColors.auroraPurple;
 
     return RepaintBoundary(
       child: Opacity(
@@ -366,26 +166,13 @@ class _AurumLoaderState extends State<AurumLoader>
               return Opacity(
                 opacity: fadeAlpha.clamp(0.0, 1.0),
                 child: CustomPaint(
-                  painter: _AuroraScenePainter(
-                    size            : s,
-                    orbPhase        : _orbPhase.value,
-                    ringFastPhase   : _ringFastPhase.value,
-                    ringMidPhase    : _ringMidPhase.value,
-                    ringSlowPhase   : _ringSlowPhase.value,
-                    particlePhase   : _particlePhase.value,
-                    ripplePhase     : _ripplePhase.value,
-                    glowPhase       : _glowPhase.value,
-                    shimmerPhase    : _shimmerPhase.value,
-                    breathePhase    : _breathePhase.value,
-                    auraPhase       : _auraPhase.value,
-                    particles       : _particles,
-                    rippleTracks    : _rippleTracks,
-                    ringSpecs       : _ringSpecs,
-                    quality         : _quality,
-                    dominantColor   : widget.dominantColor,
-                    secondaryColor  : widget.secondaryColor,
-                    burstProgress   : _burstProgress,
-                    reducedMotion   : reducedMotion,
+                  painter: _BlobPainter(
+                    t:      _master.value,
+                    color:  color,
+                    dark:   dark,
+                    glow:   true,
+                    breathe: true,
+                    seed:   42,
                   ),
                 ),
               );
@@ -398,567 +185,171 @@ class _AurumLoaderState extends State<AurumLoader>
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MASTER PAINTER — composes all layers
+// BLOB PAINTER
 // ═══════════════════════════════════════════════════════════════════════════
 
-final class _AuroraScenePainter extends CustomPainter {
-  _AuroraScenePainter({
-    required this.size,
-    required this.orbPhase,
-    required this.ringFastPhase,
-    required this.ringMidPhase,
-    required this.ringSlowPhase,
-    required this.particlePhase,
-    required this.ripplePhase,
-    required this.glowPhase,
-    required this.shimmerPhase,
-    required this.breathePhase,
-    required this.auraPhase,
-    required this.particles,
-    required this.rippleTracks,
-    required this.ringSpecs,
-    required this.quality,
-    required this.dominantColor,
-    required this.secondaryColor,
-    required this.burstProgress,
-    required this.reducedMotion,
+class _BlobPainter extends CustomPainter {
+  const _BlobPainter({
+    required this.t,
+    required this.color,
+    required this.dark,
+    this.glow    = true,
+    this.breathe = true,
+    this.seed    = 0,
   });
 
-  final double size;
-  final double orbPhase;
-  final double ringFastPhase;
-  final double ringMidPhase;
-  final double ringSlowPhase;
-  final double particlePhase;
-  final double ripplePhase;
-  final double glowPhase;
-  final double shimmerPhase;
-  final double breathePhase;
-  final double auraPhase;
-  final List<_ParticleData> particles;
-  final List<_RippleTrack>  rippleTracks;
-  final List<_RingSpec>     ringSpecs;
-  final _QualityTier        quality;
-  final Color?              dominantColor;
-  final Color?              secondaryColor;
-  final double              burstProgress;
-  final bool                reducedMotion;
-
-  // ── Geometry ─────────────────────────────────────────────────────────────
-  double get cx => size / 2;
-  double get cy => size / 2;
-  double get r  => size / 2;
-
-  // ── Paint objects — mutated in place, not reallocated per segment ────────
-  final Paint _p0 = Paint()..style = PaintingStyle.fill;
-  final Paint _p1 = Paint()..style = PaintingStyle.stroke;
-  final Paint _p2 = Paint()..style = PaintingStyle.fill;
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // COLOUR SYSTEM — aurora palette with optional album-art override
-  // ─────────────────────────────────────────────────────────────────────────
-
-  Color _palette(double t) {
-    final wrapped = (t % 1.0).abs();
-
-    // When album art colours are available, interpolate through them instead
-    if (dominantColor != null && secondaryColor != null) {
-      return _lerpThree(
-        dominantColor!,
-        secondaryColor!,
-        Color.lerp(dominantColor!, _AurumColors.auroraPurple, 0.4)!,
-        wrapped,
-      );
-    }
-    // Default aurora palette: purple → cyan → pink → purple
-    return _lerpThree(
-      _AurumColors.auroraPurple,
-      _AurumColors.electricCyan,
-      _AurumColors.auroraPink,
-      wrapped,
-    );
-  }
-
-  static Color _lerpThree(Color a, Color b, Color c, double t) {
-    if (t < 0.5) {
-      return Color.lerp(a, b, _eio(t * 2))!;
-    } else {
-      return Color.lerp(b, c, _eio((t - 0.5) * 2))!;
-    }
-  }
-
-  /// Smooth ease-in-out.
-  static double _eio(double t) =>
-      t < 0.5 ? 2 * t * t : 1 - math.pow(-2 * t + 2, 2) / 2;
-
-  /// Ring phase from spec.
-  double _ringPhase(_RingSpec spec) {
-    return switch (spec.speedKey) {
-      _Timing.ringFastMs => ringFastPhase,
-      _Timing.ringMidMs  => ringMidPhase,
-      _Timing.ringSlowMs => ringSlowPhase,
-      _               => ringFastPhase,
-    };
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // PAINT — main entry
-  // ─────────────────────────────────────────────────────────────────────────
+  final double t;
+  final Color  color;
+  final bool   dark;
+  final bool   glow;
+  final bool   breathe;
+  final int    seed;
 
   @override
-  void paint(Canvas canvas, Size canvasSize) {
-    // Audio-breath scale wraps everything in a subtle inhale/exhale
-    final breathe = reducedMotion ? 1.0 : _audioBreathe();
+  void paint(Canvas canvas, Size size) {
+    final time = t * math.pi * 2;
+    final c = Offset(size.width / 2, size.height / 2);
+    // Breathing scale
+    final scale = breathe
+        ? 1.0 + math.sin(time * 0.7) * 0.04 + math.cos(time * 1.1) * 0.02
+        : 1.0;
+    final r = (size.shortestSide / 2) * 0.55 * scale;
+    final n = 48; // mesh resolution
+    final pts = List<Offset>.filled(n, Offset.zero);
 
-    canvas.save();
-    canvas.translate(cx, cy);
-    canvas.scale(breathe);
-    canvas.translate(-cx, -cy);
-
-    // Burst contracts the whole scene before dissolve
-    if (burstProgress > 0) {
-      final burstScale = burstProgress < 0.3
-          ? 1.0 + burstProgress * 0.8          // brief expand
-          : 1.8 - burstProgress * 1.8;          // then contract to 0
-      canvas.translate(cx, cy);
-      canvas.scale(burstScale.clamp(0.0, 2.0));
-      canvas.translate(-cx, -cy);
-    }
-
-    _paintAtmosphericAura(canvas);
-    _paintRipples(canvas);
-    _paintRings(canvas);
-    _paintParticles(canvas);
-    _paintOrb(canvas);
-
-    // Burst: flash overlay
-    if (burstProgress > 0 && burstProgress < 0.45) {
-      final flashAlpha = math.sin(burstProgress / 0.45 * math.pi) * 0.55;
-      _p0
-        ..shader     = null
-        ..maskFilter = null
-        ..color      = _palette(glowPhase).withOpacity(flashAlpha);
-      canvas.drawCircle(Offset(cx, cy), r, _p0);
-    }
-
-    canvas.restore();
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // AUDIO-INSPIRED BREATHING
-  // ─────────────────────────────────────────────────────────────────────────
-
-  double _audioBreathe() {
-    // Two-harmonic waveform resembling a music bar (fundamental + 3rd harmonic)
-    final t   = breathePhase * math.pi * 2;
-    final w1  = math.sin(t)         * 0.022;  // fundamental
-    final w2  = math.sin(t * 3.0)   * 0.008;  // 3rd harmonic
-    final w3  = math.sin(t * 0.618) * 0.012;  // golden-ratio sub-harmonic
-    return 1.0 + w1 + w2 + w3;
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // LAYER 0 — Atmospheric Aura (deepest, slowest)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  void _paintAtmosphericAura(Canvas canvas) {
-    final t    = auraPhase * math.pi * 2;
-    final colA = _palette(auraPhase * _Depth.aura);
-    final colB = _palette(auraPhase * _Depth.aura + 0.5);
-
-    // Very large, near-transparent gradient disc — perceived as ambient light
-    _p0
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 60)
-      ..shader     = RadialGradient(
-          colors: [
-            colA.withOpacity(0.10 + math.sin(t) * 0.03),
-            colB.withOpacity(0.05 + math.cos(t * 0.7) * 0.02),
+    // =========================================================
+    // 1. GLOW HALO
+    // =========================================================
+    if (glow) {
+      final outer = Paint()
+        ..shader = ui.Gradient.radial(
+          c,
+          r * 2.2,
+          [
+            color.withValues(alpha: dark ? 0.22 : 0.10),
             Colors.transparent,
           ],
-          stops: const [0.0, 0.55, 1.0],
-        ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r));
-    canvas.drawCircle(Offset(cx, cy), r * 1.0, _p0);
-  }
+        );
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // LAYER 1 — Ripple System (with depth parallax)
-  // ─────────────────────────────────────────────────────────────────────────
+      canvas.drawCircle(c, r * 2.0, outer);
 
-  void _paintRipples(Canvas canvas) {
-    for (final track in rippleTracks) {
-      // Depth parallax: ripples scroll at their own speed
-      final phase = (ripplePhase * _Depth.ripple + track.phaseOffset) % 1.0;
-      final expandT = _eio(phase);
+      final mid = Paint()
+        ..shader = ui.Gradient.radial(
+          c,
+          r * 1.6,
+          [
+            color.withValues(alpha: dark ? 0.12 : 0.06),
+            Colors.transparent,
+          ],
+        );
 
-      // Burst accelerates ripples outward
-      final burstExpand = burstProgress > 0
-          ? burstProgress * 0.5
-          : 0.0;
-
-      final rippleR = r * (0.22 + track.maxScale * (expandT + burstExpand)).clamp(0.0, r);
-      final opacity = (1.0 - expandT) * (1.0 - expandT) * (0.40 + burstProgress * 0.30);
-
-      if (opacity < 0.004) continue;
-
-      final col = _palette(track.colorT + glowPhase * 0.3);
-
-      // Soft glow ring
-      _p0
-        ..shader     = null
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12)
-        ..color      = col.withOpacity(opacity * 0.4);
-      canvas.drawCircle(Offset(cx, cy), rippleR, _p0);
-
-      // Crisp stroke
-      _p1
-        ..shader      = null
-        ..maskFilter  = null
-        ..color       = col.withOpacity(opacity)
-        ..strokeWidth = 1.0;
-      canvas.drawCircle(Offset(cx, cy), rippleR, _p1);
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // LAYER 2 — Cinematic Ring System (depth + brightness pulse + variable width)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  void _paintRings(Canvas canvas) {
-    for (final spec in ringSpecs) {
-      if (quality == _QualityTier.low && spec.glowSigma > 7) continue;
-      _paintCinematicRing(canvas, spec);
-    }
-  }
-
-  void _paintCinematicRing(Canvas canvas, _RingSpec spec) {
-    final phase = _ringPhase(spec);
-    // Depth parallax: rings at different depths rotate at effectively different speeds
-    final angle0    = spec.direction * phase * math.pi * 2 * spec.depthMultiplier;
-    // Brightness pulse: ring brightens and dims on its own sub-period
-    final brightness = (math.sin(
-          glowPhase * math.pi * 2 * 1.3 + spec.brightnessPhaseOffset,
-        ) * 0.5 + 0.5);
-
-    // Shimmer travelling highlight across ring
-    final shimmerPos = (shimmerPhase * spec.depthMultiplier) % 1.0;
-
-    final segCount = quality == _QualityTier.low ? 90 : 180;
-
-    final cosX = math.cos(spec.tiltX);
-    final sinX = math.sin(spec.tiltX);
-    final cosY = math.cos(spec.tiltY);
-    final sinY = math.sin(spec.tiltY);
-    final ringR = spec.radiusFraction * r;
-
-    // Pre-compute vertices
-    final pts = List<Offset>.generate(segCount + 1, (i) {
-      final theta = angle0 + (i / segCount) * math.pi * 2;
-      final x3 = ringR * math.cos(theta);
-      final y3 = ringR * math.sin(theta);
-      final y2 = y3 * cosX;
-      final z2 = y3 * sinX;
-      final x2 = x3 * cosY + z2 * sinY;
-      return Offset(cx + x2, cy + y2);
-    });
-
-    // Depth fade: segments at "back" of the tilted ring are dimmer
-    for (int i = 0; i < segCount; i++) {
-      final segT     = i / segCount;
-      final dashT    = (segT * spec.dashCount) % 1.0;
-      final dashAlpha = math.sin(dashT * math.pi).clamp(0.0, 1.0);
-      if (dashAlpha < 0.03) continue;
-
-      // Depth cue from angular position
-      final angularDepth = (math.sin((segT + angle0 / (math.pi * 2)) * math.pi * 2) * 0.5 + 0.5);
-
-      // Shimmer highlight: Gaussian peak travelling around ring
-      final shimmerDist = ((segT - shimmerPos).abs());
-      final shimmerWrapped = math.min(shimmerDist, 1.0 - shimmerDist);
-      final shimmerBoost = math.exp(-shimmerWrapped * shimmerWrapped * 80) * 0.5;
-
-      // Variable thickness pulse
-      final thickMult = spec.variableThickness
-          ? 1.0 + math.sin(glowPhase * math.pi * 2 * 2.1 + segT * math.pi * 4) * 0.35
-          : 1.0;
-
-      final alpha = spec.alphaBase
-          * dashAlpha
-          * (0.45 + angularDepth * 0.55)
-          * (0.70 + brightness * 0.30);
-
-      final col = _palette(spec.colorShift + segT * 0.4 + glowPhase * 0.25);
-      final shimmerCol = Color.lerp(col, _AurumColors.white, shimmerBoost)!;
-
-      // Glow pass
-      _p1
-        ..color       = shimmerCol.withOpacity(alpha * 0.45)
-        ..strokeWidth = (spec.baseThickness * thickMult + spec.glowSigma * 0.5)
-        ..strokeCap   = StrokeCap.round
-        ..maskFilter  = MaskFilter.blur(BlurStyle.normal, spec.glowSigma);
-      canvas.drawLine(pts[i], pts[i + 1], _p1);
-
-      // Core pass
-      _p1
-        ..color       = shimmerCol.withOpacity(alpha)
-        ..strokeWidth = spec.baseThickness * thickMult
-        ..maskFilter  = null;
-      canvas.drawLine(pts[i], pts[i + 1], _p1);
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // LAYER 3 — Particle Halo with Depth Parallax & Energy Trails
-  // ─────────────────────────────────────────────────────────────────────────
-
-  void _paintParticles(Canvas canvas) {
-    for (final p in particles) {
-      // Depth-parallax speed: foreground particles move faster
-      final speedMult = _Depth.particleBack + p.depthLayer * (_Depth.particleFront - _Depth.particleBack);
-      final theta = p.orbitPhase + p.orbitSpeed * particlePhase * math.pi * 2 * speedMult;
-
-      final cosT = math.cos(p.orbitTilt);
-      final rx   = math.cos(theta) * p.orbitRadius * r;
-      final ry   = math.sin(theta) * p.orbitRadius * r * cosT;
-
-      // Burst: particles fly outward
-      final burstOffset = burstProgress > 0
-          ? burstProgress * r * 0.6 * p.depthLayer
-          : 0.0;
-      final burstAngle = p.orbitPhase; // fly in orbit direction
-      final px   = cx + rx + burstOffset * math.cos(burstAngle);
-      final py   = cy + ry + burstOffset * math.sin(burstAngle);
-
-      final depth  = math.sin(theta) * math.sin(p.orbitTilt) * 0.5 + 0.5;
-      final alphaT = math.sin(p.alphaPhase + p.alphaSpeed * particlePhase * math.pi * 2)
-                        .abs()
-                        .clamp(0.0, 1.0);
-      final alpha  = alphaT * (0.30 + depth * 0.60) * (1.0 + burstProgress * 0.8);
-      final sz     = p.size * (0.45 + depth * 0.55) * (1.0 + burstProgress * p.depthLayer);
-
-      final col = _palette(p.colorT + glowPhase * 0.18);
-
-      // ── Energy trail: draw fading dots behind the particle ───────────────
-      if (quality != _QualityTier.low) {
-        final trailSteps = p.trailLength;
-        for (int t = 1; t <= trailSteps; t++) {
-          final trailFrac  = t / trailSteps;
-          final trailTheta = theta - p.orbitSpeed * 0.018 * t * speedMult;
-          final trailRx    = math.cos(trailTheta) * p.orbitRadius * r;
-          final trailRy    = math.sin(trailTheta) * p.orbitRadius * r * cosT;
-          final trailAlpha = alpha * (1.0 - trailFrac) * 0.35;
-          final trailSz    = sz * (1.0 - trailFrac * 0.6);
-
-          if (trailAlpha < 0.01) continue;
-
-          _p0
-            ..shader     = null
-            ..maskFilter = null
-            ..color      = col.withOpacity(trailAlpha);
-          canvas.drawCircle(Offset(cx + trailRx, cy + trailRy), trailSz * 0.4, _p0);
-        }
-      }
-
-      // ── Glow corona ───────────────────────────────────────────────────────
-      if (quality != _QualityTier.low) {
-        _p0
-          ..color      = col.withOpacity(alpha * 0.4)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sz * 2.0)
-          ..shader     = null;
-        canvas.drawCircle(Offset(px, py), sz * 1.6, _p0);
-      }
-
-      // ── Bright core ───────────────────────────────────────────────────────
-      _p0
-        ..color      = Color.lerp(col, _AurumColors.white, 0.6)!.withOpacity(alpha)
-        ..maskFilter = null
-        ..shader     = null;
-      canvas.drawCircle(Offset(px, py), sz * 0.50, _p0);
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // LAYER 4 — Liquid Aurora Orb
-  //           Advanced multi-frequency liquid + Glass refraction + Shimmer
-  // ─────────────────────────────────────────────────────────────────────────
-
-  void _paintOrb(Canvas canvas) {
-    const controlPoints = 8;           // more points → richer deformation
-    final orbR = r * 0.26;
-
-    // ── Advanced multi-frequency liquid deformation ───────────────────────
-    // Uses 5 harmonics at irrational frequency ratios to prevent looping.
-    // Amplitudes are weighted so the orb stays roughly circular.
-    final List<Offset> pts = [];
-    for (int i = 0; i < controlPoints; i++) {
-      final a = (i / controlPoints) * math.pi * 2;
-      final t = orbPhase * math.pi * 2;
-
-      // Harmonic stack
-      final d1 = math.sin(t * 1.000 + a * 2) * 0.120;
-      final d2 = math.cos(t * 1.618 + a * 3) * 0.080; // golden ratio
-      final d3 = math.sin(t * 2.414 + a * 5) * 0.045; // silver ratio
-      final d4 = math.cos(t * 0.577 + a * 7) * 0.030; // 1/√3
-      final d5 = math.sin(t * 3.141 + a * 4) * 0.018; // π ratio
-
-      final rad = orbR * (1.0 + d1 + d2 + d3 + d4 + d5).clamp(0.6, 1.5);
-      pts.add(Offset(cx + rad * math.cos(a), cy + rad * math.sin(a)));
+      canvas.drawCircle(c, r * 1.4, mid);
     }
 
-    // Catmull-Rom smooth path
-    final path = Path();
-    for (int i = 0; i < controlPoints; i++) {
-      final prev  = pts[(i - 1 + controlPoints) % controlPoints];
-      final curr  = pts[i];
-      final next  = pts[(i + 1) % controlPoints];
-      final next2 = pts[(i + 2) % controlPoints];
-      if (i == 0) path.moveTo(curr.dx, curr.dy);
-      final cp1 = Offset(curr.dx + (next.dx - prev.dx) / 6,
-                         curr.dy + (next.dy - prev.dy) / 6);
-      final cp2 = Offset(next.dx - (next2.dx - curr.dx) / 6,
-                         next.dy - (next2.dy - curr.dy) / 6);
-      path.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, next.dx, next.dy);
+    // =========================================================
+    // 2. ORGANIC MESH SHAPE
+    // =========================================================
+    for (int i = 0; i < n; i++) {
+      final a = (i / n) * math.pi * 2;
+
+      final w =
+          math.sin(a * 3 + time * 2) * 0.08 +
+          math.cos(a * 5 - time * 3) * 0.05 +
+          math.sin(a * 2 + time * 1.4) * 0.04;
+
+      final rr = r * (1 + w);
+
+      pts[i] = Offset(
+        c.dx + math.cos(a) * rr,
+        c.dy + math.sin(a) * rr,
+      );
     }
+
+    final path = Path()..moveTo(pts[0].dx, pts[0].dy);
+
+    for (int i = 0; i < n; i++) {
+      final p0 = pts[(i - 1) % n];
+      final p1 = pts[i];
+      final p2 = pts[(i + 1) % n];
+      final p3 = pts[(i + 2) % n];
+
+      final cp1 = Offset(
+        p1.dx + (p2.dx - p0.dx) * 0.18,
+        p1.dy + (p2.dy - p0.dy) * 0.18,
+      );
+
+      final cp2 = Offset(
+        p2.dx - (p3.dx - p1.dx) * 0.18,
+        p2.dy - (p3.dy - p1.dy) * 0.18,
+      );
+
+      path.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, p2.dx, p2.dy);
+    }
+
     path.close();
 
-    final orbRect = Rect.fromCenter(
-      center: Offset(cx, cy),
-      width: orbR * 2.6,
-      height: orbR * 2.6,
-    );
-
-    final colA = _palette(orbPhase);
-    final colB = _palette(orbPhase + 0.38);
-    final colC = _palette(orbPhase + 0.72);
-
-    // ── Deep glow ────────────────────────────────────────────────────────
-    _p0
-      ..shader     = null
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 30)
-      ..color      = colA.withOpacity(0.55);
-    canvas.drawPath(path, _p0);
-
-    _p0
-      ..color      = colB.withOpacity(0.30)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14);
-    canvas.drawPath(path, _p0);
-
-    // ── Orb body with animated gradient ──────────────────────────────────
-    _p0
-      ..maskFilter = null
-      ..shader     = RadialGradient(
-          center: const Alignment(-0.28, -0.38),
-          radius: 0.92,
-          colors: [
-            Color.lerp(_AurumColors.white, colC, 0.45)!.withOpacity(0.96),
-            colA.withOpacity(0.92),
-            colB.withOpacity(0.88),
-          ],
-          stops: const [0.0, 0.5, 1.0],
-        ).createShader(orbRect);
-    canvas.drawPath(path, _p0);
-
-    // ── Glass refraction layer ────────────────────────────────────────────
-    // Simulates internal caustics using an offset semi-transparent radial.
-    final refractOffset = Offset(
-      cx + math.cos(shimmerPhase * math.pi * 2) * orbR * 0.18,
-      cy + math.sin(shimmerPhase * math.pi * 2 * 0.7) * orbR * 0.14,
-    );
-    _p0
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5)
-      ..shader     = RadialGradient(
-          colors: [
-            _AurumColors.white.withOpacity(0.18),
-            _AurumColors.white.withOpacity(0.04),
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.5, 1.0],
-        ).createShader(
-            Rect.fromCircle(center: refractOffset, radius: orbR * 0.55));
-    canvas.drawCircle(refractOffset, orbR * 0.50, _p0);
-
-    // ── Micro shimmer — horizontal sweep across orb surface ──────────────
-    if (quality != _QualityTier.low) {
-      final shimX = cx - orbR + shimmerPhase * orbR * 2 * 1.8; // overshoots edges
-      final shimRect = Rect.fromCenter(
-        center: Offset(shimX.clamp(cx - orbR, cx + orbR), cy),
-        width: orbR * 0.40,
-        height: orbR * 2.4,
+    // =========================================================
+    // 3. PURE GPU RADIAL GRADIENT (NO SHADER FILTERS)
+    // =========================================================
+    final paint = Paint()
+      ..shader = ui.Gradient.radial(
+        c,
+        r * 1.4,
+        [
+          Color.lerp(Colors.white, color, 0.2)!.withValues(alpha: 0.95),
+          color.withValues(alpha: 0.92),
+          Colors.black.withValues(alpha: dark ? 0.22 : 0.05),
+        ],
+        const [0, 0.55, 1],
       );
-      _p0
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
-        ..shader     = LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [
-              Colors.transparent,
-              _AurumColors.white.withOpacity(0.14),
-              Colors.transparent,
-            ],
-          ).createShader(shimRect);
-      // Clip shimmer to orb shape
-      canvas.save();
-      canvas.clipPath(path);
-      canvas.drawRect(shimRect.inflate(10), _p0);
-      canvas.restore();
-    }
 
-    // ── Primary specular highlight ────────────────────────────────────────
-    _p0
-      ..shader     = null
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5)
-      ..color      = _AurumColors.white.withOpacity(0.30);
-    canvas.drawCircle(
-      Offset(cx - orbR * 0.22, cy - orbR * 0.28),
-      orbR * 0.28,
-      _p0,
+    canvas.drawPath(path, paint);
+
+    // =========================================================
+    // 4. LIGHT SHEEN (GPU linear gradient only)
+    // =========================================================
+    canvas.save();
+    canvas.clipPath(path);
+
+    final sheen = Paint()
+      ..shader = ui.Gradient.linear(
+        Offset(c.dx - r, c.dy - r),
+        Offset(c.dx + r, c.dy + r),
+        [
+          Colors.white.withValues(alpha: 0.18),
+          Colors.white.withValues(alpha: 0.05),
+          Colors.transparent,
+        ],
+      );
+
+    canvas.drawRect(
+      Rect.fromCircle(center: c, radius: r * 1.6),
+      sheen,
     );
 
-    // ── Secondary micro-highlight (glass edge refraction) ─────────────────
-    _p0
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2)
-      ..color      = _AurumColors.white.withOpacity(0.18);
-    canvas.drawCircle(
-      Offset(cx + orbR * 0.30, cy + orbR * 0.24),
-      orbR * 0.10,
-      _p0,
-    );
+    canvas.restore();
 
-    // ── Ring shimmer on orb surface ───────────────────────────────────────
-    if (quality == _QualityTier.high) {
-      final ringShimT  = (shimmerPhase * 1.3) % 1.0;
-      final ringShimR  = orbR * (0.3 + ringShimT * 0.7);
-      final ringShimA  = (1.0 - ringShimT) * 0.08;
-      _p2
-        ..shader      = null
-        ..maskFilter  = null
-        ..color       = _AurumColors.white.withOpacity(ringShimA)
-        ..style       = PaintingStyle.stroke
-        ..strokeWidth = 0.8;
-      canvas.save();
-      canvas.clipPath(path);
-      canvas.drawCircle(Offset(cx, cy), ringShimR, _p2);
-      canvas.restore();
-      _p2.style = PaintingStyle.fill;
-    }
+    // =========================================================
+    // 5. SMALL HIGHLIGHT (NO EXTRA BLUR, PURE PAINT)
+    // =========================================================
+    final highlight = Paint()
+      ..color = Colors.white.withValues(alpha: dark ? 0.08 : 0.12);
+
+    canvas.drawCircle(
+      Offset(c.dx - r * 0.18, c.dy - r * 0.22),
+      r * 0.18,
+      highlight,
+    );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-
   @override
-  bool shouldRepaint(_AuroraScenePainter old) {
-    return old.orbPhase       != orbPhase       ||
-           old.ringFastPhase  != ringFastPhase  ||
-           old.ringMidPhase   != ringMidPhase   ||
-           old.ringSlowPhase  != ringSlowPhase  ||
-           old.particlePhase  != particlePhase  ||
-           old.ripplePhase    != ripplePhase    ||
-           old.glowPhase      != glowPhase      ||
-           old.shimmerPhase   != shimmerPhase   ||
-           old.breathePhase   != breathePhase   ||
-           old.auraPhase      != auraPhase      ||
-           old.burstProgress  != burstProgress  ||
-           old.dominantColor  != dominantColor  ||
-           old.secondaryColor != secondaryColor;
+  bool shouldRepaint(covariant _BlobPainter o) {
+    return o.t != t ||
+        o.color != color ||
+        o.dark != dark ||
+        o.glow != glow ||
+        o.breathe != breathe ||
+        o.seed != seed;
   }
 }
 
