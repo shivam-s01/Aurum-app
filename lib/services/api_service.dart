@@ -385,6 +385,22 @@ class ApiService {
     return merged;
   }
 
+  // ---------------------------------------------------------------------------
+  // 8b: QUICK / LIVE SEARCH — used by the search screen while the user types.
+  //
+  // Unlike `search()`, this hits ONLY the JioSaavn endpoint (single request,
+  // no YouTube fallback). Saavn results already carry a pre-fetched stream
+  // URL, so tapping a live result plays instantly — and the single request
+  // is fast enough to fire on every debounced keystroke without overwhelming
+  // the network or the device.
+  //
+  // Full `search()` (Saavn + YouTube merge) still runs on Enter / submit for
+  // the most complete result set.
+  // ---------------------------------------------------------------------------
+  static Future<List<Song>> quickSearch(String query, {int limit = 12}) {
+    return _searchSaavn(query, limit: limit);
+  }
+
   // Normalise: lowercase + alphanumeric only + cap at 20 chars.
   // 20-char prefix is enough to catch near-duplicates without false positives
   // from very long similar titles (e.g., "Tum Hi Ho (From Aashiqui 2)" vs "Tum Hi Ho").
@@ -738,22 +754,39 @@ class ApiService {
       //     Slowest path (~3-5s). Used when video ID itself is invalid or blocked.
       case SongSource.youtube:
         if (song.id.isNotEmpty) {
-          // PRIMARY: Cloudflare worker
-          url = await _retry(() => _workerYtStream(song.id));
-          _log('[resolve] Worker for ${song.id}: ${url != null ? "OK" : "FAILED"}');
-
-          // FALLBACK-1: youtube_explode_dart (now with codec selection)
-          if (url == null) {
-            _log('[resolve] Worker failed → trying youtube_explode for ${song.id}');
-            url = await _retry(() => _ytExplodeStream(song.id));
-            _log('[resolve] youtube_explode for ${song.id}: ${url != null ? "OK" : "FAILED"}');
-          }
+          // PRIMARY + FALLBACK-1, RUN IN PARALLEL (SPEED FIX):
+          //   OLD: worker (up to 15s × up to 3 retries ≈ 46s worst case) had to
+          //   fully exhaust before youtube_explode was even tried — a single
+          //   slow/blocked path could stall playback for nearly a minute.
+          //
+          //   NEW: fire worker and youtube_explode at the same time and take
+          //   whichever returns a VALID url first (_raceFirstValid). Retries
+          //   are trimmed to 2 attempts with a short 200ms backoff — fast
+          //   enough that even both racers retrying once stays well under the
+          //   old single-path worst case.
+          url = await _raceFirstValid([
+            () => _retry(
+                  () => _workerYtStream(song.id),
+                  attempts: 2,
+                  baseDelay: const Duration(milliseconds: 200),
+                ),
+            () => _retry(
+                  () => _ytExplodeStream(song.id),
+                  attempts: 2,
+                  baseDelay: const Duration(milliseconds: 200),
+                ),
+          ]);
+          _log('[resolve] Worker/Explode race for ${song.id}: ${url != null ? "OK" : "FAILED"}');
         }
 
         // FALLBACK-2: Search-based resolution (works even if song ID is wrong)
         if (url == null) {
-          _log('[resolve] Explode failed → YT search stream for "${song.title} ${song.artist}"');
-          url = await _retry(() => _ytStreamBySearch('${song.title} ${song.artist}'));
+          _log('[resolve] Worker+Explode failed → YT search stream for "${song.title} ${song.artist}"');
+          url = await _retry(
+            () => _ytStreamBySearch('${song.title} ${song.artist}'),
+            attempts: 2,
+            baseDelay: const Duration(milliseconds: 200),
+          );
         }
         break;
 
@@ -774,6 +807,40 @@ class ApiService {
     }
 
     return url;
+  }
+
+  // ===========================================================================
+  // SECTION 11b: RACE HELPER — first VALID result wins
+  //
+  // Unlike Future.any(), a "null"/empty result from one racer does NOT end
+  // the race — we keep waiting for the others. Only when EVERY racer has
+  // either thrown or returned null/empty do we give up and return null.
+  //
+  // This lets us fire the Cloudflare worker and youtube_explode_dart at the
+  // same time: whichever resolves a playable URL first wins, but a fast
+  // "null" from one path doesn't prematurely fail the whole resolution.
+  // ===========================================================================
+  static Future<String?> _raceFirstValid(
+    List<Future<String?> Function()> fns,
+  ) async {
+    final completer = Completer<String?>();
+    var remaining = fns.length;
+
+    void onDone(String? value) {
+      remaining--;
+      if (completer.isCompleted) return;
+      if (value != null && value.isNotEmpty) {
+        completer.complete(value);
+      } else if (remaining == 0) {
+        completer.complete(null);
+      }
+    }
+
+    for (final fn in fns) {
+      fn().then(onDone).catchError((_) => onDone(null));
+    }
+
+    return completer.future;
   }
 
   // ===========================================================================
@@ -807,9 +874,11 @@ class ApiService {
 
       final res = await _client
           .get(uri)
-          .timeout(const Duration(seconds: 15));
-          // 15s timeout — worker may need to make its own Innertube call.
-          // Do NOT use 5s or 8s — the worker sometimes takes 10-12s on cold start.
+          .timeout(const Duration(seconds: 8));
+          // 8s timeout (was 15s) — now that worker and youtube_explode run
+          // in parallel via _raceFirstValid, a long single-attempt timeout
+          // no longer needs to "wait its turn". Trimmed so a cold worker
+          // doesn't hold back the whole resolution when explode wins fast.
 
       _log('[worker] Response: status=${res.statusCode} '
           'content-type=${res.headers['content-type']}');
@@ -894,9 +963,9 @@ class ApiService {
       // This makes an Innertube /player API call — can take 1-8s on mobile.
       final manifest = await _yt.videos.streamsClient
           .getManifest(VideoId(videoId))
-          .timeout(const Duration(seconds: 12));
-          // 12s timeout — Innertube can be slow. Less than this and we miss
-          // valid streams on slow connections; more and UX degrades too much.
+          .timeout(const Duration(seconds: 8));
+          // 8s timeout (was 12s) — runs in parallel with the worker via
+          // _raceFirstValid, so it no longer needs to be the long-pole.
 
       if (manifest.audioOnly.isEmpty) {
         _log('[ytExplode] No audio streams for $videoId');
@@ -955,7 +1024,7 @@ class ApiService {
       final results = await Future.any<List<dynamic>>([
         _yt.search.search(query).then((list) => list.toList()),
         Future.delayed(
-          const Duration(seconds: 12),
+          const Duration(seconds: 8),
           () => <dynamic>[],
         ),
       ]);
@@ -969,8 +1038,11 @@ class ApiService {
       final id = videos.first.id.value;
       _log('[ytSearch] Found video $id for "$query" — resolving stream');
 
-      // Try worker first (faster), then explode (slower but direct)
-      return await _workerYtStream(id) ?? await _ytExplodeStream(id);
+      // Race worker + explode here too — whichever is faster wins.
+      return await _raceFirstValid([
+        () => _workerYtStream(id),
+        () => _ytExplodeStream(id),
+      ]);
 
     } catch (e) {
       _log('[ytSearch] Error: $e');
