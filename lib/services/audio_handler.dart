@@ -50,11 +50,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       }
     });
 
-    _player.playerStateStream.listen((state) {
-      if (state.processingState == ProcessingState.completed) {
-        skipToNext();
-      }
-    });
   }
 
   // ── Resolve AudioSource for any song (online or local) ──────────────────
