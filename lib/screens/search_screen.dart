@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../services/api_service.dart';
-// ITUNES_INTEGRATION — remove this import to strip iTunes
-import '../services/itunes_service.dart';
+
+import '../services/browse_service.dart';
 import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
@@ -25,7 +25,7 @@ class _SearchScreenState extends State<SearchScreen>
   final _controller = TextEditingController();
   final _focusNode  = FocusNode();
 
-  // Tab controller: 0 = Search, 1 = Browse (iTunes)
+  // Tab controller: 0 = Search, 1 = Browse
   late final TabController _tabController;
 
   // Search tab state
@@ -37,9 +37,9 @@ class _SearchScreenState extends State<SearchScreen>
   bool _liveLoading = false;
   bool _showHistory = false;
 
-  // ITUNES_INTEGRATION — Browse tab state
+  // Browse tab state
   bool              _browseLoading = false;
-  ItunesSearchResult _browseResult = ItunesSearchResult.empty();
+  BrowseSearchResult _browseResult = BrowseSearchResult.empty();
   String            _lastBrowseQuery = '';
 
   Timer? _debounce;
@@ -154,7 +154,7 @@ class _SearchScreenState extends State<SearchScreen>
         _liveLoading = false;
       });
 
-      // ITUNES_INTEGRATION — also trigger browse if on Browse tab
+      // also trigger browse if on Browse tab
       if (_tabController.index == 1) _fetchBrowse(query);
     });
   }
@@ -183,30 +183,30 @@ class _SearchScreenState extends State<SearchScreen>
       _results = []; _liveResults = []; _suggestions = [];
       _liveLoading = false; _loading = false;
       _showHistory = _history.isNotEmpty;
-      // ITUNES_INTEGRATION
-      _browseResult = ItunesSearchResult.empty();
+      
+      _browseResult = BrowseSearchResult.empty();
       _lastBrowseQuery = '';
     });
   }
 
-  // ITUNES_INTEGRATION — fetch iTunes metadata
+
   Future<void> _fetchBrowse(String query) async {
     if (query == _lastBrowseQuery) return;
     _lastBrowseQuery = query;
     setState(() => _browseLoading = true);
-    final result = await ItunesService.search(query);
+    final result = await BrowseService.search(query);
     if (mounted && _lastBrowseQuery == query) {
       setState(() { _browseResult = result; _browseLoading = false; });
     }
   }
 
-  // ITUNES_INTEGRATION — play an iTunes track via Saavn/YT
-  Future<void> _playItunesTrack(ItunesTrack track) async {
+
+  Future<void> _playBrowseTrack(BrowseTrack track) async {
     HapticFeedback.lightImpact();
     _dismissKeyboard();
     // Convert to Song using the resolve query, then play via PlayerProvider
     final song = Song(
-      id:         'itunes_${track.trackId}',
+      id:         'browse_${track.trackId}',
       title:      track.title,
       artist:     track.artist,
       album:      track.album,
@@ -241,7 +241,7 @@ class _SearchScreenState extends State<SearchScreen>
             children: [
               _buildHeader(context),
               _buildSearchBar(context),
-              // ITUNES_INTEGRATION — tab bar
+               — tab bar
               _buildTabBar(context),
               Expanded(
                 child: TabBarView(
@@ -263,14 +263,14 @@ class _SearchScreenState extends State<SearchScreen>
                         child: _buildBody(context),
                       ),
                     ),
-                    // Tab 1: iTunes browse
-                    // ITUNES_INTEGRATION
+                    // Tab 1: Browse
+                    
                     _BrowseTab(
                       loading:  _browseLoading,
                       result:   _browseResult,
                       query:    _controller.text.trim(),
                       onSearch: _fetchBrowse,
-                      onPlay:   _playItunesTrack,
+                      onPlay:   _playBrowseTrack,
                     ),
                   ],
                 ),
@@ -282,7 +282,7 @@ class _SearchScreenState extends State<SearchScreen>
     );
   }
 
-  // ITUNES_INTEGRATION — tab bar widget
+   — tab bar widget
   Widget _buildTabBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -558,16 +558,16 @@ class _SearchScreenState extends State<SearchScreen>
 }
 
 // =============================================================================
-// ITUNES_INTEGRATION — Browse Tab Widget
-// Remove this entire class + _BrowseTab usage above to strip iTunes.
+ — Browse Tab Widget
+
 // =============================================================================
 
 class _BrowseTab extends StatefulWidget {
   final bool               loading;
-  final ItunesSearchResult result;
+  final BrowseSearchResult result;
   final String             query;
   final void Function(String) onSearch;
-  final void Function(ItunesTrack) onPlay;
+  final void Function(BrowseTrack) onPlay;
 
   const _BrowseTab({
     required this.loading,
@@ -586,22 +586,22 @@ class _BrowseTabState extends State<_BrowseTab> {
   String?           _openAlbumId;
   String?           _openAlbumName;
   bool              _albumLoading = false;
-  List<ItunesTrack> _albumTracks  = [];
+  List<BrowseTrack> _albumTracks  = [];
 
   // Artist drill-down state
   String?           _openArtistName;
   bool              _artistLoading = false;
-  List<ItunesTrack> _artistTracks  = [];
+  List<BrowseTrack> _artistTracks  = [];
 
-  Future<void> _openAlbum(ItunesAlbum album) async {
+  Future<void> _openAlbum(BrowseAlbum album) async {
     setState(() { _openAlbumId = album.collectionId; _openAlbumName = album.name; _albumLoading = true; _albumTracks = []; _openArtistName = null; });
-    final tracks = await ItunesService.albumTracks(album.collectionId);
+    final tracks = await BrowseService.albumTracks(album.collectionId);
     if (mounted) setState(() { _albumTracks = tracks; _albumLoading = false; });
   }
 
-  Future<void> _openArtist(ItunesArtist artist) async {
+  Future<void> _openArtist(BrowseArtist artist) async {
     setState(() { _openArtistName = artist.name; _artistLoading = true; _artistTracks = []; _openAlbumId = null; });
-    final tracks = await ItunesService.artistTopSongs(artist.name);
+    final tracks = await BrowseService.artistTopSongs(artist.name);
     if (mounted) setState(() { _artistTracks = tracks; _artistLoading = false; });
   }
 
@@ -656,13 +656,13 @@ class _BrowseTabState extends State<_BrowseTab> {
         // Tracks
         if (widget.result.tracks.isNotEmpty) ...[
           _sectionLabel(context, 'Songs'),
-          ...widget.result.tracks.map((t) => _ItunesTrackTile(track: t, onPlay: () => widget.onPlay(t))),
+          ...widget.result.tracks.map((t) => _BrowseTrackTile(track: t, onPlay: () => widget.onPlay(t))),
         ],
       ],
     );
   }
 
-  Widget _buildTrackList(BuildContext context, String title, bool loading, List<ItunesTrack> tracks) {
+  Widget _buildTrackList(BuildContext context, String title, bool loading, List<BrowseTrack> tracks) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -681,7 +681,7 @@ class _BrowseTabState extends State<_BrowseTab> {
             child: ListView.builder(
               padding: const EdgeInsets.only(bottom: 100),
               itemCount: tracks.length,
-              itemBuilder: (_, i) => _ItunesTrackTile(track: tracks[i], onPlay: () => widget.onPlay(tracks[i])),
+              itemBuilder: (_, i) => _BrowseTrackTile(track: tracks[i], onPlay: () => widget.onPlay(tracks[i])),
             ),
           ),
       ],
@@ -705,12 +705,12 @@ class _BrowseTabState extends State<_BrowseTab> {
   }
 }
 
-// ── iTunes sub-widgets ────────────────────────────────────────────────────────
+// ── Browse sub-widgets ─────────────────────────────────────────────────────────
 
-class _ItunesTrackTile extends StatelessWidget {
-  final ItunesTrack track;
+class _BrowseTrackTile extends StatelessWidget {
+  final BrowseTrack track;
   final VoidCallback onPlay;
-  const _ItunesTrackTile({required this.track, required this.onPlay});
+  const _BrowseTrackTile({required this.track, required this.onPlay});
 
   @override
   Widget build(BuildContext context) {
@@ -732,7 +732,7 @@ class _ItunesTrackTile extends StatelessWidget {
 }
 
 class _AlbumCard extends StatelessWidget {
-  final ItunesAlbum album;
+  final BrowseAlbum album;
   final VoidCallback onTap;
   const _AlbumCard({required this.album, required this.onTap});
 
@@ -758,7 +758,7 @@ class _AlbumCard extends StatelessWidget {
 }
 
 class _ArtistChip extends StatelessWidget {
-  final ItunesArtist artist;
+  final BrowseArtist artist;
   final VoidCallback onTap;
   const _ArtistChip({required this.artist, required this.onTap});
 

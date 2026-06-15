@@ -1,20 +1,20 @@
 // =============================================================================
-// FILE: lib/services/itunes_service.dart
+// FILE: lib/services/browse_service.dart
 // PROJECT: Aurum Music
 //
-// ITUNES_INTEGRATION — Metadata only. No streaming, no preview.
+// BROWSE_INTEGRATION — Metadata only. No streaming, no preview.
 //
 // What this does:
-//   - Search iTunes for songs, artists, albums (titles + artwork only)
-//   - Returns ItunesTrack / ItunesAlbum / ItunesArtist objects
+//   - Search for songs, artists, albums (titles + artwork only)
+//   - Returns BrowseTrack / BrowseAlbum / BrowseArtist objects
 //   - On tap, caller resolves stream via existing ApiService (Saavn/YT)
 //
 // To REMOVE this integration:
 //   1. Delete this file
 //   2. In search_screen.dart — remove the "Browse" tab and _BrowseTab widget
-//   3. That's it. Nothing else touches iTunes.
+//   3. That's it. Nothing else touches this service.
 //
-// API: iTunes Search API — free, no key needed.
+// API: Apple Music Search API — free, no key needed.
 // Docs: https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI
 // =============================================================================
 
@@ -39,7 +39,7 @@ String _hqArtwork(String url) {
 
 // ─── Models ──────────────────────────────────────────────────────────────────
 
-class ItunesTrack {
+class BrowseTrack {
   final String  trackId;
   final String  title;
   final String  artist;
@@ -47,7 +47,7 @@ class ItunesTrack {
   final String  artworkUrl;
   final int?    durationMs;
 
-  const ItunesTrack({
+  const BrowseTrack({
     required this.trackId,
     required this.title,
     required this.artist,
@@ -59,7 +59,7 @@ class ItunesTrack {
   /// Search query to resolve this track via Saavn/YT
   String get resolveQuery => '$title $artist';
 
-  factory ItunesTrack.fromJson(Map<String, dynamic> j) => ItunesTrack(
+  factory BrowseTrack.fromJson(Map<String, dynamic> j) => BrowseTrack(
     trackId:    j['trackId']?.toString() ?? '',
     title:      _clean(j['trackName']?.toString() ?? 'Unknown'),
     artist:     _clean(j['artistName']?.toString() ?? 'Unknown'),
@@ -69,7 +69,7 @@ class ItunesTrack {
   );
 }
 
-class ItunesAlbum {
+class BrowseAlbum {
   final String collectionId;
   final String name;
   final String artist;
@@ -77,7 +77,7 @@ class ItunesAlbum {
   final int?   trackCount;
   final String? releaseYear;
 
-  const ItunesAlbum({
+  const BrowseAlbum({
     required this.collectionId,
     required this.name,
     required this.artist,
@@ -86,7 +86,7 @@ class ItunesAlbum {
     this.releaseYear,
   });
 
-  factory ItunesAlbum.fromJson(Map<String, dynamic> j) => ItunesAlbum(
+  factory BrowseAlbum.fromJson(Map<String, dynamic> j) => BrowseAlbum(
     collectionId: j['collectionId']?.toString() ?? '',
     name:         _clean(j['collectionName']?.toString() ?? 'Unknown'),
     artist:       _clean(j['artistName']?.toString() ?? 'Unknown'),
@@ -96,18 +96,18 @@ class ItunesAlbum {
   );
 }
 
-class ItunesArtist {
+class BrowseArtist {
   final String artistId;
   final String name;
   final String? genre;
 
-  const ItunesArtist({
+  const BrowseArtist({
     required this.artistId,
     required this.name,
     this.genre,
   });
 
-  factory ItunesArtist.fromJson(Map<String, dynamic> j) => ItunesArtist(
+  factory BrowseArtist.fromJson(Map<String, dynamic> j) => BrowseArtist(
     artistId: j['artistId']?.toString() ?? '',
     name:     _clean(j['artistName']?.toString() ?? 'Unknown'),
     genre:    j['primaryGenreName']?.toString(),
@@ -116,13 +116,13 @@ class ItunesArtist {
 
 // ─── Service ─────────────────────────────────────────────────────────────────
 
-class ItunesService {
+class BrowseService {
   static final _client = http.Client();
   static const _base   = 'https://itunes.apple.com';
 
   // Search tracks, albums, artists in one call — returns all three lists.
-  static Future<ItunesSearchResult> search(String query) async {
-    if (query.trim().isEmpty) return ItunesSearchResult.empty();
+  static Future<BrowseSearchResult> search(String query) async {
+    if (query.trim().isEmpty) return BrowseSearchResult.empty();
 
     final encoded = Uri.encodeQueryComponent(query.trim());
 
@@ -133,21 +133,21 @@ class ItunesService {
       _fetch('$_base/search?term=$encoded&entity=musicArtist&limit=8'),
     ]);
 
-    final tracks  = <ItunesTrack>[];
-    final albums  = <ItunesAlbum>[];
-    final artists = <ItunesArtist>[];
+    final tracks  = <BrowseTrack>[];
+    final albums  = <BrowseAlbum>[];
+    final artists = <BrowseArtist>[];
 
     for (final j in _parseResults(results[0])) {
-      try { tracks.add(ItunesTrack.fromJson(j)); } catch (_) {}
+      try { tracks.add(BrowseTrack.fromJson(j)); } catch (_) {}
     }
     for (final j in _parseResults(results[1])) {
-      try { albums.add(ItunesAlbum.fromJson(j)); } catch (_) {}
+      try { albums.add(BrowseAlbum.fromJson(j)); } catch (_) {}
     }
     for (final j in _parseResults(results[2])) {
-      try { artists.add(ItunesArtist.fromJson(j)); } catch (_) {}
+      try { artists.add(BrowseArtist.fromJson(j)); } catch (_) {}
     }
 
-    return ItunesSearchResult(tracks: tracks, albums: albums, artists: artists);
+    return BrowseSearchResult(tracks: tracks, albums: albums, artists: artists);
   }
 
   static Future<String> _fetch(String url) async {
@@ -173,31 +173,31 @@ class ItunesService {
 
 
   // Fetch tracks for a specific album by collectionId
-  static Future<List<ItunesTrack>> albumTracks(String collectionId) async {
+  static Future<List<BrowseTrack>> albumTracks(String collectionId) async {
     final body = await _fetch(
       'https://itunes.apple.com/lookup?id=$collectionId&entity=song&limit=50',
     );
     final results = _parseResults(body);
-    final tracks = <ItunesTrack>[];
+    final tracks = <BrowseTrack>[];
     for (final j in results) {
       // lookup returns the album itself as first result (wrapperType=collection)
       if (j['wrapperType'] == 'track') {
-        try { tracks.add(ItunesTrack.fromJson(j)); } catch (_) {}
+        try { tracks.add(BrowseTrack.fromJson(j)); } catch (_) {}
       }
     }
     return tracks;
   }
 
   // Fetch top songs for an artist by name
-  static Future<List<ItunesTrack>> artistTopSongs(String artistName) async {
+  static Future<List<BrowseTrack>> artistTopSongs(String artistName) async {
     final encoded = Uri.encodeQueryComponent(artistName.trim());
     final body = await _fetch(
       'https://itunes.apple.com/search?term=$encoded&entity=song&limit=25',
     );
     final results = _parseResults(body);
-    final tracks = <ItunesTrack>[];
+    final tracks = <BrowseTrack>[];
     for (final j in results) {
-      try { tracks.add(ItunesTrack.fromJson(j)); } catch (_) {}
+      try { tracks.add(BrowseTrack.fromJson(j)); } catch (_) {}
     }
     return tracks;
   }
@@ -205,20 +205,21 @@ class ItunesService {
   static void dispose() => _client.close();
 }
 
-class ItunesSearchResult {
-  final List<ItunesTrack>  tracks;
-  final List<ItunesAlbum>  albums;
-  final List<ItunesArtist> artists;
+class BrowseSearchResult {
+  final List<BrowseTrack>  tracks;
+  final List<BrowseAlbum>  albums;
+  final List<BrowseArtist> artists;
 
-  const ItunesSearchResult({
+  const BrowseSearchResult({
     required this.tracks,
     required this.albums,
     required this.artists,
   });
 
-  factory ItunesSearchResult.empty() => const ItunesSearchResult(
+  factory BrowseSearchResult.empty() => const BrowseSearchResult(
     tracks: [], albums: [], artists: [],
   );
 
   bool get isEmpty => tracks.isEmpty && albums.isEmpty && artists.isEmpty;
 }
+
