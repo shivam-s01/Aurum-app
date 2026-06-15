@@ -186,41 +186,53 @@ class ApiService {
     // --- Affinity genres for genre mixes ---
     final topGenres = RecommendationEngine.topAffinityGenres(count: 2);
 
-    // --- Build all futures in parallel ---
-    final futures = <Future<SongSection?>>[];
+    // --- Build query list ---
+    final queryList = <_SectionQuery>[];
 
     // 1. Trending (6)
     for (final q in picks) {
-      futures.add(_saavnSection(q, _trendingLabels[q]!));
+      queryList.add(_SectionQuery(q, _trendingLabels[q]!));
     }
 
     // 2. Time mood / daily vibe
-    futures.add(_saavnSection(timeMoodQuery, timeMoodLabel));
+    queryList.add(_SectionQuery(timeMoodQuery, timeMoodLabel));
 
     // 3. "Made For You" — top affinity artists (up to 3)
     for (final artist in personalArtists.take(3)) {
-      futures.add(_saavnSection('$artist hits', '✨ Mix for $artist'));
+      queryList.add(_SectionQuery('$artist hits', '✨ Mix for $artist'));
     }
 
     // 4. Genre mixes from user affinity
     for (final genre in topGenres) {
-      final label = _genreMixLabel(genre);
-      final query = _genreMixQuery(genre);
-      futures.add(_saavnSection(query, label));
+      queryList.add(_SectionQuery(_genreMixQuery(genre), _genreMixLabel(genre)));
     }
 
     // 5. Cold-start fallback: extra trending if no personal history
     if (personalArtists.isEmpty && topGenres.isEmpty) {
       for (int i = 6; i < 9 && i < poolSize; i++) {
         final extra = _trendingPool[(dayIndex + i) % poolSize];
-        futures.add(_saavnSection(extra, _trendingLabels[extra]!));
+        queryList.add(_SectionQuery(extra, _trendingLabels[extra]!));
       }
     }
 
-    final results = await Future.wait(futures);
+    // --- Batched fetch: 3 at a time to avoid rate limiting ---
+    // Sending 10+ parallel requests to Render free tier causes all to fail.
+    // Batching 3 at a time keeps server happy while still being fast.
+    final results = <SongSection?>[];
+    const batchSize = 3;
+    for (int i = 0; i < queryList.length; i += batchSize) {
+      final batch = queryList.skip(i).take(batchSize).toList();
+      final batchResults = await Future.wait(
+        batch.map((sq) => _saavnSection(sq.query, sq.label)),
+      );
+      results.addAll(batchResults);
+      if (i + batchSize < queryList.length) {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+    }
 
     if (results.every((r) => r == null)) {
-      _log('[fetchHome] All ${futures.length} section queries returned 0 songs — '
+      _log('[fetchHome] All ${queryList.length} section queries returned 0 songs — '
           'Saavn backend ($_saavn) may be unreachable or asleep.');
     }
 
@@ -1323,4 +1335,10 @@ class _SignalResult {
   final List<Song> songs;
   final int        weight;
   _SignalResult(this.songs, this.weight);
+}
+
+class _SectionQuery {
+  final String query;
+  final String label;
+  _SectionQuery(this.query, this.label);
 }
