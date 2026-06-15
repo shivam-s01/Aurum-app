@@ -61,11 +61,18 @@ class AurumApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider(create: (_) => PlayerProvider(handler)),
         ChangeNotifierProvider(create: (_) => LibraryProvider()),
         ChangeNotifierProvider(create: (_) => SourceProvider()), // ← offline
         ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()), // was missing — used by liked/library/song_tile
         ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()), // for Library "Recently Played" + Home "Made For You"
+        // PlayerProvider gets RecentlyPlayedProvider for behavior tracking (skip/complete/replay)
+        ChangeNotifierProxyProvider<RecentlyPlayedProvider, PlayerProvider>(
+          create: (_) => PlayerProvider(handler),
+          update: (_, recentlyPlayed, player) {
+            player?.updateRecentlyPlayed(recentlyPlayed);
+            return player ?? PlayerProvider(handler, recentlyPlayedProvider: recentlyPlayed);
+          },
+        ),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {

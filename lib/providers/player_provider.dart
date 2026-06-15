@@ -1,3 +1,23 @@
+// =============================================================================
+// FILE: lib/providers/player_provider.dart
+// PROJECT: Aurum Music
+// VERSION: 2.0.0 — Behavior Tracking + Smart Queue
+//
+// WHAT'S NEW IN v2:
+//   ✅ Early skip detection (<15s → RecentlyPlayedProvider.notifySkip)
+//   ✅ Completion detection (≥80% → RecentlyPlayedProvider.notifyCompletion)
+//   ✅ Replay detection (user re-seeks to start → notifyReplay)
+//   ✅ RecentlyPlayedProvider injected via constructor (passed from main.dart)
+//   ✅ Prefetch next song after auto-queue extension
+//   ✅ Auto-queue: passes existingQueueIds + session recent IDs for full dedup
+//
+// BACKWARD COMPATIBILITY:
+//   - All existing getters unchanged
+//   - All existing methods unchanged
+//   - New constructor param `recentlyPlayedProvider` added (nullable for safety)
+//   - No breaking API changes
+// =============================================================================
+
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
@@ -5,62 +25,164 @@ import 'package:just_audio/just_audio.dart';
 import '../models/song.dart';
 import '../services/audio_handler.dart';
 import '../services/api_service.dart';
+import '../services/recommendation_engine.dart';
+import 'recently_played_provider.dart';
 
 class PlayerProvider extends ChangeNotifier {
-  final AurumAudioHandler _handler;
+  final AurumAudioHandler       _handler;
+  final RecentlyPlayedProvider? _recentlyPlayed;
 
-  bool _isPlaying = false;
-  bool _isLoading = false;
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
-  Duration _buffered = Duration.zero;
-  LoopMode _loopMode = LoopMode.off;
-  bool _shuffle = false;
-  bool _showFullPlayer = false;
+  bool     _isPlaying      = false;
+  bool     _isLoading      = false;
+  Duration _position       = Duration.zero;
+  Duration _duration       = Duration.zero;
+  Duration _buffered       = Duration.zero;
+  LoopMode _loopMode       = LoopMode.off;
+  bool     _shuffle        = false;
+  bool     _showFullPlayer = false;
 
   bool _isExtendingQueue = false;
 
-  // FIX: store subscriptions so we can cancel on dispose (memory leak fix)
+  // ── Behavior tracking state ────────────────────────────────────────────────
+  // Used to fire one-shot events per song (completion/skip/replay).
+  Song?   _lastTrackedSong;       // song currently being tracked
+  bool    _completionFired = false; // 80%+ fired for current song?
+  bool    _earlySkipArmed  = false; // true when position < 15s
+  bool    _replayArmed     = false; // true when position near 0 after non-start
+
+  // Subscriptions — cancelled on dispose (memory leak prevention)
   final List<StreamSubscription<dynamic>> _subs = [];
 
-  PlayerProvider(this._handler) {
+  // ---------------------------------------------------------------------------
+  // CONSTRUCTOR
+  //
+  // [recentlyPlayedProvider] is optional for backward compat — if null,
+  // behavior tracking calls are silently skipped.
+  // ---------------------------------------------------------------------------
+  PlayerProvider(this._handler, {RecentlyPlayedProvider? recentlyPlayedProvider})
+      : _recentlyPlayed = recentlyPlayedProvider {
     _subs.add(_handler.player.playingStream.listen((playing) {
       _isPlaying = playing;
       notifyListeners();
     }));
-    _subs.add(_handler.player.positionStream.listen((pos) {
-      _position = pos;
-      notifyListeners();
-    }));
+
+    _subs.add(_handler.player.positionStream.listen(_onPosition));
+
     _subs.add(_handler.player.durationStream.listen((dur) {
       if (dur != null) {
         _duration = dur;
         notifyListeners();
       }
     }));
+
     _subs.add(_handler.player.bufferedPositionStream.listen((buf) {
       _buffered = buf;
       notifyListeners();
     }));
+
     _subs.add(_handler.player.processingStateStream.listen((state) {
       _isLoading = state == ProcessingState.loading || state == ProcessingState.buffering;
       notifyListeners();
     }));
+
     _subs.add(_handler.player.loopModeStream.listen((mode) {
       _loopMode = mode;
       notifyListeners();
     }));
+
     _subs.add(_handler.player.shuffleModeEnabledStream.listen((s) {
       _shuffle = s;
       notifyListeners();
     }));
-    // Auto-queue extension: silently appends more songs when queue is nearly done
+
+    // Song change: reset tracking + trigger auto-queue
     _subs.add(_handler.player.currentIndexStream.listen((index) {
       if (index == null) return;
+      _onSongChanged(index);
       _maybeExtendQueue(index);
     }));
   }
 
+  // ---------------------------------------------------------------------------
+  // SECTION: BEHAVIOR TRACKING
+  //
+  // Fires signals into RecentlyPlayedProvider which forwards to
+  // RecommendationEngine. All signals are one-shot per song play.
+  //
+  // SIGNALS:
+  //   SKIP   — user skips before 15 seconds (strong negative)
+  //   COMPLETE — user reaches 80%+ of song (strong positive)
+  //   REPLAY — user seeks back to start after already playing (strong positive)
+  // ---------------------------------------------------------------------------
+
+  void _onSongChanged(int index) {
+    final q    = _handler.currentQueue;
+    if (q.isEmpty || index >= q.length) return;
+    final song = q[index];
+
+    // Reset all tracking state for new song
+    _lastTrackedSong  = song;
+    _completionFired  = false;
+    _earlySkipArmed   = song.source != SongSource.local; // arm for online songs
+    _replayArmed      = false;
+  }
+
+  void _onPosition(Duration pos) {
+    _position = pos;
+    notifyListeners();
+
+    final song = _lastTrackedSong;
+    if (song == null || song.source == SongSource.local) return;
+
+    final posSeconds  = pos.inSeconds;
+    final durSeconds  = _duration.inSeconds;
+
+    // ── EARLY SKIP detection ──────────────────────────────────────────────
+    // If song was armed (just started) and user skips while position < 15s,
+    // the currentIndexStream will fire — we fire the skip signal there.
+    // Here we just track: if position > 15s, disarm early-skip.
+    if (_earlySkipArmed && posSeconds >= 15) {
+      _earlySkipArmed = false;
+    }
+
+    // ── COMPLETION detection ──────────────────────────────────────────────
+    // Fire once when user reaches 80% of duration.
+    if (!_completionFired && durSeconds > 10 && posSeconds > 0) {
+      final pct = posSeconds / durSeconds;
+      if (pct >= 0.80) {
+        _completionFired = true;
+        _rp?.notifyCompletion(song);
+      }
+    }
+
+    // ── REPLAY detection ─────────────────────────────────────────────────
+    // Arm replay when song is >30% through; fire if user seeks back to <5s.
+    if (!_replayArmed && durSeconds > 10) {
+      if (posSeconds / durSeconds > 0.30) _replayArmed = true;
+    }
+    if (_replayArmed && posSeconds <= 5 && _position.inSeconds <= 5) {
+      _replayArmed = false; // disarm until >30% again
+      _rp?.notifyReplay(song);
+    }
+  }
+
+  // Called when user explicitly taps skipNext() — check if it was an early skip
+  void _fireEarlySkipIfArmed() {
+    final song = _lastTrackedSong;
+    if (song == null) return;
+    if (_earlySkipArmed) {
+      _earlySkipArmed = false;
+      _rp?.notifySkip(song);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // SECTION: AUTO-QUEUE EXTENSION
+  //
+  // Triggers when ≤2 songs remain in queue.
+  // Uses RecommendationEngine-powered getAutoQueue (v3).
+  // Prefetches next song's stream URL after adding to queue.
+  // ---------------------------------------------------------------------------
   Future<void> _maybeExtendQueue(int index) async {
     final q = _handler.currentQueue;
     if (q.isEmpty) return;
@@ -71,38 +193,57 @@ class PlayerProvider extends ChangeNotifier {
     _isExtendingQueue = true;
     try {
       final current = q[index];
-      // FIX: local songs have no "vibe" — skip but let finally reset flag
       if (current.source == SongSource.local) return;
 
-      final nextSongs = await ApiService.getAutoQueue(current);
+      // Full dedup: existing queue IDs + RecommendationEngine session window
+      final existingIds = <String>{
+        ...q.map((s) => s.id),
+        ...RecommendationEngine.sessionRecentIds,
+      };
 
-      // FIX: dedup — don't re-add songs already in queue
-      final existingIds = q.map((s) => s.id).toSet();
-      final toAdd = nextSongs.where((s) => !existingIds.contains(s.id)).toList();
+      final nextSongs = await ApiService.getAutoQueue(
+        current,
+        limit: 10,
+        existingQueueIds: existingIds,
+      );
+
+      // Final dedup safety check
+      final currentQueueIds = _handler.currentQueue.map((s) => s.id).toSet();
+      final toAdd = nextSongs
+          .where((s) => !currentQueueIds.contains(s.id))
+          .toList();
 
       for (final song in toAdd) {
         await _handler.addToQueue(song);
       }
-      if (toAdd.isNotEmpty) notifyListeners();
+
+      // Prefetch next song's stream URL so it starts instantly
+      if (toAdd.isNotEmpty) {
+        ApiService.prefetchNext(toAdd.first);
+        notifyListeners();
+      }
     } catch (_) {
-      // Silent fail — background enhancement only
+      // Silent fail — auto-queue is background-only, never crashes UI
     } finally {
       _isExtendingQueue = false;
     }
   }
 
-  bool get isPlaying => _isPlaying;
-  bool get isLoading => _isLoading;
-  Duration get position => _position;
-  Duration get duration => _duration;
-  Duration get buffered => _buffered;
-  LoopMode get loopMode => _loopMode;
-  bool get shuffle => _shuffle;
-  bool get showFullPlayer => _showFullPlayer;
-  Song? get currentSong => _handler.currentSong;
-  List<Song> get queue => _handler.currentQueue;
-  int get currentIndex => _handler.currentIndex;
-  bool get hasSong => _handler.currentSong != null;
+  // ---------------------------------------------------------------------------
+  // GETTERS (all unchanged)
+  // ---------------------------------------------------------------------------
+  bool     get isPlaying      => _isPlaying;
+  bool     get isLoading      => _isLoading;
+  Duration get position       => _position;
+  Duration get duration       => _duration;
+  Duration get buffered       => _buffered;
+  LoopMode get loopMode       => _loopMode;
+  bool     get shuffle        => _shuffle;
+  bool     get showFullPlayer => _showFullPlayer;
+  Song?    get currentSong    => _handler.currentSong;
+  List<Song> get queue        => _handler.currentQueue;
+  int      get currentIndex   => _handler.currentIndex;
+  bool     get hasSong        => _handler.currentSong != null;
   AurumAudioHandler get handler => _handler;
 
   double get progress {
@@ -113,7 +254,6 @@ class PlayerProvider extends ChangeNotifier {
   String get positionString => _formatDuration(_position);
   String get durationString => _formatDuration(_duration);
 
-  // FIX: handle songs longer than 1 hour
   String _formatDuration(Duration d) {
     if (d.inHours > 0) {
       final h = d.inHours.toString();
@@ -126,6 +266,9 @@ class PlayerProvider extends ChangeNotifier {
     return '$m:$s';
   }
 
+  // ---------------------------------------------------------------------------
+  // PLAYBACK CONTROL (all unchanged — skipNext gets early-skip hook)
+  // ---------------------------------------------------------------------------
   Future<void> playSong(Song song, {List<Song>? queue, int? index}) async {
     if (queue != null && index != null) {
       await _handler.playQueue(queue, index);
@@ -136,14 +279,10 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> togglePlay() async {
-    if (_isPlaying) {
-      await _handler.pause();
-    } else {
-      await _handler.play();
-    }
+    if (_isPlaying) await _handler.pause();
+    else            await _handler.play();
   }
 
-  // FIX: guard against seek on zero duration
   Future<void> seek(double ratio) async {
     if (_duration == Duration.zero) return;
     final pos = Duration(milliseconds: (_duration.inMilliseconds * ratio).round());
@@ -152,7 +291,11 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> seekTo(Duration pos) => _handler.seek(pos);
 
-  Future<void> skipNext() => _handler.skipToNext();
+  Future<void> skipNext() async {
+    _fireEarlySkipIfArmed(); // ← behavior tracking hook
+    await _handler.skipToNext();
+  }
+
   Future<void> skipPrev() => _handler.skipToPrevious();
 
   Future<void> addToQueue(Song song) async {
@@ -197,7 +340,9 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> toggleShuffle() async {
     await _handler.setShuffleMode(
-      _shuffle ? AudioServiceShuffleMode.none : AudioServiceShuffleMode.all,
+      _shuffle
+          ? AudioServiceShuffleMode.none
+          : AudioServiceShuffleMode.all,
     );
   }
 
@@ -206,18 +351,16 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> pause() async {
-    await _handler.pause();
+  void closeFullPlayer() {
+    _showFullPlayer = false;
+    notifyListeners();
   }
+
+  Future<void> pause() => _handler.pause();
 
   Future<void> stopAndClear() async {
     await _handler.stop();
     await _handler.clearQueue();
-    notifyListeners();
-  }
-
-  void closeFullPlayer() {
-    _showFullPlayer = false;
     notifyListeners();
   }
 
@@ -227,12 +370,29 @@ class PlayerProvider extends ChangeNotifier {
     return ApiService.fetchLyrics(song);
   }
 
-  // FIX: cancel all stream subscriptions to prevent memory leaks
+  // ---------------------------------------------------------------------------
+  // updateRecentlyPlayed — called by ChangeNotifierProxyProvider in main.dart
+  // whenever RecentlyPlayedProvider rebuilds. Updates the internal reference
+  // so behavior tracking signals always go to the live instance.
+  // ---------------------------------------------------------------------------
+  void updateRecentlyPlayed(RecentlyPlayedProvider rp) {
+    // _recentlyPlayed is final — we shadow via a mutable field instead.
+    // Nothing to notify here; this is a pure reference update.
+    _latestRecentlyPlayed = rp;
+  }
+
+  // Mutable shadow of _recentlyPlayed — always points to the live instance.
+  RecentlyPlayedProvider? _latestRecentlyPlayed;
+
+  // Internal getter: prefers the live proxy instance, falls back to constructor arg.
+  RecentlyPlayedProvider? get _rp => _latestRecentlyPlayed ?? _recentlyPlayed;
+
+  // ---------------------------------------------------------------------------
+  // DISPOSE
+  // ---------------------------------------------------------------------------
   @override
   void dispose() {
-    for (final sub in _subs) {
-      sub.cancel();
-    }
+    for (final sub in _subs) sub.cancel();
     super.dispose();
   }
 }
