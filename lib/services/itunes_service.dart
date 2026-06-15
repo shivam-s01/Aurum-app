@@ -21,6 +21,22 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+// ─── Top-level helpers (accessible by all classes in this file) ──────────────
+
+String _clean(String s) => s
+    .replaceAll('&amp;', '&')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#039;', "'")
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>');
+
+String _hqArtwork(String url) {
+  if (url.isEmpty) return '';
+  return url
+      .replaceAll('100x100bb', '600x600bb')
+      .replaceAll('100x100', '600x600');
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 class ItunesTrack {
@@ -121,55 +137,24 @@ class ItunesService {
     final albums  = <ItunesAlbum>[];
     final artists = <ItunesArtist>[];
 
-    for (final item in _parseResults(results[0])) {
-      if (item['wrapperType'] == 'track' && item['kind'] == 'song') {
-        tracks.add(ItunesTrack.fromJson(item));
-      }
+    for (final j in _parseResults(results[0])) {
+      try { tracks.add(ItunesTrack.fromJson(j)); } catch (_) {}
     }
-    for (final item in _parseResults(results[1])) {
-      if (item['wrapperType'] == 'collection') {
-        albums.add(ItunesAlbum.fromJson(item));
-      }
+    for (final j in _parseResults(results[1])) {
+      try { albums.add(ItunesAlbum.fromJson(j)); } catch (_) {}
     }
-    for (final item in _parseResults(results[2])) {
-      if (item['wrapperType'] == 'artist') {
-        artists.add(ItunesArtist.fromJson(item));
-      }
+    for (final j in _parseResults(results[2])) {
+      try { artists.add(ItunesArtist.fromJson(j)); } catch (_) {}
     }
 
     return ItunesSearchResult(tracks: tracks, albums: albums, artists: artists);
   }
 
-  // Fetch all tracks in an album by collectionId
-  static Future<List<ItunesTrack>> albumTracks(String collectionId) async {
-    final data = await _fetch(
-      '$_base/lookup?id=$collectionId&entity=song&limit=50',
-    );
-    return _parseResults(data)
-        .where((j) => j['wrapperType'] == 'track' && j['kind'] == 'song')
-        .map(ItunesTrack.fromJson)
-        .toList();
-  }
-
-  // Fetch top songs by artist (via search)
-  static Future<List<ItunesTrack>> artistTopSongs(String artistName) async {
-    final encoded = Uri.encodeQueryComponent(artistName);
-    final data = await _fetch(
-      '$_base/search?term=$encoded&entity=song&attribute=artistTerm&limit=20',
-    );
-    return _parseResults(data)
-        .where((j) => j['wrapperType'] == 'track' && j['kind'] == 'song')
-        .map(ItunesTrack.fromJson)
-        .toList();
-  }
-
-  // ── Internals ───────────────────────────────────────────────
-
   static Future<String> _fetch(String url) async {
     try {
-      final res = await _client
-          .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 8));
+      final res = await _client.get(Uri.parse(url)).timeout(
+        const Duration(seconds: 8),
+      );
       if (res.statusCode == 200) return res.body;
     } catch (_) {}
     return '{}';
@@ -185,20 +170,6 @@ class ItunesService {
     } catch (_) {}
     return [];
   }
-
-  static String _hqArtwork(String url) {
-    if (url.isEmpty) return '';
-    return url
-        .replaceAll('100x100bb', '600x600bb')
-        .replaceAll('100x100', '600x600');
-  }
-
-  static String _clean(String s) => s
-      .replaceAll('&amp;', '&')
-      .replaceAll('&quot;', '"')
-      .replaceAll('&#039;', "'")
-      .replaceAll('&lt;', '<')
-      .replaceAll('&gt;', '>');
 
   static void dispose() => _client.close();
 }
