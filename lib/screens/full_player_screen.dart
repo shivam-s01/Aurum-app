@@ -382,6 +382,10 @@ class _DragHandle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final handleColor = isLight
+        ? Colors.black.withAlpha(isDragging ? 70 : 40)
+        : Colors.white.withAlpha(isDragging ? 80 : 45);
     return Padding(
       padding: const EdgeInsets.only(top: 12, bottom: 4),
       child: Center(
@@ -390,7 +394,7 @@ class _DragHandle extends StatelessWidget {
           width: isDragging ? 44 : 32,
           height: 4,
           decoration: BoxDecoration(
-            color: Colors.white.withAlpha(isDragging ? 80 : 45),
+            color: handleColor,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -474,9 +478,9 @@ class _TopBar extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Artwork
+// Artwork — with left/right swipe to change song (premium slide animation)
 // ─────────────────────────────────────────────────────────────────────────────
-class _Artwork extends StatelessWidget {
+class _Artwork extends StatefulWidget {
   final Song song;
   final PlayerProvider player;
   final double hPad, h, w;
@@ -492,54 +496,173 @@ class _Artwork extends StatelessWidget {
   });
 
   @override
+  State<_Artwork> createState() => _ArtworkState();
+}
+
+class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin {
+  late final AnimationController _swipeCtrl;
+  late Animation<Offset> _slideAnim;
+  double _dragX = 0;
+  bool _isSwiping = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _swipeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    );
+    _slideAnim = const AlwaysStoppedAnimation(Offset.zero);
+  }
+
+  @override
+  void dispose() {
+    _swipeCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onDragStart(DragStartDetails d) {
+    _swipeCtrl.stop();
+    setState(() {
+      _dragX = 0;
+      _isSwiping = true;
+    });
+  }
+
+  void _onDragUpdate(DragUpdateDetails d) {
+    setState(() => _dragX += d.delta.dx);
+  }
+
+  void _onDragEnd(DragEndDetails d) {
+    final velocity = d.primaryVelocity ?? 0;
+    final width = widget.w;
+    final threshold = width * 0.28;
+
+    if (_dragX < -threshold || velocity < -600) {
+      // Swipe left → next song
+      _animateOut(toLeft: true, then: () {
+        HapticFeedback.mediumImpact();
+        widget.player.skipNext();
+      });
+    } else if (_dragX > threshold || velocity > 600) {
+      // Swipe right → prev song
+      _animateOut(toLeft: false, then: () {
+        HapticFeedback.mediumImpact();
+        widget.player.skipPrev();
+      });
+    } else {
+      // Snap back
+      final from = _dragX / width;
+      _slideAnim = Tween<Offset>(
+        begin: Offset(from, 0),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic));
+      _swipeCtrl.forward(from: 0).then((_) {
+        if (mounted) setState(() { _dragX = 0; _isSwiping = false; });
+        _swipeCtrl.reset();
+      });
+    }
+  }
+
+  void _animateOut({required bool toLeft, required VoidCallback then}) {
+    final width = widget.w;
+    final from = _dragX / width;
+    final to = toLeft ? -1.4 : 1.4;
+    _slideAnim = Tween<Offset>(
+      begin: Offset(from, 0),
+      end: Offset(to, 0),
+    ).animate(CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeInCubic));
+    _swipeCtrl.forward(from: 0).then((_) {
+      then();
+      if (mounted) {
+        setState(() { _dragX = 0; _isSwiping = false; });
+        _swipeCtrl.reset();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final maxArtSize = (w - hPad * 2).clamp(0.0, h * 0.42);
+    final maxArtSize = (widget.w - widget.hPad * 2).clamp(0.0, widget.h * 0.42);
+
+    // Drag fraction for live drag offset + scale effect
+    final dragFrac = (_dragX / widget.w).clamp(-1.0, 1.0);
+    final liveOffset = _swipeCtrl.isAnimating
+        ? _slideAnim.value
+        : Offset(dragFrac, 0);
+    final dragScale = _isSwiping
+        ? (1.0 - (dragFrac.abs() * 0.06)).clamp(0.88, 1.0)
+        : 1.0;
+    final dragOpacity = _isSwiping
+        ? (1.0 - dragFrac.abs() * 0.3).clamp(0.55, 1.0)
+        : 1.0;
+
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: hPad),
+      padding: EdgeInsets.symmetric(horizontal: widget.hPad),
       child: Center(
         child: SizedBox(
           width: maxArtSize,
           height: maxArtSize,
-          child: AnimatedBuilder(
-            animation: artworkAnim,
-            builder: (_, child) => Transform.scale(
-              scale: artworkAnim.value,
-              child: child,
-            ),
-            child: Hero(
-              tag: 'aurum_artwork',
-              flightShuttleBuilder: (context, animation, direction, from, to) {
-                return Material(
-                  color: Colors.transparent,
-                  child: ScaleTransition(scale: animation, child: to.widget),
+          child: GestureDetector(
+            onHorizontalDragStart: _onDragStart,
+            onHorizontalDragUpdate: _onDragUpdate,
+            onHorizontalDragEnd: _onDragEnd,
+            child: AnimatedBuilder(
+              animation: _swipeCtrl,
+              builder: (_, child) {
+                return FractionalTranslation(
+                  translation: liveOffset,
+                  child: Transform.scale(
+                    scale: dragScale,
+                    child: Opacity(
+                      opacity: dragOpacity,
+                      child: child,
+                    ),
+                  ),
                 );
               },
-              child: RepaintBoundary(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeOutCubic,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withAlpha(player.isPlaying ? 180 : 110),
-                        blurRadius: player.isPlaying ? 64 : 40,
-                        offset: const Offset(0, 24),
-                        spreadRadius: player.isPlaying ? 4 : 0,
+              child: AnimatedBuilder(
+                animation: widget.artworkAnim,
+                builder: (_, child) => Transform.scale(
+                  scale: widget.artworkAnim.value,
+                  child: child,
+                ),
+                child: Hero(
+                  tag: 'aurum_artwork',
+                  flightShuttleBuilder: (context, animation, direction, from, to) {
+                    return Material(
+                      color: Colors.transparent,
+                      child: ScaleTransition(scale: animation, child: to.widget),
+                    );
+                  },
+                  child: RepaintBoundary(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.easeOutCubic,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withAlpha(widget.player.isPlaying ? 180 : 110),
+                            blurRadius: widget.player.isPlaying ? 64 : 40,
+                            offset: const Offset(0, 24),
+                            spreadRadius: widget.player.isPlaying ? 4 : 0,
+                          ),
+                          BoxShadow(
+                            color: Colors.black.withAlpha(90),
+                            blurRadius: 18,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
                       ),
-                      BoxShadow(
-                        color: Colors.black.withAlpha(90),
-                        blurRadius: 18,
-                        offset: const Offset(0, 6),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: AurumArtwork(
+                          url: widget.song.artworkUrl,
+                          size: double.infinity,
+                          borderRadius: 20,
+                        ),
                       ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: AurumArtwork(
-                      url: song.artworkUrl,
-                      size: double.infinity,
-                      borderRadius: 20,
                     ),
                   ),
                 ),
@@ -636,7 +759,9 @@ class _SeekBarState extends State<_SeekBar> {
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final trackActive = isLight ? AurumTheme.lightTextPrimary : Colors.white;
-    final trackInactive = isLight ? AurumTheme.lightBgSurface : Colors.white.withAlpha(28);
+    final trackInactive = isLight
+        ? AurumTheme.lightTextPrimary.withAlpha(35)
+        : Colors.white.withAlpha(28);
     final timeColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(92);
 
     return Padding(
@@ -737,7 +862,6 @@ class _Controls extends StatelessWidget {
           _CtrlBtn(
             icon: Icons.skip_previous_rounded,
             size: 38,
-            color: Colors.white.withAlpha(210),
             semanticLabel: 'Previous',
             onTap: () {
               HapticFeedback.mediumImpact();
@@ -756,7 +880,6 @@ class _Controls extends StatelessWidget {
           _CtrlBtn(
             icon: Icons.skip_next_rounded,
             size: 38,
-            color: Colors.white.withAlpha(210),
             semanticLabel: 'Next',
             onTap: () {
               HapticFeedback.mediumImpact();
@@ -952,12 +1075,17 @@ class _FavButton extends StatelessWidget {
           duration: const Duration(milliseconds: 240),
           transitionBuilder: (child, anim) =>
               ScaleTransition(scale: anim, child: child),
-          child: Icon(
-            isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-            key: ValueKey(isFav),
-            color: isFav ? AurumTheme.gold : Colors.white.withAlpha(128),
-            size: 24,
-          ),
+          child: Builder(builder: (ctx) {
+            final isLight = Theme.of(ctx).brightness == Brightness.light;
+            return Icon(
+              isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+              key: ValueKey(isFav),
+              color: isFav
+                  ? AurumTheme.gold
+                  : (isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(128)),
+              size: 24,
+            );
+          }),
         ),
       ),
     );
@@ -973,17 +1101,27 @@ class _QualityPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha(12),
+        color: isLight
+            ? AurumTheme.lightTextPrimary.withAlpha(10)
+            : Colors.white.withAlpha(12),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.white.withAlpha(20), width: 0.5),
+        border: Border.all(
+          color: isLight
+              ? AurumTheme.lightTextPrimary.withAlpha(30)
+              : Colors.white.withAlpha(20),
+          width: 0.5,
+        ),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: Colors.white.withAlpha(88),
+          color: isLight
+              ? AurumTheme.lightTextMuted
+              : Colors.white.withAlpha(88),
           fontSize: 10,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.8,
@@ -1415,49 +1553,65 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                     const BorderRadius.vertical(top: Radius.circular(32)),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(32)),
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color.lerp(widget.bg1, const Color(0xFF0A0A16), 0.5)!
-                              .withAlpha(247),
-                          Color.lerp(widget.bg2, const Color(0xFF060610), 0.5)!
-                              .withAlpha(248),
-                          Color.lerp(widget.bg3, const Color(0xFF020206), 0.6)!
-                              .withAlpha(250),
-                        ],
-                        stops: const [0.0, 0.5, 1.0],
+                  child: Builder(builder: (context) {
+                    final isLight = Theme.of(context).brightness == Brightness.light;
+                    return Container(
+                      decoration: BoxDecoration(
+                        borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(32)),
+                        gradient: isLight
+                            ? LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Color.lerp(widget.bg1, Colors.white, 0.82)!.withAlpha(250),
+                                  Color.lerp(widget.bg2, Colors.white, 0.88)!.withAlpha(252),
+                                  Color.lerp(widget.bg3, Colors.white, 0.92)!.withAlpha(254),
+                                ],
+                                stops: const [0.0, 0.5, 1.0],
+                              )
+                            : LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Color.lerp(widget.bg1, const Color(0xFF0A0A16), 0.5)!.withAlpha(247),
+                                  Color.lerp(widget.bg2, const Color(0xFF060610), 0.5)!.withAlpha(248),
+                                  Color.lerp(widget.bg3, const Color(0xFF020206), 0.6)!.withAlpha(250),
+                                ],
+                                stops: const [0.0, 0.5, 1.0],
+                              ),
+                        border: Border(
+                          top: BorderSide(
+                              color: isLight
+                                  ? AurumTheme.lightDivider
+                                  : Colors.white.withAlpha(18),
+                              width: 0.5),
+                        ),
                       ),
-                      border: Border(
-                        top: BorderSide(
-                            color: Colors.white.withAlpha(18), width: 0.5),
-                      ),
-                    ),
-                    child: Column(children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12, bottom: 6),
-                        child: Container(
-                          width: 32,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withAlpha(40),
-                            borderRadius: BorderRadius.circular(2),
+                      child: Column(children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12, bottom: 6),
+                          child: Container(
+                            width: 32,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: isLight
+                                  ? Colors.black.withAlpha(35)
+                                  : Colors.white.withAlpha(40),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
                         ),
-                      ),
-                      Expanded(
-                        child: FadeTransition(
-                          opacity: _tabFade,
-                          child: _buildTabContent(),
+                        Expanded(
+                          child: FadeTransition(
+                            opacity: _tabFade,
+                            child: _buildTabContent(),
+                          ),
                         ),
-                      ),
-                      _buildTabBar(),
-                    ]),
-                  ),
+                        _buildTabBar(isLight),
+                      ]),
+                    );
+                  }),
                 ),
               ),
             ),
@@ -1480,19 +1634,24 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     }
   }
 
-  Widget _buildTabBar() {
+  Widget _buildTabBar(bool isLight) {
     const tabs = [
       (Icons.queue_music_rounded, 'Queue'),
       (Icons.lyrics_rounded, 'Lyrics'),
       (Icons.info_outline_rounded, 'Info'),
     ];
 
+    final inactiveColor = isLight
+        ? AurumTheme.lightTextMuted
+        : Colors.white.withAlpha(80);
+    final dividerColor = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14);
+
     return SafeArea(
       top: false,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Divider(color: Colors.white.withAlpha(14), height: 1),
+          Divider(color: dividerColor, height: 1),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(
@@ -1510,21 +1669,15 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                           Icon(
                             tabs[i].$1,
                             size: 20,
-                            color: isActive
-                                ? AurumTheme.gold
-                                : Colors.white.withAlpha(80),
+                            color: isActive ? AurumTheme.gold : inactiveColor,
                           ),
                           const SizedBox(height: 4),
                           Text(
                             tabs[i].$2,
                             style: TextStyle(
-                              color: isActive
-                                  ? AurumTheme.gold
-                                  : Colors.white.withAlpha(70),
+                              color: isActive ? AurumTheme.gold : inactiveColor,
                               fontSize: 11,
-                              fontWeight: isActive
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
+                              fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
                               letterSpacing: 0.2,
                             ),
                           ),
@@ -1567,24 +1720,32 @@ class _QueuePage extends StatelessWidget {
         final current = player.currentIndex;
 
         if (queue.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.queue_music_rounded,
-                    color: Colors.white.withAlpha(22), size: 56),
-                const SizedBox(height: 16),
-                Text(
-                  'Queue is empty',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(60),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w400,
+          return Builder(builder: (ctx) {
+            final isLight = Theme.of(ctx).brightness == Brightness.light;
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.queue_music_rounded,
+                      color: isLight
+                          ? AurumTheme.lightTextMuted.withAlpha(60)
+                          : Colors.white.withAlpha(22),
+                      size: 56),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Queue is empty',
+                    style: TextStyle(
+                      color: isLight
+                          ? AurumTheme.lightTextSecondary
+                          : Colors.white.withAlpha(60),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          );
+                ],
+              ),
+            );
+          });
         }
 
         // Separate now playing from up next
@@ -1604,18 +1765,23 @@ class _QueuePage extends StatelessWidget {
             // Up Next label
             if (upNext.isNotEmpty)
               SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                  child: Text(
-                    'UP NEXT',
-                    style: TextStyle(
-                      color: Colors.white.withAlpha(60),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.8,
+                child: Builder(builder: (ctx) {
+                  final isLight = Theme.of(ctx).brightness == Brightness.light;
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                    child: Text(
+                      'UP NEXT',
+                      style: TextStyle(
+                        color: isLight
+                            ? AurumTheme.lightTextMuted
+                            : Colors.white.withAlpha(60),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.8,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                }),
               ),
             // Up next list
             SliverPadding(
@@ -1966,56 +2132,80 @@ class _LyricsPageState extends State<_LyricsPage> {
   Widget build(BuildContext context) {
     Widget content;
     if (_loading) {
-      content = const Center(
-        key: ValueKey('loading'),
-        child: CircularProgressIndicator(
-          color: Colors.white38,
-          strokeWidth: 1.5,
-        ),
+      content = Builder(
+        key: const ValueKey('loading'),
+        builder: (ctx) {
+          final isLight = Theme.of(ctx).brightness == Brightness.light;
+          return Center(
+            child: CircularProgressIndicator(
+              color: isLight ? AurumTheme.lightTextMuted : Colors.white38,
+              strokeWidth: 1.5,
+            ),
+          );
+        },
       );
     } else if (_notFound) {
-      content = Center(
+      content = Builder(
         key: const ValueKey('not-found'),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lyrics_rounded,
-                color: Colors.white.withAlpha(25), size: 52),
-            const SizedBox(height: 16),
-            Text(
-              'No lyrics found',
-              style: TextStyle(
-                color: Colors.white.withAlpha(140),
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
+        builder: (ctx) {
+          final isLight = Theme.of(ctx).brightness == Brightness.light;
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.lyrics_rounded,
+                    color: isLight
+                        ? AurumTheme.lightTextMuted.withAlpha(60)
+                        : Colors.white.withAlpha(25),
+                    size: 52),
+                const SizedBox(height: 16),
+                Text(
+                  'No lyrics found',
+                  style: TextStyle(
+                    color: isLight
+                        ? AurumTheme.lightTextSecondary
+                        : Colors.white.withAlpha(140),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Lyrics not available for this song',
+                  style: TextStyle(
+                    color: isLight
+                        ? AurumTheme.lightTextMuted
+                        : Colors.white.withAlpha(70),
+                    fontSize: 13,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Lyrics not available for this song',
-              style: TextStyle(
-                color: Colors.white.withAlpha(70),
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       );
     } else {
-      content = SingleChildScrollView(
+      content = Builder(
         key: const ValueKey('lyrics'),
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
-        child: Text(
-          _lyrics ?? '',
-          style: TextStyle(
-            color: Colors.white.withAlpha(200),
-            fontSize: 15,
-            height: 1.85,
-            fontWeight: FontWeight.w400,
-            letterSpacing: 0.1,
-          ),
-        ),
+        builder: (ctx) {
+          final isLight = Theme.of(ctx).brightness == Brightness.light;
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
+            child: Text(
+              _lyrics ?? '',
+              style: TextStyle(
+                color: isLight
+                    ? AurumTheme.lightTextPrimary
+                    : Colors.white.withAlpha(200),
+                fontSize: 15,
+                height: 1.85,
+                fontWeight: FontWeight.w400,
+                letterSpacing: 0.1,
+              ),
+            ),
+          );
+        },
       );
     }
 
@@ -2036,6 +2226,7 @@ class _InfoPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final song = context.read<PlayerProvider>().currentSong;
     if (song == null) return const SizedBox.shrink();
+    final isLight = Theme.of(context).brightness == Brightness.light;
 
     final rows = <_InfoRow>[];
     if (song.album.isNotEmpty) rows.add(_InfoRow('Album', song.album));
@@ -2059,17 +2250,20 @@ class _InfoPage extends StatelessWidget {
         const SizedBox(height: 24),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white.withAlpha(7),
+            color: isLight ? AurumTheme.lightBgSurface : Colors.white.withAlpha(7),
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withAlpha(12), width: 0.5),
+            border: Border.all(
+              color: isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(12),
+              width: 0.5,
+            ),
           ),
           child: Column(
             children: List.generate(rows.length, (i) {
               return Column(children: [
-                _buildInfoRow(rows[i].label, rows[i].value),
+                _buildInfoRow(context, rows[i].label, rows[i].value),
                 if (i < rows.length - 1)
                   Divider(
-                    color: Colors.white.withAlpha(10),
+                    color: isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(10),
                     height: 1,
                     indent: 16,
                     endIndent: 16,
@@ -2082,7 +2276,8 @@ class _InfoPage extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
+  Widget _buildInfoRow(BuildContext context, String label, String value) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
@@ -2093,7 +2288,7 @@ class _InfoPage extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                color: Colors.white.withAlpha(70),
+                color: isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(70),
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
                 letterSpacing: 0.3,
@@ -2103,8 +2298,8 @@ class _InfoPage extends StatelessWidget {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: isLight ? AurumTheme.lightTextPrimary : Colors.white,
                 fontSize: 13.5,
                 fontWeight: FontWeight.w500,
               ),
@@ -2123,6 +2318,7 @@ class _InfoHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return Row(children: [
       ClipRRect(
         borderRadius: BorderRadius.circular(14),
@@ -2135,8 +2331,8 @@ class _InfoHeader extends StatelessWidget {
           children: [
             Text(
               song.title,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: isLight ? AurumTheme.lightTextPrimary : Colors.white,
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
                 height: 1.2,
@@ -2148,7 +2344,7 @@ class _InfoHeader extends StatelessWidget {
             Text(
               song.artist,
               style: TextStyle(
-                color: Colors.white.withAlpha(120),
+                color: isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(120),
                 fontSize: 13,
                 fontWeight: FontWeight.w400,
               ),
@@ -2217,15 +2413,15 @@ class _BgLayer extends StatelessWidget {
 
         // Artwork opacity breathes slightly
         final artOpacity = isLight
-            ? 0.12 + b * 0.06   // lighter in light mode
+            ? 0.22 + b * 0.08   // more visible in light mode for blur effect
             : 0.20 + b * 0.08;
 
-        // Overlay alpha: lighter in light mode
+        // Overlay alpha: lighter in light mode so blur thumbnail shows
         final overlayAlpha1 = isLight
-            ? (60 + (b * 14).toInt())
+            ? (30 + (b * 10).toInt())
             : (82 + (b * 18).toInt());
-        final overlayAlpha2 = isLight ? 100 : 165;
-        final overlayAlpha3 = isLight ? 180 : 252;
+        final overlayAlpha2 = isLight ? 55 : 165;
+        final overlayAlpha3 = isLight ? 110 : 252;
 
         return Container(
           decoration: BoxDecoration(
