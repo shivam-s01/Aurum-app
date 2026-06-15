@@ -171,6 +171,37 @@ class ItunesService {
     return [];
   }
 
+
+  // Fetch tracks for a specific album by collectionId
+  static Future<List<ItunesTrack>> albumTracks(String collectionId) async {
+    final body = await _fetch(
+      'https://itunes.apple.com/lookup?id=$collectionId&entity=song&limit=50',
+    );
+    final results = _parseResults(body);
+    final tracks = <ItunesTrack>[];
+    for (final j in results) {
+      // lookup returns the album itself as first result (wrapperType=collection)
+      if (j['wrapperType'] == 'track') {
+        try { tracks.add(ItunesTrack.fromJson(j)); } catch (_) {}
+      }
+    }
+    return tracks;
+  }
+
+  // Fetch top songs for an artist by name
+  static Future<List<ItunesTrack>> artistTopSongs(String artistName) async {
+    final encoded = Uri.encodeQueryComponent(artistName.trim());
+    final body = await _fetch(
+      'https://itunes.apple.com/search?term=$encoded&entity=song&limit=25',
+    );
+    final results = _parseResults(body);
+    final tracks = <ItunesTrack>[];
+    for (final j in results) {
+      try { tracks.add(ItunesTrack.fromJson(j)); } catch (_) {}
+    }
+    return tracks;
+  }
+
   static void dispose() => _client.close();
 }
 
