@@ -125,7 +125,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     super.dispose();
   }
 
-  // ── Palette extraction → 3 colors, theme-adaptive ──
+  // ── Palette extraction → 3 colors, theme-adaptive (local + network) ──
   Future<void> _extractColor(String url, {bool isLight = false}) async {
     if (url.isEmpty || url == _lastArtUrl) return;
     _lastArtUrl = url;
@@ -134,10 +134,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       if (url.startsWith('http')) {
         provider = CachedNetworkImageProvider(url);
       } else {
-        return;
+        // Local file path
+        final file = File(url);
+        if (!await file.exists()) return;
+        provider = FileImage(file);
       }
       final pg = await PaletteGenerator.fromImageProvider(
-          provider, size: const Size(80, 80));
+          provider, size: const Size(100, 100));
 
       final c1 = pg.vibrantColor?.color ??
           pg.dominantColor?.color ??
@@ -157,15 +160,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       _currentBg3 = Color.lerp(_currentBg3, _targetBg3, t) ?? _currentBg3;
 
       if (isLight) {
-        // Light mode: pastel tints, keep readable
-        _targetBg1 = Color.lerp(c1, Colors.white, 0.72)!;
-        _targetBg2 = Color.lerp(c2, Colors.white, 0.60)!;
-        _targetBg3 = Color.lerp(c3, Colors.white, 0.50)!;
+        // Light mode: vibrant tints, NOT washed out
+        _targetBg1 = Color.lerp(c1, Colors.white, 0.60)!;
+        _targetBg2 = Color.lerp(c2, Colors.white, 0.50)!;
+        _targetBg3 = Color.lerp(c3, Colors.white, 0.40)!;
       } else {
-        // Dark/AMOLED mode: deep darks
-        _targetBg1 = Color.lerp(c1, Colors.black, 0.40)!;
-        _targetBg2 = Color.lerp(c2, Colors.black, 0.62)!;
-        _targetBg3 = Color.lerp(c3, Colors.black, 0.80)!;
+        // Dark/AMOLED mode: deep darks with color
+        _targetBg1 = Color.lerp(c1, Colors.black, 0.38)!;
+        _targetBg2 = Color.lerp(c2, Colors.black, 0.60)!;
+        _targetBg3 = Color.lerp(c3, Colors.black, 0.78)!;
       }
 
       _bgColorCtrl.forward(from: 0.0);
@@ -2390,7 +2393,8 @@ class _BgLayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final baseEnd = isLight ? const Color(0xFFF0ECE4) : const Color(0xFF010103);
+    // Light: warm white with slight tint. Dark: true AMOLED black
+    final baseEnd = isLight ? const Color(0xFFF8F6F2) : const Color(0xFF010103);
 
     return AnimatedBuilder(
       animation: Listenable.merge([bgCtrl, breatheCtrl]),
@@ -2411,17 +2415,17 @@ class _BgLayer extends StatelessWidget {
         final topAlign = Alignment(-0.2 + breatheShift, -1.0);
         final botAlign = Alignment(0.2 - breatheShift, 1.0);
 
-        // Artwork opacity breathes slightly
+        // Artwork opacity — light mode needs more to show through blur
         final artOpacity = isLight
-            ? 0.22 + b * 0.08   // more visible in light mode for blur effect
+            ? 0.30 + b * 0.08
             : 0.20 + b * 0.08;
 
-        // Overlay alpha: lighter in light mode so blur thumbnail shows
+        // Overlay: light mode less opaque so color+blur shows
         final overlayAlpha1 = isLight
-            ? (30 + (b * 10).toInt())
+            ? (20 + (b * 8).toInt())
             : (82 + (b * 18).toInt());
-        final overlayAlpha2 = isLight ? 55 : 165;
-        final overlayAlpha3 = isLight ? 110 : 252;
+        final overlayAlpha2 = isLight ? 45 : 165;
+        final overlayAlpha3 = isLight ? 90 : 252;
 
         return Container(
           decoration: BoxDecoration(
