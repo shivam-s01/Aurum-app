@@ -241,7 +241,7 @@ class _SearchScreenState extends State<SearchScreen>
             children: [
               _buildHeader(context),
               _buildSearchBar(context),
-               — tab bar
+              // tab bar
               _buildTabBar(context),
               Expanded(
                 child: TabBarView(
@@ -282,7 +282,7 @@ class _SearchScreenState extends State<SearchScreen>
     );
   }
 
-   — tab bar widget
+  // tab bar widget
   Widget _buildTabBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -558,8 +558,7 @@ class _SearchScreenState extends State<SearchScreen>
 }
 
 // =============================================================================
- — Browse Tab Widget
-
+// Browse Tab Widget
 // =============================================================================
 
 class _BrowseTab extends StatefulWidget {
