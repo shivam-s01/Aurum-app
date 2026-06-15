@@ -219,6 +219,11 @@ class ApiService {
 
     final results = await Future.wait(futures);
 
+    if (results.every((r) => r == null)) {
+      _log('[fetchHome] All ${futures.length} section queries returned 0 songs — '
+          'Saavn backend ($_saavn) may be unreachable or asleep.');
+    }
+
     // Deduplicate sections by title and collect
     final seen = <String>{};
     final sections = <SongSection>[];
@@ -1152,6 +1157,139 @@ class ApiService {
       'rec_session_mood':     RecommendationEngine.currentMood?.name,
       'rec_time_slot':        RecommendationEngine.currentTimeSlot().name,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // debugPlaybackPath — restored from v2.
+  //
+  // Runs live network tests against every endpoint Aurum depends on:
+  //   1. Cloudflare Worker YouTube stream resolution
+  //   2. youtube_explode_dart fallback
+  //   3. Saavn search (the source of every home-feed section)
+  //   4. Full Saavn resolveStreamUrl
+  //   5. Full YouTube resolveStreamUrl
+  //   6. lrclib.net lyrics
+  //
+  // Takes ~10-15 seconds. Wire to a "Debug Playback" button in
+  // Settings → About so a failing Saavn backend can be diagnosed
+  // directly from the phone — no logcat/adb needed.
+  // ---------------------------------------------------------------------------
+  static Future<String> debugPlaybackPath() async {
+    final buf = StringBuffer();
+    buf.writeln('=== Aurum Playback Diagnostics ===');
+    buf.writeln('Time:   ${DateTime.now()}');
+    buf.writeln('Worker: $_worker');
+    buf.writeln('Saavn:  $_saavn');
+    buf.writeln('Cache:  ${_streamCache.length}/$_maxCacheSize stream entries '
+        '(${_streamCache.values.where((v) => v.isExpired).length} expired), '
+        '${_searchCache.length}/$_maxSearchCache search entries');
+    buf.writeln('');
+
+    // Test 1: Cloudflare Worker
+    buf.writeln('▶ 1. Cloudflare Worker /api/yt-stream?id=dQw4w9WgXcQ');
+    try {
+      final sw = Stopwatch()..start();
+      final url = await _workerYtStream('dQw4w9WgXcQ');
+      sw.stop();
+      buf.writeln(url != null
+          ? '   ✅ OK (${sw.elapsedMilliseconds}ms) → ${url.substring(0, url.length.clamp(0, 60))}...'
+          : '   ❌ FAILED (${sw.elapsedMilliseconds}ms) — worker returned null');
+    } catch (e) {
+      buf.writeln('   ❌ EXCEPTION: $e');
+    }
+    buf.writeln('');
+
+    // Test 2: youtube_explode_dart
+    buf.writeln('▶ 2. youtube_explode_dart for dQw4w9WgXcQ');
+    try {
+      final sw = Stopwatch()..start();
+      final url = await _ytExplodeStream('dQw4w9WgXcQ');
+      sw.stop();
+      buf.writeln(url != null
+          ? '   ✅ OK (${sw.elapsedMilliseconds}ms)'
+          : '   ❌ FAILED (${sw.elapsedMilliseconds}ms) — possible Innertube block');
+    } catch (e) {
+      buf.writeln('   ❌ EXCEPTION: $e');
+    }
+    buf.writeln('');
+
+    // Test 3: Saavn search — this is the one that powers the entire home feed
+    buf.writeln('▶ 3. Saavn search (arijit singh)');
+    Song? saavnSong;
+    try {
+      final sw = Stopwatch()..start();
+      final songs = await _searchSaavn('arijit singh', limit: 1);
+      sw.stop();
+      if (songs.isNotEmpty) {
+        saavnSong = songs.first;
+        buf.writeln('   ✅ OK (${sw.elapsedMilliseconds}ms) — "${songs.first.title}"');
+        buf.writeln('      source: ${songs.first.source.name}');
+        buf.writeln('      streamUrl present: ${songs.first.streamUrl != null}');
+      } else {
+        buf.writeln('   ❌ FAILED (${sw.elapsedMilliseconds}ms) — 0 results. '
+            'If this fails, the home feed will be EMPTY too — '
+            'check if $_saavn is reachable/awake.');
+      }
+    } catch (e) {
+      buf.writeln('   ❌ EXCEPTION: $e');
+    }
+    buf.writeln('');
+
+    // Test 4: Full Saavn resolveStreamUrl
+    buf.writeln('▶ 4. Full resolveStreamUrl (Saavn song)');
+    try {
+      if (saavnSong != null) {
+        final sw = Stopwatch()..start();
+        final url = await resolveStreamUrl(saavnSong, forceRefresh: true);
+        sw.stop();
+        buf.writeln(url != null
+            ? '   ✅ OK (${sw.elapsedMilliseconds}ms)'
+            : '   ❌ FAILED (${sw.elapsedMilliseconds}ms) — all Saavn sources failed');
+      } else {
+        buf.writeln('   ⚠ Skipped — Saavn search failed in test 3');
+      }
+    } catch (e) {
+      buf.writeln('   ❌ EXCEPTION: $e');
+    }
+    buf.writeln('');
+
+    // Test 5: Full YouTube resolveStreamUrl
+    buf.writeln('▶ 5. Full resolveStreamUrl (YouTube song — Rick Astley)');
+    try {
+      final ytSong = Song(
+        id:         'dQw4w9WgXcQ',
+        title:      'Never Gonna Give You Up',
+        artist:     'Rick Astley',
+        album:      '',
+        artworkUrl: '',
+        source:     SongSource.youtube,
+      );
+      final sw = Stopwatch()..start();
+      final url = await resolveStreamUrl(ytSong, forceRefresh: true);
+      sw.stop();
+      buf.writeln(url != null
+          ? '   ✅ OK (${sw.elapsedMilliseconds}ms)'
+          : '   ❌ FAILED (${sw.elapsedMilliseconds}ms) — BOTH worker and explode failed');
+    } catch (e) {
+      buf.writeln('   ❌ EXCEPTION: $e');
+    }
+    buf.writeln('');
+
+    // Test 6: lrclib.net lyrics
+    buf.writeln('▶ 6. lrclib.net lyrics (Tum Hi Ho, Arijit Singh)');
+    try {
+      final sw = Stopwatch()..start();
+      final lyrics = await _fetchLrcLibLyrics('Tum Hi Ho', 'Arijit Singh');
+      sw.stop();
+      buf.writeln(lyrics != null
+          ? '   ✅ OK (${sw.elapsedMilliseconds}ms) — '
+            '${lyrics.length} chars, first line: "${lyrics.split('\n').first}"'
+          : '   ❌ FAILED (${sw.elapsedMilliseconds}ms)');
+    } catch (e) {
+      buf.writeln('   ❌ EXCEPTION: $e');
+    }
+
+    return buf.toString();
   }
 }
 

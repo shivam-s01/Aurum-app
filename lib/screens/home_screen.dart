@@ -78,7 +78,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       loading: _onlineLoading,
                       error: _onlineError,
                       onRetry: _loadOnline,
-                      recentlyPlayed: context.watch<RecentlyPlayedProvider>().history,
                     )
                   : const _OfflineContent(key: ValueKey('offline')),
             ),
@@ -130,7 +129,6 @@ class _OnlineContent extends StatelessWidget {
   final bool loading;
   final String? error;
   final VoidCallback onRetry;
-  final List<Song> recentlyPlayed;
 
   const _OnlineContent({
     super.key,
@@ -138,24 +136,24 @@ class _OnlineContent extends StatelessWidget {
     required this.loading,
     required this.error,
     required this.onRetry,
-    this.recentlyPlayed = const [],
   });
 
   @override
   Widget build(BuildContext context) {
     if (loading) return _buildShimmer(context);
-    if (error != null && sections.isEmpty) return _buildError(context);
+    final nothingToShow = sections.isEmpty;
+    if (nothingToShow) {
+      // Either an explicit error, OR fetchHome succeeded but every single
+      // query returned 0 results (e.g. the Saavn backend is down/asleep).
+      // Either way, show a retry state instead of a blank scroll area —
+      // a silent empty screen looks broken with no way to recover.
+      return _buildError(
+        context,
+        message: error ?? "Couldn't load songs right now.\nPull down or tap retry.",
+      );
+    }
     return Column(
       children: [
-        // "Continue Listening" — built instantly from local play history,
-        // no network call. Shows up immediately even while the rest of the
-        // feed is still loading, and gives the home page that
-        // "picks up where you left off" Spotify/YT Music feel.
-        if (recentlyPlayed.isNotEmpty)
-          _buildSection(
-            context,
-            SongSection(title: '⏱️ Continue Listening', songs: recentlyPlayed.take(15).toList()),
-          ),
         ...sections.map((s) => _buildSection(context, s)),
       ],
     );
@@ -195,11 +193,15 @@ class _OnlineContent extends StatelessWidget {
     );
   }
 
-  Widget _buildError(BuildContext context) {
+  Widget _buildError(BuildContext context, {String? message}) {
     return SizedBox(height: 300, child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
       Icon(Icons.wifi_off_rounded, size: 48, color: AurumTheme.textMutedOf(context)),
       const SizedBox(height: 12),
-      Text(error!, style: TextStyle(color: AurumTheme.textMutedOf(context))),
+      Text(
+        message ?? error ?? 'Failed to load.',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: AurumTheme.textMutedOf(context)),
+      ),
       const SizedBox(height: 16),
       TextButton(onPressed: onRetry, child: Text('Retry', style: TextStyle(color: AurumTheme.gold))),
     ])));
