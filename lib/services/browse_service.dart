@@ -2,26 +2,23 @@
 // FILE: lib/services/browse_service.dart
 // PROJECT: Aurum Music
 //
-// BROWSE_INTEGRATION — Metadata only. No streaming, no preview.
+// BROWSE — Powered by JioSaavn. No third-party music APIs.
 //
 // What this does:
-//   - Search for songs, artists, albums (titles + artwork only)
+//   - Search Saavn for songs, albums, artists
 //   - Returns BrowseTrack / BrowseAlbum / BrowseArtist objects
 //   - On tap, caller resolves stream via existing ApiService (Saavn/YT)
 //
 // To REMOVE this integration:
 //   1. Delete this file
 //   2. In search_screen.dart — remove the "Browse" tab and _BrowseTab widget
-//   3. That's it. Nothing else touches this service.
-//
-// API: Apple Music Search API — free, no key needed.
-// Docs: https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI
+//   3. That's it. Nothing else touches Browse.
 // =============================================================================
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-// ─── Top-level helpers (accessible by all classes in this file) ──────────────
+// ─── Top-level helpers ───────────────────────────────────────────────────────
 
 String _clean(String s) => s
     .replaceAll('&amp;', '&')
@@ -32,20 +29,21 @@ String _clean(String s) => s
 
 String _hqArtwork(String url) {
   if (url.isEmpty) return '';
+  // Saavn returns 150x150 — upgrade to 500x500
   return url
-      .replaceAll('100x100bb', '600x600bb')
-      .replaceAll('100x100', '600x600');
+      .replaceAll('150x150', '500x500')
+      .replaceAll('50x50', '500x500');
 }
 
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 class BrowseTrack {
-  final String  trackId;
-  final String  title;
-  final String  artist;
-  final String  album;
-  final String  artworkUrl;
-  final int?    durationMs;
+  final String trackId;
+  final String title;
+  final String artist;
+  final String album;
+  final String artworkUrl;
+  final int?   durationMs;
 
   const BrowseTrack({
     required this.trackId,
@@ -56,17 +54,27 @@ class BrowseTrack {
     this.durationMs,
   });
 
-  /// Search query to resolve this track via Saavn/YT
   String get resolveQuery => '$title $artist';
 
-  factory BrowseTrack.fromJson(Map<String, dynamic> j) => BrowseTrack(
-    trackId:    j['trackId']?.toString() ?? '',
-    title:      _clean(j['trackName']?.toString() ?? 'Unknown'),
-    artist:     _clean(j['artistName']?.toString() ?? 'Unknown'),
-    album:      _clean(j['collectionName']?.toString() ?? ''),
-    artworkUrl: _hqArtwork(j['artworkUrl100']?.toString() ?? ''),
-    durationMs: j['trackTimeMillis'] as int?,
-  );
+  factory BrowseTrack.fromSaavn(Map<String, dynamic> j) {
+    final artwork = _hqArtwork(
+      (j['image'] is List
+          ? (j['image'] as List).lastWhere(
+              (e) => e is Map, orElse: () => {})['url'] ?? ''
+          : j['image']?.toString() ?? ''),
+    );
+    final durationSec = int.tryParse(j['duration']?.toString() ?? '');
+    return BrowseTrack(
+      trackId:    (j['id'] ?? j['song_id'] ?? '').toString(),
+      title:      _clean((j['name'] ?? j['title'] ?? j['song'] ?? 'Unknown').toString()),
+      artist:     _clean((j['artists']?['primary']?.isNotEmpty == true
+                    ? (j['artists']['primary'] as List).map((a) => a['name']).join(', ')
+                    : j['primary_artists'] ?? j['singers'] ?? 'Unknown').toString()),
+      album:      _clean((j['album']?['name'] ?? j['album'] ?? '').toString()),
+      artworkUrl: artwork,
+      durationMs: durationSec != null ? durationSec * 1000 : null,
+    );
+  }
 }
 
 class BrowseAlbum {
@@ -86,14 +94,24 @@ class BrowseAlbum {
     this.releaseYear,
   });
 
-  factory BrowseAlbum.fromJson(Map<String, dynamic> j) => BrowseAlbum(
-    collectionId: j['collectionId']?.toString() ?? '',
-    name:         _clean(j['collectionName']?.toString() ?? 'Unknown'),
-    artist:       _clean(j['artistName']?.toString() ?? 'Unknown'),
-    artworkUrl:   _hqArtwork(j['artworkUrl100']?.toString() ?? ''),
-    trackCount:   j['trackCount'] as int?,
-    releaseYear:  j['releaseDate']?.toString().substring(0, 4),
-  );
+  factory BrowseAlbum.fromSaavn(Map<String, dynamic> j) {
+    final artwork = _hqArtwork(
+      (j['image'] is List
+          ? (j['image'] as List).lastWhere(
+              (e) => e is Map, orElse: () => {})['url'] ?? ''
+          : j['image']?.toString() ?? ''),
+    );
+    return BrowseAlbum(
+      collectionId: (j['id'] ?? '').toString(),
+      name:         _clean((j['name'] ?? j['title'] ?? 'Unknown').toString()),
+      artist:       _clean((j['artists']?['primary']?.isNotEmpty == true
+                      ? (j['artists']['primary'] as List).map((a) => a['name']).join(', ')
+                      : j['primary_artists'] ?? 'Unknown').toString()),
+      artworkUrl:   artwork,
+      trackCount:   int.tryParse(j['songCount']?.toString() ?? ''),
+      releaseYear:  j['year']?.toString(),
+    );
+  }
 }
 
 class BrowseArtist {
@@ -107,10 +125,10 @@ class BrowseArtist {
     this.genre,
   });
 
-  factory BrowseArtist.fromJson(Map<String, dynamic> j) => BrowseArtist(
-    artistId: j['artistId']?.toString() ?? '',
-    name:     _clean(j['artistName']?.toString() ?? 'Unknown'),
-    genre:    j['primaryGenreName']?.toString(),
+  factory BrowseArtist.fromSaavn(Map<String, dynamic> j) => BrowseArtist(
+    artistId: (j['id'] ?? '').toString(),
+    name:     _clean((j['name'] ?? j['title'] ?? 'Unknown').toString()),
+    genre:    null,
   );
 }
 
@@ -118,88 +136,95 @@ class BrowseArtist {
 
 class BrowseService {
   static final _client = http.Client();
-  static const _base   = 'https://itunes.apple.com';
+  static const _base   = 'https://jiosavan.onrender.com';
 
-  // Search tracks, albums, artists in one call — returns all three lists.
   static Future<BrowseSearchResult> search(String query) async {
     if (query.trim().isEmpty) return BrowseSearchResult.empty();
 
     final encoded = Uri.encodeQueryComponent(query.trim());
 
-    // Fire tracks + artists + albums in parallel
     final results = await Future.wait([
-      _fetch('$_base/search?term=$encoded&entity=song&limit=25'),
-      _fetch('$_base/search?term=$encoded&entity=album&limit=10'),
-      _fetch('$_base/search?term=$encoded&entity=musicArtist&limit=8'),
+      _fetch('$_base/result/?query=$encoded&limit=25'),
+      _fetch('$_base/search/albums?query=$encoded&limit=10'),
+      _fetch('$_base/search/artists?query=$encoded&limit=8'),
     ]);
 
     final tracks  = <BrowseTrack>[];
     final albums  = <BrowseAlbum>[];
     final artists = <BrowseArtist>[];
 
-    for (final j in _parseResults(results[0])) {
-      try { tracks.add(BrowseTrack.fromJson(j)); } catch (_) {}
+    for (final j in _parseList(results[0])) {
+      try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
     }
-    for (final j in _parseResults(results[1])) {
-      try { albums.add(BrowseAlbum.fromJson(j)); } catch (_) {}
+    for (final j in _parseList(results[1])) {
+      try { albums.add(BrowseAlbum.fromSaavn(j)); } catch (_) {}
     }
-    for (final j in _parseResults(results[2])) {
-      try { artists.add(BrowseArtist.fromJson(j)); } catch (_) {}
+    for (final j in _parseList(results[2])) {
+      try { artists.add(BrowseArtist.fromSaavn(j)); } catch (_) {}
     }
 
     return BrowseSearchResult(tracks: tracks, albums: albums, artists: artists);
   }
 
+  // Fetch tracks for a specific album
+  static Future<List<BrowseTrack>> albumTracks(String collectionId) async {
+    final body = await _fetch('$_base/albums?id=$collectionId');
+    final data = _parseBody(body);
+    final songs = data['songs'] as List? ?? [];
+    final tracks = <BrowseTrack>[];
+    for (final j in songs.whereType<Map<String, dynamic>>()) {
+      try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
+    }
+    return tracks;
+  }
+
+  // Fetch top songs for an artist
+  static Future<List<BrowseTrack>> artistTopSongs(String artistName) async {
+    final encoded = Uri.encodeQueryComponent(artistName.trim());
+    final body = await _fetch('$_base/result/?query=$encoded&limit=25');
+    final tracks = <BrowseTrack>[];
+    for (final j in _parseList(body)) {
+      try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
+    }
+    return tracks;
+  }
+
   static Future<String> _fetch(String url) async {
     try {
-      final res = await _client.get(Uri.parse(url)).timeout(
-        const Duration(seconds: 8),
-      );
+      final res = await _client
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) return res.body;
     } catch (_) {}
     return '{}';
   }
 
-  static List<Map<String, dynamic>> _parseResults(String body) {
+  static List<Map<String, dynamic>> _parseList(String body) {
     try {
-      final data = jsonDecode(body) as Map<String, dynamic>;
-      final results = data['results'] as List?;
-      if (results != null) {
-        return results.whereType<Map<String, dynamic>>().toList();
+      final data = jsonDecode(body);
+      List? list;
+      if (data is List) {
+        list = data;
+      } else if (data is Map) {
+        list = data['data']?['results'] as List?
+            ?? data['data'] as List?
+            ?? data['results'] as List?;
+      }
+      if (list != null) {
+        return list.whereType<Map<String, dynamic>>().toList();
       }
     } catch (_) {}
     return [];
   }
 
-
-  // Fetch tracks for a specific album by collectionId
-  static Future<List<BrowseTrack>> albumTracks(String collectionId) async {
-    final body = await _fetch(
-      'https://itunes.apple.com/lookup?id=$collectionId&entity=song&limit=50',
-    );
-    final results = _parseResults(body);
-    final tracks = <BrowseTrack>[];
-    for (final j in results) {
-      // lookup returns the album itself as first result (wrapperType=collection)
-      if (j['wrapperType'] == 'track') {
-        try { tracks.add(BrowseTrack.fromJson(j)); } catch (_) {}
+  static Map<String, dynamic> _parseBody(String body) {
+    try {
+      final data = jsonDecode(body);
+      if (data is Map<String, dynamic>) {
+        return data['data'] as Map<String, dynamic>? ?? data;
       }
-    }
-    return tracks;
-  }
-
-  // Fetch top songs for an artist by name
-  static Future<List<BrowseTrack>> artistTopSongs(String artistName) async {
-    final encoded = Uri.encodeQueryComponent(artistName.trim());
-    final body = await _fetch(
-      'https://itunes.apple.com/search?term=$encoded&entity=song&limit=25',
-    );
-    final results = _parseResults(body);
-    final tracks = <BrowseTrack>[];
-    for (final j in results) {
-      try { tracks.add(BrowseTrack.fromJson(j)); } catch (_) {}
-    }
-    return tracks;
+    } catch (_) {}
+    return {};
   }
 
   static void dispose() => _client.close();
@@ -222,4 +247,3 @@ class BrowseSearchResult {
 
   bool get isEmpty => tracks.isEmpty && albums.isEmpty && artists.isEmpty;
 }
-
