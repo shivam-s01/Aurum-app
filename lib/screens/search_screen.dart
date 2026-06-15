@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../services/api_service.dart';
+// ITUNES_INTEGRATION — remove this import to strip iTunes
+import '../services/itunes_service.dart';
+import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
+import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_loader.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -15,24 +20,27 @@ class SearchScreen extends StatefulWidget {
   State<SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends State<SearchScreen> {
+class _SearchScreenState extends State<SearchScreen>
+    with SingleTickerProviderStateMixin {
   final _controller = TextEditingController();
   final _focusNode  = FocusNode();
 
-  // Full ("submit") search results — Saavn + YouTube merged.
+  // Tab controller: 0 = Search, 1 = Browse (iTunes)
+  late final TabController _tabController;
+
+  // Search tab state
   List<Song>   _results     = [];
-
-  // Live-as-you-type results — fast Saavn-only quick search.
   List<Song>   _liveResults = [];
-
-  // Text autocomplete suggestions.
   List<String> _suggestions = [];
-
   List<String> _history     = [];
-
-  bool _loading     = false; // full search in progress (after Enter)
-  bool _liveLoading = false; // live search in progress (while typing)
+  bool _loading     = false;
+  bool _liveLoading = false;
   bool _showHistory = false;
+
+  // ITUNES_INTEGRATION — Browse tab state
+  bool              _browseLoading = false;
+  ItunesSearchResult _browseResult = ItunesSearchResult.empty();
+  String            _lastBrowseQuery = '';
 
   Timer? _debounce;
   Timer? _suggestDebounce;
@@ -40,13 +48,15 @@ class _SearchScreenState extends State<SearchScreen> {
   static const _prefKey    = 'aurum_search_history';
   static const _maxHistory = 10;
 
-  // ── Lifecycle ────────────────────────────────────────────────
-
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadHistory();
     _focusNode.addListener(_onFocusChange);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) setState(() {});
+    });
   }
 
   void _onFocusChange() {
@@ -72,20 +82,17 @@ class _SearchScreenState extends State<SearchScreen> {
     _focusNode.removeListener(_onFocusChange);
     _controller.dispose();
     _focusNode.dispose();
+    _tabController.dispose();
     _debounce?.cancel();
     _suggestDebounce?.cancel();
     super.dispose();
   }
 
-  // ── History helpers ──────────────────────────────────────────
+  // ── History ──────────────────────────────────────────────────
 
   Future<void> _loadHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _history = prefs.getStringList(_prefKey) ?? [];
-      });
-    }
+    if (mounted) setState(() { _history = prefs.getStringList(_prefKey) ?? []; });
   }
 
   Future<void> _saveToHistory(String query) async {
@@ -115,10 +122,6 @@ class _SearchScreenState extends State<SearchScreen> {
 
   // ── Search logic ─────────────────────────────────────────────
 
-  // Fires on every keystroke. Debounced, then fetches BOTH text
-  // suggestions and fast "live" song results in parallel — so the
-  // user sees real, tappable songs while still typing (Fabtune-style),
-  // not just a list of search terms.
   void _onChanged(String q) {
     _suggestDebounce?.cancel();
     final query = q.trim();
@@ -133,10 +136,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
-    setState(() {
-      _showHistory = false;
-      _liveLoading = true;
-    });
+    setState(() { _showHistory = false; _liveLoading = true; });
 
     _suggestDebounce = Timer(const Duration(milliseconds: 280), () async {
       if (!mounted || _controller.text.trim() != query) return;
@@ -153,11 +153,12 @@ class _SearchScreenState extends State<SearchScreen> {
         _liveResults = fetched[1] as List<Song>;
         _liveLoading = false;
       });
+
+      // ITUNES_INTEGRATION — also trigger browse if on Browse tab
+      if (_tabController.index == 1) _fetchBrowse(query);
     });
   }
 
-  // Full search — Saavn + YouTube merged. Triggered on Enter/submit,
-  // tapping a text suggestion, a history item, or "See all results".
   void _search(String q) {
     final query = q.trim();
     if (query.isEmpty) return;
@@ -165,12 +166,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _suggestDebounce?.cancel();
     HapticFeedback.lightImpact();
     _dismissKeyboard();
-    setState(() {
-      _loading     = true;
-      _liveLoading = false;
-      _showHistory = false;
-      _results     = [];
-    });
+    setState(() { _loading = true; _liveLoading = false; _showHistory = false; _results = []; });
     _saveToHistory(query);
     _debounce = Timer(const Duration(milliseconds: 150), () async {
       final results = await ApiService.search(query);
@@ -184,16 +180,46 @@ class _SearchScreenState extends State<SearchScreen> {
     _debounce?.cancel();
     _controller.clear();
     setState(() {
-      _results      = [];
-      _liveResults  = [];
-      _suggestions  = [];
-      _liveLoading  = false;
-      _loading      = false;
-      _showHistory  = _history.isNotEmpty;
+      _results = []; _liveResults = []; _suggestions = [];
+      _liveLoading = false; _loading = false;
+      _showHistory = _history.isNotEmpty;
+      // ITUNES_INTEGRATION
+      _browseResult = ItunesSearchResult.empty();
+      _lastBrowseQuery = '';
     });
   }
 
-  // ── Build ────────────────────────────────────────────────────
+  // ITUNES_INTEGRATION — fetch iTunes metadata
+  Future<void> _fetchBrowse(String query) async {
+    if (query == _lastBrowseQuery) return;
+    _lastBrowseQuery = query;
+    setState(() => _browseLoading = true);
+    final result = await ItunesService.search(query);
+    if (mounted && _lastBrowseQuery == query) {
+      setState(() { _browseResult = result; _browseLoading = false; });
+    }
+  }
+
+  // ITUNES_INTEGRATION — play an iTunes track via Saavn/YT
+  Future<void> _playItunesTrack(ItunesTrack track) async {
+    HapticFeedback.lightImpact();
+    _dismissKeyboard();
+    // Convert to Song using the resolve query, then play via PlayerProvider
+    final song = Song(
+      id:         'itunes_${track.trackId}',
+      title:      track.title,
+      artist:     track.artist,
+      album:      track.album,
+      artworkUrl: track.artworkUrl,
+      duration:   track.durationMs != null ? (track.durationMs! / 1000).round() : null,
+      source:     SongSource.saavn, // will resolve via Saavn first
+    );
+    if (mounted) {
+      context.read<PlayerProvider>().playSong(song, queue: [song], index: 0);
+    }
+  }
+
+  // ── Build ─────────────────────────────────────────────────────
 
   String _computeBodyKey() {
     if (_loading) return 'loading';
@@ -215,30 +241,79 @@ class _SearchScreenState extends State<SearchScreen> {
             children: [
               _buildHeader(context),
               _buildSearchBar(context),
+              // ITUNES_INTEGRATION — tab bar
+              _buildTabBar(context),
               Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 220),
-                  transitionBuilder: (child, animation) {
-                    final slide = Tween<Offset>(
-                      begin: const Offset(0, 0.04),
-                      end: Offset.zero,
-                    ).animate(CurvedAnimation(
-                      parent: animation,
-                      curve: Curves.easeOutCubic,
-                    ));
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(position: slide, child: child),
-                    );
-                  },
-                  child: KeyedSubtree(
-                    key: ValueKey(_computeBodyKey()),
-                    child: _buildBody(context),
-                  ),
+                child: TabBarView(
+                  controller: _tabController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    // Tab 0: existing search
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      transitionBuilder: (child, animation) {
+                        final slide = Tween<Offset>(
+                          begin: const Offset(0, 0.04),
+                          end: Offset.zero,
+                        ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+                        return FadeTransition(opacity: animation, child: SlideTransition(position: slide, child: child));
+                      },
+                      child: KeyedSubtree(
+                        key: ValueKey(_computeBodyKey()),
+                        child: _buildBody(context),
+                      ),
+                    ),
+                    // Tab 1: iTunes browse
+                    // ITUNES_INTEGRATION
+                    _BrowseTab(
+                      loading:  _browseLoading,
+                      result:   _browseResult,
+                      query:    _controller.text.trim(),
+                      onSearch: _fetchBrowse,
+                      onPlay:   _playItunesTrack,
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  // ITUNES_INTEGRATION — tab bar widget
+  Widget _buildTabBar(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Container(
+        height: 36,
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: TabBar(
+          controller: _tabController,
+          indicator: BoxDecoration(
+            color: AurumTheme.gold,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          indicatorSize: TabBarIndicatorSize.tab,
+          dividerColor: Colors.transparent,
+          labelColor: Colors.black,
+          unselectedLabelColor: AurumTheme.textSecondaryOf(context),
+          labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          padding: const EdgeInsets.all(3),
+          tabs: const [
+            Tab(text: 'Search'),
+            Tab(text: 'Browse'),
+          ],
+          onTap: (i) {
+            if (i == 1 && _controller.text.trim().isNotEmpty) {
+              _fetchBrowse(_controller.text.trim());
+            }
+          },
         ),
       ),
     );
@@ -255,21 +330,12 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildHeader(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Row(
-        children: [
-          ShaderMask(
-            shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
-            child: const Text(
-              'Search',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
-      ),
+      child: Row(children: [
+        ShaderMask(
+          shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
+          child: const Text('Search', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: Colors.white)),
+        ),
+      ]),
     );
   }
 
@@ -329,29 +395,11 @@ class _SearchScreenState extends State<SearchScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Recent',
-                style: TextStyle(
-                  color: AurumTheme.textSecondaryOf(context),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.3,
-                ),
-              ),
+              Text('Recent', style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
               TextButton(
                 onPressed: _clearHistory,
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: Text(
-                  'Clear all',
-                  style: TextStyle(
-                    color: AurumTheme.gold.withOpacity(0.8),
-                    fontSize: 12,
-                  ),
-                ),
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                child: Text('Clear all', style: TextStyle(color: AurumTheme.gold.withOpacity(0.8), fontSize: 12)),
               ),
             ],
           ),
@@ -362,58 +410,23 @@ class _SearchScreenState extends State<SearchScreen> {
             itemBuilder: (_, i) {
               final item = _history[i];
               return ListTile(
-                leading: Icon(
-                  Icons.history_rounded,
-                  color: AurumTheme.textMutedOf(context),
-                  size: 18,
-                ),
-                title: Text(
-                  item,
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 14,
-                  ),
-                ),
+                leading: Icon(Icons.history_rounded, color: AurumTheme.textMutedOf(context), size: 18),
+                title: Text(item, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14)),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Fill search bar with this query
                     GestureDetector(
-                      onTap: () {
-                        _controller.text = item;
-                        _controller.selection = TextSelection.fromPosition(
-                          TextPosition(offset: item.length),
-                        );
-                        _onChanged(item);
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Icon(
-                          Icons.north_west_rounded,
-                          color: AurumTheme.textMutedOf(context),
-                          size: 16,
-                        ),
-                      ),
+                      onTap: () { _controller.text = item; _controller.selection = TextSelection.fromPosition(TextPosition(offset: item.length)); _onChanged(item); },
+                      child: Padding(padding: const EdgeInsets.all(8), child: Icon(Icons.north_west_rounded, color: AurumTheme.textMutedOf(context), size: 16)),
                     ),
-                    // Remove this item
                     GestureDetector(
                       onTap: () => _removeFromHistory(item),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Icon(
-                          Icons.close_rounded,
-                          color: AurumTheme.textMutedOf(context),
-                          size: 16,
-                        ),
-                      ),
+                      child: Padding(padding: const EdgeInsets.all(8), child: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 16)),
                     ),
                   ],
                 ),
                 dense: true,
-                onTap: () {
-                  _controller.text = item;
-                  _search(item);
-                },
+                onTap: () { _controller.text = item; _search(item); },
               );
             },
           ),
@@ -422,18 +435,16 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  // ── Live search panel (suggestions + live song results) ───────
+  // ── Live panel ───────────────────────────────────────────────
 
   Widget _buildLivePanel(BuildContext context) {
-    final query         = _controller.text.trim();
+    final query          = _controller.text.trim();
     final hasSuggestions = _suggestions.isNotEmpty;
     final hasLive        = _liveResults.isNotEmpty;
 
     Widget content;
     if (!hasSuggestions && !hasLive) {
-      content = _liveLoading
-          ? _buildLiveLoadingState(context)
-          : _buildNoLiveResults(context, query);
+      content = _liveLoading ? _buildLiveLoadingState(context) : _buildNoLiveResults(context, query);
     } else {
       content = ListView(
         padding: const EdgeInsets.only(bottom: 80),
@@ -441,98 +452,54 @@ class _SearchScreenState extends State<SearchScreen> {
           if (_liveLoading) _buildLiveProgressBar(context),
           if (hasSuggestions) ...[
             ..._suggestions.map((s) => _suggestionTile(context, s)),
-            if (hasLive)
-              Divider(
-                color: AurumTheme.dividerOf(context),
-                height: 1,
-                indent: 16,
-                endIndent: 16,
-              ),
+            if (hasLive) Divider(color: AurumTheme.dividerOf(context), height: 1, indent: 16, endIndent: 16),
           ],
           if (hasLive) ...[
             _sectionLabel(context, 'Songs'),
-            ..._liveResults.asMap().entries.map(
-                  (e) => SongTile(
-                    key: ValueKey('live_${e.value.id}_${e.key}'),
-                    song: e.value,
-                    queue: _liveResults,
-                    index: e.key,
-                  ),
-                ),
+            ..._liveResults.asMap().entries.map((e) => SongTile(
+              key: ValueKey('live_${e.value.id}_${e.key}'),
+              song: e.value, queue: _liveResults, index: e.key,
+            )),
           ],
           if (query.isNotEmpty) _seeAllTile(context, query),
         ],
       );
     }
 
-    // Tapping anywhere (e.g. a song result) immediately drops focus so the
-    // keyboard closes and no further debounced live-search calls fire
-    // mid-tap — this is what made taps feel "stuck" before.
-    return KeyedSubtree(
-      key: const ValueKey('live'),
-      child: content,
-    );
+    return KeyedSubtree(key: const ValueKey('live'), child: content);
   }
 
   Widget _buildLiveProgressBar(BuildContext context) {
-    return SizedBox(
-      height: 2,
-      child: LinearProgressIndicator(
-        backgroundColor: Colors.transparent,
-        valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF7C3AED).withOpacity(0.7)),
-      ),
-    );
+    return SizedBox(height: 2, child: LinearProgressIndicator(
+      backgroundColor: Colors.transparent,
+      valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF7C3AED).withOpacity(0.7)),
+    ));
   }
 
   Widget _buildLiveLoadingState(BuildContext context) {
-    return Column(
-      children: [
-        _buildLiveProgressBar(context),
-        const Expanded(
-          child: Center(
-            child: AurumLoaderSmall(),
-          ),
-        ),
-      ],
-    );
+    return Column(children: [
+      _buildLiveProgressBar(context),
+      const Expanded(child: Center(child: AurumLoaderSmall())),
+    ]);
   }
 
   Widget _buildNoLiveResults(BuildContext context, String query) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.search_off_rounded, color: AurumTheme.gold.withOpacity(0.2), size: 56),
-          const SizedBox(height: 12),
-          Text(
-            'No results for "$query"',
-            style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
-          ),
-          const SizedBox(height: 16),
-          TextButton(
-            onPressed: () => _search(query),
-            child: Text(
-              'Search everywhere',
-              style: TextStyle(color: AurumTheme.gold, fontWeight: FontWeight.w600, fontSize: 13),
-            ),
-          ),
-        ],
+    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(Icons.search_off_rounded, color: AurumTheme.gold.withOpacity(0.2), size: 56),
+      const SizedBox(height: 12),
+      Text('No results for "$query"', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14)),
+      const SizedBox(height: 16),
+      TextButton(
+        onPressed: () => _search(query),
+        child: Text('Search everywhere', style: TextStyle(color: AurumTheme.gold, fontWeight: FontWeight.w600, fontSize: 13)),
       ),
-    );
+    ]));
   }
 
   Widget _sectionLabel(BuildContext context, String label) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-      child: Text(
-        label.toUpperCase(),
-        style: TextStyle(
-          color: AurumTheme.textMutedOf(context),
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 1.4,
-        ),
-      ),
+      child: Text(label.toUpperCase(), style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
     );
   }
 
@@ -540,30 +507,14 @@ class _SearchScreenState extends State<SearchScreen> {
     return ListTile(
       key: ValueKey('sugg_$s'),
       leading: Icon(Icons.search_rounded, color: AurumTheme.textMutedOf(context), size: 18),
-      title: Text(
-        s,
-        style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
+      title: Text(s, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: GestureDetector(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          _controller.text = s;
-          _controller.selection = TextSelection.fromPosition(TextPosition(offset: s.length));
-          _onChanged(s);
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(Icons.north_west_rounded, color: AurumTheme.textMutedOf(context), size: 16),
-        ),
+        onTap: () { HapticFeedback.lightImpact(); _controller.text = s; _controller.selection = TextSelection.fromPosition(TextPosition(offset: s.length)); _onChanged(s); },
+        child: Padding(padding: const EdgeInsets.all(8), child: Icon(Icons.north_west_rounded, color: AurumTheme.textMutedOf(context), size: 16)),
       ),
       dense: true,
       visualDensity: const VisualDensity(vertical: -2),
-      onTap: () {
-        _controller.text = s;
-        _search(s);
-      },
+      onTap: () { _controller.text = s; _search(s); },
     );
   }
 
@@ -571,19 +522,14 @@ class _SearchScreenState extends State<SearchScreen> {
     return ListTile(
       key: const ValueKey('see_all'),
       leading: Icon(Icons.travel_explore_rounded, color: AurumTheme.gold, size: 20),
-      title: Text(
-        'See all results for "$query"',
-        style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
+      title: Text('See all results for "$query"', style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: Icon(Icons.arrow_forward_ios_rounded, color: AurumTheme.gold.withOpacity(0.6), size: 14),
       dense: true,
       onTap: () => _search(query),
     );
   }
 
-  // ── Results UI ───────────────────────────────────────────────
+  // ── Results ──────────────────────────────────────────────────
 
   Widget _buildResults() {
     return ListView.builder(
@@ -592,9 +538,7 @@ class _SearchScreenState extends State<SearchScreen> {
       padding: const EdgeInsets.only(bottom: 80),
       itemBuilder: (_, i) => SongTile(
         key: ValueKey('result_${_results[i].id}_$i'),
-        song: _results[i],
-        queue: _results,
-        index: i,
+        song: _results[i], queue: _results, index: i,
       ),
     );
   }
@@ -604,16 +548,242 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildEmpty(BuildContext context) {
     return Center(
       key: const ValueKey('empty'),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.music_note_rounded, color: AurumTheme.gold.withOpacity(0.2), size: 64),
-          const SizedBox(height: 16),
-          Text(
-            'Search for your favourite songs',
-            style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(Icons.music_note_rounded, color: AurumTheme.gold.withOpacity(0.2), size: 64),
+        const SizedBox(height: 16),
+        Text('Search for your favourite songs', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14)),
+      ]),
+    );
+  }
+}
+
+// =============================================================================
+// ITUNES_INTEGRATION — Browse Tab Widget
+// Remove this entire class + _BrowseTab usage above to strip iTunes.
+// =============================================================================
+
+class _BrowseTab extends StatefulWidget {
+  final bool               loading;
+  final ItunesSearchResult result;
+  final String             query;
+  final void Function(String) onSearch;
+  final void Function(ItunesTrack) onPlay;
+
+  const _BrowseTab({
+    required this.loading,
+    required this.result,
+    required this.query,
+    required this.onSearch,
+    required this.onPlay,
+  });
+
+  @override
+  State<_BrowseTab> createState() => _BrowseTabState();
+}
+
+class _BrowseTabState extends State<_BrowseTab> {
+  // Album drill-down state
+  String?           _openAlbumId;
+  String?           _openAlbumName;
+  bool              _albumLoading = false;
+  List<ItunesTrack> _albumTracks  = [];
+
+  // Artist drill-down state
+  String?           _openArtistName;
+  bool              _artistLoading = false;
+  List<ItunesTrack> _artistTracks  = [];
+
+  Future<void> _openAlbum(ItunesAlbum album) async {
+    setState(() { _openAlbumId = album.collectionId; _openAlbumName = album.name; _albumLoading = true; _albumTracks = []; _openArtistName = null; });
+    final tracks = await ItunesService.albumTracks(album.collectionId);
+    if (mounted) setState(() { _albumTracks = tracks; _albumLoading = false; });
+  }
+
+  Future<void> _openArtist(ItunesArtist artist) async {
+    setState(() { _openArtistName = artist.name; _artistLoading = true; _artistTracks = []; _openAlbumId = null; });
+    final tracks = await ItunesService.artistTopSongs(artist.name);
+    if (mounted) setState(() { _artistTracks = tracks; _artistLoading = false; });
+  }
+
+  void _back() => setState(() { _openAlbumId = null; _openAlbumName = null; _openArtistName = null; _albumTracks = []; _artistTracks = []; });
+
+  @override
+  Widget build(BuildContext context) {
+    // Drill-down: album tracks
+    if (_openAlbumId != null) return _buildTrackList(context, _openAlbumName ?? 'Album', _albumLoading, _albumTracks);
+    // Drill-down: artist top songs
+    if (_openArtistName != null) return _buildTrackList(context, _openArtistName!, _artistLoading, _artistTracks);
+
+    if (widget.query.isEmpty) return _buildBrowseEmpty(context);
+    if (widget.loading)       return const Center(child: AurumLoaderSmall());
+    if (widget.result.isEmpty) return _buildBrowseEmpty(context);
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 100),
+      children: [
+        // Artists
+        if (widget.result.artists.isNotEmpty) ...[
+          _sectionLabel(context, 'Artists'),
+          SizedBox(
+            height: 100,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: widget.result.artists.length,
+              itemBuilder: (_, i) => _ArtistChip(
+                artist: widget.result.artists[i],
+                onTap: () => _openArtist(widget.result.artists[i]),
+              ),
+            ),
           ),
         ],
+        // Albums
+        if (widget.result.albums.isNotEmpty) ...[
+          _sectionLabel(context, 'Albums'),
+          SizedBox(
+            height: 180,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: widget.result.albums.length,
+              itemBuilder: (_, i) => _AlbumCard(
+                album: widget.result.albums[i],
+                onTap: () => _openAlbum(widget.result.albums[i]),
+              ),
+            ),
+          ),
+        ],
+        // Tracks
+        if (widget.result.tracks.isNotEmpty) ...[
+          _sectionLabel(context, 'Songs'),
+          ...widget.result.tracks.map((t) => _ItunesTrackTile(track: t, onPlay: () => widget.onPlay(t))),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildTrackList(BuildContext context, String title, bool loading, List<ItunesTrack> tracks) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Back header
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 4, 16, 8),
+          child: Row(children: [
+            IconButton(icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18), onPressed: _back, color: AurumTheme.textPrimaryOf(context)),
+            Expanded(child: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 16, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
+          ]),
+        ),
+        if (loading)
+          const Expanded(child: Center(child: AurumLoaderSmall()))
+        else
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.only(bottom: 100),
+              itemCount: tracks.length,
+              itemBuilder: (_, i) => _ItunesTrackTile(track: tracks[i], onPlay: () => widget.onPlay(tracks[i])),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildBrowseEmpty(BuildContext context) {
+    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(Icons.library_music_outlined, color: AurumTheme.gold.withOpacity(0.2), size: 56),
+      const SizedBox(height: 12),
+      Text(widget.query.isEmpty ? 'Type to browse artists & albums' : 'No results',
+          style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14)),
+    ]));
+  }
+
+  Widget _sectionLabel(BuildContext context, String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(label.toUpperCase(), style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
+    );
+  }
+}
+
+// ── iTunes sub-widgets ────────────────────────────────────────────────────────
+
+class _ItunesTrackTile extends StatelessWidget {
+  final ItunesTrack track;
+  final VoidCallback onPlay;
+  const _ItunesTrackTile({required this.track, required this.onPlay});
+
+  @override
+  Widget build(BuildContext context) {
+    final isPlaying = context.select<PlayerProvider, bool>((p) => p.currentSong?.title == track.title && p.currentSong?.artist == track.artist);
+    return ListTile(
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: AurumArtwork(url: track.artworkUrl, size: 44),
+      ),
+      title: Text(track.title, style: TextStyle(color: isPlaying ? AurumTheme.gold : AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(track.artist, style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: isPlaying
+          ? Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 20)
+          : Icon(Icons.play_circle_outline_rounded, color: AurumTheme.textMutedOf(context), size: 22),
+      dense: true,
+      onTap: onPlay,
+    );
+  }
+}
+
+class _AlbumCard extends StatelessWidget {
+  final ItunesAlbum album;
+  final VoidCallback onTap;
+  const _AlbumCard({required this.album, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 130,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: AurumArtwork(url: album.artworkUrl, size: 130),
+          ),
+          const SizedBox(height: 6),
+          Text(album.name, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(album.artist, style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+        ]),
+      ),
+    );
+  }
+}
+
+class _ArtistChip extends StatelessWidget {
+  final ItunesArtist artist;
+  final VoidCallback onTap;
+  const _ArtistChip({required this.artist, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Container(
+            width: 60, height: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AurumTheme.bgCardOf(context),
+              border: Border.all(color: AurumTheme.gold.withOpacity(0.3), width: 1.5),
+            ),
+            child: Icon(Icons.person_rounded, color: AurumTheme.gold.withOpacity(0.7), size: 28),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: 70,
+            child: Text(artist.name, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 11, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
+          ),
+        ]),
       ),
     );
   }
