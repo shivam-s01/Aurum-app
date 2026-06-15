@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,7 +6,11 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
+import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../providers/player_provider.dart';
+import '../providers/favorites_provider.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
@@ -120,8 +125,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     super.dispose();
   }
 
-  // ── Palette extraction → 3 colors, starts morph ──
-  Future<void> _extractColor(String url) async {
+  // ── Palette extraction → 3 colors, theme-adaptive ──
+  Future<void> _extractColor(String url, {bool isLight = false}) async {
     if (url.isEmpty || url == _lastArtUrl) return;
     _lastArtUrl = url;
     try {
@@ -134,7 +139,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       final pg = await PaletteGenerator.fromImageProvider(
           provider, size: const Size(80, 80));
 
-      // 3 distinct color roles
       final c1 = pg.vibrantColor?.color ??
           pg.dominantColor?.color ??
           const Color(0xFF1A1630);
@@ -147,16 +151,22 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
       if (!mounted) return;
 
-      // Snapshot current lerped position before morphing
       final t = _bgColorCtrl.value;
       _currentBg1 = Color.lerp(_currentBg1, _targetBg1, t) ?? _currentBg1;
       _currentBg2 = Color.lerp(_currentBg2, _targetBg2, t) ?? _currentBg2;
       _currentBg3 = Color.lerp(_currentBg3, _targetBg3, t) ?? _currentBg3;
 
-      // Darken each color appropriately for bg
-      _targetBg1 = Color.lerp(c1, Colors.black, 0.40)!;
-      _targetBg2 = Color.lerp(c2, Colors.black, 0.62)!;
-      _targetBg3 = Color.lerp(c3, Colors.black, 0.80)!;
+      if (isLight) {
+        // Light mode: pastel tints, keep readable
+        _targetBg1 = Color.lerp(c1, Colors.white, 0.72)!;
+        _targetBg2 = Color.lerp(c2, Colors.white, 0.60)!;
+        _targetBg3 = Color.lerp(c3, Colors.white, 0.50)!;
+      } else {
+        // Dark/AMOLED mode: deep darks
+        _targetBg1 = Color.lerp(c1, Colors.black, 0.40)!;
+        _targetBg2 = Color.lerp(c2, Colors.black, 0.62)!;
+        _targetBg3 = Color.lerp(c3, Colors.black, 0.80)!;
+      }
 
       _bgColorCtrl.forward(from: 0.0);
     } catch (_) {}
@@ -230,10 +240,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         // Trigger artwork + color extraction on song change only
         if (song.id != _lastSongId) {
           _lastSongId = song.id;
+          final isLight = Theme.of(context).brightness == Brightness.light;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             _triggerArtworkAnimation();
-            if (song.artworkUrl.isNotEmpty) _extractColor(song.artworkUrl);
+            if (song.artworkUrl.isNotEmpty) _extractColor(song.artworkUrl, isLight: isLight);
           });
         }
 
@@ -398,12 +409,20 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final textMuted = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(72);
+    final pillBg = isLight ? AurumTheme.lightBgSurface.withAlpha(180) : Colors.white.withAlpha(8);
+    final pillBorder = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(12);
+    final iconColor = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(200);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(children: [
         _IconBtn(
           icon: Icons.keyboard_arrow_down_rounded,
           size: 26,
+          color: iconColor,
           onTap: () => Navigator.pop(context),
           semanticLabel: 'Close player',
         ),
@@ -412,15 +431,15 @@ class _TopBar extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 12),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withAlpha(8),
+              color: pillBg,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withAlpha(12), width: 0.5),
+              border: Border.all(color: pillBorder, width: 0.5),
             ),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Text(
                 'NOW PLAYING',
                 style: TextStyle(
-                  color: Colors.white.withAlpha(72),
+                  color: textMuted,
                   fontSize: 8.5,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 2.0,
@@ -429,8 +448,8 @@ class _TopBar extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 song.album.isNotEmpty ? song.album : 'Aurum Music',
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: textPrimary,
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.1,
@@ -445,6 +464,7 @@ class _TopBar extends StatelessWidget {
         _IconBtn(
           icon: Icons.more_vert_rounded,
           size: 22,
+          color: iconColor,
           onTap: onMore,
           semanticLabel: 'More options',
         ),
@@ -551,6 +571,9 @@ class _SongInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(128);
     final titleSize = isTablet ? 26.0 : 22.0;
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad),
@@ -564,7 +587,7 @@ class _SongInfo extends StatelessWidget {
                 _MarqueeText(
                   text: song.title,
                   style: TextStyle(
-                    color: Colors.white,
+                    color: textPrimary,
                     fontSize: titleSize,
                     fontWeight: FontWeight.w700,
                     height: 1.15,
@@ -575,7 +598,7 @@ class _SongInfo extends StatelessWidget {
                 Text(
                   song.artist,
                   style: TextStyle(
-                    color: Colors.white.withAlpha(128),
+                    color: textSecondary,
                     fontSize: 14,
                     fontWeight: FontWeight.w400,
                     letterSpacing: 0.1,
@@ -611,6 +634,11 @@ class _SeekBarState extends State<_SeekBar> {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final trackActive = isLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final trackInactive = isLight ? AurumTheme.lightBgSurface : Colors.white.withAlpha(28);
+    final timeColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(92);
+
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: widget.hPad - 4),
       child: Column(children: [
@@ -622,10 +650,10 @@ class _SeekBarState extends State<_SeekBar> {
               thumbShape: RoundSliderThumbShape(
                   enabledThumbRadius: _dragging ? 8 : 6),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
-              activeTrackColor: Colors.white,
-              inactiveTrackColor: Colors.white.withAlpha(28),
-              thumbColor: Colors.white,
-              overlayColor: Colors.white.withAlpha(16),
+              activeTrackColor: trackActive,
+              inactiveTrackColor: trackInactive,
+              thumbColor: trackActive,
+              overlayColor: trackActive.withAlpha(16),
               trackShape: const _BufferedTrackShape(),
             ),
             child: Slider(
@@ -653,24 +681,12 @@ class _SeekBarState extends State<_SeekBar> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                widget.player.positionString,
-                style: TextStyle(
-                  color: Colors.white.withAlpha(92),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.3,
-                ),
-              ),
-              Text(
-                widget.player.durationString,
-                style: TextStyle(
-                  color: Colors.white.withAlpha(92),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.3,
-                ),
-              ),
+              Text(widget.player.positionString,
+                style: TextStyle(color: timeColor, fontSize: 11,
+                    fontWeight: FontWeight.w500, letterSpacing: 0.3)),
+              Text(widget.player.durationString,
+                style: TextStyle(color: timeColor, fontSize: 11,
+                    fontWeight: FontWeight.w500, letterSpacing: 0.3)),
             ],
           ),
         ),
@@ -804,6 +820,12 @@ class _BottomPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final pillBg = isLight ? AurumTheme.lightBgSurface.withAlpha(200) : Colors.white.withAlpha(10);
+    final pillBorder = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(18);
+    final iconColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(96);
+    final textColor = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(112);
+
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad),
       child: GestureDetector(
@@ -814,20 +836,19 @@ class _BottomPill extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           decoration: BoxDecoration(
-            color: Colors.white.withAlpha(10),
+            color: pillBg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withAlpha(18), width: 0.5),
+            border: Border.all(color: pillBorder, width: 0.5),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.keyboard_arrow_up_rounded,
-                  color: Colors.white.withAlpha(96), size: 16),
+              Icon(Icons.keyboard_arrow_up_rounded, color: iconColor, size: 16),
               const SizedBox(width: 8),
               Text(
                 'Queue · Lyrics · Info',
                 style: TextStyle(
-                  color: Colors.white.withAlpha(112),
+                  color: textColor,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                   letterSpacing: 0.5,
@@ -973,9 +994,9 @@ class _QualityPill extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Premium Options Sheet — JioSaavn / Echo Nightly style grid
+// Premium Options Sheet — theme adaptive, Download included
 // ─────────────────────────────────────────────────────────────────────────────
-class _PremiumOptionsSheet extends StatelessWidget {
+class _PremiumOptionsSheet extends StatefulWidget {
   final Song song;
   final PlayerProvider player;
   final Color accentColor;
@@ -987,38 +1008,133 @@ class _PremiumOptionsSheet extends StatelessWidget {
   });
 
   @override
+  State<_PremiumOptionsSheet> createState() => _PremiumOptionsSheetState();
+}
+
+class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
+  bool _downloading = false;
+  double _dlProgress = 0;
+
+  void _snack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 2),
+    ));
+  }
+
+  Future<void> _downloadSong() async {
+    final song = widget.song;
+    final url = song.streamUrl;
+    if (url == null || url.isEmpty) {
+      _snack('No stream URL available');
+      return;
+    }
+
+    // Permission
+    if (Platform.isAndroid) {
+      final status = await Permission.storage.request();
+      if (!status.isGranted) {
+        _snack('Storage permission denied');
+        return;
+      }
+    }
+
+    setState(() { _downloading = true; _dlProgress = 0; });
+
+    try {
+      final dir = await getExternalStorageDirectory() ??
+          await getApplicationDocumentsDirectory();
+      final musicDir = Directory('${dir.path}/Aurum Music');
+      if (!await musicDir.exists()) await musicDir.create(recursive: true);
+
+      final safeName = song.title
+          .replaceAll(RegExp(r'[^\w\s\-]'), '')
+          .trim()
+          .replaceAll(' ', '_');
+      final filePath = '${musicDir.path}/$safeName.mp3';
+
+      await Dio().download(
+        url,
+        filePath,
+        onReceiveProgress: (received, total) {
+          if (total > 0 && mounted) {
+            setState(() => _dlProgress = received / total);
+          }
+        },
+      );
+
+      if (mounted) {
+        setState(() => _downloading = false);
+        Navigator.pop(context);
+        _snack('Downloaded: ${song.title}');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _downloading = false);
+        _snack('Download failed');
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final song = widget.song;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final fav = context.watch<FavoritesProvider>();
+    final isLiked = fav.isFavorite(song.id);
+
+    final bgColor = isLight
+        ? AurumTheme.lightBgCard
+        : Color.lerp(widget.accentColor, const Color(0xFF0C0C18), 0.55)!;
+    final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final textMuted = isLight ? AurumTheme.lightTextSecondary : Colors.white70;
+    final tileColor = isLight
+        ? AurumTheme.lightBgSurface
+        : Colors.white.withAlpha(10);
+    final tileBorder = isLight
+        ? AurumTheme.lightDivider
+        : Colors.white.withAlpha(18);
+
     final actions = [
-      _SheetAction(Icons.skip_next_rounded, 'Play Next', () {
+      _SheetAction(Icons.skip_next_rounded, 'Play Next', AurumTheme.gold, () {
         Navigator.pop(context);
-        player.playNext(song);
+        widget.player.playNext(song);
       }),
-      _SheetAction(Icons.queue_music_rounded, 'Add to Queue', () {
+      _SheetAction(Icons.queue_music_rounded, 'Add to Queue', Colors.purpleAccent, () {
         Navigator.pop(context);
-        player.addToQueue(song);
+        widget.player.addToQueue(song);
+        _snack('Added to queue');
       }),
-      _SheetAction(Icons.favorite_border_rounded, 'Like', () {
-        Navigator.pop(context);
-      }),
-      _SheetAction(Icons.share_rounded, 'Share', () {
-        Navigator.pop(context);
-      }),
-      _SheetAction(Icons.playlist_add_rounded, 'Save to Playlist', () {
-        Navigator.pop(context);
-      }),
-      _SheetAction(Icons.library_add_rounded, 'Save to Library', () {
-        Navigator.pop(context);
-      }),
-      _SheetAction(Icons.equalizer_rounded, 'Audio Effects', () {
-        Navigator.pop(context);
-      }),
-      _SheetAction(Icons.timer_outlined, 'Sleep Timer', () {
+      _SheetAction(
+        isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+        isLiked ? 'Liked' : 'Like',
+        const Color(0xFFE1306C),
+        () {
+          fav.toggleFavorite(song);
+          final nowLiked = fav.isFavorite(song.id);
+          _snack(nowLiked ? 'Added to Liked' : 'Removed from Liked');
+        },
+      ),
+      _SheetAction(Icons.share_rounded, 'Share', Colors.greenAccent, () {
         Navigator.pop(context);
       }),
-      _SheetAction(Icons.info_outline_rounded, 'Song Info', () {
+      _SheetAction(Icons.playlist_add_rounded, 'Save to Playlist', Colors.blueAccent, () {
         Navigator.pop(context);
       }),
-      _SheetAction(Icons.radio_rounded, 'Go to Radio', () {
+      _SheetAction(Icons.bookmark_border_rounded, 'Save to Library', Colors.teal, () {
+        Navigator.pop(context);
+      }),
+      _SheetAction(Icons.equalizer_rounded, 'Audio Effects', Colors.orangeAccent, () {
+        Navigator.pop(context);
+      }),
+      _SheetAction(Icons.timer_outlined, 'Sleep Timer', Colors.cyan, () {
+        Navigator.pop(context);
+      }),
+      _SheetAction(Icons.download_rounded, 'Download', AurumTheme.gold, () {
+        _downloadSong();
+      }),
+      _SheetAction(Icons.info_outline_rounded, 'Song Info', textMuted, () {
         Navigator.pop(context);
       }),
     ];
@@ -1026,14 +1142,18 @@ class _PremiumOptionsSheet extends StatelessWidget {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
         child: Container(
           decoration: BoxDecoration(
-            color: Color.lerp(accentColor, const Color(0xFF0C0C18), 0.55)!
-                .withAlpha(245),
+            color: bgColor.withAlpha(isLight ? 240 : 245),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border(
-              top: BorderSide(color: Colors.white.withAlpha(14), width: 0.5),
+              top: BorderSide(
+                color: isLight
+                    ? AurumTheme.lightDivider
+                    : Colors.white.withAlpha(14),
+                width: 0.5,
+              ),
             ),
           ),
           child: SafeArea(
@@ -1043,11 +1163,12 @@ class _PremiumOptionsSheet extends StatelessWidget {
               children: [
                 // Drag handle
                 Container(
-                  width: 36,
-                  height: 4,
+                  width: 36, height: 4,
                   margin: const EdgeInsets.only(top: 12, bottom: 16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withAlpha(40),
+                    color: isLight
+                        ? AurumTheme.lightTextMuted.withAlpha(80)
+                        : Colors.white.withAlpha(40),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -1057,65 +1178,72 @@ class _PremiumOptionsSheet extends StatelessWidget {
                   child: Row(children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(10),
-                      child: AurumArtwork(
-                          url: song.artworkUrl, size: 52, borderRadius: 10),
+                      child: AurumArtwork(url: song.artworkUrl, size: 52, borderRadius: 10),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            song.title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              height: 1.2,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          Text(song.title,
+                            style: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
                           const SizedBox(height: 3),
-                          Text(
-                            song.artist,
-                            style: TextStyle(
-                              color: Colors.white.withAlpha(120),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w400,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          Text(song.artist,
+                            style: TextStyle(color: textMuted, fontSize: 12),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
                         ],
                       ),
                     ),
                   ]),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                   child: Divider(
-                    color: Colors.white.withAlpha(14),
+                    color: isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14),
                     height: 1,
                   ),
                 ),
+                // Download progress
+                if (_downloading)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                    child: Column(children: [
+                      Row(children: [
+                        Icon(Icons.download_rounded, size: 14, color: AurumTheme.gold),
+                        const SizedBox(width: 8),
+                        Text('Downloading ${(_dlProgress * 100).toStringAsFixed(0)}%',
+                          style: TextStyle(color: textMuted, fontSize: 12)),
+                      ]),
+                      const SizedBox(height: 6),
+                      LinearProgressIndicator(
+                        value: _dlProgress,
+                        backgroundColor: isLight
+                            ? AurumTheme.lightBgSurface
+                            : Colors.white.withAlpha(20),
+                        valueColor: const AlwaysStoppedAnimation(AurumTheme.gold),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ]),
+                  ),
                 // Action grid
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: GridView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 2,
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: 2.6,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      childAspectRatio: 2.7,
                     ),
                     itemCount: actions.length,
                     itemBuilder: (_, i) => _SheetActionTile(
                       action: actions[i],
+                      tileColor: tileColor,
+                      tileBorder: tileBorder,
+                      textColor: textPrimary,
                     ),
                   ),
                 ),
@@ -1132,13 +1260,22 @@ class _PremiumOptionsSheet extends StatelessWidget {
 class _SheetAction {
   final IconData icon;
   final String label;
+  final Color color;
   final VoidCallback onTap;
-  const _SheetAction(this.icon, this.label, this.onTap);
+  const _SheetAction(this.icon, this.label, this.color, this.onTap);
 }
 
 class _SheetActionTile extends StatefulWidget {
   final _SheetAction action;
-  const _SheetActionTile({required this.action});
+  final Color tileColor;
+  final Color tileBorder;
+  final Color textColor;
+  const _SheetActionTile({
+    required this.action,
+    required this.tileColor,
+    required this.tileBorder,
+    required this.textColor,
+  });
 
   @override
   State<_SheetActionTile> createState() => _SheetActionTileState();
@@ -1149,6 +1286,7 @@ class _SheetActionTileState extends State<_SheetActionTile> {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) {
@@ -1161,25 +1299,26 @@ class _SheetActionTileState extends State<_SheetActionTile> {
         duration: const Duration(milliseconds: 100),
         decoration: BoxDecoration(
           color: _pressed
-              ? Colors.white.withAlpha(22)
-              : Colors.white.withAlpha(10),
+              ? widget.action.color.withAlpha(isLight ? 30 : 22)
+              : widget.tileColor,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: Colors.white.withAlpha(_pressed ? 22 : 12),
-            width: 0.5,
+            color: _pressed
+                ? widget.action.color.withAlpha(60)
+                : widget.tileBorder,
+            width: 0.8,
           ),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         child: Row(
           children: [
-            Icon(widget.action.icon,
-                size: 18, color: Colors.white.withAlpha(200)),
+            Icon(widget.action.icon, size: 18, color: widget.action.color),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 widget.action.label,
                 style: TextStyle(
-                  color: Colors.white.withAlpha(220),
+                  color: widget.textColor,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
@@ -1520,83 +1659,57 @@ class _NowPlayingHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(110);
+    final cardBg = isLight
+        ? AurumTheme.gold.withAlpha(22)
+        : AurumTheme.gold.withAlpha(18);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AurumTheme.gold.withAlpha(18),
+          color: cardBg,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: AurumTheme.gold.withAlpha(40),
-            width: 0.5,
-          ),
+          border: Border.all(color: AurumTheme.gold.withAlpha(40), width: 0.5),
         ),
         child: Row(children: [
-          Stack(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: AurumArtwork(
-                    url: song.artworkUrl, size: 54, borderRadius: 12),
-              ),
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  decoration: BoxDecoration(
-                    color: AurumTheme.gold,
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: const Center(
-                    child: _MiniEqualizerIcon(),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'NOW PLAYING',
-                  style: TextStyle(
-                    color: AurumTheme.gold.withAlpha(200),
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.6,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  song.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    height: 1.2,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  song.artist,
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(110),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w400,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+          Stack(children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AurumArtwork(url: song.artworkUrl, size: 54, borderRadius: 12),
             ),
-          ),
+            Positioned(
+              bottom: 0, right: 0,
+              child: Container(
+                width: 18, height: 18,
+                decoration: BoxDecoration(
+                  color: AurumTheme.gold,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: const Center(child: _MiniEqualizerIcon()),
+              ),
+            ),
+          ]),
+          const SizedBox(width: 14),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('NOW PLAYING',
+                style: TextStyle(color: AurumTheme.gold.withAlpha(200),
+                    fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
+              const SizedBox(height: 3),
+              Text(song.title,
+                style: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w600, height: 1.2),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 2),
+              Text(song.artist,
+                style: TextStyle(color: textSecondary, fontSize: 12),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
+          )),
         ]),
       ),
     );
@@ -1752,70 +1865,53 @@ class _QueueTileState extends State<_QueueTile>
             child: child,
           );
         },
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 3),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white.withAlpha(7),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: Colors.white.withAlpha(10),
-              width: 0.5,
+        child: Builder(builder: (context) {
+          final isLight = Theme.of(context).brightness == Brightness.light;
+          final tileBg = isLight ? AurumTheme.lightBgSurface.withAlpha(180) : Colors.white.withAlpha(7);
+          final tileBorder = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(10);
+          final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white.withAlpha(220);
+          final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(80);
+          final indexColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(45);
+          final dragColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(40);
+
+          return Container(
+            margin: const EdgeInsets.symmetric(vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: tileBg,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tileBorder, width: 0.5),
             ),
-          ),
-          child: Row(children: [
-            // Index number
-            SizedBox(
-              width: 22,
-              child: Text(
-                '${widget.index}',
-                style: TextStyle(
-                  color: Colors.white.withAlpha(45),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-                textAlign: TextAlign.center,
+            child: Row(children: [
+              SizedBox(
+                width: 22,
+                child: Text('${widget.index}',
+                  style: TextStyle(color: indexColor, fontSize: 12, fontWeight: FontWeight.w500),
+                  textAlign: TextAlign.center),
               ),
-            ),
-            const SizedBox(width: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: AurumArtwork(
-                  url: widget.song.artworkUrl, size: 44, borderRadius: 10),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
+              const SizedBox(width: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: AurumArtwork(url: widget.song.artworkUrl, size: 44, borderRadius: 10),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    widget.song.title,
-                    style: TextStyle(
-                      color: Colors.white.withAlpha(220),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  Text(widget.song.title,
+                    style: TextStyle(color: textPrimary, fontSize: 13, fontWeight: FontWeight.w500),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 3),
-                  Text(
-                    widget.song.artist,
-                    style: TextStyle(
-                      color: Colors.white.withAlpha(80),
-                      fontSize: 11.5,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  Text(widget.song.artist,
+                    style: TextStyle(color: textSecondary, fontSize: 11.5),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Icon(Icons.drag_handle_rounded,
-                color: Colors.white.withAlpha(40), size: 18),
-          ]),
-        ),
+              )),
+              const SizedBox(width: 8),
+              Icon(Icons.drag_handle_rounded, color: dragColor, size: 18),
+            ]),
+          );
+        }),
       ),
     );
   }
@@ -2073,7 +2169,7 @@ class _InfoRow {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Background Layer — 3-color palette + breathing gradient
+// Background Layer — 3-color palette + breathing gradient, theme-adaptive
 // AnimatedBuilder-driven, zero setState, isolated RepaintBoundary
 // ─────────────────────────────────────────────────────────────────────────────
 class _BgLayer extends StatelessWidget {
@@ -2097,6 +2193,9 @@ class _BgLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final baseEnd = isLight ? const Color(0xFFF0ECE4) : const Color(0xFF010103);
+
     return AnimatedBuilder(
       animation: Listenable.merge([bgCtrl, breatheCtrl]),
       builder: (_, __) {
@@ -2111,20 +2210,29 @@ class _BgLayer extends StatelessWidget {
         final bg2 = Color.lerp(startBg2, targetBg2, t)!;
         final bg3 = Color.lerp(startBg3, targetBg3, t)!;
 
-        // Breathing: subtle gradient alignment shift + opacity pulse
+        // Breathing: subtle alignment shift
         final breatheShift = b * 0.10;
         final topAlign = Alignment(-0.2 + breatheShift, -1.0);
         final botAlign = Alignment(0.2 - breatheShift, 1.0);
 
-        // Artwork opacity breathes: 0.20 → 0.28
-        final artOpacity = 0.20 + b * 0.08;
+        // Artwork opacity breathes slightly
+        final artOpacity = isLight
+            ? 0.12 + b * 0.06   // lighter in light mode
+            : 0.20 + b * 0.08;
+
+        // Overlay alpha: lighter in light mode
+        final overlayAlpha1 = isLight
+            ? (60 + (b * 14).toInt())
+            : (82 + (b * 18).toInt());
+        final overlayAlpha2 = isLight ? 100 : 165;
+        final overlayAlpha3 = isLight ? 180 : 252;
 
         return Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: topAlign,
               end: botAlign,
-              colors: [bg1, bg2, bg3, const Color(0xFF010103)],
+              colors: [bg1, bg2, bg3, baseEnd],
               stops: const [0.0, 0.35, 0.68, 1.0],
             ),
           ),
@@ -2146,9 +2254,9 @@ class _BgLayer extends StatelessWidget {
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            bg1.withAlpha(82 + (b * 18).toInt()),
-                            bg2.withAlpha(165),
-                            const Color(0xFF010103).withAlpha(252),
+                            bg1.withAlpha(overlayAlpha1),
+                            bg2.withAlpha(overlayAlpha2),
+                            baseEnd.withAlpha(overlayAlpha3),
                           ],
                           stops: const [0.0, 0.42, 1.0],
                         ),
@@ -2383,17 +2491,21 @@ class _IconBtn extends StatelessWidget {
   final IconData icon;
   final double size;
   final VoidCallback onTap;
+  final Color? color;
   final String? semanticLabel;
 
   const _IconBtn({
     required this.icon,
     required this.size,
     required this.onTap,
+    this.color,
     this.semanticLabel,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final c = color ?? (isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(200));
     return Semantics(
       label: semanticLabel,
       button: true,
@@ -2402,7 +2514,7 @@ class _IconBtn extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Icon(icon, size: size, color: Colors.white.withAlpha(200)),
+          child: Icon(icon, size: size, color: c),
         ),
       ),
     );
@@ -2431,7 +2543,11 @@ class _CtrlBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = color ?? (active ? AurumTheme.gold : Colors.white.withAlpha(100));
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final inactiveColor = isLight
+        ? AurumTheme.lightTextMuted
+        : Colors.white.withAlpha(100);
+    final c = color ?? (active ? AurumTheme.gold : inactiveColor);
     return Semantics(
       label: semanticLabel,
       button: true,
