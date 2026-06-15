@@ -11,23 +11,15 @@ import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FullPlayerScreen v4.3 — Flagship Polish
-// Changes from v4.2:
-//   • Fixed const-list..addAll anti-pattern → spread operator
-//   • _BgLayer: removed double AnimatedContainer, single repaint boundary
-//   • _BgLayer: reduced blur sigma 80→60, wrapped in RepaintBoundary
-//   • _SeekBar: StatefulWidget with drag-expand thumb for premium feel
-//   • _MarqueeText: added pause delay before looping (feels intentional)
-//   • _MarqueeText: shimmer fade edges via ShaderMask (no extra widget)
-//   • _QueueTile: spring-settle animation on swipe cancel
-//   • _PremiumPlayButton: loading → SizedBox CircularProgress (no icon swap)
-//   • _LyricsPage: AnimatedSwitcher between loading/found/notfound states
-//   • _DragHandle: wired to parent drag state (was always _isDragging=false)
-//   • _updateBgColor: removed redundant setState on every frame; uses
-//     AnimatedBuilder instead to isolate repaints to bg layer only
-//   • Typography: unified alpha values (130→128, 90→92) for consistency
-//   • Spacing: 8dp grid enforced throughout
-//   • Light mode: respects brightness via MediaQuery
+// FullPlayerScreen v5.0 — Echo Nightly Premium
+// Changes from v4.3:
+//   • _BgLayer: 3-color palette extraction (vibrant + dominant + dark muted)
+//   • _BgLayer: breathing gradient animation via _breatheCtrl (4s loop)
+//   • _BgLayer: blur sigma reduced 60→50 for lighter GPU load
+//   • _showOptions: replaced basic list with premium grid sheet (JioSaavn style)
+//   • _QueuePage: Echo Nightly style — "Now Playing" header, gradient tiles
+//   • _QueueTile: album art, gradient highlight on current, cleaner layout
+//   • _PremiumOptionsSheet: new widget — 2-col grid, song header, all actions
 // ─────────────────────────────────────────────────────────────────────────────
 
 class FullPlayerScreen extends StatefulWidget {
@@ -49,7 +41,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   late final AnimationController _artworkCtrl;
   late final Animation<double> _artworkAnim;
 
-  // ── Play button tactile scale (120ms) ──
+  // ── Play button tactile scale (110ms) ──
   late final AnimationController _playBtnCtrl;
   late final Animation<double> _playBtnAnim;
 
@@ -57,8 +49,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   late final AnimationController _bgColorCtrl;
   Color _targetBg1 = const Color(0xFF0D0D18);
   Color _targetBg2 = const Color(0xFF060608);
+  Color _targetBg3 = const Color(0xFF030305);
   Color _currentBg1 = const Color(0xFF0D0D18);
   Color _currentBg2 = const Color(0xFF060608);
+  Color _currentBg3 = const Color(0xFF030305);
+
+  // ── Breathing gradient (4s loop, reverse) ──
+  late final AnimationController _breatheCtrl;
 
   // ── Swipe-down to dismiss ──
   double _dragY = 0;
@@ -101,11 +98,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _playBtnAnim = Tween<double>(begin: 1.0, end: 0.87)
         .animate(CurvedAnimation(parent: _playBtnCtrl, curve: Curves.easeInOut));
 
-    // Background color: listener-free. We drive via AnimatedBuilder in _BgLayer.
     _bgColorCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 700),
     );
+
+    // Breathing: slow pulse 4s, loops forever with reverse
+    _breatheCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 4000),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -114,15 +116,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _artworkCtrl.dispose();
     _playBtnCtrl.dispose();
     _bgColorCtrl.dispose();
+    _breatheCtrl.dispose();
     super.dispose();
   }
 
-  // ── Palette extraction → sets target colors, starts morph ──
+  // ── Palette extraction → 3 colors, starts morph ──
   Future<void> _extractColor(String url) async {
     if (url.isEmpty || url == _lastArtUrl) return;
     _lastArtUrl = url;
     try {
-      ImageProvider provider;
+      final ImageProvider provider;
       if (url.startsWith('http')) {
         provider = CachedNetworkImageProvider(url);
       } else {
@@ -130,17 +133,31 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       }
       final pg = await PaletteGenerator.fromImageProvider(
           provider, size: const Size(80, 80));
-      final c = pg.vibrantColor?.color ??
+
+      // 3 distinct color roles
+      final c1 = pg.vibrantColor?.color ??
           pg.dominantColor?.color ??
-          pg.mutedColor?.color ??
           const Color(0xFF1A1630);
+      final c2 = pg.dominantColor?.color ??
+          pg.mutedColor?.color ??
+          const Color(0xFF120F24);
+      final c3 = pg.darkMutedColor?.color ??
+          pg.darkVibrantColor?.color ??
+          const Color(0xFF080810);
+
       if (!mounted) return;
 
-      // Capture "from" snapshot so lerp starts from where we currently are
-      _currentBg1 = Color.lerp(_currentBg1, _targetBg1, _bgColorCtrl.value) ?? _currentBg1;
-      _currentBg2 = Color.lerp(_currentBg2, _targetBg2, _bgColorCtrl.value) ?? _currentBg2;
-      _targetBg1 = Color.lerp(c, Colors.black, 0.38)!;
-      _targetBg2 = Color.lerp(c, Colors.black, 0.76)!;
+      // Snapshot current lerped position before morphing
+      final t = _bgColorCtrl.value;
+      _currentBg1 = Color.lerp(_currentBg1, _targetBg1, t) ?? _currentBg1;
+      _currentBg2 = Color.lerp(_currentBg2, _targetBg2, t) ?? _currentBg2;
+      _currentBg3 = Color.lerp(_currentBg3, _targetBg3, t) ?? _currentBg3;
+
+      // Darken each color appropriately for bg
+      _targetBg1 = Color.lerp(c1, Colors.black, 0.40)!;
+      _targetBg2 = Color.lerp(c2, Colors.black, 0.62)!;
+      _targetBg3 = Color.lerp(c3, Colors.black, 0.80)!;
+
       _bgColorCtrl.forward(from: 0.0);
     } catch (_) {}
   }
@@ -177,7 +194,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withAlpha(165),
       useSafeArea: false,
-      builder: (_) => _PremiumContentPanel(bg1: _currentBg1, bg2: _currentBg2),
+      builder: (_) => _PremiumContentPanel(
+        bg1: _currentBg1,
+        bg2: _currentBg2,
+        bg3: _currentBg3,
+      ),
     );
   }
 
@@ -188,36 +209,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0F0F1A),
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-      builder: (_) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: 36, height: 4,
-            margin: const EdgeInsets.symmetric(vertical: 14),
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(40),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          _OptionTile(
-            icon: Icons.queue_music_rounded,
-            label: 'Add to Queue',
-            onTap: () { Navigator.pop(context); player.addToQueue(song); },
-          ),
-          _OptionTile(
-            icon: Icons.skip_next_rounded,
-            label: 'Play Next',
-            onTap: () { Navigator.pop(context); player.playNext(song); },
-          ),
-          _OptionTile(
-            icon: Icons.share_rounded,
-            label: 'Share',
-            onTap: () => Navigator.pop(context),
-          ),
-          const SizedBox(height: 12),
-        ]),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      barrierColor: Colors.black.withAlpha(150),
+      builder: (_) => _PremiumOptionsSheet(
+        song: song,
+        player: player,
+        accentColor: _targetBg1,
       ),
     );
   }
@@ -277,10 +275,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             child: _BgLayer(
                               song: song,
                               bgCtrl: _bgColorCtrl,
+                              breatheCtrl: _breatheCtrl,
                               startBg1: _currentBg1,
                               startBg2: _currentBg2,
+                              startBg3: _currentBg3,
                               targetBg1: _targetBg1,
                               targetBg2: _targetBg2,
+                              targetBg3: _targetBg3,
                             ),
                           ),
                           SafeArea(
@@ -314,7 +315,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         onVerticalDragEnd: (d) {
           if ((d.primaryVelocity ?? 0) < -400) _openPanel();
         },
-        // FIX: spread operator instead of const []..addAll()
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -363,11 +363,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Drag Handle — wired to actual drag state
+// Drag Handle
 // ─────────────────────────────────────────────────────────────────────────────
 class _DragHandle extends StatelessWidget {
   final bool isDragging;
-
   const _DragHandle({required this.isDragging});
 
   @override
@@ -390,12 +389,11 @@ class _DragHandle extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Top Bar — glass capsule with album info
+// Top Bar
 // ─────────────────────────────────────────────────────────────────────────────
 class _TopBar extends StatelessWidget {
   final Song song;
   final VoidCallback onMore;
-
   const _TopBar({required this.song, required this.onMore});
 
   @override
@@ -456,14 +454,12 @@ class _TopBar extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Artwork — Hero transition with scale animation
+// Artwork
 // ─────────────────────────────────────────────────────────────────────────────
 class _Artwork extends StatelessWidget {
   final Song song;
   final PlayerProvider player;
-  final double hPad;
-  final double h;
-  final double w;
+  final double hPad, h, w;
   final Animation<double> artworkAnim;
 
   const _Artwork({
@@ -537,13 +533,12 @@ class _Artwork extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Song Info — title, artist, favourite button
+// Song Info
 // ─────────────────────────────────────────────────────────────────────────────
 class _SongInfo extends StatelessWidget {
   final Song song;
   final double hPad;
-  final bool isTablet;
-  final bool isFav;
+  final bool isTablet, isFav;
   final VoidCallback onFavTap;
 
   const _SongInfo({
@@ -600,12 +595,11 @@ class _SongInfo extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Seek Bar — premium: expands thumb on drag, haptic on snap
+// Seek Bar
 // ─────────────────────────────────────────────────────────────────────────────
 class _SeekBar extends StatefulWidget {
   final PlayerProvider player;
   final double hPad;
-
   const _SeekBar({required this.player, required this.hPad});
 
   @override
@@ -686,7 +680,7 @@ class _SeekBarState extends State<_SeekBar> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Controls — play/pause, prev/next, shuffle, repeat
+// Controls
 // ─────────────────────────────────────────────────────────────────────────────
 class _Controls extends StatelessWidget {
   final PlayerProvider player;
@@ -772,12 +766,11 @@ class _Controls extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Quality Pills — local, language, year badges
+// Quality Pills
 // ─────────────────────────────────────────────────────────────────────────────
 class _QualityPills extends StatelessWidget {
   final Song song;
   final double hPad;
-
   const _QualityPills({required this.song, required this.hPad});
 
   @override
@@ -802,12 +795,11 @@ class _QualityPills extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Bottom Pill — opens panel
+// Bottom Pill
 // ─────────────────────────────────────────────────────────────────────────────
 class _BottomPill extends StatelessWidget {
   final double hPad;
   final VoidCallback onTap;
-
   const _BottomPill({required this.hPad, required this.onTap});
 
   @override
@@ -824,10 +816,7 @@ class _BottomPill extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white.withAlpha(10),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: Colors.white.withAlpha(18),
-              width: 0.5,
-            ),
+            border: Border.all(color: Colors.white.withAlpha(18), width: 0.5),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -853,11 +842,10 @@ class _BottomPill extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Premium Play Button — loading uses spinner, not icon swap
+// Premium Play Button
 // ─────────────────────────────────────────────────────────────────────────────
 class _PremiumPlayButton extends StatelessWidget {
-  final bool isPlaying;
-  final bool isLoading;
+  final bool isPlaying, isLoading;
   final Color bg1;
   final VoidCallback onTap;
 
@@ -925,12 +913,11 @@ class _PremiumPlayButton extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Favourite Button — spring-animated icon switch
+// Favourite Button
 // ─────────────────────────────────────────────────────────────────────────────
 class _FavButton extends StatelessWidget {
   final bool isFav;
   final VoidCallback onTap;
-
   const _FavButton({required this.isFav, required this.onTap});
 
   @override
@@ -957,11 +944,10 @@ class _FavButton extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Quality Pill — inline badge
+// Quality Pill
 // ─────────────────────────────────────────────────────────────────────────────
 class _QualityPill extends StatelessWidget {
   final String label;
-
   const _QualityPill({required this.label});
 
   @override
@@ -987,13 +973,234 @@ class _QualityPill extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Premium Options Sheet — JioSaavn / Echo Nightly style grid
+// ─────────────────────────────────────────────────────────────────────────────
+class _PremiumOptionsSheet extends StatelessWidget {
+  final Song song;
+  final PlayerProvider player;
+  final Color accentColor;
+
+  const _PremiumOptionsSheet({
+    required this.song,
+    required this.player,
+    required this.accentColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = [
+      _SheetAction(Icons.skip_next_rounded, 'Play Next', () {
+        Navigator.pop(context);
+        player.playNext(song);
+      }),
+      _SheetAction(Icons.queue_music_rounded, 'Add to Queue', () {
+        Navigator.pop(context);
+        player.addToQueue(song);
+      }),
+      _SheetAction(Icons.favorite_border_rounded, 'Like', () {
+        Navigator.pop(context);
+      }),
+      _SheetAction(Icons.share_rounded, 'Share', () {
+        Navigator.pop(context);
+      }),
+      _SheetAction(Icons.playlist_add_rounded, 'Save to Playlist', () {
+        Navigator.pop(context);
+      }),
+      _SheetAction(Icons.library_add_rounded, 'Save to Library', () {
+        Navigator.pop(context);
+      }),
+      _SheetAction(Icons.equalizer_rounded, 'Audio Effects', () {
+        Navigator.pop(context);
+      }),
+      _SheetAction(Icons.timer_outlined, 'Sleep Timer', () {
+        Navigator.pop(context);
+      }),
+      _SheetAction(Icons.info_outline_rounded, 'Song Info', () {
+        Navigator.pop(context);
+      }),
+      _SheetAction(Icons.radio_rounded, 'Go to Radio', () {
+        Navigator.pop(context);
+      }),
+    ];
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Color.lerp(accentColor, const Color(0xFF0C0C18), 0.55)!
+                .withAlpha(245),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border(
+              top: BorderSide(color: Colors.white.withAlpha(14), width: 0.5),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Drag handle
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 12, bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withAlpha(40),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                // Song header
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: AurumArtwork(
+                          url: song.artworkUrl, size: 52, borderRadius: 10),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            song.title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              height: 1.2,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            song.artist,
+                            style: TextStyle(
+                              color: Colors.white.withAlpha(120),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w400,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ]),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 16),
+                  child: Divider(
+                    color: Colors.white.withAlpha(14),
+                    height: 1,
+                  ),
+                ),
+                // Action grid
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      childAspectRatio: 2.6,
+                    ),
+                    itemCount: actions.length,
+                    itemBuilder: (_, i) => _SheetActionTile(
+                      action: actions[i],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetAction {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _SheetAction(this.icon, this.label, this.onTap);
+}
+
+class _SheetActionTile extends StatefulWidget {
+  final _SheetAction action;
+  const _SheetActionTile({required this.action});
+
+  @override
+  State<_SheetActionTile> createState() => _SheetActionTileState();
+}
+
+class _SheetActionTileState extends State<_SheetActionTile> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) {
+        setState(() => _pressed = false);
+        HapticFeedback.selectionClick();
+        widget.action.onTap();
+      },
+      onTapCancel: () => setState(() => _pressed = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 100),
+        decoration: BoxDecoration(
+          color: _pressed
+              ? Colors.white.withAlpha(22)
+              : Colors.white.withAlpha(10),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: Colors.white.withAlpha(_pressed ? 22 : 12),
+            width: 0.5,
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+        child: Row(
+          children: [
+            Icon(widget.action.icon,
+                size: 18, color: Colors.white.withAlpha(200)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.action.label,
+                style: TextStyle(
+                  color: Colors.white.withAlpha(220),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Premium Content Panel — Queue / Lyrics / Info
 // ─────────────────────────────────────────────────────────────────────────────
 class _PremiumContentPanel extends StatefulWidget {
-  final Color bg1;
-  final Color bg2;
-
-  const _PremiumContentPanel({required this.bg1, required this.bg2});
+  final Color bg1, bg2, bg3;
+  const _PremiumContentPanel(
+      {required this.bg1, required this.bg2, required this.bg3});
 
   @override
   State<_PremiumContentPanel> createState() => _PremiumContentPanelState();
@@ -1079,9 +1286,12 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                         colors: [
                           Color.lerp(widget.bg1, const Color(0xFF0A0A16), 0.5)!
                               .withAlpha(247),
-                          Color.lerp(widget.bg2, const Color(0xFF020206), 0.6)!
+                          Color.lerp(widget.bg2, const Color(0xFF060610), 0.5)!
+                              .withAlpha(248),
+                          Color.lerp(widget.bg3, const Color(0xFF020206), 0.6)!
                               .withAlpha(250),
                         ],
+                        stops: const [0.0, 0.5, 1.0],
                       ),
                       border: Border(
                         top: BorderSide(
@@ -1092,7 +1302,8 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                       Padding(
                         padding: const EdgeInsets.only(top: 12, bottom: 6),
                         child: Container(
-                          width: 32, height: 4,
+                          width: 32,
+                          height: 4,
                           decoration: BoxDecoration(
                             color: Colors.white.withAlpha(40),
                             borderRadius: BorderRadius.circular(2),
@@ -1119,10 +1330,14 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
 
   Widget _buildTabContent() {
     switch (_activeTab) {
-      case 0: return const _QueuePage();
-      case 1: return const _LyricsPage();
-      case 2: return const _InfoPage();
-      default: return const _QueuePage();
+      case 0:
+        return const _QueuePage();
+      case 1:
+        return const _LyricsPage();
+      case 2:
+        return const _InfoPage();
+      default:
+        return const _QueuePage();
     }
   }
 
@@ -1153,20 +1368,12 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 200),
-                            style: TextStyle(
-                              color: isActive
-                                  ? AurumTheme.gold
-                                  : Colors.white.withAlpha(80),
-                            ),
-                            child: Icon(
-                              tabs[i].$1,
-                              size: 20,
-                              color: isActive
-                                  ? AurumTheme.gold
-                                  : Colors.white.withAlpha(80),
-                            ),
+                          Icon(
+                            tabs[i].$1,
+                            size: 20,
+                            color: isActive
+                                ? AurumTheme.gold
+                                : Colors.white.withAlpha(80),
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -1208,7 +1415,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Queue Page
+// Queue Page — Echo Nightly style
 // ─────────────────────────────────────────────────────────────────────────────
 class _QueuePage extends StatelessWidget {
   const _QueuePage();
@@ -1241,31 +1448,63 @@ class _QueuePage extends StatelessWidget {
           );
         }
 
-        return ReorderableListView.builder(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        // Separate now playing from up next
+        final upNext = <int>[];
+        for (int i = 0; i < queue.length; i++) {
+          if (i != current) upNext.add(i);
+        }
+
+        return CustomScrollView(
           physics: const BouncingScrollPhysics(),
-          itemCount: queue.length,
-          onReorder: (from, to) {
-            HapticFeedback.mediumImpact();
-            player.moveQueueItem(from, to > from ? to - 1 : to);
-          },
-          itemBuilder: (_, i) {
-            final s = queue[i];
-            final isCurrent = i == current;
-            return _QueueTile(
-              key: ValueKey('${s.id}_$i'),
-              song: s,
-              isCurrent: isCurrent,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                player.skipToIndex(i);
-              },
-              onRemove: () {
-                HapticFeedback.mediumImpact();
-                player.removeFromQueue(i);
-              },
-            );
-          },
+          slivers: [
+            // Now Playing header
+            if (current != null && current < queue.length)
+              SliverToBoxAdapter(
+                child: _NowPlayingHeader(song: queue[current]),
+              ),
+            // Up Next label
+            if (upNext.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                  child: Text(
+                    'UP NEXT',
+                    style: TextStyle(
+                      color: Colors.white.withAlpha(60),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.8,
+                    ),
+                  ),
+                ),
+              ),
+            // Up next list
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (_, listIdx) {
+                    final queueIdx = upNext[listIdx];
+                    return _QueueTile(
+                      key: ValueKey('${queue[queueIdx].id}_$queueIdx'),
+                      song: queue[queueIdx],
+                      isCurrent: false,
+                      index: listIdx + 1,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        player.skipToIndex(queueIdx);
+                      },
+                      onRemove: () {
+                        HapticFeedback.mediumImpact();
+                        player.removeFromQueue(queueIdx);
+                      },
+                    );
+                  },
+                  childCount: upNext.length,
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -1273,11 +1512,163 @@ class _QueuePage extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Queue Tile — swipe-to-remove with spring settle on cancel
+// Now Playing Header — large card at top of queue
+// ─────────────────────────────────────────────────────────────────────────────
+class _NowPlayingHeader extends StatelessWidget {
+  final Song song;
+  const _NowPlayingHeader({required this.song});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AurumTheme.gold.withAlpha(18),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: AurumTheme.gold.withAlpha(40),
+            width: 0.5,
+          ),
+        ),
+        child: Row(children: [
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AurumArtwork(
+                    url: song.artworkUrl, size: 54, borderRadius: 12),
+              ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: AurumTheme.gold,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: const Center(
+                    child: _MiniEqualizerIcon(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'NOW PLAYING',
+                  style: TextStyle(
+                    color: AurumTheme.gold.withAlpha(200),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.6,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  song.title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  song.artist,
+                  style: TextStyle(
+                    color: Colors.white.withAlpha(110),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mini Equalizer Icon — for now playing badge
+// ─────────────────────────────────────────────────────────────────────────────
+class _MiniEqualizerIcon extends StatefulWidget {
+  const _MiniEqualizerIcon();
+
+  @override
+  State<_MiniEqualizerIcon> createState() => _MiniEqualizerIconState();
+}
+
+class _MiniEqualizerIconState extends State<_MiniEqualizerIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 700))
+      ..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        final v = _ctrl.value;
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            _bar(0.4 + 0.6 * v, 7),
+            const SizedBox(width: 1),
+            _bar(0.9 - 0.5 * v, 7),
+            const SizedBox(width: 1),
+            _bar(0.6 + 0.4 * v, 7),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _bar(double f, double maxH) => Container(
+        width: 2,
+        height: maxH * f,
+        decoration: BoxDecoration(
+          color: Colors.black.withAlpha(180),
+          borderRadius: BorderRadius.circular(1),
+        ),
+      );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Queue Tile — Echo Nightly style with swipe-to-remove
 // ─────────────────────────────────────────────────────────────────────────────
 class _QueueTile extends StatefulWidget {
   final Song song;
   final bool isCurrent;
+  final int index;
   final VoidCallback onTap;
   final VoidCallback onRemove;
 
@@ -1285,6 +1676,7 @@ class _QueueTile extends StatefulWidget {
     super.key,
     required this.song,
     required this.isCurrent,
+    required this.index,
     required this.onTap,
     required this.onRemove,
   });
@@ -1304,9 +1696,7 @@ class _QueueTileState extends State<_QueueTile>
   void initState() {
     super.initState();
     _swipeCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 220),
-    );
+        vsync: this, duration: const Duration(milliseconds: 220));
     _settleAnim = AlwaysStoppedAnimation(0.0);
   }
 
@@ -1324,7 +1714,6 @@ class _QueueTileState extends State<_QueueTile>
         if (mounted) widget.onRemove();
       });
     } else {
-      // Spring-settle back to zero
       final fromOffset = _dragOffset;
       _settleAnim = Tween<double>(begin: fromOffset, end: 0.0).animate(
         CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
@@ -1353,8 +1742,9 @@ class _QueueTileState extends State<_QueueTile>
       child: AnimatedBuilder(
         animation: _swipeCtrl,
         builder: (_, child) {
-          final offset = _swiped ? _dragOffset : 
-              (_swipeCtrl.isAnimating && _dragOffset == 0)
+          final offset = _swiped
+              ? _dragOffset
+              : (_swipeCtrl.isAnimating && _dragOffset == 0)
                   ? _settleAnim.value
                   : _dragOffset;
           return Transform.translate(
@@ -1362,27 +1752,36 @@ class _QueueTileState extends State<_QueueTile>
             child: child,
           );
         },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
+        child: Container(
           margin: const EdgeInsets.symmetric(vertical: 3),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: widget.isCurrent
-                ? AurumTheme.gold.withAlpha(18)
-                : Colors.transparent,
+            color: Colors.white.withAlpha(7),
             borderRadius: BorderRadius.circular(16),
-            border: widget.isCurrent
-                ? Border.all(color: AurumTheme.gold.withAlpha(35), width: 0.5)
-                : null,
+            border: Border.all(
+              color: Colors.white.withAlpha(10),
+              width: 0.5,
+            ),
           ),
           child: Row(children: [
+            // Index number
+            SizedBox(
+              width: 22,
+              child: Text(
+                '${widget.index}',
+                style: TextStyle(
+                  color: Colors.white.withAlpha(45),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const SizedBox(width: 10),
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: AurumArtwork(
-                url: widget.song.artworkUrl,
-                size: 46,
-                borderRadius: 10,
-              ),
+                  url: widget.song.artworkUrl, size: 44, borderRadius: 10),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1392,11 +1791,9 @@ class _QueueTileState extends State<_QueueTile>
                   Text(
                     widget.song.title,
                     style: TextStyle(
-                      color: widget.isCurrent ? AurumTheme.gold : Colors.white,
-                      fontSize: 13.5,
-                      fontWeight: widget.isCurrent
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+                      color: Colors.white.withAlpha(220),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1415,11 +1812,8 @@ class _QueueTileState extends State<_QueueTile>
               ),
             ),
             const SizedBox(width: 8),
-            if (widget.isCurrent)
-              const _EqualizerIcon()
-            else
-              Icon(Icons.drag_handle_rounded,
-                  color: Colors.white.withAlpha(45), size: 18),
+            Icon(Icons.drag_handle_rounded,
+                color: Colors.white.withAlpha(40), size: 18),
           ]),
         ),
       ),
@@ -1428,7 +1822,7 @@ class _QueueTileState extends State<_QueueTile>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Lyrics Page — AnimatedSwitcher between states for smooth transitions
+// Lyrics Page
 // ─────────────────────────────────────────────────────────────────────────────
 class _LyricsPage extends StatefulWidget {
   const _LyricsPage();
@@ -1474,7 +1868,6 @@ class _LyricsPageState extends State<_LyricsPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Unified AnimatedSwitcher for all 3 states — elegant cross-fade
     Widget content;
     if (_loading) {
       content = const Center(
@@ -1498,14 +1891,14 @@ class _LyricsPageState extends State<_LyricsPage> {
               style: TextStyle(
                 color: Colors.white.withAlpha(140),
                 fontSize: 16,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
-              'Not available for this song',
+              'Lyrics not available for this song',
               style: TextStyle(
-                color: Colors.white.withAlpha(60),
+                color: Colors.white.withAlpha(70),
                 fontSize: 13,
               ),
             ),
@@ -1513,43 +1906,32 @@ class _LyricsPageState extends State<_LyricsPage> {
         ),
       );
     } else {
-      content = ShaderMask(
+      content = SingleChildScrollView(
         key: const ValueKey('lyrics'),
-        shaderCallback: (rect) => const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.transparent, Colors.white, Colors.white, Colors.transparent],
-          stops: [0.0, 0.06, 0.92, 1.0],
-        ).createShader(rect),
-        blendMode: BlendMode.dstIn,
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(28, 16, 28, 48),
-          child: Text(
-            _lyrics!,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 17,
-              height: 2.0,
-              fontWeight: FontWeight.w400,
-              letterSpacing: 0.15,
-            ),
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
+        child: Text(
+          _lyrics ?? '',
+          style: TextStyle(
+            color: Colors.white.withAlpha(200),
+            fontSize: 15,
+            height: 1.85,
+            fontWeight: FontWeight.w400,
+            letterSpacing: 0.1,
           ),
         ),
       );
     }
 
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 320),
-      transitionBuilder: (child, anim) =>
-          FadeTransition(opacity: anim, child: child),
+      duration: const Duration(milliseconds: 260),
       child: content,
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Info Page — song metadata
+// Info Page
 // ─────────────────────────────────────────────────────────────────────────────
 class _InfoPage extends StatelessWidget {
   const _InfoPage();
@@ -1641,122 +2023,134 @@ class _InfoPage extends StatelessWidget {
 
 class _InfoHeader extends StatelessWidget {
   final Song song;
-
   const _InfoHeader({required this.song});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: AurumArtwork(url: song.artworkUrl, size: 72, borderRadius: 14),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                song.title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  height: 1.2,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+    return Row(children: [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: AurumArtwork(url: song.artworkUrl, size: 72, borderRadius: 14),
+      ),
+      const SizedBox(width: 16),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              song.title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                height: 1.2,
               ),
-              const SizedBox(height: 4),
-              Text(
-                song.artist,
-                style: TextStyle(
-                  color: Colors.white.withAlpha(120),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w400,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              song.artist,
+              style: TextStyle(
+                color: Colors.white.withAlpha(120),
+                fontSize: 13,
+                fontWeight: FontWeight.w400,
               ),
-            ],
-          ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ),
-      ],
-    );
+      ),
+    ]);
   }
 }
 
 class _InfoRow {
   final String label;
   final String value;
-
   const _InfoRow(this.label, this.value);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Background Layer — AnimatedBuilder-driven, zero-setState repaints
-// bg lerp happens inside AnimatedBuilder scope, not in parent setState
+// Background Layer — 3-color palette + breathing gradient
+// AnimatedBuilder-driven, zero setState, isolated RepaintBoundary
 // ─────────────────────────────────────────────────────────────────────────────
 class _BgLayer extends StatelessWidget {
   final Song song;
   final AnimationController bgCtrl;
-  final Color startBg1;
-  final Color startBg2;
-  final Color targetBg1;
-  final Color targetBg2;
+  final AnimationController breatheCtrl;
+  final Color startBg1, startBg2, startBg3;
+  final Color targetBg1, targetBg2, targetBg3;
 
   const _BgLayer({
     required this.song,
     required this.bgCtrl,
+    required this.breatheCtrl,
     required this.startBg1,
     required this.startBg2,
+    required this.startBg3,
     required this.targetBg1,
     required this.targetBg2,
+    required this.targetBg3,
   });
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: bgCtrl,
+      animation: Listenable.merge([bgCtrl, breatheCtrl]),
       builder: (_, __) {
         final t = bgCtrl.value;
+        final b = CurvedAnimation(
+          parent: breatheCtrl,
+          curve: Curves.easeInOut,
+        ).value;
+
+        // Palette morph
         final bg1 = Color.lerp(startBg1, targetBg1, t)!;
         final bg2 = Color.lerp(startBg2, targetBg2, t)!;
+        final bg3 = Color.lerp(startBg3, targetBg3, t)!;
+
+        // Breathing: subtle gradient alignment shift + opacity pulse
+        final breatheShift = b * 0.10;
+        final topAlign = Alignment(-0.2 + breatheShift, -1.0);
+        final botAlign = Alignment(0.2 - breatheShift, 1.0);
+
+        // Artwork opacity breathes: 0.20 → 0.28
+        final artOpacity = 0.20 + b * 0.08;
 
         return Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [bg1, bg2, const Color(0xFF020204)],
-              stops: const [0.0, 0.50, 1.0],
+              begin: topAlign,
+              end: botAlign,
+              colors: [bg1, bg2, bg3, const Color(0xFF010103)],
+              stops: const [0.0, 0.35, 0.68, 1.0],
             ),
           ),
           child: song.artworkUrl.isNotEmpty
               ? Stack(fit: StackFit.expand, children: [
                   Opacity(
-                    opacity: 0.30,
+                    opacity: artOpacity,
                     child: AurumArtwork(
                       url: song.artworkUrl,
                       size: double.infinity,
                       borderRadius: 0,
                     ),
                   ),
-                  // Reduced blur sigma: 80→60 for GPU savings
                   BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
+                    filter: ImageFilter.blur(sigmaX: 50, sigmaY: 50),
                     child: Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            bg1.withAlpha(96),
-                            bg2.withAlpha(176),
-                            const Color(0xFF020204).withAlpha(252),
+                            bg1.withAlpha(82 + (b * 18).toInt()),
+                            bg2.withAlpha(165),
+                            const Color(0xFF010103).withAlpha(252),
                           ],
-                          stops: const [0.0, 0.40, 1.0],
+                          stops: const [0.0, 0.42, 1.0],
                         ),
                       ),
                     ),
@@ -1770,12 +2164,11 @@ class _BgLayer extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Marquee Text — scroll with pause delay before looping
+// Marquee Text
 // ─────────────────────────────────────────────────────────────────────────────
 class _MarqueeText extends StatefulWidget {
   final String text;
   final TextStyle style;
-
   const _MarqueeText({required this.text, required this.style});
 
   @override
@@ -1790,7 +2183,6 @@ class _MarqueeTextState extends State<_MarqueeText>
   @override
   void initState() {
     super.initState();
-    // 9s scroll + 1.5s pause at end before looping
     _ctrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 10500));
   }
@@ -1832,10 +2224,14 @@ class _MarqueeTextState extends State<_MarqueeText>
             overflow: TextOverflow.ellipsis);
       }
 
-      // Fade edges via ShaderMask — no extra widget layer
       return ShaderMask(
         shaderCallback: (rect) => const LinearGradient(
-          colors: [Colors.transparent, Colors.white, Colors.white, Colors.transparent],
+          colors: [
+            Colors.transparent,
+            Colors.white,
+            Colors.white,
+            Colors.transparent
+          ],
           stops: [0.0, 0.04, 0.92, 1.0],
         ).createShader(rect),
         blendMode: BlendMode.dstIn,
@@ -1845,7 +2241,6 @@ class _MarqueeTextState extends State<_MarqueeText>
             child: AnimatedBuilder(
               animation: _ctrl,
               builder: (_, __) {
-                // 9s scroll, 1.5s pause — use Interval to hold at end
                 final scrollAnim = CurvedAnimation(
                   parent: _ctrl,
                   curve: const Interval(0.0, 0.857, curve: Curves.linear),
@@ -1871,7 +2266,7 @@ class _MarqueeTextState extends State<_MarqueeText>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Buffered Track Shape — custom slider with buffered indication
+// Buffered Track Shape
 // ─────────────────────────────────────────────────────────────────────────────
 class _BufferedTrackShape extends RoundedRectSliderTrackShape {
   const _BufferedTrackShape();
@@ -1921,7 +2316,7 @@ class _BufferedTrackShape extends RoundedRectSliderTrackShape {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Equalizer Icon — animated bars for now-playing indicator
+// Equalizer Icon — animated bars
 // ─────────────────────────────────────────────────────────────────────────────
 class _EqualizerIcon extends StatefulWidget {
   const _EqualizerIcon();
@@ -1982,7 +2377,7 @@ class _EqualizerIconState extends State<_EqualizerIcon>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Icon Button — minimal tap target
+// Icon Button
 // ─────────────────────────────────────────────────────────────────────────────
 class _IconBtn extends StatelessWidget {
   final IconData icon;
@@ -2015,7 +2410,7 @@ class _IconBtn extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Control Button — secondary playback action
+// Control Button
 // ─────────────────────────────────────────────────────────────────────────────
 class _CtrlBtn extends StatelessWidget {
   final IconData icon;
@@ -2048,37 +2443,6 @@ class _CtrlBtn extends StatelessWidget {
           child: Icon(icon, size: size, color: c),
         ),
       ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Option Tile — menu item
-// ─────────────────────────────────────────────────────────────────────────────
-class _OptionTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _OptionTile({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon, color: Colors.white, size: 20),
-      title: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 14,
-          fontWeight: FontWeight.w400,
-        ),
-      ),
-      onTap: onTap,
     );
   }
 }
