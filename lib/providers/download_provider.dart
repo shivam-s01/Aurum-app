@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
 import '../models/download_item.dart';
 import '../services/notification_service.dart';
+import '../services/api_service.dart';
 
 /// Manages downloading songs for offline playback.
 ///
@@ -98,18 +99,40 @@ class DownloadProvider extends ChangeNotifier {
 
   /// Starts (or resumes) downloading a song. Safe to call multiple times —
   /// no-ops if already downloaded or currently downloading.
-  Future<void> download(Song song) async {
-    final url = song.streamUrl;
-    if (url == null || url.isEmpty) return;
-    if (isDownloaded(song.id) || isDownloading(song.id)) return;
+  ///
+  /// Returns true if the download actually started, false if it couldn't
+  /// (e.g. no stream URL could be resolved) — callers use this to show
+  /// the right feedback to the user.
+  Future<bool> download(Song song) async {
+    if (isDownloaded(song.id) || isDownloading(song.id)) return true;
+    if (song.isLocal) return false; // already on device, nothing to download
 
-    // Immediately show as queued so the UI (library + sheet) reacts instantly.
+    // Show "queued" immediately so the UI reacts instantly, even while we
+    // resolve the actual stream URL (YouTube songs don't carry one upfront).
     await _persist(DownloadItem(song: song, status: DownloadStatus.queued));
     await NotificationService.instance.showProgress(
       songId: song.id,
       title: song.title,
       percent: 0,
     );
+
+    String? url = song.streamUrl;
+    if (url == null || url.isEmpty || !url.startsWith('http')) {
+      try {
+        url = await ApiService.resolveStreamUrl(song);
+      } catch (_) {
+        url = null;
+      }
+    }
+
+    if (url == null || url.isEmpty) {
+      await _persist(_items[song.id]!.copyWith(status: DownloadStatus.failed));
+      await NotificationService.instance.showFailed(
+        songId: song.id,
+        title: song.title,
+      );
+      return false;
+    }
 
     final cancelToken = CancelToken();
     _cancelTokens[song.id] = cancelToken;
@@ -169,16 +192,19 @@ class DownloadProvider extends ChangeNotifier {
         songId: song.id,
         title: song.title,
       );
+      return true;
     } catch (e) {
       if (cancelToken.isCancelled) {
         await _persist(_items[song.id]!.copyWith(status: DownloadStatus.cancelled));
         await NotificationService.instance.cancelProgress(song.id);
+        return false;
       } else {
         await _persist(_items[song.id]!.copyWith(status: DownloadStatus.failed));
         await NotificationService.instance.showFailed(
           songId: song.id,
           title: song.title,
         );
+        return false;
       }
     } finally {
       _cancelTokens.remove(song.id);

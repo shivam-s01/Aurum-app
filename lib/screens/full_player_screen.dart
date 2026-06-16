@@ -1034,10 +1034,6 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
     final song = widget.song;
     final downloads = context.read<DownloadProvider>();
 
-    if (song.streamUrl == null || song.streamUrl!.isEmpty) {
-      _snack('No stream URL available');
-      return;
-    }
     if (downloads.isDownloaded(song.id)) {
       _snack('Already downloaded');
       return;
@@ -1046,10 +1042,23 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       _snack('Already downloading');
       return;
     }
+    if (song.isLocal) {
+      _snack('Already on this device');
+      return;
+    }
 
-    downloads.download(song);
-    _snack('Downloading ${song.title}…');
     Navigator.pop(context);
+    _snack('Downloading ${song.title}…');
+
+    downloads.download(song).then((started) {
+      if (!started && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Couldn\'t download "${song.title}" — stream unavailable'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ));
+      }
+    });
   }
 
   @override
