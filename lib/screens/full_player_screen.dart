@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,11 +5,9 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
-import 'package:dio/dio.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/download_provider.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
@@ -1025,9 +1022,6 @@ class _PremiumOptionsSheet extends StatefulWidget {
 }
 
 class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
-  bool _downloading = false;
-  double _dlProgress = 0;
-
   void _snack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
@@ -1036,58 +1030,26 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
     ));
   }
 
-  Future<void> _downloadSong() async {
+  void _downloadSong() {
     final song = widget.song;
-    final url = song.streamUrl;
-    if (url == null || url.isEmpty) {
+    final downloads = context.read<DownloadProvider>();
+
+    if (song.streamUrl == null || song.streamUrl!.isEmpty) {
       _snack('No stream URL available');
       return;
     }
-
-    // Permission
-    if (Platform.isAndroid) {
-      final status = await Permission.storage.request();
-      if (!status.isGranted) {
-        _snack('Storage permission denied');
-        return;
-      }
+    if (downloads.isDownloaded(song.id)) {
+      _snack('Already downloaded');
+      return;
+    }
+    if (downloads.isDownloading(song.id)) {
+      _snack('Already downloading');
+      return;
     }
 
-    setState(() { _downloading = true; _dlProgress = 0; });
-
-    try {
-      final dir = await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
-      final musicDir = Directory('${dir.path}/Aurum Music');
-      if (!await musicDir.exists()) await musicDir.create(recursive: true);
-
-      final safeName = song.title
-          .replaceAll(RegExp(r'[^\w\s\-]'), '')
-          .trim()
-          .replaceAll(' ', '_');
-      final filePath = '${musicDir.path}/$safeName.mp3';
-
-      await Dio().download(
-        url,
-        filePath,
-        onReceiveProgress: (received, total) {
-          if (total > 0 && mounted) {
-            setState(() => _dlProgress = received / total);
-          }
-        },
-      );
-
-      if (mounted) {
-        setState(() => _downloading = false);
-        Navigator.pop(context);
-        _snack('Downloaded: ${song.title}');
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _downloading = false);
-        _snack('Download failed');
-      }
-    }
+    downloads.download(song);
+    _snack('Downloading ${song.title}…');
+    Navigator.pop(context);
   }
 
   @override
@@ -1096,6 +1058,10 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final fav = context.watch<FavoritesProvider>();
     final isLiked = fav.isFavorite(song.id);
+    final downloads = context.watch<DownloadProvider>();
+    final dlItem = downloads.statusOf(song.id);
+    final isDownloaded = downloads.isDownloaded(song.id);
+    final isDownloading = downloads.isDownloading(song.id);
 
     final bgColor = isLight
         ? AurumTheme.lightBgCard
@@ -1144,9 +1110,28 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       _SheetAction(Icons.timer_outlined, 'Sleep Timer', Colors.cyan, () {
         Navigator.pop(context);
       }),
-      _SheetAction(Icons.download_rounded, 'Download', AurumTheme.gold, () {
-        _downloadSong();
-      }),
+      _SheetAction(
+        isDownloaded
+            ? Icons.download_done_rounded
+            : isDownloading
+                ? Icons.downloading_rounded
+                : Icons.download_rounded,
+        isDownloaded
+            ? 'Downloaded'
+            : isDownloading
+                ? 'Downloading…'
+                : 'Download',
+        AurumTheme.gold,
+        () {
+          if (isDownloaded) {
+            _snack('Already downloaded');
+          } else if (isDownloading) {
+            _snack('Already downloading');
+          } else {
+            _downloadSong();
+          }
+        },
+      ),
       _SheetAction(Icons.info_outline_rounded, 'Song Info', textMuted, () {
         Navigator.pop(context);
       }),
@@ -1218,19 +1203,19 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
                   ),
                 ),
                 // Download progress
-                if (_downloading)
+                if (isDownloading)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                     child: Column(children: [
                       Row(children: [
                         Icon(Icons.download_rounded, size: 14, color: AurumTheme.gold),
                         const SizedBox(width: 8),
-                        Text('Downloading ${(_dlProgress * 100).toStringAsFixed(0)}%',
+                        Text('Downloading ${((dlItem?.progress ?? 0) * 100).toStringAsFixed(0)}%',
                           style: TextStyle(color: textMuted, fontSize: 12)),
                       ]),
                       const SizedBox(height: 6),
                       LinearProgressIndicator(
-                        value: _dlProgress,
+                        value: dlItem?.progress,
                         backgroundColor: isLight
                             ? AurumTheme.lightBgSurface
                             : Colors.white.withAlpha(20),

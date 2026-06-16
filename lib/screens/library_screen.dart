@@ -5,7 +5,10 @@ import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
+import '../providers/download_provider.dart';
+import '../models/download_item.dart';
 import '../widgets/song_tile.dart';
+import '../widgets/aurum_artwork.dart';
 import '../models/song.dart';
 import 'settings_screen.dart';
 import 'liked_screen.dart';
@@ -86,7 +89,7 @@ class LibraryScreen extends StatelessWidget {
             label: 'Downloads',
             color: Colors.amber,
             onTap: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const _DownloadsScreen())),
+                MaterialPageRoute(builder: (_) => const DownloadsScreen())),
           ),
           const SizedBox(width: 10),
           _QuickChip(
@@ -467,18 +470,223 @@ class _LocalFilesScreen extends StatelessWidget {
 }
 
 // ── Downloads Screen ───────────────────────────────────────────────────────
-class _DownloadsScreen extends StatelessWidget {
-  const _DownloadsScreen();
+class DownloadsScreen extends StatelessWidget {
+  const DownloadsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return _ComingSoonScreen(
-      title: 'Downloads',
-      icon: Icons.download_rounded,
-      color: Colors.amber,
-      message: 'Your downloaded songs will appear here.',
+    final downloads = context.watch<DownloadProvider>();
+    final inProgress = downloads.inProgress;
+    final completed = downloads.completed;
+    final isEmpty = inProgress.isEmpty && completed.isEmpty;
+
+    return Scaffold(
+      backgroundColor: AurumTheme.bgOf(context),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 100,
+            floating: true,
+            snap: true,
+            backgroundColor: AurumTheme.bgOf(context),
+            leading: IconButton(
+              icon: Icon(Icons.arrow_back_ios_rounded,
+                  color: AurumTheme.textSecondaryOf(context), size: 20),
+              onPressed: () => Navigator.pop(context),
+            ),
+            flexibleSpace: FlexibleSpaceBar(
+              titlePadding: const EdgeInsets.fromLTRB(52, 0, 16, 16),
+              title: Row(
+                children: [
+                  const Icon(Icons.download_rounded, color: Colors.amber, size: 22),
+                  const SizedBox(width: 8),
+                  ShaderMask(
+                    shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
+                    child: const Text('Downloads',
+                        style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (isEmpty)
+            SliverFillRemaining(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                        ),
+                        child: const Icon(Icons.download_rounded, color: Colors.amber, size: 36),
+                      ),
+                      const SizedBox(height: 20),
+                      Text('No downloads yet',
+                          style: TextStyle(
+                              color: AurumTheme.textPrimaryOf(context),
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Download a song from the player to listen offline.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            color: AurumTheme.textMutedOf(context),
+                            fontSize: 13,
+                            height: 1.5),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else ...[
+            if (inProgress.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: _sectionHeader(context, 'DOWNLOADING'),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, i) => _DownloadTile(item: inProgress[i]),
+                  childCount: inProgress.length,
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            ],
+            if (completed.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: _sectionHeader(context, '${completed.length} DOWNLOADED'),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, i) => _DownloadTile(item: completed[i]),
+                  childCount: completed.length,
+                ),
+              ),
+            ],
+            const SliverToBoxAdapter(child: SizedBox(height: 100)),
+          ],
+        ],
+      ),
     );
   }
+
+  Widget _sectionHeader(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      child: Text(title,
+          style: TextStyle(
+              color: AurumTheme.textMutedOf(context),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.5)),
+    );
+  }
+}
+
+class _DownloadTile extends StatelessWidget {
+  final DownloadItem item;
+  const _DownloadTile({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final song = item.song;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Opacity(
+              opacity: item.isDownloading ? 0.4 : 1.0,
+              child: AurumArtwork(url: song.artworkUrl, size: 48, borderRadius: 8),
+            ),
+            if (item.isDownloading)
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  value: item.progress > 0 ? item.progress : null,
+                  strokeWidth: 2.5,
+                  valueColor: const AlwaysStoppedAnimation(AurumTheme.gold),
+                ),
+              ),
+          ],
+        ),
+      ),
+      title: Text(song.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 14,
+              fontWeight: FontWeight.w600)),
+      subtitle: item.isDownloading
+          ? Text('Downloading • ${(item.progress * 100).toStringAsFixed(0)}%',
+              style: const TextStyle(color: AurumTheme.gold, fontSize: 12))
+          : item.isFailed
+              ? const Text('Failed — tap to retry',
+                  style: TextStyle(color: Colors.redAccent, fontSize: 12))
+              : Text(song.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: AurumTheme.textMutedOf(context), fontSize: 12)),
+      trailing: item.isDownloading
+          ? IconButton(
+              icon: Icon(Icons.close_rounded,
+                  color: AurumTheme.textMutedOf(context), size: 20),
+              onPressed: () =>
+                  context.read<DownloadProvider>().cancelDownload(song.id),
+            )
+          : PopupMenuButton<String>(
+              icon: Icon(Icons.more_vert_rounded,
+                  color: AurumTheme.textMutedOf(context), size: 20),
+              color: isLight ? AurumTheme.lightBgCard : AurumTheme.darkBgCard,
+              onSelected: (value) {
+                final dl = context.read<DownloadProvider>();
+                if (value == 'delete') {
+                  dl.deleteDownload(song.id);
+                } else if (value == 'retry') {
+                  dl.retry(song);
+                }
+              },
+              itemBuilder: (_) => [
+                if (item.isFailed)
+                  const PopupMenuItem(value: 'retry', child: Text('Retry')),
+                const PopupMenuItem(value: 'delete', child: Text('Remove download')),
+              ],
+            ),
+      onTap: () {
+        if (item.isFailed) {
+          context.read<DownloadProvider>().retry(song);
+        } else if (item.isCompleted) {
+          final offlineSong =
+              context.read<DownloadProvider>().offlineSongFor(song.id) ?? song;
+          context.read<PlayerProvider>().playSong(offlineSong);
+        }
+      },
+    );
+  }
+}
+
+// Kept as a private alias so any old references in this file still compile.
+class _DownloadsScreen extends DownloadsScreen {
+  const _DownloadsScreen() : super();
 }
 
 // ── Playlists Screen ───────────────────────────────────────────────────────

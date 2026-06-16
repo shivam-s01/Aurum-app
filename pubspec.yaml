@@ -47,6 +47,9 @@ dependencies:
   package_info_plus: ^4.2.0
   path_provider: ^2.1.1
 
+  # Notifications (download progress)
+  flutter_local_notifications: ^17.2.3
+
   # Settings features
   sensors_plus: ^5.0.1
 

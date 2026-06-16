@@ -5,11 +5,14 @@ import 'package:audio_service/audio_service.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'services/audio_handler.dart';
+import 'services/notification_service.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/download_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
+import 'screens/library_screen.dart';
 import 'providers/source_provider.dart';
 import 'providers/favorites_provider.dart';
 import 'providers/recently_played_provider.dart';
@@ -17,10 +20,14 @@ import 'screens/splash_screen.dart';
 
 late AurumAudioHandler _audioHandler;
 
+/// Global navigator key — lets the notification-tap callback (which fires
+/// outside the widget tree) push the Downloads screen.
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Hive init for local DB (favorites, playlists, recently played)
+  // Hive init for local DB (favorites, playlists, recently played, downloads)
   await Hive.initFlutter();
 
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -49,6 +56,16 @@ Future<void> main() async {
     _audioHandler = AurumAudioHandler();
   }
 
+  // Download progress/complete notifications. Tapping one opens Downloads.
+  try {
+    await NotificationService.instance.init();
+    NotificationService.instance.onNotificationTapped = () {
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (_) => const DownloadsScreen()),
+      );
+    };
+  } catch (_) {}
+
   runApp(AurumApp(handler: _audioHandler));
 }
 
@@ -65,6 +82,7 @@ class AurumApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => SourceProvider()), // ← offline
         ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()), // was missing — used by liked/library/song_tile
         ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()), // for Library "Recently Played" + Home "Made For You"
+        ChangeNotifierProvider(create: (_) => DownloadProvider()..init()), // offline downloads
         // PlayerProvider gets RecentlyPlayedProvider for behavior tracking (skip/complete/replay)
         ChangeNotifierProxyProvider<RecentlyPlayedProvider, PlayerProvider>(
           create: (_) => PlayerProvider(handler),
@@ -96,6 +114,7 @@ class AurumApp extends StatelessWidget {
           ));
 
           return MaterialApp(
+            navigatorKey: navigatorKey,
             title: 'Aurum Music',
             debugShowCheckedModeBanner: false,
             themeMode: themeProvider.themeMode,
