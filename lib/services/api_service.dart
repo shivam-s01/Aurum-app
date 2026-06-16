@@ -103,6 +103,18 @@ class ApiService {
     _activePrefetch = null;
   }
 
+  /// Fire-and-forget ping to wake the Saavn free-tier backend as early as
+  /// possible (e.g. right at app launch) so it's warm by the time the user
+  /// opens Home or Search. Render free tier sleeps after inactivity and the
+  /// first real request can otherwise eat several seconds of cold-start.
+  static void wakeSaavn() {
+    _client
+        .get(Uri.parse('$_saavn/result/?query=hello&limit=1'))
+        .timeout(const Duration(seconds: 15))
+        .then((_) => _log('[wakeSaavn] Backend is warm'))
+        .catchError((e) => _log('[wakeSaavn] Ping failed: $e'));
+  }
+
   // ===========================================================================
   // SECTION 8: HOME FEED v2 — Personalized + Time-Aware
   //
@@ -295,8 +307,20 @@ class ApiService {
   }
 
   static Future<SongSection?> _saavnSection(String query, String label) async {
-    final songs = await _searchSaavn(query, limit: 15);
-    if (songs.isNotEmpty) return SongSection(title: label, songs: songs);
+    // Saavn + YouTube fire together so a cold/asleep Saavn backend doesn't
+    // add its full timeout on top of the YouTube fallback's — worst case is
+    // max(saavn_timeout, yt_timeout), not their sum.
+    final both = await Future.wait([
+      _searchSaavn(query, limit: 15),
+      _searchYt(query, limit: 15)
+          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]),
+    ]);
+
+    final saavnSongs = both[0];
+    final ytSongs = both[1];
+
+    if (saavnSongs.isNotEmpty) return SongSection(title: label, songs: saavnSongs);
+    if (ytSongs.isNotEmpty) return SongSection(title: label, songs: ytSongs);
     return null;
   }
 
@@ -549,15 +573,39 @@ class ApiService {
     final q = query.trim();
     if (q.isEmpty) return [];
 
-    final results = await _searchSaavn(q, limit: limit + 5);
-    if (results.isEmpty) return [];
+    // Run both sources in parallel with a hard ceiling — if Saavn's free
+    // backend is asleep/cold, this no longer blocks live search behind its
+    // full timeout. Whichever sources respond in time get merged; YouTube
+    // alone is enough to keep results flowing instantly.
+    final both = await Future.wait([
+      _searchSaavn(q, limit: limit + 5)
+          .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]),
+      _searchYt(q, limit: limit)
+          .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]),
+    ]);
+
+    final saavnResults = both[0];
+    final ytResults = both[1];
+    if (saavnResults.isEmpty && ytResults.isEmpty) return [];
 
     final wantsVariant = _wantsVariantQuery(q);
-    final scored = results
-        .map((s) => _ScoredSong(s, _scoreSearchResult(s, q, wantsVariant)))
-        .toList()
-      ..sort((a, b) => b.score.compareTo(a.score));
+    final scored = <_ScoredSong>[];
+    final seenTitles = <String>{};
 
+    for (final song in saavnResults) {
+      final norm = _normTitle(song.title);
+      if (seenTitles.add(norm)) {
+        scored.add(_ScoredSong(song, _scoreSearchResult(song, q, wantsVariant)));
+      }
+    }
+    for (final song in ytResults) {
+      final norm = _normTitle(song.title);
+      if (seenTitles.add(norm)) {
+        scored.add(_ScoredSong(song, _scoreSearchResult(song, q, wantsVariant)));
+      }
+    }
+
+    scored.sort((a, b) => b.score.compareTo(a.score));
     return scored.take(limit).map((s) => s.song).toList();
   }
 
@@ -574,7 +622,7 @@ class ApiService {
       final url = Uri.parse(
         '$_saavn/result/?query=${Uri.encodeQueryComponent(query)}&limit=5',
       );
-      final res = await _client.get(url).timeout(const Duration(seconds: 5));
+      final res = await _client.get(url).timeout(const Duration(seconds: 3));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final results = data is List ? data : (data['data']?['results'] ?? []);
@@ -600,7 +648,7 @@ class ApiService {
       final url = Uri.parse(
         '$_saavn/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
       );
-      final res = await _client.get(url).timeout(const Duration(seconds: 10));
+      final res = await _client.get(url).timeout(const Duration(seconds: 4));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final results = data is List

@@ -6,6 +6,7 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'services/audio_handler.dart';
 import 'services/notification_service.dart';
+import 'services/api_service.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
@@ -26,6 +27,10 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Wake the Saavn free-tier backend the instant the app launches — by the
+  // time the user reaches Home/Search it's had a head start to warm up.
+  ApiService.wakeSaavn();
 
   // Hive init for local DB (favorites, playlists, recently played, downloads)
   await Hive.initFlutter();

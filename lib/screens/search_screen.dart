@@ -141,17 +141,20 @@ class _SearchScreenState extends State<SearchScreen>
     _suggestDebounce = Timer(const Duration(milliseconds: 280), () async {
       if (!mounted || _controller.text.trim() != query) return;
 
-      final fetched = await Future.wait([
-        ApiService.suggest(query),
-        ApiService.quickSearch(query),
-      ]);
+      // Fire both independently — whichever resolves first updates the UI
+      // immediately. Previously these were awaited together, so a slow
+      // autocomplete call could hold up already-ready song results.
+      ApiService.quickSearch(query).then((songs) {
+        if (!mounted || _controller.text.trim() != query) return;
+        setState(() {
+          _liveResults = songs;
+          _liveLoading = false;
+        });
+      });
 
-      if (!mounted || _controller.text.trim() != query) return;
-
-      setState(() {
-        _suggestions = fetched[0] as List<String>;
-        _liveResults = fetched[1] as List<Song>;
-        _liveLoading = false;
+      ApiService.suggest(query).then((suggestions) {
+        if (!mounted || _controller.text.trim() != query) return;
+        setState(() => _suggestions = suggestions);
       });
 
       // also trigger browse if on Browse tab
