@@ -101,6 +101,12 @@ class PlayerProvider extends ChangeNotifier {
       _onSongChanged(index);
       _maybeExtendQueue(index);
     }));
+
+    // Fired synchronously the instant audio_handler updates its queue —
+    // happens before stream resolution, so the UI shows the new "now
+    // playing" song right away instead of waiting several seconds for
+    // currentIndexStream (which only fires once playback actually starts).
+    _handler.onQueueChanged = () => notifyListeners();
   }
 
   // ---------------------------------------------------------------------------

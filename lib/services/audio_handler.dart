@@ -16,6 +16,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   List<Song> _queue        = [];
   int        _currentIndex = 0;
 
+  // Fired synchronously the instant _queue/_currentIndex change — lets
+  // PlayerProvider notify the UI immediately (new "now playing" song,
+  // equalizer icon, mini-player) without waiting for currentIndexStream,
+  // which only fires once just_audio finishes loading the resolved source.
+  void Function()? onQueueChanged;
+
   // Cancellation token — each new playQueue/playSong call gets a fresh ID.
   // Background resolvers check this before touching the playlist.
   int _playSessionId = 0;
@@ -172,15 +178,20 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final mySession = _playSessionId;
     _isLoadingNewSong = true;
 
+    // Set queue/index synchronously, before any async gap, so currentSong
+    // reflects the tapped song the instant this function is called — the
+    // UI doesn't have to wait for stop()/resolve() to see the new "now
+    // playing" state.
+    _queue        = List<Song>.from(songs);
+    _currentIndex = 0; // always 0 in fresh playlist; we adjust after prepend
+    onQueueChanged?.call();
+
     try {
       // 1. Hard stop — old song dies immediately, no bleed-through
       await _player.stop();
 
       // Check if superseded by an even newer tap
       if (mySession != _playSessionId) return;
-
-      _queue        = List<Song>.from(songs);
-      _currentIndex = 0; // always 0 in fresh playlist; we adjust after prepend
 
       // 2. Resolve clicked song
       final startSource = await _sourceForSong(songs[startIndex]);
@@ -252,11 +263,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _playSessionId++;
     final mySession = _playSessionId;
 
-    await _player.stop();
-    if (mySession != _playSessionId) return;
-
     _queue        = [song];
     _currentIndex = 0;
+    onQueueChanged?.call();
+
+    await _player.stop();
+    if (mySession != _playSessionId) return;
 
     final source = await _sourceForSong(song);
     if (mySession != _playSessionId) return;

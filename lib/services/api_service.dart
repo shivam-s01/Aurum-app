@@ -47,7 +47,7 @@ class ApiService {
   // ---------------------------------------------------------------------------
   // SECTION 2: BASE URLs
   // ---------------------------------------------------------------------------
-  static const String _saavn  = 'https://jiosavan.onrender.com';
+  static const String _saavn  = 'https://jiosaavn-op-gits.onrender.com';
   static const String _worker = AppConstants.apiBase;
 
   // ---------------------------------------------------------------------------
