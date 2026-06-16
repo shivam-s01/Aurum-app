@@ -13,6 +13,7 @@ import '../widgets/song_tile.dart';
 import '../widgets/aurum_loader.dart';
 import 'package:shimmer/shimmer.dart';
 import 'settings_screen.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -52,7 +53,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final isOnline = src.isOnline;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
-      body: CustomScrollView(
+      body: RefreshIndicator(
+        color: AurumTheme.gold,
+        backgroundColor: AurumTheme.bgCardOf(context),
+        onRefresh: () => isOnline ? _loadOnline() : context.read<LibraryProvider>().refresh(),
+        child: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
           _buildAppBar(context, src),
@@ -84,6 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
+        ),
       ),
     );
   }
@@ -115,9 +121,29 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icon(Icons.settings_outlined, color: AurumTheme.textSecondaryOf(context)),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
         ),
-        IconButton(
-          icon: Icon(Icons.refresh_rounded, color: AurumTheme.textSecondaryOf(context)),
-          onPressed: src.isOnline ? _loadOnline : () => context.read<LibraryProvider>().refresh(),
+        Padding(
+          padding: const EdgeInsets.only(right: 16, left: 4),
+          child: GestureDetector(
+            onTap: () {
+              HapticFeedback.lightImpact();
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+            },
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: AurumTheme.goldGradient,
+              ),
+              padding: const EdgeInsets.all(1.5),
+              child: ClipOval(
+                child: Container(
+                  color: AurumTheme.bgOf(context),
+                  child: Icon(Icons.person_rounded, color: AurumTheme.textSecondaryOf(context), size: 20),
+                ),
+              ),
+            ),
+          ),
         ),
       ],
     );
@@ -330,25 +356,33 @@ class _SourceToggle extends StatelessWidget {
   }
 }
 
-class _SongCard extends StatelessWidget {
+class _SongCard extends StatefulWidget {
   final Song song;
   final List<Song> queue;
   final int index;
   const _SongCard({required this.song, required this.queue, required this.index});
 
-  static bool _isTapping = false;
+  @override
+  State<_SongCard> createState() => _SongCardState();
+}
+
+class _SongCardState extends State<_SongCard> {
+  bool _isTapping = false;
+
+  Future<void> _handleTap() async {
+    if (_isTapping) return;
+    _isTapping = true;
+    context.read<PlayerProvider>().playSong(widget.song, queue: widget.queue, index: widget.index);
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (mounted) _isTapping = false;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final song = widget.song;
     final isPlaying = context.select<PlayerProvider, bool>((p) => p.currentSong?.id == song.id);
     return GestureDetector(
-      onTap: () async {
-        if (_isTapping) return;
-        _isTapping = true;
-        context.read<PlayerProvider>().playSong(song, queue: queue, index: index);
-        await Future.delayed(const Duration(milliseconds: 300));
-        _isTapping = false;
-      },
+      onTap: _handleTap,
       child: Container(
         width: 140,
         margin: const EdgeInsets.only(right: 12),
