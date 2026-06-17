@@ -7,6 +7,7 @@ import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../theme/aurum_theme.dart';
+import '../screens/library_screen.dart' show showAddToPlaylistSheet;
 import 'aurum_artwork.dart';
 
 class SongTile extends StatefulWidget {
@@ -335,7 +336,10 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                   icon: Icons.playlist_add_rounded,
                   label: 'Save to Playlist',
                   color: Colors.blueAccent,
-                  onTap: () => _comingSoon('Save to Playlist'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showAddToPlaylistSheet(widget.rootContext, song);
+                  },
                 ),
                 _GridOption(
                   icon: Icons.bookmark_border_rounded,

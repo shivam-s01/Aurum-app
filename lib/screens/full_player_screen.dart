@@ -11,6 +11,7 @@ import '../providers/download_provider.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import 'library_screen.dart' show showAddToPlaylistSheet;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FullPlayerScreen v5.0 — Echo Nightly Premium
@@ -234,6 +235,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         song: song,
         player: player,
         accentColor: _targetBg1,
+        rootContext: context,
       ),
     );
   }
@@ -1010,11 +1012,13 @@ class _PremiumOptionsSheet extends StatefulWidget {
   final Song song;
   final PlayerProvider player;
   final Color accentColor;
+  final BuildContext rootContext;
 
   const _PremiumOptionsSheet({
     required this.song,
     required this.player,
     required this.accentColor,
+    required this.rootContext,
   });
 
   @override
@@ -1109,6 +1113,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       }),
       _SheetAction(Icons.playlist_add_rounded, 'Save to Playlist', Colors.blueAccent, () {
         Navigator.pop(context);
+        showAddToPlaylistSheet(widget.rootContext, song);
       }),
       _SheetAction(Icons.bookmark_border_rounded, 'Save to Library', Colors.teal, () {
         Navigator.pop(context);

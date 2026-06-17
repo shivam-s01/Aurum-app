@@ -70,7 +70,12 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // v2 addition:  also call RecommendationEngine.onSongStarted().
   // ---------------------------------------------------------------------------
   Future<void> addPlay(Song song) async {
-    if (song.source == SongSource.local) return;
+    // FIX: previously this returned early for local songs, so playing
+    // anything from "Local Files" never showed up in History/Recently
+    // Played. Local songs should still be recorded — they just don't
+    // need stream-URL stripping (they have none) and we skip the
+    // RecommendationEngine hooks for them below (those are tuned for
+    // streamed/online songs' artist/genre affinity, not device files).
 
     // Dedup: remove existing entry for this song (move-to-front)
     _history.removeWhere((s) => s.id == song.id);

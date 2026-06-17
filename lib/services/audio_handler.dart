@@ -29,6 +29,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // Prevent concurrent playQueue calls from racing each other.
   bool _isLoadingNewSong = false;
 
+  // True while _resolveQueueInBackground is still splicing songs into the
+  // live ConcatenatingAudioSource. During this window the player's own
+  // internal sequence index does NOT correspond 1:1 with `_currentIndex`
+  // (which tracks position within the full `_queue`), because the player
+  // starts with just one song and grows toward the full queue size. The
+  // currentIndexStream listener below must ignore index updates while this
+  // is true, otherwise it stomps `_currentIndex` with a stale/mismatched
+  // value and the UI appears to jump to a different song mid-playback.
+  bool _splicingInProgress = false;
+
   StreamSubscription<AccelerometerEvent>? _shakeSub;
   DateTime _lastShake = DateTime.now();
   static const double _shakeThreshold = 15.0;
@@ -92,6 +102,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
 
     _player.currentIndexStream.listen((index) {
+      // FIX: while songs are still being spliced into the live player
+      // sequence (playQueue's background prepend/append phase), the
+      // player's own index is NOT the same coordinate space as
+      // `_currentIndex` (queue position) — trusting it here caused the
+      // displayed "now playing" song to jump around on its own.
+      if (_splicingInProgress) return;
       if (index != null && index != _currentIndex && index < _queue.length) {
         _currentIndex = index;
         _updateMediaItem(_queue[index]);
@@ -182,8 +198,21 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     // reflects the tapped song the instant this function is called — the
     // UI doesn't have to wait for stop()/resolve() to see the new "now
     // playing" state.
+    //
+    // FIX: _currentIndex must match startIndex's position in `_queue`
+    // (the full, original-order list) from the very first frame.
+    // The player's OWN ConcatenatingAudioSource starts with just one
+    // song at player-index 0 (see below), which is a SEPARATE notion
+    // of "index" from this one — _currentIndex tracks position within
+    // `_queue`/`songs`, not within the live player sequence. Setting
+    // this to 0 unconditionally caused currentSong to point at the
+    // wrong song whenever startIndex > 0 (i.e. any tap that wasn't the
+    // first item in a playlist), and the desync only "resolved itself"
+    // once the background prepend loop finished — which looked like
+    // the song randomly changing mid-playback.
     _queue        = List<Song>.from(songs);
-    _currentIndex = 0; // always 0 in fresh playlist; we adjust after prepend
+    _currentIndex = startIndex;
+    _splicingInProgress = true; // raised until background splice finishes
     onQueueChanged?.call();
 
     try {
@@ -191,17 +220,17 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       await _player.stop();
 
       // Check if superseded by an even newer tap
-      if (mySession != _playSessionId) return;
+      if (mySession != _playSessionId) { return; }
 
       // 2. Resolve clicked song
       final startSource = await _sourceForSong(songs[startIndex]);
-      if (mySession != _playSessionId) return; // superseded
-      if (startSource == null) return;
+      if (mySession != _playSessionId) { return; }
+      if (startSource == null) { _splicingInProgress = false; return; }
 
       // 3. Fresh single-song playlist — no placeholders, no auto-skip
       final fresh = ConcatenatingAudioSource(children: [startSource]);
       await _player.setAudioSource(fresh, initialIndex: 0, preload: true);
-      if (mySession != _playSessionId) return;
+      if (mySession != _playSessionId) { return; }
 
       await _reapplySpeed();
       _updateMediaItem(songs[startIndex]);
@@ -220,40 +249,54 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // this entire routine exits silently without touching the player.
   void _resolveQueueInBackground(
       List<Song> songs, int startIndex, int sessionId) async {
-    // --- Songs AFTER startIndex (append) ---
-    for (int i = startIndex + 1; i < songs.length; i++) {
-      if (sessionId != _playSessionId) return;
-      try {
-        final source = await _sourceForSong(songs[i]);
+    try {
+      // --- Songs AFTER startIndex (append) ---
+      for (int i = startIndex + 1; i < songs.length; i++) {
         if (sessionId != _playSessionId) return;
-        if (source != null) {
-          await _player.sequence?.last; // wait for player to be stable
-          // Get current ConcatenatingAudioSource from player
-          final seq = _player.audioSource;
-          if (seq is ConcatenatingAudioSource && sessionId == _playSessionId) {
-            await seq.add(source);
+        try {
+          final source = await _sourceForSong(songs[i]);
+          if (sessionId != _playSessionId) return;
+          if (source != null) {
+            // Get current ConcatenatingAudioSource from player
+            final seq = _player.audioSource;
+            if (seq is ConcatenatingAudioSource && sessionId == _playSessionId) {
+              await seq.add(source);
+            }
           }
-        }
-      } catch (_) {}
-    }
+        } catch (_) {}
+      }
 
-    // --- Songs BEFORE startIndex (prepend one by one, adjust index) ---
-    // We insert in reverse so final order is correct
-    for (int i = startIndex - 1; i >= 0; i--) {
-      if (sessionId != _playSessionId) return;
-      try {
-        final source = await _sourceForSong(songs[i]);
+      // --- Songs BEFORE startIndex (prepend one by one, adjust index) ---
+      // We insert in reverse so final order is correct.
+      //
+      // FIX: _currentIndex tracks position within `_queue` (already correct,
+      // set to startIndex in playQueue) and must NOT be mutated here. What
+      // actually shifts is the LIVE player's ConcatenatingAudioSource index
+      // (it started with just one song at player-position 0), so we track
+      // that separately as `playerIndex` and use it only for the seek call
+      // that keeps just_audio's currentIndexStream pointed at the right
+      // (still-playing) item while songs are spliced in before it.
+      int playerIndex = 0;
+      for (int i = startIndex - 1; i >= 0; i--) {
         if (sessionId != _playSessionId) return;
-        if (source != null) {
-          final seq = _player.audioSource;
-          if (seq is ConcatenatingAudioSource && sessionId == _playSessionId) {
-            await seq.insert(0, source);
-            _currentIndex++;
-            // Seek to same position in same song (index shifted by 1)
-            await _player.seek(_player.position, index: _currentIndex);
+        try {
+          final source = await _sourceForSong(songs[i]);
+          if (sessionId != _playSessionId) return;
+          if (source != null) {
+            final seq = _player.audioSource;
+            if (seq is ConcatenatingAudioSource && sessionId == _playSessionId) {
+              await seq.insert(0, source);
+              playerIndex++;
+              // Seek to same position in same song (player index shifted by 1)
+              await _player.seek(_player.position, index: playerIndex);
+            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
+    } finally {
+      // Only the still-active session may lower the flag — a superseded
+      // session must never clear a newer session's in-progress splice.
+      if (sessionId == _playSessionId) _splicingInProgress = false;
     }
   }
 
@@ -265,6 +308,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     _queue        = [song];
     _currentIndex = 0;
+    _splicingInProgress = false; // single-song queue, no splice phase
     onQueueChanged?.call();
 
     await _player.stop();
@@ -322,6 +366,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _playSessionId++; // cancel any background work
     _queue        = [];
     _currentIndex = 0;
+    _splicingInProgress = false;
     final seq = _player.audioSource;
     if (seq is ConcatenatingAudioSource) await seq.clear();
     mediaItem.add(null);
