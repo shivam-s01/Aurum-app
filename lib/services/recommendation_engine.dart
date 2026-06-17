@@ -202,6 +202,13 @@ class RecommendationEngine {
     // Update play count
     _plays[song.id] = (_plays[song.id] ?? 0) + 1;
 
+    // Light immediate signal — user chose to play this, so nudge affinity
+    // right away instead of waiting for 80% completion. Small delta so a
+    // single tap doesn't overpower real signals, but home feed reacts fast.
+    _boostArtist(song.artist, delta: 0.06);
+    _boostGenre(detectGenre(song), delta: 0.05);
+    _boostLanguage(detectLanguage(song), delta: 0.04);
+
     // Update session context
     _updateSession(song);
 
