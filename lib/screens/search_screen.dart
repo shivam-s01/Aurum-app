@@ -14,6 +14,94 @@ import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_loader.dart';
 import 'full_player_screen.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Staggered list item — fade + slide up, same system as home_screen.dart's
+// _StaggeredSection. Capped delay so long result lists don't take forever
+// to finish animating in; items beyond the cap appear immediately.
+// ─────────────────────────────────────────────────────────────────────────────
+class _StaggeredItem extends StatefulWidget {
+  final int index;
+  final Widget child;
+  const _StaggeredItem({required this.index, required this.child});
+
+  @override
+  State<_StaggeredItem> createState() => _StaggeredItemState();
+}
+
+class _StaggeredItemState extends State<_StaggeredItem>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _fade;
+  late Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    final cappedIndex = widget.index.clamp(0, 10);
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    );
+    _fade = Tween(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut),
+    );
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+
+    Future.delayed(Duration(milliseconds: 20 + cappedIndex * 35), () {
+      if (mounted) _ctrl.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, child) => FadeTransition(
+        opacity: _fade,
+        child: SlideTransition(position: _slide, child: child),
+      ),
+      child: widget.child,
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Faded horizontal list edges — same lightweight ShaderMask trick as
+// home_screen.dart, so horizontal rows feel consistent across the app.
+// ─────────────────────────────────────────────────────────────────────────────
+class _FadedHorizontalList extends StatelessWidget {
+  final Widget child;
+  final double height;
+  const _FadedHorizontalList({required this.child, required this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = AurumTheme.bgOf(context);
+    return SizedBox(
+      height: height,
+      child: ShaderMask(
+        shaderCallback: (bounds) => LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [bg, Colors.transparent, Colors.transparent, bg],
+          stops: const [0.0, 0.03, 0.93, 1.0],
+        ).createShader(bounds),
+        blendMode: BlendMode.dstIn,
+        child: child,
+      ),
+    );
+  }
+}
+
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 
@@ -339,7 +427,6 @@ class _SearchScreenState extends State<SearchScreen>
             borderRadius: BorderRadius.circular(8),
           ),
           indicatorSize: TabBarIndicatorSize.tab,
-          indicatorAnimation: TabIndicatorAnimation.elastic,
           dividerColor: Colors.transparent,
           labelColor: Colors.black,
           unselectedLabelColor: AurumTheme.textSecondaryOf(context),
@@ -391,13 +478,10 @@ class _SearchScreenState extends State<SearchScreen>
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: _focusNode.hasFocus
-                ? const Color(0xFF7C3AED).withOpacity(0.55)
+                ? AurumTheme.gold.withOpacity(0.45)
                 : AurumTheme.dividerOf(context),
             width: _focusNode.hasFocus ? 1.2 : 0.5,
           ),
-          boxShadow: _focusNode.hasFocus
-              ? [BoxShadow(color: const Color(0xFF7C3AED).withOpacity(0.12), blurRadius: 12)]
-              : [],
         ),
         child: TextField(
           controller: _controller,
@@ -497,9 +581,12 @@ class _SearchScreenState extends State<SearchScreen>
           ],
           if (hasLive) ...[
             _sectionLabel(context, 'Songs'),
-            ..._liveResults.asMap().entries.map((e) => SongTile(
-              key: ValueKey('live_${e.value.id}_${e.key}'),
-              song: e.value, queue: _liveResults, index: e.key,
+            ..._liveResults.asMap().entries.map((e) => _StaggeredItem(
+              index: e.key,
+              child: SongTile(
+                key: ValueKey('live_${e.value.id}_${e.key}'),
+                song: e.value, queue: _liveResults, index: e.key,
+              ),
             )),
           ],
           if (query.isNotEmpty) _seeAllTile(context, query),
@@ -513,7 +600,7 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildLiveProgressBar(BuildContext context) {
     return SizedBox(height: 2, child: LinearProgressIndicator(
       backgroundColor: Colors.transparent,
-      valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF7C3AED).withOpacity(0.7)),
+      valueColor: AlwaysStoppedAnimation<Color>(AurumTheme.gold.withOpacity(0.7)),
     ));
   }
 
@@ -577,9 +664,12 @@ class _SearchScreenState extends State<SearchScreen>
       key: const ValueKey('results'),
       itemCount: _results.length,
       padding: const EdgeInsets.only(bottom: 80),
-      itemBuilder: (_, i) => SongTile(
-        key: ValueKey('result_${_results[i].id}_$i'),
-        song: _results[i], queue: _results, index: i,
+      itemBuilder: (_, i) => _StaggeredItem(
+        index: i,
+        child: SongTile(
+          key: ValueKey('result_${_results[i].id}_$i'),
+          song: _results[i], queue: _results, index: i,
+        ),
       ),
     );
   }
@@ -664,15 +754,18 @@ class _BrowseTabState extends State<_BrowseTab> {
         // Artists
         if (widget.result.artists.isNotEmpty) ...[
           _sectionLabel(context, 'Artists'),
-          SizedBox(
+          _FadedHorizontalList(
             height: 100,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: widget.result.artists.length,
-              itemBuilder: (_, i) => _ArtistChip(
-                artist: widget.result.artists[i],
-                onTap: () => _openArtist(widget.result.artists[i]),
+              itemBuilder: (_, i) => _StaggeredItem(
+                index: i,
+                child: _ArtistChip(
+                  artist: widget.result.artists[i],
+                  onTap: () => _openArtist(widget.result.artists[i]),
+                ),
               ),
             ),
           ),
@@ -680,15 +773,18 @@ class _BrowseTabState extends State<_BrowseTab> {
         // Albums
         if (widget.result.albums.isNotEmpty) ...[
           _sectionLabel(context, 'Albums'),
-          SizedBox(
+          _FadedHorizontalList(
             height: 180,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: widget.result.albums.length,
-              itemBuilder: (_, i) => _AlbumCard(
-                album: widget.result.albums[i],
-                onTap: () => _openAlbum(widget.result.albums[i]),
+              itemBuilder: (_, i) => _StaggeredItem(
+                index: i,
+                child: _AlbumCard(
+                  album: widget.result.albums[i],
+                  onTap: () => _openAlbum(widget.result.albums[i]),
+                ),
               ),
             ),
           ),
@@ -696,7 +792,10 @@ class _BrowseTabState extends State<_BrowseTab> {
         // Tracks
         if (widget.result.tracks.isNotEmpty) ...[
           _sectionLabel(context, 'Songs'),
-          ...widget.result.tracks.map((t) => _BrowseTrackTile(track: t, onPlay: () => widget.onPlay(t))),
+          ...widget.result.tracks.asMap().entries.map((e) => _StaggeredItem(
+            index: e.key,
+            child: _BrowseTrackTile(track: e.value, onPlay: () => widget.onPlay(e.value)),
+          )),
         ],
       ],
     );
@@ -721,7 +820,10 @@ class _BrowseTabState extends State<_BrowseTab> {
             child: ListView.builder(
               padding: const EdgeInsets.only(bottom: 100),
               itemCount: tracks.length,
-              itemBuilder: (_, i) => _BrowseTrackTile(track: tracks[i], onPlay: () => widget.onPlay(tracks[i])),
+              itemBuilder: (_, i) => _StaggeredItem(
+                index: i,
+                child: _BrowseTrackTile(track: tracks[i], onPlay: () => widget.onPlay(tracks[i])),
+              ),
             ),
           ),
       ],
@@ -746,6 +848,60 @@ class _BrowseTabState extends State<_BrowseTab> {
 }
 
 // ── Browse sub-widgets ─────────────────────────────────────────────────────────
+
+// Tiny reusable press-scale wrapper — same feel as home_screen's _SongCard
+// press animation, without duplicating an AnimationController per widget type.
+class _PressScale extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  const _PressScale({required this.child, required this.onTap});
+
+  @override
+  State<_PressScale> createState() => _PressScaleState();
+}
+
+class _PressScaleState extends State<_PressScale>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 90),
+      reverseDuration: const Duration(milliseconds: 200),
+    );
+    _scale = Tween(begin: 1.0, end: 0.94).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    HapticFeedback.selectionClick();
+    _ctrl.forward().then((_) => _ctrl.reverse());
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _handleTap,
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+        child: widget.child,
+      ),
+    );
+  }
+}
 
 class _BrowseTrackTile extends StatelessWidget {
   final BrowseTrack track;
@@ -778,7 +934,7 @@ class _AlbumCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return _PressScale(
       onTap: onTap,
       child: Container(
         width: 130,
@@ -804,7 +960,7 @@ class _ArtistChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return _PressScale(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(right: 12),
