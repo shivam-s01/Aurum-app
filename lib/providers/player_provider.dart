@@ -284,6 +284,14 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Restores the last queue into the UI/notification on app reopen WITHOUT
+  // starting playback. No network resolve, no AudioSource, no play() —
+  // genuinely idle until the user taps play themselves.
+  Future<void> restoreQueueSilently(List<Song> queue, int index) async {
+    await _handler.loadQueueSilently(queue, index);
+    notifyListeners();
+  }
+
   Future<void> togglePlay() async {
     if (_isPlaying) await _handler.pause();
     else            await _handler.play();

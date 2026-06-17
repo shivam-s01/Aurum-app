@@ -109,7 +109,36 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       // `_currentIndex` (queue position) — trusting it here caused the
       // displayed "now playing" song to jump around on its own.
       if (_splicingInProgress) return;
-      if (index != null && index != _currentIndex && index < _queue.length) {
+      if (index == null) return;
+
+      // FIX (notification metadata mismatch): right after splicing ends,
+      // a stray currentIndexStream event can fire with an index that no
+      // longer matches `_queue`'s current contents (queue mutated on a
+      // background isolate boundary vs this stream's delivery timing).
+      // Trusting `_queue[index]` blindly here was painting the WRONG
+      // song's title/artist/art into the lockscreen/notification while
+      // the correct audio kept playing underneath.
+      //
+      // The player's own current AudioSource tag is the ground truth —
+      // it's the exact MediaItem we attached via `_songToMediaItem` when
+      // the source was created, so it can never be out of sync with what
+      // is actually sounding.
+      final sequence = _player.sequence;
+      final inSourceRange = sequence != null && index < sequence.length;
+      final tag = inSourceRange ? sequence[index].tag : null;
+
+      if (tag is MediaItem) {
+        if (mediaItem.value?.id != tag.id) {
+          mediaItem.add(tag);
+        }
+        if (index != _currentIndex && index < _queue.length) {
+          _currentIndex = index;
+        }
+        return;
+      }
+
+      // Fallback: no usable source tag yet, use queue if indices align.
+      if (index != _currentIndex && index < _queue.length) {
         _currentIndex = index;
         _updateMediaItem(_queue[index]);
       }
@@ -220,18 +249,28 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     onQueueChanged?.call();
 
     try {
-      // 1. Hard stop — old song dies immediately, no bleed-through
+      // 1. Mute FIRST — `_player.setVolume(0)` is synchronous on the audio
+      // sink and is genuinely instant. `_player.stop()` below is NOT: on
+      // just_audio/ExoPlayer, stop() is handled on a native handler thread
+      // and can take a noticeable beat to actually silence the output —
+      // during that beat the OLD song kept audibly playing for a moment
+      // (loading spinner showing, but old audio still bleeding through).
+      // Muting first guarantees true zero-latency silence on every tap,
+      // regardless of how long stop()/resolve() actually take.
+      await _player.setVolume(0);
+
+      // 2. Hard stop — old song's engine state is torn down
       await _player.stop();
 
       // Check if superseded by an even newer tap
-      if (mySession != _playSessionId) { _splicingInProgress = false; return; }
+      if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
 
-      // 2. Resolve clicked song
+      // 3. Resolve clicked song
       final startSource = await _sourceForSong(songs[startIndex]);
-      if (mySession != _playSessionId) { _splicingInProgress = false; return; }
-      if (startSource == null) { _splicingInProgress = false; return; }
+      if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
+      if (startSource == null) { await _player.setVolume(1); _splicingInProgress = false; return; }
 
-      // 3. Fresh single-song playlist — no placeholders, no auto-skip
+      // 4. Fresh single-song playlist — no placeholders, no auto-skip
       // preload:false prevents setAudioSource from hanging when the stream
       // URL is slow/unreachable — just_audio will buffer on demand instead.
       final fresh = ConcatenatingAudioSource(children: [startSource]);
@@ -239,14 +278,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
       } catch (e) {
         debugPrint('[AurumHandler] setAudioSource failed: $e'); // FIX: now works via flutter/foundation.dart
+        await _player.setVolume(1);
         _splicingInProgress = false;
         return;
       }
-      if (mySession != _playSessionId) { _splicingInProgress = false; return; }
+      if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
 
       await _reapplySpeed();
       _updateMediaItem(songs[startIndex]);
       await _player.play();
+      await _player.setVolume(1); // restore — new song now audibly starts clean
 
     } finally {
       if (mySession == _playSessionId) {
@@ -323,6 +364,27 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
   }
 
+  // ─── SILENT RESTORE (app reopened — show last queue, do NOT auto-play) ───
+  // Used by main_shell's _restoreQueueIfNeeded. Unlike playQueue/playSong,
+  // this never touches AudioSource/network/the player engine — it only
+  // populates _queue/_currentIndex and the mediaItem/queue notifiers so the
+  // UI and notification show the last session, fully paused/idle until the
+  // user explicitly taps play.
+  Future<void> loadQueueSilently(List<Song> songs, int startIndex) async {
+    if (songs.isEmpty) return;
+    final index = startIndex.clamp(0, songs.length - 1);
+
+    _playSessionId++; // invalidate any in-flight resolve from a previous session
+    _splicingInProgress = false;
+    _queue        = List<Song>.from(songs);
+    _currentIndex = index;
+
+    queue.add(_queue.map(_songToMediaItem).toList());
+    _updateMediaItem(_queue[index]);
+    onQueueChanged?.call();
+    // Deliberately no setAudioSource / no play() — nothing starts sounding.
+  }
+
   // ─── SINGLE SONG (no queue context) ──────────────────────────────────────
 
   Future<void> playSong(Song song) async {
@@ -334,25 +396,29 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _splicingInProgress = false; // single-song queue, no splice phase
     onQueueChanged?.call();
 
+    // Mute first — see playQueue for why stop() alone isn't instant enough.
+    await _player.setVolume(0);
     await _player.stop();
-    if (mySession != _playSessionId) return;
+    if (mySession != _playSessionId) { await _player.setVolume(1); return; }
 
     final source = await _sourceForSong(song);
-    if (mySession != _playSessionId) return;
-    if (source == null) return;
+    if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+    if (source == null) { await _player.setVolume(1); return; }
 
     final fresh = ConcatenatingAudioSource(children: [source]);
     try {
       await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
     } catch (e) {
       debugPrint('[AurumHandler] playSong setAudioSource failed: $e'); // FIX: now works via flutter/foundation.dart
+      await _player.setVolume(1);
       return;
     }
-    if (mySession != _playSessionId) return;
+    if (mySession != _playSessionId) { await _player.setVolume(1); return; }
 
     await _reapplySpeed();
     _updateMediaItem(song);
     await _player.play();
+    await _player.setVolume(1);
   }
 
   // ─── QUEUE MUTATIONS ──────────────────────────────────────────────────────

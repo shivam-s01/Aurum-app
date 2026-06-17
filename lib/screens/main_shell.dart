@@ -96,14 +96,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           .clamp(0, songs.length - 1);
 
       if (!mounted) return;
-      await context.read<PlayerProvider>().playSong(
-            songs[index],
-            queue: songs,
-            index: index,
-          );
-      // Immediately pause — user should manually press play on restore
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (mounted) await context.read<PlayerProvider>().pause();
+      await context.read<PlayerProvider>().restoreQueueSilently(songs, index);
     } catch (_) {
       // Corrupt saved queue — clear it
       await prefs.remove('saved_queue');
