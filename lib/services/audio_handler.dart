@@ -167,7 +167,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
           : Uri.file(path);
       return AudioSource.uri(uri, tag: _songToMediaItem(song));
     }
-    final url = await ApiService.resolveStreamUrl(song);
+    // Hard 10s cap — prevents old in-flight resolution from blocking a
+    // newer tap for up to 24 seconds (Saavn 3×8s retry chain).
+    final url = await ApiService.resolveStreamUrl(song)
+        .timeout(const Duration(seconds: 10), onTimeout: () => null);
     if (url == null) return null;
     return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
   }
@@ -220,11 +223,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       await _player.stop();
 
       // Check if superseded by an even newer tap
-      if (mySession != _playSessionId) { return; }
+      if (mySession != _playSessionId) { _splicingInProgress = false; return; }
 
       // 2. Resolve clicked song
       final startSource = await _sourceForSong(songs[startIndex]);
-      if (mySession != _playSessionId) { return; }
+      if (mySession != _playSessionId) { _splicingInProgress = false; return; }
       if (startSource == null) { _splicingInProgress = false; return; }
 
       // 3. Fresh single-song playlist — no placeholders, no auto-skip
@@ -238,14 +241,20 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         _splicingInProgress = false;
         return;
       }
-      if (mySession != _playSessionId) { return; }
+      if (mySession != _playSessionId) { _splicingInProgress = false; return; }
 
       await _reapplySpeed();
       _updateMediaItem(songs[startIndex]);
       await _player.play();
 
     } finally {
-      if (mySession == _playSessionId) _isLoadingNewSong = false;
+      if (mySession == _playSessionId) {
+        _isLoadingNewSong = false;
+      } else {
+        // Superseded by a newer tap — ensure flag never stays stuck true
+        _splicingInProgress = false;
+        _isLoadingNewSong   = false;
+      }
     }
 
     // 4. Background: build full queue without blocking playback
