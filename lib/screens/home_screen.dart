@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -121,30 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icon(Icons.settings_outlined, color: AurumTheme.textSecondaryOf(context)),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
         ),
-        Padding(
-          padding: const EdgeInsets.only(right: 16, left: 4),
-          child: GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-            },
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: AurumTheme.goldGradient,
-              ),
-              padding: const EdgeInsets.all(1.5),
-              child: ClipOval(
-                child: Container(
-                  color: AurumTheme.bgOf(context),
-                  child: Icon(Icons.person_rounded, color: AurumTheme.textSecondaryOf(context), size: 20),
-                ),
-              ),
-            ),
-          ),
-        ),
+        const _ProfileAvatarButton(),
       ],
     );
   }
@@ -314,6 +292,78 @@ class _OfflineContent extends StatelessWidget {
   }
 }
 
+class _ProfileAvatarButton extends StatefulWidget {
+  const _ProfileAvatarButton();
+
+  @override
+  State<_ProfileAvatarButton> createState() => _ProfileAvatarButtonState();
+}
+
+class _ProfileAvatarButtonState extends State<_ProfileAvatarButton> {
+  String? _avatarPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    // FIX: home screen's app-bar avatar was hardcoded to a generic person
+    // icon and never read the picture the user actually set on the Profile
+    // screen. UserProfile.getAvatarPath() already validates the file still
+    // exists on disk (returns null otherwise), so it's safe to use directly.
+    final path = await UserProfile.getAvatarPath();
+    if (mounted) setState(() => _avatarPath = path);
+  }
+
+  Future<void> _openProfile() async {
+    HapticFeedback.lightImpact();
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+    // Re-check on return — the user may have just picked/changed their
+    // avatar inside ProfileScreen, and this button needs to reflect that
+    // immediately rather than showing the stale icon until next app launch.
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 16, left: 4),
+      child: GestureDetector(
+        onTap: _openProfile,
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: AurumTheme.goldGradient,
+          ),
+          padding: const EdgeInsets.all(1.5),
+          child: ClipOval(
+            child: Container(
+              color: AurumTheme.bgOf(context),
+              child: _avatarPath != null
+                  ? Image.file(
+                      File(_avatarPath!),
+                      fit: BoxFit.cover,
+                      // If the file somehow fails to decode, fall back to
+                      // the icon instead of showing a broken-image glyph.
+                      errorBuilder: (_, __, ___) => Icon(
+                          Icons.person_rounded,
+                          color: AurumTheme.textSecondaryOf(context),
+                          size: 20),
+                    )
+                  : Icon(Icons.person_rounded,
+                      color: AurumTheme.textSecondaryOf(context), size: 20),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SourceToggle extends StatelessWidget {
   final VoidCallback onToggle;
   const _SourceToggle({required this.onToggle});
@@ -372,6 +422,10 @@ class _SongCardState extends State<_SongCard> {
   Future<void> _handleTap() async {
     if (_isTapping) return;
     _isTapping = true;
+    // FIX: home screen's trending/section cards never recorded plays to
+    // History — only SongTile did. Wiring this here too so tapping a
+    // trending card shows up in Recently Played just like everywhere else.
+    context.read<RecentlyPlayedProvider>().addPlay(widget.song);
     context.read<PlayerProvider>().playSong(widget.song, queue: widget.queue, index: widget.index);
     await Future.delayed(const Duration(milliseconds: 300));
     if (mounted) _isTapping = false;
