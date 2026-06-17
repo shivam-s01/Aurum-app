@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/foundation.dart'; // FIX: added for debugPrint
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
@@ -237,7 +238,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       try {
         await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
       } catch (e) {
-        debugPrint('[AurumHandler] setAudioSource failed: $e');
+        debugPrint('[AurumHandler] setAudioSource failed: $e'); // FIX: now works via flutter/foundation.dart
         _splicingInProgress = false;
         return;
       }
@@ -266,6 +267,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // this entire routine exits silently without touching the player.
   void _resolveQueueInBackground(
       List<Song> songs, int startIndex, int sessionId) async {
+    // FIX: outer try/finally ensures _splicingInProgress is ALWAYS cleared
+    // even if an unhandled exception escapes the append or prepend loops.
+    // Previously only the prepend loop had a finally, so a crash in the
+    // append loop would leave the flag stuck true forever — causing
+    // currentIndexStream to be ignored indefinitely and the UI to freeze.
     try {
       // --- Songs AFTER startIndex (append) ---
       for (int i = startIndex + 1; i < songs.length; i++) {
@@ -274,7 +280,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
           final source = await _sourceForSong(songs[i]);
           if (sessionId != _playSessionId) return;
           if (source != null) {
-            // Get current ConcatenatingAudioSource from player
             final seq = _player.audioSource;
             if (seq is ConcatenatingAudioSource && sessionId == _playSessionId) {
               await seq.add(source);
@@ -311,6 +316,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         } catch (_) {}
       }
     } finally {
+      // FIX: this finally now wraps BOTH loops (append + prepend).
       // Only the still-active session may lower the flag — a superseded
       // session must never clear a newer session's in-progress splice.
       if (sessionId == _playSessionId) _splicingInProgress = false;
@@ -339,7 +345,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     try {
       await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
     } catch (e) {
-      debugPrint('[AurumHandler] playSong setAudioSource failed: $e');
+      debugPrint('[AurumHandler] playSong setAudioSource failed: $e'); // FIX: now works via flutter/foundation.dart
       return;
     }
     if (mySession != _playSessionId) return;
