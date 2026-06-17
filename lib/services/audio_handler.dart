@@ -228,8 +228,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (startSource == null) { _splicingInProgress = false; return; }
 
       // 3. Fresh single-song playlist — no placeholders, no auto-skip
+      // preload:false prevents setAudioSource from hanging when the stream
+      // URL is slow/unreachable — just_audio will buffer on demand instead.
       final fresh = ConcatenatingAudioSource(children: [startSource]);
-      await _player.setAudioSource(fresh, initialIndex: 0, preload: true);
+      try {
+        await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
+      } catch (e) {
+        debugPrint('[AurumHandler] setAudioSource failed: $e');
+        _splicingInProgress = false;
+        return;
+      }
       if (mySession != _playSessionId) { return; }
 
       await _reapplySpeed();
@@ -319,7 +327,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (source == null) return;
 
     final fresh = ConcatenatingAudioSource(children: [source]);
-    await _player.setAudioSource(fresh, initialIndex: 0, preload: true);
+    try {
+      await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
+    } catch (e) {
+      debugPrint('[AurumHandler] playSong setAudioSource failed: $e');
+      return;
+    }
     if (mySession != _playSessionId) return;
 
     await _reapplySpeed();
