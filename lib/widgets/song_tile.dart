@@ -8,6 +8,7 @@ import '../providers/favorites_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../screens/library_screen.dart' show showAddToPlaylistSheet;
+import '../screens/full_player_screen.dart';
 import 'aurum_artwork.dart';
 
 class SongTile extends StatefulWidget {
@@ -46,6 +47,23 @@ class _SongTileState extends State<SongTile> {
             queue: widget.queue ?? [widget.song],
             index: widget.index ?? 0,
           ));
+      // Tapping any song goes straight to the full player — same slide-up
+      // transition mini_player.dart uses, so it feels consistent everywhere.
+      if (mounted) {
+        Navigator.of(context).push(
+          PageRouteBuilder(
+            opaque: false,
+            barrierColor: Colors.transparent,
+            pageBuilder: (_, __, ___) => const FullPlayerScreen(),
+            transitionsBuilder: (_, anim, __, child) => SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+                  .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+              child: child,
+            ),
+            transitionDuration: const Duration(milliseconds: 380),
+          ),
+        );
+      }
     } finally {
       await Future.delayed(const Duration(milliseconds: 800));
       if (mounted) _isTapping = false;

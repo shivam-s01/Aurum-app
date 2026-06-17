@@ -12,6 +12,7 @@ import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_loader.dart';
+import 'full_player_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -57,16 +58,20 @@ class _SearchScreenState extends State<SearchScreen>
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) setState(() {});
     });
+    // Ping Saavn backend the moment search opens — absorbs Render free-tier
+    // cold-start delay before the user finishes typing their query.
+    ApiService.wakeSaavn();
   }
 
   void _onFocusChange() {
     if (!mounted) return;
-    if (_focusNode.hasFocus) {
-      if (_controller.text.trim().isEmpty && _history.isNotEmpty) {
-        if (!_showHistory) setState(() => _showHistory = true);
-      }
-    } else {
-      if (_showHistory) setState(() => _showHistory = false);
+    final shouldShowHistory =
+        _focusNode.hasFocus && _controller.text.trim().isEmpty && _history.isNotEmpty;
+    // Only rebuild when the value actually changes — repeated identical
+    // setState calls from focus flicker (tab switches, list touches) were
+    // the root cause of the keyboard opening/closing repeatedly.
+    if (shouldShowHistory != _showHistory) {
+      setState(() => _showHistory = shouldShowHistory);
     }
   }
 
@@ -219,6 +224,19 @@ class _SearchScreenState extends State<SearchScreen>
     );
     if (mounted) {
       context.read<PlayerProvider>().playSong(song, queue: [song], index: 0);
+      Navigator.of(context).push(
+        PageRouteBuilder(
+          opaque: false,
+          barrierColor: Colors.transparent,
+          pageBuilder: (_, __, ___) => const FullPlayerScreen(),
+          transitionsBuilder: (_, anim, __, child) => SlideTransition(
+            position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+                .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+            child: child,
+          ),
+          transitionDuration: const Duration(milliseconds: 380),
+        ),
+      );
     }
   }
 
@@ -236,7 +254,12 @@ class _SearchScreenState extends State<SearchScreen>
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: _dismissKeyboard,
-      behavior: HitTestBehavior.translucent,
+      // Opaque, not translucent: translucent let every tap (including
+      // taps that land on TextField/SongTile/TabBar) also bubble through
+      // this detector, causing focus to flicker on/off and the keyboard
+      // to repeatedly open/close. Opaque only fires for taps that don't
+      // land on an interactive child first.
+      behavior: HitTestBehavior.opaque,
       child: Scaffold(
         backgroundColor: AurumTheme.bgOf(context),
         body: SafeArea(
@@ -249,17 +272,31 @@ class _SearchScreenState extends State<SearchScreen>
               Expanded(
                 child: TabBarView(
                   controller: _tabController,
-                  physics: const NeverScrollableScrollPhysics(),
+                  // Smooth swipe between tabs (was NeverScrollableScrollPhysics,
+                  // which fully disabled the left/right slide gesture).
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
                   children: [
                     // Tab 0: existing search
                     AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
+                      duration: const Duration(milliseconds: 280),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
                       transitionBuilder: (child, animation) {
                         final slide = Tween<Offset>(
-                          begin: const Offset(0, 0.04),
+                          begin: const Offset(0, 0.05),
                           end: Offset.zero,
                         ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
-                        return FadeTransition(opacity: animation, child: SlideTransition(position: slide, child: child));
+                        final scale = Tween<double>(begin: 0.97, end: 1.0)
+                            .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+                        return FadeTransition(
+                          opacity: animation,
+                          child: SlideTransition(
+                            position: slide,
+                            child: ScaleTransition(scale: scale, child: child),
+                          ),
+                        );
                       },
                       child: KeyedSubtree(
                         key: ValueKey(_computeBodyKey()),
@@ -302,6 +339,7 @@ class _SearchScreenState extends State<SearchScreen>
             borderRadius: BorderRadius.circular(8),
           ),
           indicatorSize: TabBarIndicatorSize.tab,
+          indicatorAnimation: TabIndicatorAnimation.elastic,
           dividerColor: Colors.transparent,
           labelColor: Colors.black,
           unselectedLabelColor: AurumTheme.textSecondaryOf(context),

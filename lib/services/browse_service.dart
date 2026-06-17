@@ -57,20 +57,21 @@ class BrowseTrack {
   String get resolveQuery => '$title $artist';
 
   factory BrowseTrack.fromSaavn(Map<String, dynamic> j) {
+    // This backend returns a flat schema: image is a plain URL string,
+    // artist is a plain "primary_artists"/"singers" string — not the
+    // nested {artists: {primary: [...]}} shape some other Saavn wrappers use.
+    final rawImage = j['image'];
     final artwork = _hqArtwork(
-      (j['image'] is List
-          ? (j['image'] as List).lastWhere(
-              (e) => e is Map, orElse: () => {})['url'] ?? ''
-          : j['image']?.toString() ?? ''),
+      rawImage is List
+          ? ((rawImage.lastWhere((e) => e is Map, orElse: () => {}) as Map)['url'] ?? '').toString()
+          : (rawImage ?? '').toString(),
     );
     final durationSec = int.tryParse(j['duration']?.toString() ?? '');
     return BrowseTrack(
       trackId:    (j['id'] ?? j['song_id'] ?? '').toString(),
-      title:      _clean((j['name'] ?? j['title'] ?? j['song'] ?? 'Unknown').toString()),
-      artist:     _clean((j['artists']?['primary']?.isNotEmpty == true
-                    ? (j['artists']['primary'] as List).map((a) => a['name']).join(', ')
-                    : j['primary_artists'] ?? j['singers'] ?? 'Unknown').toString()),
-      album:      _clean((j['album']?['name'] ?? j['album'] ?? '').toString()),
+      title:      _clean((j['song'] ?? j['name'] ?? j['title'] ?? 'Unknown').toString()),
+      artist:     _clean((j['primary_artists'] ?? j['singers'] ?? j['artist'] ?? 'Unknown').toString()),
+      album:      _clean((j['album'] ?? '').toString()),
       artworkUrl: artwork,
       durationMs: durationSec != null ? durationSec * 1000 : null,
     );
@@ -136,43 +137,78 @@ class BrowseArtist {
 
 class BrowseService {
   static final _client = http.Client();
-  static const _base   = 'https://jiosavan.onrender.com';
+  // The old backend (jiosavan.onrender.com) is permanently suspended —
+  // free-tier quota exhausted. This was the entire reason Browse showed
+  // nothing. Pointed at the same live backend api_service.dart uses.
+  static const _base = 'https://jiosaavn-op-gits.onrender.com';
 
   static Future<BrowseSearchResult> search(String query) async {
     if (query.trim().isEmpty) return BrowseSearchResult.empty();
 
     final encoded = Uri.encodeQueryComponent(query.trim());
 
-    final results = await Future.wait([
-      _fetch('$_base/result/?query=$encoded&limit=25'),
-      _fetch('$_base/search/albums?query=$encoded&limit=10'),
-      _fetch('$_base/search/artists?query=$encoded&limit=8'),
-    ]);
+    // Only the song-search endpoint is confirmed to exist on this backend.
+    // Dedicated /search/albums and /search/artists endpoints aren't part
+    // of this API's flat schema, so we derive albums/artists from the
+    // song results themselves instead of hitting endpoints that 404.
+    final body = await _fetch('$_base/result/?query=$encoded&limit=30');
+    final rawTracks = _parseList(body);
 
     final tracks  = <BrowseTrack>[];
-    final albums  = <BrowseAlbum>[];
-    final artists = <BrowseArtist>[];
-
-    for (final j in _parseList(results[0])) {
+    for (final j in rawTracks) {
       try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
     }
-    for (final j in _parseList(results[1])) {
-      try { albums.add(BrowseAlbum.fromSaavn(j)); } catch (_) {}
-    }
-    for (final j in _parseList(results[2])) {
-      try { artists.add(BrowseArtist.fromSaavn(j)); } catch (_) {}
-    }
+
+    // Derive a lightweight "Albums" and "Artists" view from the track
+    // results so Browse still feels rich without needing extra endpoints.
+    final albums  = _deriveAlbums(rawTracks);
+    final artists = _deriveArtists(rawTracks);
 
     return BrowseSearchResult(tracks: tracks, albums: albums, artists: artists);
   }
 
-  // Fetch tracks for a specific album
+  // Group track results by album name to fake an "Albums" row.
+  static List<BrowseAlbum> _deriveAlbums(List<Map<String, dynamic>> raw) {
+    final seen = <String, BrowseAlbum>{};
+    for (final j in raw) {
+      final albumName = (j['album'] ?? '').toString().trim();
+      if (albumName.isEmpty || seen.containsKey(albumName)) continue;
+      try {
+        final artwork = _hqArtwork((j['image'] ?? '').toString());
+        seen[albumName] = BrowseAlbum(
+          collectionId: albumName, // used as a search key, not a real ID
+          name: _clean(albumName),
+          artist: _clean((j['primary_artists'] ?? j['singers'] ?? 'Unknown').toString()),
+          artworkUrl: artwork,
+          releaseYear: j['year']?.toString(),
+        );
+      } catch (_) {}
+      if (seen.length >= 10) break;
+    }
+    return seen.values.toList();
+  }
+
+  // Group track results by primary artist to fake an "Artists" row.
+  static List<BrowseArtist> _deriveArtists(List<Map<String, dynamic>> raw) {
+    final seen = <String>{};
+    final artists = <BrowseArtist>[];
+    for (final j in raw) {
+      final name = (j['primary_artists'] ?? j['singers'] ?? '').toString().trim();
+      if (name.isEmpty || seen.contains(name)) continue;
+      seen.add(name);
+      artists.add(BrowseArtist(artistId: name, name: _clean(name)));
+      if (artists.length >= 8) break;
+    }
+    return artists;
+  }
+
+  // Fetch tracks for a derived "album" — re-searches by album name since
+  // this backend has no dedicated /albums?id= endpoint.
   static Future<List<BrowseTrack>> albumTracks(String collectionId) async {
-    final body = await _fetch('$_base/albums?id=$collectionId');
-    final data = _parseBody(body);
-    final songs = data['songs'] as List? ?? [];
+    final encoded = Uri.encodeQueryComponent(collectionId.trim());
+    final body = await _fetch('$_base/result/?query=$encoded&limit=25');
     final tracks = <BrowseTrack>[];
-    for (final j in songs.whereType<Map<String, dynamic>>()) {
+    for (final j in _parseList(body)) {
       try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
     }
     return tracks;
@@ -193,7 +229,9 @@ class BrowseService {
     try {
       final res = await _client
           .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 8));
+          // 9s — matches api_service.dart's Saavn timeout to absorb
+          // Render free-tier cold starts instead of failing early.
+          .timeout(const Duration(seconds: 9));
       if (res.statusCode == 200) return res.body;
     } catch (_) {}
     return '{}';
@@ -215,16 +253,6 @@ class BrowseService {
       }
     } catch (_) {}
     return [];
-  }
-
-  static Map<String, dynamic> _parseBody(String body) {
-    try {
-      final data = jsonDecode(body);
-      if (data is Map<String, dynamic>) {
-        return data['data'] as Map<String, dynamic>? ?? data;
-      }
-    } catch (_) {}
-    return {};
   }
 
   static void dispose() => _client.close();
