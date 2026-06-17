@@ -154,6 +154,15 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // clearHistory — wipes all play history from memory + Hive
+  // ---------------------------------------------------------------------------
+  Future<void> clearHistory() async {
+    _history.clear();
+    await _box.clear();
+    notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
   // topArtists — unchanged (backward compatible)
   //
   // Returns up to `count` most-listened artist names, ranked by play
