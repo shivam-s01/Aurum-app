@@ -85,15 +85,19 @@ class _FadedHorizontalList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = AurumTheme.bgOf(context);
     return SizedBox(
       height: height,
       child: ShaderMask(
-        shaderCallback: (bounds) => LinearGradient(
+        shaderCallback: (bounds) => const LinearGradient(
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
-          colors: [bg, Colors.transparent, Colors.transparent, bg],
-          stops: const [0.0, 0.03, 0.93, 1.0],
+          colors: [
+            Colors.transparent,
+            Colors.white,
+            Colors.white,
+            Colors.transparent,
+          ],
+          stops: [0.0, 0.04, 0.96, 1.0],
         ).createShader(bounds),
         blendMode: BlendMode.dstIn,
         child: child,

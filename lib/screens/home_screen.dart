@@ -608,15 +608,24 @@ class _FadedHorizontalList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = AurumTheme.bgOf(context);
     return SizedBox(
       height: height,
       child: ShaderMask(
-        shaderCallback: (bounds) => LinearGradient(
+        shaderCallback: (bounds) => const LinearGradient(
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
-          colors: [bg, Colors.transparent, Colors.transparent, bg],
-          stops: const [0.0, 0.03, 0.93, 1.0],
+          // dstIn multiplies content alpha by this shader's alpha — so
+          // transparent at the very edges fades content out, and opaque
+          // white in the middle keeps content fully visible. The previous
+          // version had this backwards (opaque at edges, transparent in
+          // the middle), which erased almost the entire row's content.
+          colors: [
+            Colors.transparent,
+            Colors.white,
+            Colors.white,
+            Colors.transparent,
+          ],
+          stops: [0.0, 0.04, 0.96, 1.0],
         ).createShader(bounds),
         blendMode: BlendMode.dstIn,
         child: child,
