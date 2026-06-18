@@ -50,7 +50,7 @@ class Song {
           ? (json['trackTimeMillis'] / 1000).round()
           : json['duration']),
       language: json['primaryGenreName'] ?? json['language'],
-      year: json['releaseDate']?.toString().substring(0, 4) ?? json['year']?.toString(),
+      year: _safeYear(json['releaseDate']) ?? json['year']?.toString(),
       localPath: json['localPath'],
       source: source,
     );
@@ -85,6 +85,12 @@ class Song {
           .replaceAll('50x50', '500x500');
     }
     return '';
+  }
+
+  static String? _safeYear(dynamic releaseDate) {
+    if (releaseDate == null) return null;
+    final s = releaseDate.toString();
+    return s.length >= 4 ? s.substring(0, 4) : (s.isEmpty ? null : s);
   }
 
   static int? _parseDuration(dynamic d) {
