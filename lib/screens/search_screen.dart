@@ -88,20 +88,40 @@ class _FadedHorizontalList extends StatelessWidget {
     final bg = AurumTheme.bgOf(context);
     return SizedBox(
       height: height,
-      child: ShaderMask(
-        shaderCallback: (bounds) => LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            bg.withOpacity(0.0),
-            bg,
-            bg,
-            bg.withOpacity(0.0),
-          ],
-          stops: const [0.0, 0.04, 0.96, 1.0],
-        ).createShader(bounds),
-        blendMode: BlendMode.srcOver,
-        child: child,
+      child: Stack(
+        children: [
+          Positioned.fill(child: child),
+          Positioned(
+            left: 0, top: 0, bottom: 0,
+            width: 20,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [bg, bg.withOpacity(0.0)],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 0, top: 0, bottom: 0,
+            width: 20,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerRight,
+                    end: Alignment.centerLeft,
+                    colors: [bg, bg.withOpacity(0.0)],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -280,6 +300,7 @@ class _SearchScreenState extends State<SearchScreen>
     _suggestDebounce?.cancel();
     _debounce?.cancel();
     _controller.clear();
+    _focusNode.requestFocus();
     setState(() {
       _results = []; _liveResults = []; _suggestions = [];
       _liveLoading = false; _loading = false;
@@ -475,9 +496,7 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildSearchBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
+      child: Container(
         decoration: BoxDecoration(
           color: AurumTheme.bgCardOf(context),
           borderRadius: BorderRadius.circular(14),

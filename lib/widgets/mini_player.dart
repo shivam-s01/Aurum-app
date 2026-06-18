@@ -112,7 +112,7 @@ class _MiniPlayerState extends State<MiniPlayer>
       if (!mounted) return;
       final player = context.read<PlayerProvider>();
       final songId = player.currentSong?.id;
-      player.pause();
+      player.stop(); // stop() clears queue state; pause() allows auto-resume
       setState(() {
         _dismissed = true;
         _dismissedSongId = songId;
@@ -144,11 +144,19 @@ class _MiniPlayerState extends State<MiniPlayer>
   Widget build(BuildContext context) {
     return Consumer<PlayerProvider>(
       builder: (context, player, _) {
-        // Reset dismissed when a DIFFERENT song starts playing
+        // Reset dismissed when a DIFFERENT song starts playing.
+        // Must use postFrameCallback — mutating state inside build()
+        // causes Flutter to skip renders, making the mini player disappear.
         if (player.hasSong && _dismissed &&
             player.currentSong?.id != _dismissedSongId) {
-          _dismissed = false;
-          _dismissedSongId = null;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _dismissed = false;
+                _dismissedSongId = null;
+              });
+            }
+          });
         }
 
         if (!player.hasSong) return const SizedBox.shrink();
