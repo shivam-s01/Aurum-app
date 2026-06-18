@@ -39,6 +39,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // is true, otherwise it stomps `_currentIndex` with a stale/mismatched
   // value and the UI appears to jump to a different song mid-playback.
   bool _splicingInProgress = false;
+  bool _restoredSilently = false; // set by loadQueueSilently, cleared on explicit play — prevents interruption-end from auto-playing restored queue
 
   StreamSubscription<AccelerometerEvent>? _shakeSub;
   DateTime _lastShake = DateTime.now();
@@ -88,7 +89,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (event.begin) {
         _player.pause();
       } else {
-        _player.play();
+        // Don't auto-resume if this was a silently-restored queue (app reopen).
+        // Only resume if the user had explicitly started playback themselves.
+        if (!_restoredSilently) _player.play();
       }
     });
 
@@ -226,6 +229,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _playSessionId++;
     final mySession = _playSessionId;
     _isLoadingNewSong = true;
+    _restoredSilently = false; // user explicitly triggered playback
 
     // Set queue/index synchronously, before any async gap, so currentSong
     // reflects the tapped song the instant this function is called — the
@@ -382,6 +386,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     queue.add(_queue.map(_songToMediaItem).toList());
     _updateMediaItem(_queue[index]);
     onQueueChanged?.call();
+    _restoredSilently = true; // prevent interruption-end from auto-playing
     // Deliberately no setAudioSource / no play() — nothing starts sounding.
   }
 
@@ -390,6 +395,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> playSong(Song song) async {
     _playSessionId++;
     final mySession = _playSessionId;
+    _restoredSilently = false; // user explicitly triggered playback
 
     _queue        = [song];
     _currentIndex = 0;
@@ -519,7 +525,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   // ─── TRANSPORT CONTROLS ───────────────────────────────────────────────────
 
-  @override Future<void> play()  => _player.play();
+  @override Future<void> play() { _restoredSilently = false; return _player.play(); }
   @override Future<void> pause() => _player.pause();
   @override Future<void> stop()  => _player.stop();
   @override Future<void> seek(Duration position) => _player.seek(position);
