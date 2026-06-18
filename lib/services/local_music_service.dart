@@ -37,7 +37,11 @@ class LocalMusicService {
         final map = Map<String, dynamic>.from(item as Map);
         final contentUri = map['contentUri']?.toString() ?? '';
         final dataPath   = map['localPath']?.toString() ?? '';
-        final resolvedPath = contentUri.isNotEmpty ? contentUri : dataPath;
+        // Prefer the raw file path over content:// — just_audio/ExoPlayer
+        // plays MediaStore file paths far more reliably than generic
+        // content:// URIs, which can silently fail to produce audio on
+        // some Android versions/devices despite resolving fine for artwork.
+        final resolvedPath = dataPath.isNotEmpty ? dataPath : contentUri;
 
         return Song(
           id: map['id']?.toString() ?? '',

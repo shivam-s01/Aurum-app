@@ -245,7 +245,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     return Consumer<PlayerProvider>(
       builder: (context, player, _) {
         final song = player.currentSong;
-        if (song == null) return const SizedBox.shrink();
+        if (song == null) {
+          // currentSong went null while this screen is open (e.g. stream
+          // resolve failed and the queue got cleared). Rendering nothing
+          // here just leaves a black/blank screen sitting on top of the
+          // app — close it automatically instead so the user lands back
+          // on whatever screen they came from.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
+          });
+          return const SizedBox.shrink();
+        }
 
         // Trigger artwork + color extraction on song change only
         if (song.id != _lastSongId) {
