@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/song.dart';
 import 'api_service.dart';
@@ -144,6 +145,32 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     await _player.setAudioSource(_playlist);
     _updateMediaItem(song);
     await _player.play();
+  }
+
+  // ── Queue change callback ────────────────────────────────────────────────
+
+  VoidCallback? _onQueueChanged;
+  set onQueueChanged(VoidCallback callback) => _onQueueChanged = callback;
+
+  void _notifyQueueChanged() => _onQueueChanged?.call();
+
+  // ── Silent queue restore (no playback) ──────────────────────────────────
+
+  Future<void> loadQueueSilently(List<Song> songs, int index) async {
+    _queue = songs;
+    _currentIndex = index.clamp(0, songs.isEmpty ? 0 : songs.length - 1);
+    if (songs.isNotEmpty) _updateMediaItem(songs[_currentIndex]);
+    _notifyQueueChanged();
+  }
+
+  // ── Clear queue ──────────────────────────────────────────────────────────
+
+  Future<void> clearQueue() async {
+    _queue = [];
+    _currentIndex = 0;
+    await _playlist.clear();
+    mediaItem.add(null);
+    _notifyQueueChanged();
   }
 
   // ── Queue management ─────────────────────────────────────────────────────
