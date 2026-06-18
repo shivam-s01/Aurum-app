@@ -429,8 +429,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
       await _reapplySpeed();
       _updateMediaItem(songs[startIndex]);
+      await _player.setVolume(1); // restore volume BEFORE play — avoids silent-start race
       await _player.play();
-      await _player.setVolume(1); // restore — new song now audibly starts clean
 
     } finally {
       if (mySession == _playSessionId) {
@@ -572,8 +572,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     await _reapplySpeed();
     _updateMediaItem(song);
+    await _player.setVolume(1); // restore volume BEFORE play
     await _player.play();
-    await _player.setVolume(1);
   }
 
   // ─── QUEUE MUTATIONS ──────────────────────────────────────────────────────
@@ -681,7 +681,13 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> skipToNext() async {
-    if (_currentIndex < _queue.length - 1) await _player.seekToNext();
+    if (_currentIndex < _queue.length - 1) {
+      await _player.seekToNext();
+    } else if (_player.loopMode == LoopMode.all && _queue.isNotEmpty) {
+      // Last song + repeat all → jump back to first
+      await _player.seek(Duration.zero, index: 0);
+      await _player.play();
+    }
   }
 
   @override

@@ -29,7 +29,6 @@ class _MiniPlayerState extends State<MiniPlayer>
   double _dragY = 0;
   bool _isDragging = false;
   bool _dismissed = false;
-  String? _dismissedSongId; // track which song was dismissed
 
   late final AnimationController _settleCtrl;
   late Animation<double> _settleAnim;
@@ -111,11 +110,9 @@ class _MiniPlayerState extends State<MiniPlayer>
     _settleCtrl.forward(from: 0.0).then((_) {
       if (!mounted) return;
       final player = context.read<PlayerProvider>();
-      final songId = player.currentSong?.id;
-      player.stop(); // stop() clears queue state; pause() allows auto-resume
+      player.pause();
       setState(() {
         _dismissed = true;
-        _dismissedSongId = songId;
         _dragY = 0;
       });
       _settleCtrl.reset();
@@ -144,22 +141,16 @@ class _MiniPlayerState extends State<MiniPlayer>
   Widget build(BuildContext context) {
     return Consumer<PlayerProvider>(
       builder: (context, player, _) {
-        // Reset dismissed when a DIFFERENT song starts playing.
-        // Must use postFrameCallback — mutating state inside build()
-        // causes Flutter to skip renders, making the mini player disappear.
-        if (player.hasSong && _dismissed &&
-            player.currentSong?.id != _dismissedSongId) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() {
-                _dismissed = false;
-                _dismissedSongId = null;
-              });
-            }
-          });
+        if (!player.hasSong) {
+          // Reset dismissed state when new song starts
+          if (_dismissed) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _dismissed = false);
+            });
+          }
+          return const SizedBox.shrink();
         }
 
-        if (!player.hasSong) return const SizedBox.shrink();
         if (_dismissed) return const SizedBox.shrink();
 
         // Calculate visual transforms
