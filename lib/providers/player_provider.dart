@@ -393,6 +393,7 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> pause() => _handler.pause();
+  Future<void> stop() => _handler.stop();
 
   Future<void> stopAndClear() async {
     await _handler.stop();
