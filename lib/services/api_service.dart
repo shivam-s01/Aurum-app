@@ -48,7 +48,7 @@ class ApiService {
   // ---------------------------------------------------------------------------
   // SECTION 2: BASE URLs
   // ---------------------------------------------------------------------------
-  static const String _saavn  = 'https://jiosaavn-op-gits.onrender.com';
+  static const String _saavn  = 'https://aurumsic.shivamsharma962122.workers.dev';
   static const String _worker = AppConstants.apiBase;
 
   // ---------------------------------------------------------------------------
@@ -951,6 +951,13 @@ class ApiService {
       if (res.statusCode == 200) {
         final raw = jsonDecode(res.body);
         Map<String, dynamic>? songData;
+
+        // Worker v5 format: { success: true, url: "...", quality: "320kbps" }
+        if (raw is Map<String, dynamic> && raw['success'] == true && raw['url'] != null) {
+          final url = raw['url'].toString();
+          if (url.startsWith('http')) return url;
+        }
+
         if (raw is List && raw.isNotEmpty) {
           songData = raw[0] as Map<String, dynamic>?;
         } else if (raw is Map<String, dynamic>) {

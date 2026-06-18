@@ -11,7 +11,7 @@ class AppConstants {
   static const String github    = 'https://github.com/shivam-s01/Aurum-app';
 
   // API
-  static const String apiBase = 'https://aurum-stream.sharmashivam9109.workers.dev';
+  static const String apiBase = 'https://aurumsic.shivamsharma962122.workers.dev';
 
   // Hive Box Names
   static const String boxFavorites      = 'aurum_favorites';
