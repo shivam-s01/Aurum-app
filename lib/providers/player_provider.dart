@@ -49,6 +49,7 @@ class PlayerProvider extends ChangeNotifier {
   bool    _completionFired = false; // 80%+ fired for current song?
   bool    _earlySkipArmed  = false; // true when position < 15s
   bool    _replayArmed     = false; // true when position near 0 after non-start
+  bool    _nextPrefetchFired = false; // true once next-song prefetch has fired for current song
 
   // Subscriptions — cancelled on dispose (memory leak prevention)
   final List<StreamSubscription<dynamic>> _subs = [];
@@ -131,6 +132,7 @@ class PlayerProvider extends ChangeNotifier {
     _completionFired  = false;
     _earlySkipArmed   = song.source != SongSource.local; // arm for online songs
     _replayArmed      = false;
+    _nextPrefetchFired = false;
   }
 
   void _onPosition(Duration pos) {
@@ -169,6 +171,21 @@ class PlayerProvider extends ChangeNotifier {
     if (_replayArmed && posSeconds <= 5 && _position.inSeconds <= 5) {
       _replayArmed = false; // disarm until >30% again
       _rp?.notifyReplay(song);
+    }
+
+    // ── NEXT-SONG PREFETCH ──────────────────────────────────────────────
+    // Once the current song is 50%+ through, resolve the next queued
+    // song's stream URL in the background and cache it. By the time the
+    // user actually skips/taps next, the URL is already cached — feels
+    // instant instead of waiting on a fresh resolve.
+    if (!_nextPrefetchFired && durSeconds > 10 && posSeconds / durSeconds >= 0.50) {
+      _nextPrefetchFired = true;
+      final q = _handler.currentQueue;
+      final idx = _handler.currentIndex;
+      if (idx + 1 < q.length) {
+        final next = q[idx + 1];
+        if (!next.isLocal) ApiService.prefetchNext(next);
+      }
     }
   }
 
