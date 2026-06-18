@@ -8,6 +8,15 @@ import 'aurum_artwork.dart';
 import 'aurum_loader.dart';
 import '../screens/full_player_screen.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MiniPlayer v2.0 — Fautune-style Premium
+// • Swipe UP  → open FullPlayerScreen (smooth slide)
+// • Swipe DOWN → stop music + dismiss with fade+scale out
+// • Drag tracking: real-time translate + opacity + scale
+// • Spring-settle back if drag cancelled
+// • Gold progress bar, glassmorphism, haptics
+// ─────────────────────────────────────────────────────────────────────────────
+
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
 
@@ -19,8 +28,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     with SingleTickerProviderStateMixin {
   double _dragY = 0;
   bool _isDragging = false;
-  // FIX: track dismissed song id — resets automatically when new song plays
-  String? _dismissedSongId;
+  bool _dismissed = false;
 
   late final AnimationController _settleCtrl;
   late Animation<double> _settleAnim;
@@ -47,12 +55,15 @@ class _MiniPlayerState extends State<MiniPlayer>
 
   void _onDragStart(DragStartDetails _) {
     _settleCtrl.stop();
-    setState(() => _isDragging = true);
+    setState(() {
+      _isDragging = true;
+    });
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
     setState(() {
       _dragY += details.delta.dy;
+      // Allow both up and down with resistance
       _dragY = _dragY.clamp(-120.0, 160.0);
     });
   }
@@ -61,6 +72,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     final velocity = details.primaryVelocity ?? 0;
     setState(() => _isDragging = false);
 
+    // Swipe UP → open full player
     if (_dragY < _openThreshold || velocity < -_velocityThreshold) {
       HapticFeedback.mediumImpact();
       _springBack();
@@ -68,12 +80,14 @@ class _MiniPlayerState extends State<MiniPlayer>
       return;
     }
 
+    // Swipe DOWN → dismiss + stop
     if (_dragY > _dismissThreshold || velocity > _velocityThreshold) {
       HapticFeedback.heavyImpact();
       _dismissPlayer();
       return;
     }
 
+    // Cancelled → spring back
     _springBack();
   }
 
@@ -96,11 +110,9 @@ class _MiniPlayerState extends State<MiniPlayer>
     _settleCtrl.forward(from: 0.0).then((_) {
       if (!mounted) return;
       final player = context.read<PlayerProvider>();
-      // FIX: store dismissed song id instead of bool flag
-      final songId = player.currentSong?.id;
       player.pause();
       setState(() {
-        _dismissedSongId = songId;
+        _dismissed = true;
         _dragY = 0;
       });
       _settleCtrl.reset();
@@ -116,7 +128,8 @@ class _MiniPlayerState extends State<MiniPlayer>
         pageBuilder: (_, __, ___) => const FullPlayerScreen(),
         transitionsBuilder: (_, anim, __, child) => SlideTransition(
           position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-              .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+              .animate(
+                  CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
           child: child,
         ),
         transitionDuration: const Duration(milliseconds: 380),
@@ -128,15 +141,23 @@ class _MiniPlayerState extends State<MiniPlayer>
   Widget build(BuildContext context) {
     return Consumer<PlayerProvider>(
       builder: (context, player, _) {
-        if (!player.hasSong) return const SizedBox.shrink();
-
-        // FIX: if new/different song plays, auto-reset dismissed state instantly
-        if (_dismissedSongId != null &&
-            player.currentSong?.id != _dismissedSongId) {
-          _dismissedSongId = null;
+        if (!player.hasSong) {
+          // Reset dismissed state when new song starts
+          if (_dismissed) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _dismissed = false);
+            });
+          }
+          return const SizedBox.shrink();
         }
 
-        if (_dismissedSongId != null) return const SizedBox.shrink();
+        if (_dismissed) return const SizedBox.shrink();
+
+        // Calculate visual transforms
+        final currentY = _settleCtrl.isAnimating ? _settleAnim.value : _dragY;
+        final dragFraction = (currentY.abs() / 160.0).clamp(0.0, 1.0);
+        final opacity = (1.0 - dragFraction * 0.6).clamp(0.0, 1.0);
+        final scale = (1.0 - dragFraction * 0.04).clamp(0.92, 1.0);
 
         return AnimatedBuilder(
           animation: _settleCtrl,
@@ -150,7 +171,10 @@ class _MiniPlayerState extends State<MiniPlayer>
               offset: Offset(0, y.clamp(-60.0, 200.0)),
               child: Transform.scale(
                 scale: sc,
-                child: Opacity(opacity: op, child: child),
+                child: Opacity(
+                  opacity: op,
+                  child: child,
+                ),
               ),
             );
           },
@@ -172,6 +196,8 @@ class _MiniPlayerState extends State<MiniPlayer>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Content Widget
+// ─────────────────────────────────────────────────────────────────────────────
 class _MiniPlayerContent extends StatelessWidget {
   final PlayerProvider player;
   final bool isDragging;
@@ -187,69 +213,60 @@ class _MiniPlayerContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final song = player.currentSong!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Hint: show up/down arrows while dragging
     final showUpHint = dragY < -20;
     final showDownHint = dragY > 20;
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-      height: 70,
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      height: 68,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(20),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             decoration: BoxDecoration(
-              // Premium: richer gradient overlay
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: isDark
-                    ? [
-                        Colors.white.withAlpha(isDragging ? 18 : 12),
-                        Colors.white.withAlpha(isDragging ? 8 : 5),
-                      ]
-                    : [
-                        Colors.black.withAlpha(isDragging ? 15 : 9),
-                        Colors.black.withAlpha(isDragging ? 8 : 4),
-                      ],
-              ),
-              borderRadius: BorderRadius.circular(22),
+              color: isDark
+                  ? Colors.white.withAlpha(isDragging ? 14 : 9)
+                  : Colors.black.withAlpha(isDragging ? 12 : 7),
+              borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: isDragging
-                    ? AurumTheme.gold.withAlpha(80)
-                    : AurumTheme.gold.withAlpha(isDark ? 45 : 60),
-                width: 0.9,
+                    ? AurumTheme.gold.withAlpha(60)
+                    : AurumTheme.gold.withAlpha(isDark ? 35 : 50),
+                width: 0.8,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withAlpha(isDark ? 120 : 40),
-                  blurRadius: isDragging ? 32 : 24,
-                  offset: const Offset(0, 6),
+                  color: Colors.black.withAlpha(isDark ? 100 : 30),
+                  blurRadius: isDragging ? 28 : 20,
+                  offset: const Offset(0, 4),
                 ),
-                // Gold glow — premium touch
                 BoxShadow(
-                  color: AurumTheme.gold.withAlpha(isDragging ? 30 : 18),
-                  blurRadius: 16,
+                  color: AurumTheme.gold.withAlpha(isDragging ? 20 : 10),
+                  blurRadius: 12,
                   offset: const Offset(0, 2),
                 ),
               ],
             ),
             child: Stack(
               children: [
+                // Main row
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Thicker gold progress bar
+                    // Progress bar at top
                     ClipRRect(
                       borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(22)),
+                          top: Radius.circular(20)),
                       child: LinearProgressIndicator(
                         value: player.progress,
-                        backgroundColor: AurumTheme.gold.withAlpha(25),
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                            AurumTheme.gold),
-                        minHeight: 2.5,
+                        backgroundColor: Colors.transparent,
+                        valueColor:
+                            const AlwaysStoppedAnimation<Color>(AurumTheme.gold),
+                        minHeight: 2,
                       ),
                     ),
                     Expanded(
@@ -257,27 +274,17 @@ class _MiniPlayerContent extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         child: Row(
                           children: [
-                            // Artwork with subtle glow
+                            // Artwork
                             Hero(
                               tag: 'aurum_artwork',
-                              flightShuttleBuilder: (ctx, anim, dir, from, to) =>
-                                  ScaleTransition(scale: anim, child: to.widget),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(11),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AurumTheme.gold.withAlpha(40),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: AurumArtwork(
-                                  url: song.artworkUrl,
-                                  size: 46,
-                                  borderRadius: 11,
-                                ),
+                              flightShuttleBuilder:
+                                  (ctx, anim, dir, from, to) =>
+                                      ScaleTransition(
+                                          scale: anim, child: to.widget),
+                              child: AurumArtwork(
+                                url: song.artworkUrl,
+                                size: 44,
+                                borderRadius: 10,
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -291,20 +298,18 @@ class _MiniPlayerContent extends StatelessWidget {
                                     song.title,
                                     style: TextStyle(
                                       color: AurumTheme.textPrimaryOf(context),
-                                      fontSize: 13.5,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.1,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  const SizedBox(height: 3),
+                                  const SizedBox(height: 2),
                                   Text(
                                     song.artist,
                                     style: TextStyle(
                                       color: AurumTheme.textSecondaryOf(context),
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w400,
+                                      fontSize: 11,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -312,29 +317,27 @@ class _MiniPlayerContent extends StatelessWidget {
                                 ],
                               ),
                             ),
-                            const SizedBox(width: 6),
+                            const SizedBox(width: 8),
                             // Controls
                             _ControlBtn(
-                              icon: Icons.skip_previous_rounded,
-                              onTap: () {
-                                HapticFeedback.selectionClick();
-                                player.skipPrev();
-                              },
-                              size: 23,
-                              context: context,
-                            ),
-                            const SizedBox(width: 2),
+                                icon: Icons.skip_previous_rounded,
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  player.skipPrev();
+                                },
+                                size: 22,
+                                context: context),
+                            const SizedBox(width: 4),
                             _PlayBtn(player: player),
-                            const SizedBox(width: 2),
+                            const SizedBox(width: 4),
                             _ControlBtn(
-                              icon: Icons.skip_next_rounded,
-                              onTap: () {
-                                HapticFeedback.selectionClick();
-                                player.skipNext();
-                              },
-                              size: 23,
-                              context: context,
-                            ),
+                                icon: Icons.skip_next_rounded,
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  player.skipNext();
+                                },
+                                size: 22,
+                                context: context),
                           ],
                         ),
                       ),
@@ -351,9 +354,9 @@ class _MiniPlayerContent extends StatelessWidget {
                       child: Container(
                         decoration: BoxDecoration(
                           color: showDownHint
-                              ? Colors.red.withAlpha(35)
-                              : AurumTheme.gold.withAlpha(15),
-                          borderRadius: BorderRadius.circular(22),
+                              ? Colors.red.withAlpha(30)
+                              : Colors.white.withAlpha(10),
+                          borderRadius: BorderRadius.circular(20),
                         ),
                         child: Center(
                           child: Icon(
@@ -361,9 +364,9 @@ class _MiniPlayerContent extends StatelessWidget {
                                 ? Icons.stop_circle_outlined
                                 : Icons.keyboard_arrow_up_rounded,
                             color: showDownHint
-                                ? Colors.red.withAlpha(200)
-                                : AurumTheme.gold.withAlpha(200),
-                            size: 30,
+                                ? Colors.red.withAlpha(180)
+                                : Colors.white.withAlpha(150),
+                            size: 28,
                           ),
                         ),
                       ),
@@ -379,6 +382,8 @@ class _MiniPlayerContent extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Play Button
+// ─────────────────────────────────────────────────────────────────────────────
 class _PlayBtn extends StatelessWidget {
   final PlayerProvider player;
   const _PlayBtn({required this.player});
@@ -387,10 +392,9 @@ class _PlayBtn extends StatelessWidget {
   Widget build(BuildContext context) {
     if (player.isLoading) {
       return const SizedBox(
-        width: 38,
-        height: 38,
-        child: Center(child: AurumLoader(size: 26)),
-      );
+          width: 36,
+          height: 36,
+          child: Center(child: AurumLoader(size: 26)));
     }
     return GestureDetector(
       onTap: () {
@@ -399,15 +403,15 @@ class _PlayBtn extends StatelessWidget {
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        width: 38,
-        height: 38,
+        width: 36,
+        height: 36,
         decoration: BoxDecoration(
           color: AurumTheme.gold,
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: AurumTheme.gold.withAlpha(player.isPlaying ? 130 : 70),
-              blurRadius: player.isPlaying ? 16 : 8,
+              color: AurumTheme.gold.withAlpha(100),
+              blurRadius: player.isPlaying ? 14 : 8,
               offset: const Offset(0, 2),
             ),
           ],
@@ -420,7 +424,7 @@ class _PlayBtn extends StatelessWidget {
             player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
             key: ValueKey(player.isPlaying),
             color: AurumTheme.bg,
-            size: 21,
+            size: 20,
           ),
         ),
       ),
@@ -428,6 +432,8 @@ class _PlayBtn extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Control Button
 // ─────────────────────────────────────────────────────────────────────────────
 class _ControlBtn extends StatelessWidget {
   final IconData icon;
@@ -448,8 +454,8 @@ class _ControlBtn extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        width: 34,
-        height: 34,
+        width: 32,
+        height: 32,
         child: Icon(
           icon,
           color: AurumTheme.textSecondaryOf(context),
