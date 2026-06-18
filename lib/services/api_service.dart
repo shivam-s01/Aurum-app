@@ -818,7 +818,6 @@ class ApiService {
           _log('[resolve] Saavn fallback → YT search for "${song.title} ${song.artist}"');
           url = await _retry(() => _ytStreamBySearch('${song.title} ${song.artist}'), attempts: 1);
         }
-        }
         break;
 
       case SongSource.youtube:

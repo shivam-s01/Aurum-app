@@ -40,8 +40,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         await UpdateService.checkForUpdate(context);
       }
 
-      // Restore queue if Keep Queue is enabled
-      await _restoreQueueIfNeeded();
+      // Keep Queue restore disabled — app opens clean, nothing shows until
+      // the user explicitly plays a song.
+      // await _restoreQueueIfNeeded();
     });
   }
 

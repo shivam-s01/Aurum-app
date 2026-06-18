@@ -273,7 +273,17 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       // 3. Resolve clicked song
       final startSource = await _sourceForSong(songs[startIndex]);
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
-      if (startSource == null) { await _player.setVolume(1); _splicingInProgress = false; return; }
+      if (startSource == null) {
+        // Resolve failed — clear queue/notification so the UI doesn't keep
+        // showing a song that never actually started playing.
+        _queue = [];
+        _currentIndex = 0;
+        mediaItem.add(null);
+        onQueueChanged?.call();
+        await _player.setVolume(1);
+        _splicingInProgress = false;
+        return;
+      }
 
       // 4. Fresh single-song playlist — no placeholders, no auto-skip
       // preload:false prevents setAudioSource from hanging when the stream
@@ -410,7 +420,17 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     final source = await _sourceForSong(song);
     if (mySession != _playSessionId) { await _player.setVolume(1); return; }
-    if (source == null) { await _player.setVolume(1); return; }
+    if (source == null) {
+      // Resolve failed — don't leave the UI pointing at a song that never
+      // actually started. Clear queue/notification so mini-player & full
+      // player reflect reality instead of showing a "ghost" song.
+      _queue = [];
+      _currentIndex = 0;
+      mediaItem.add(null);
+      onQueueChanged?.call();
+      await _player.setVolume(1);
+      return;
+    }
 
     final fresh = ConcatenatingAudioSource(children: [source]);
     try {
