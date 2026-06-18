@@ -811,12 +811,13 @@ class ApiService {
     switch (song.source) {
       case SongSource.saavn:
         if (song.id.isNotEmpty) {
-          url = await _retry(() => _saavnStreamById(song.id));
+          url = await _retry(() => _saavnStreamById(song.id), attempts: 1);
           _log('[resolve] Saavn by ID "${song.title}": ${url != null ? "OK" : "FAILED"}');
         }
         if (url == null) {
           _log('[resolve] Saavn fallback → YT search for "${song.title} ${song.artist}"');
-          url = await _retry(() => _ytStreamBySearch('${song.title} ${song.artist}'));
+          url = await _retry(() => _ytStreamBySearch('${song.title} ${song.artist}'), attempts: 1);
+        }
         }
         break;
 

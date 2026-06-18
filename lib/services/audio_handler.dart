@@ -200,10 +200,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
           : Uri.file(path);
       return AudioSource.uri(uri, tag: _songToMediaItem(song));
     }
-    // Hard 10s cap — prevents old in-flight resolution from blocking a
-    // newer tap for up to 24 seconds (Saavn 3×8s retry chain).
+    // Hard 6s cap — prevents old in-flight resolution from blocking a
+    // newer tap. Render cold start can take longer but we'd rather
+    // fall back to YT than block the user.
     final url = await ApiService.resolveStreamUrl(song)
-        .timeout(const Duration(seconds: 10), onTimeout: () => null);
+        .timeout(const Duration(seconds: 6), onTimeout: () => null);
     if (url == null) return null;
     return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
   }
