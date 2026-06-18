@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:math';
-import 'package:flutter/foundation.dart'; // FIX: added for debugPrint
+import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
@@ -9,6 +9,56 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import 'api_service.dart';
 import 'audio_prefs.dart';
+
+// =============================================================================
+// LOOKAHEAD STREAM CACHE
+// Separate from ApiService's stream cache — this one stores the *resolved*
+// AudioSource headers token so when the next song actually starts, we skip
+// the entire resolve round-trip. Keyed by song.id, max 3 entries.
+// Populated at 70% of current song. Cleared on song change.
+// =============================================================================
+class _LookaheadCache {
+  static final Map<String, String> _urls = {};
+  static const int _max = 3;
+
+  static void put(String songId, String url) {
+    if (_urls.length >= _max) {
+      _urls.remove(_urls.keys.first);
+    }
+    _urls[songId] = url;
+  }
+
+  static String? get(String songId) => _urls[songId];
+
+  static void remove(String songId) => _urls.remove(songId);
+
+  static void clear() => _urls.clear();
+}
+
+// =============================================================================
+// PRODUCTION STREAMING HEADERS
+// Injected on every AudioSource.uri call.
+// - User-Agent: matches Android Chrome — prevents throttling by CDNs
+//   that rate-limit generic/bot UA strings (JioSaavn CDN does this).
+// - Range: open-ended range header signals byte-serving support to the
+//   CDN, enabling ExoPlayer's internal partial-content fetching which
+//   is faster than chunked transfer for audio.
+// - Connection: Keep-Alive: reuses the TCP connection across the stream
+//   lifecycle — eliminates repeated TLS handshake overhead (~100-200ms
+//   on low-end devices with slow CDNs).
+// - Accept-Encoding: identity — tells the CDN not to gzip/deflate the
+//   audio stream; ExoPlayer doesn't benefit from compression on binary
+//   audio and the encode/decode overhead wastes CPU on old phones.
+// =============================================================================
+const Map<String, String> _kStreamHeaders = {
+  'User-Agent':
+      'Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+  'Range':           'bytes=0-',
+  'Connection':      'keep-alive',
+  'Accept-Encoding': 'identity',
+  'Accept':          'audio/webm,audio/mp4,audio/*;q=0.9,*/*;q=0.5',
+};
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   final _player   = AudioPlayer();
@@ -97,8 +147,53 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     session.becomingNoisyEventStream.listen((_) => _player.pause());
 
+    // Broadcast state to audio_service (notification, lock screen)
     _player.playbackEventStream.listen(_broadcastState);
 
+    // ── 403 / Expired stream recovery ────────────────────────────────────────
+    // JioSaavn CDN URLs expire ~50min. YouTube signed URLs expire faster.
+    // If song is paused long and resumed, ExoPlayer hits HTTP 403 → processingState
+    // goes idle mid-stream. We detect this, force-refresh the URL, rebuild
+    // AudioSource at same seek position, and resume. Zero user interaction needed.
+    _player.playbackEventStream.listen((event) async {
+      if (event.processingState != ProcessingState.idle) return;
+      final pos = _player.position;
+      if (pos.inMilliseconds < 500) return; // fresh-start failure, not expired URL
+      if (_queue.isEmpty || _isLoadingNewSong) return;
+
+      final song = _queue[_currentIndex];
+      if (song.isLocal) return;
+
+      debugPrint('[AurumHandler] Stream expired for "${song.title}" at ${pos.inSeconds}s — recovering');
+      ApiService.invalidateStream(song);
+      _LookaheadCache.remove(song.id);
+
+      final sessionAtError = _playSessionId;
+      try {
+        final freshUrl = await ApiService.resolveStreamUrl(song, forceRefresh: true)
+            .timeout(const Duration(seconds: 12), onTimeout: () => null);
+        if (freshUrl == null || sessionAtError != _playSessionId) return;
+
+        final freshSource = AudioSource.uri(
+          Uri.parse(freshUrl),
+          tag: _songToMediaItem(song),
+          headers: _kStreamHeaders,
+        );
+        final seq = _player.audioSource;
+        if (seq is ConcatenatingAudioSource) {
+          final playerIdx = _player.currentIndex ?? 0;
+          if (playerIdx < seq.length) {
+            await seq.removeAt(playerIdx);
+            await seq.insert(playerIdx, freshSource);
+            await _player.seek(pos, index: playerIdx);
+            await _player.play();
+            debugPrint('[AurumHandler] Recovered "${song.title}" at ${pos.inSeconds}s ✓');
+          }
+        }
+      } catch (e) {
+        debugPrint('[AurumHandler] Recovery failed: $e');
+      }
+    });
     _player.durationStream.listen((d) {
       if (d != null && mediaItem.value != null) {
         mediaItem.add(mediaItem.value!.copyWith(duration: d));
@@ -192,7 +287,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (name == 'reloadSettings') await reloadSettings();
   }
 
-  Future<AudioSource?> _sourceForSong(Song song) async {
+  Future<AudioSource?> _sourceForSong(Song song, {bool fromLookahead = false}) async {
     if (song.isLocal) {
       final path = song.localPath!;
       final uri = path.startsWith('content://') || path.startsWith('file://')
@@ -200,13 +295,46 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
           : Uri.file(path);
       return AudioSource.uri(uri, tag: _songToMediaItem(song));
     }
-    // 12s cap — long enough for the full Saavn→YouTube fallback chain
-    // (with retries/races) to actually finish, while still preventing an
-    // old in-flight resolution from blocking a newer tap indefinitely.
+
+    // Check lookahead cache first — populated at 70% of previous song
+    final cachedUrl = _LookaheadCache.get(song.id);
+    if (cachedUrl != null && !fromLookahead) {
+      debugPrint('[AurumHandler] Lookahead HIT: "${song.title}"');
+      _LookaheadCache.remove(song.id);
+      return AudioSource.uri(
+        Uri.parse(cachedUrl),
+        tag: _songToMediaItem(song),
+        headers: _kStreamHeaders,
+      );
+    }
+
     final url = await ApiService.resolveStreamUrl(song)
         .timeout(const Duration(seconds: 12), onTimeout: () => null);
     if (url == null) return null;
-    return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
+    return AudioSource.uri(
+      Uri.parse(url),
+      tag: _songToMediaItem(song),
+      headers: _kStreamHeaders,
+    );
+  }
+
+  // ── Lookahead resolve — called at 70% of current song from PlayerProvider ──
+  // Resolves next song URL in background and stores in _LookaheadCache.
+  // If URL is already in ApiService's stream cache, this is near-instant.
+  Future<void> lookaheadResolve(Song nextSong) async {
+    if (nextSong.isLocal) return;
+    if (_LookaheadCache.get(nextSong.id) != null) return; // already cached
+    try {
+      debugPrint('[AurumHandler] Lookahead resolving: "${nextSong.title}"');
+      final url = await ApiService.resolveStreamUrl(nextSong)
+          .timeout(const Duration(seconds: 10), onTimeout: () => null);
+      if (url != null) {
+        _LookaheadCache.put(nextSong.id, url);
+        debugPrint('[AurumHandler] Lookahead cached: "${nextSong.title}"');
+      }
+    } catch (e) {
+      debugPrint('[AurumHandler] Lookahead failed: $e');
+    }
   }
 
   Future<void> _reapplySpeed() async {

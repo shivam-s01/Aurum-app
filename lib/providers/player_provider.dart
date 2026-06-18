@@ -173,18 +173,23 @@ class PlayerProvider extends ChangeNotifier {
       _rp?.notifyReplay(song);
     }
 
-    // ── NEXT-SONG PREFETCH ──────────────────────────────────────────────
-    // Once the current song is 50%+ through, resolve the next queued
-    // song's stream URL in the background and cache it. By the time the
-    // user actually skips/taps next, the URL is already cached — feels
-    // instant instead of waiting on a fresh resolve.
-    if (!_nextPrefetchFired && durSeconds > 10 && posSeconds / durSeconds >= 0.50) {
+    // ── LOOKAHEAD PRELOAD (70%) ──────────────────────────────────────────────
+    // At 70% of current song, resolve next song's stream URL into
+    // _LookaheadCache inside AurumAudioHandler. When the song actually
+    // switches, _sourceForSong checks this cache first — making the
+    // transition feel gapless (0ms resolve wait instead of 1-3s).
+    // 70% chosen over 50% to avoid wasting resolves on songs users skip early.
+    if (!_nextPrefetchFired && durSeconds > 10 && posSeconds / durSeconds >= 0.70) {
       _nextPrefetchFired = true;
-      final q = _handler.currentQueue;
+      final q   = _handler.currentQueue;
       final idx = _handler.currentIndex;
       if (idx + 1 < q.length) {
         final next = q[idx + 1];
-        if (!next.isLocal) ApiService.prefetchNext(next);
+        if (!next.isLocal) {
+          // Use handler's lookaheadResolve — stores in _LookaheadCache,
+          // not just ApiService stream cache. Faster path on song switch.
+          _handler.lookaheadResolve(next);
+        }
       }
     }
   }
