@@ -1,0 +1,1 @@
+curl -X PUT "https://api.cloudflare.com/client/v4/accounts/a869931c0fa8f241b35063614f11d651/workers/scripts/aurumsic" -H "Authorization: Bearer cfat_lFn8MKaOigFVCarBX5qZIePlcXh8f87a46ef" -F "metadata={\"main_module\":\"worker.js\"};type=application/json" -F "worker.js=@worker.js;type=application/javascript+module"
