@@ -447,41 +447,33 @@ class ApiService {
   }
 
   // ===========================================================================
-  // QUICK SEARCH — more results, longer timeout
+  // QUICK SEARCH — Saavn first (fast), YT only fills remaining slots
   // ===========================================================================
   static Future<List<Song>> quickSearch(String query, {int limit = 15}) async {
     final q = query.trim();
     if (q.isEmpty) return [];
 
-    final both = await Future.wait([
-      _searchSaavn(q, limit: limit + 10)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]),
-      _searchYt(q, limit: limit)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]),
-    ]);
+    // Saavn first — show results fast without waiting for slow YT
+    final saavnResults = await _searchSaavn(q, limit: limit + 10)
+        .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
 
-    final saavnResults = both[0];
-    final ytResults    = both[1];
-    if (saavnResults.isEmpty && ytResults.isEmpty) return [];
-
-    final wantsVariant = _wantsVariantQuery(q);
-    final scored     = <_ScoredSong>[];
-    final saavnNorms = <String>{};
-
-    for (final song in saavnResults) {
-      final norm = _normTitle(song.title);
-      saavnNorms.add(norm);
-      scored.add(_ScoredSong(song, _scoreSearchResult(song, q, wantsVariant)));
-    }
-    for (final song in ytResults) {
-      final norm = _normTitle(song.title);
-      if (!saavnNorms.contains(norm)) {
-        scored.add(_ScoredSong(song, _scoreSearchResult(song, q, wantsVariant)));
-      }
+    // Saavn gave enough — return immediately, no YT wait
+    if (saavnResults.length >= limit) {
+      return saavnResults.take(limit).toList();
     }
 
-    scored.sort((a, b) => b.score.compareTo(a.score));
-    return scored.take(limit).map((s) => s.song).toList();
+    // Saavn short — fill remaining slots with YT quickly
+    final remaining = limit - saavnResults.length;
+    final ytResults = await _searchYt(q, limit: remaining)
+        .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
+
+    final saavnNorms = saavnResults.map((s) => _normTitle(s.title)).toSet();
+    final ytUnique = ytResults
+        .where((s) => !saavnNorms.contains(_normTitle(s.title)))
+        .take(remaining)
+        .toList();
+
+    return [...saavnResults, ...ytUnique];
   }
 
   // ===========================================================================
