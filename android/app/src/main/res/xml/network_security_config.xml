@@ -8,4 +8,7 @@
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">aurum-stream.sharmashivam9109.workers.dev</domain>
     </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">saavncdn.com</domain>
+    </domain-config>
 </network-security-config>
