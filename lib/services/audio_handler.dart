@@ -54,13 +54,13 @@ const Map<String, String> _kStreamHeaders = {
   'User-Agent':
       'Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-  // NOTE: do NOT set 'Range' here. just_audio/ExoPlayer sets its own Range
-  // header per-chunk for seeking/buffering. A static 'bytes=0-' override
-  // forces every request back to byte 0, so playback "loads" but position
-  // never advances past 00:00.
-  'Connection':      'keep-alive',
-  'Accept-Encoding': 'identity',
-  'Accept':          'audio/webm,audio/mp4,audio/*;q=0.9,*/*;q=0.5',
+  // NOTE: do NOT set 'Range', 'Connection', or 'Accept-Encoding' here.
+  // ExoPlayer's own HTTP data source manages Range (per-chunk seeking),
+  // Connection (keep-alive pooling), and Accept-Encoding internally.
+  // Overriding any of these caused a generic ExoPlaybackException
+  // "Source error" (code=0) — confirmed via curl that the CDN itself
+  // returns a perfectly valid 206 Partial Content with no special
+  // headers required. Only User-Agent is actually needed.
 };
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
