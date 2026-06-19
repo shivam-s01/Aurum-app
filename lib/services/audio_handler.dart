@@ -54,6 +54,10 @@ const Map<String, String> _kStreamHeaders = {
   'User-Agent':
       'Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+  // NOTE: do NOT set 'Range' here. just_audio/ExoPlayer sets its own Range
+  // header per-chunk for seeking/buffering. A static 'bytes=0-' override
+  // forces every request back to byte 0, so playback "loads" but position
+  // never advances past 00:00.
   'Connection':      'keep-alive',
   'Accept-Encoding': 'identity',
   'Accept':          'audio/webm,audio/mp4,audio/*;q=0.9,*/*;q=0.5',
@@ -157,7 +161,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _player.playbackEventStream.listen((event) async {
       if (event.processingState != ProcessingState.idle) return;
       final pos = _player.position;
-      if (pos.inMilliseconds < 500) return; // fresh-start failure, not expired URL
+      if (pos.inMilliseconds < 500) {
+        // Fresh-start failure (not an expired-URL case) — log it so it's
+        // visible instead of silently doing nothing. This state previously
+        // had zero observability: play() looked like it succeeded
+        // (isPlaying stayed true) while the engine sat in idle forever.
+        debugPrint('[AurumHandler] FRESH-START FAILURE: processingState=idle '
+            'at pos=${pos.inMilliseconds}ms, queue=${_queue.length}, '
+            'loading=$_isLoadingNewSong, song=${_queue.isNotEmpty && _currentIndex < _queue.length ? _queue[_currentIndex].title : "?"}');
+        return;
+      }
       if (_queue.isEmpty || _isLoadingNewSong) return;
 
       final song = _queue[_currentIndex];

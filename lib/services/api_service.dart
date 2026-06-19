@@ -21,6 +21,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:async/async.dart';
+import 'package:just_audio/just_audio.dart';
 import 'dart:math' as math;
 
 import '../models/song.dart';
@@ -1337,22 +1338,74 @@ class ApiService {
 
     // Test actual Saavn STREAM resolve (the real playback path)
     buf.writeln('▶ ${_kPipedInstances.length + 3}. Saavn STREAM resolve');
+    String? resolvedUrl;
     if (testSongs.isNotEmpty) {
       final testSong = testSongs.first;
       buf.writeln('   song: "${testSong.title}" id=${testSong.id}');
       try {
         final sw = Stopwatch()..start();
-        final url = await resolveStreamUrl(testSong, forceRefresh: true)
+        resolvedUrl = await resolveStreamUrl(testSong, forceRefresh: true)
             .timeout(const Duration(seconds: 15), onTimeout: () => null);
         sw.stop();
-        buf.writeln(url != null
-            ? '   ✅ OK (${sw.elapsedMilliseconds}ms) — url: ${url.substring(0, url.length.clamp(0, 60))}...'
+        buf.writeln(resolvedUrl != null
+            ? '   ✅ OK (${sw.elapsedMilliseconds}ms)\n   FULL URL:\n   $resolvedUrl'
             : '   ❌ FAILED — resolveStreamUrl returned null');
       } catch (e) {
         buf.writeln('   ❌ EXCEPTION: $e');
       }
     } else {
       buf.writeln('   ⏭ skipped — no test song available');
+    }
+
+    // Test REAL PLAYBACK — this is what was missing. Resolve succeeding
+    // only proves the URL exists; it says nothing about whether
+    // just_audio/ExoPlayer can actually open and decode it. This step
+    // spins up a throwaway AudioPlayer with the SAME headers used in
+    // production (audio_handler.dart's _kStreamHeaders) and tries to
+    // actually load + play for real, reporting the exact error if any.
+    buf.writeln('▶ ${_kPipedInstances.length + 4}. REAL PLAYBACK TEST');
+    if (resolvedUrl != null) {
+      final testPlayer = AudioPlayer();
+      try {
+        final sw = Stopwatch()..start();
+        await testPlayer.setAudioSource(
+          AudioSource.uri(
+            Uri.parse(resolvedUrl),
+            headers: const {
+              'User-Agent':
+                  'Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 '
+                  '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+              'Connection':      'keep-alive',
+              'Accept-Encoding': 'identity',
+              'Accept':          'audio/webm,audio/mp4,audio/*;q=0.9,*/*;q=0.5',
+            },
+          ),
+          preload: true,
+        ).timeout(const Duration(seconds: 15));
+        sw.stop();
+        final dur = testPlayer.duration;
+        buf.writeln('   ✅ setAudioSource OK (${sw.elapsedMilliseconds}ms), '
+            'duration=${dur ?? "null"}, state=${testPlayer.processingState}');
+
+        // Try actually playing for 2 seconds and check if position moves
+        await testPlayer.play();
+        await Future.delayed(const Duration(seconds: 2));
+        final pos = testPlayer.position;
+        buf.writeln(pos.inMilliseconds > 200
+            ? '   ✅ PLAYBACK CONFIRMED — position advanced to ${pos.inMilliseconds}ms'
+            : '   ❌ PLAYBACK STUCK — position still ${pos.inMilliseconds}ms after 2s play, '
+              'processingState=${testPlayer.processingState}');
+      } catch (e, st) {
+        buf.writeln('   ❌ PLAYBACK EXCEPTION: $e');
+        if (e is PlayerException) {
+          buf.writeln('      code=${e.code} message=${e.message}');
+        }
+        debugPrint('[Diagnostics] Playback test stack: $st');
+      } finally {
+        await testPlayer.dispose();
+      }
+    } else {
+      buf.writeln('   ⏭ skipped — no resolved URL to test');
     }
 
     return buf.toString();
