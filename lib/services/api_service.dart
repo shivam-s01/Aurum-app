@@ -216,21 +216,23 @@ class ApiService {
   }
 
   static Future<SongSection?> _saavnSectionV4(String query, String label) async {
-    final both = await Future.wait([
-      _searchSaavn(query, limit: 25),
-      _searchYt(query, limit: 10)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]),
-    ]);
-    final saavnSongs = both[0];
-    final ytSongs    = both[1];
+    // Saavn is hard primary now — only call YT if Saavn comes up short.
+    final saavnSongs = await _searchSaavn(query, limit: 25);
+    List<Song> ytSongs = [];
+    if (saavnSongs.length < 12) {
+      ytSongs = await _searchYt(query, limit: 10)
+          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
+    }
     if (saavnSongs.isEmpty && ytSongs.isEmpty) return null;
     final seenIds = <String>{};
     final merged  = <Song>[];
-    for (final s in [...saavnSongs, ...ytSongs]) {
+    // Saavn songs kept in front; only shuffle within the Saavn block for variety,
+    // YT songs appended after (never shuffled to the top).
+    final seed = query.hashCode ^ DateTime.now().hour ^ math.Random().nextInt(1000000);
+    final saavnShuffled = List<Song>.from(saavnSongs)..shuffle(math.Random(seed));
+    for (final s in [...saavnShuffled, ...ytSongs]) {
       if (seenIds.add(s.id)) merged.add(s);
     }
-    final seed = query.hashCode ^ DateTime.now().hour ^ math.Random().nextInt(1000000);
-    merged.shuffle(math.Random(seed));
     return SongSection(title: label, songs: merged.take(15).toList());
   }
 
@@ -454,11 +456,13 @@ class ApiService {
     if (q.isEmpty) return [];
 
     // Saavn first — show results fast without waiting for slow YT
-    final saavnResults = await _searchSaavn(q, limit: limit + 10)
-        .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
+    final saavnResults = await _searchSaavn(q, limit: limit + 15)
+        .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
 
-    // Saavn gave enough — return immediately, no YT wait
-    if (saavnResults.length >= limit) {
+    // Saavn gave most of what's needed — return immediately, skip YT entirely.
+    // FIX: threshold lowered from "limit" to "limit * 0.6" so YT is only used
+    // as a true last resort gap-filler, not a co-equal source.
+    if (saavnResults.length >= (limit * 0.6).ceil()) {
       return saavnResults.take(limit).toList();
     }
 
@@ -488,13 +492,9 @@ class ApiService {
     // Try onrender primary first
     for (final base in [_saavnPrimary, _saavn]) {
       try {
-        final url = base == _saavnPrimary
-            ? Uri.parse(
-                '$base/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=5',
-              )
-            : Uri.parse(
-                '$base/result/?query=${Uri.encodeQueryComponent(query)}&limit=5',
-              );
+        final url = Uri.parse(
+          '$base/result/?query=${Uri.encodeQueryComponent(query)}&limit=5',
+        );
         final res = await _client.get(url).timeout(const Duration(seconds: 3));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
@@ -515,13 +515,39 @@ class ApiService {
   }
 
   // ===========================================================================
-  // SAAVN SEARCH — onrender primary, existing backend fallback
+  // SAAVN SEARCH — onrender is now the HARD primary.
+  // Route order: confirmed-working /api/search/songs (verified via curl —
+  // returns full song objects incl. downloadUrl) tried FIRST, legacy /result/
+  // route kept as secondary in case the backend version differs, CF worker
+  // is last-resort fallback only.
   // ===========================================================================
   static Future<List<Song>> _searchSaavn(String query, {int limit = 20}) async {
-    // 1. Try onrender primary first
+    // 1a. Confirmed-working onrender route
     try {
       final url = Uri.parse(
         '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+      );
+      final res = await _client.get(url).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final results = (data is Map ? data['data']?['results'] : null) ?? [];
+        if (results is List && results.isNotEmpty) {
+          final songs = results
+              .whereType<Map<String, dynamic>>()
+              .take(limit)
+              .map(_songFromSaavn)
+              .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+              .toList();
+          if (songs.isNotEmpty) return songs;
+        }
+      }
+    } catch (e) {
+      _log('[_searchSaavn] onrender /api/search/songs error: $e');
+    }
+    // 1b. Legacy onrender route (kept as secondary)
+    try {
+      final url = Uri.parse(
+        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
       );
       final res = await _client.get(url).timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
@@ -540,9 +566,9 @@ class ApiService {
         }
       }
     } catch (e) {
-      _log('[_searchSaavn] onrender error: $e');
+      _log('[_searchSaavn] onrender /result/ error: $e');
     }
-    // 2. Fallback to existing backend
+    // 2. Fallback to existing CF worker backend
     try {
       final url = Uri.parse(
         '$_saavn/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
@@ -872,10 +898,34 @@ class ApiService {
   // SAAVN STREAM RESOLUTION
   // ===========================================================================
   static Future<String?> _saavnStreamById(String songId) async {
-    // 1. Try onrender primary
+    // 1a. Confirmed-working route: /api/songs?ids= (returns clean downloadUrl
+    // array with 48/96/160/320kbps — verified via curl). Try this FIRST since
+    // /song/?id= below 404s on some onrender deploys depending on backend version.
     try {
       final res = await _client
-          .get(Uri.parse('$_saavnPrimary/api/songs/$songId'))
+          .get(Uri.parse('$_saavnPrimary/api/songs?ids=$songId'))
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final raw = jsonDecode(res.body);
+        Map<String, dynamic>? songData;
+        final inner = (raw is Map<String, dynamic>) ? raw['data'] : null;
+        if (inner is List && inner.isNotEmpty) {
+          songData = inner[0] as Map<String, dynamic>?;
+        } else if (raw is List && raw.isNotEmpty) {
+          songData = raw[0] as Map<String, dynamic>?;
+        }
+        if (songData != null) {
+          final url = _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
+          if (url != null) return url;
+        }
+      }
+    } catch (e) {
+      _log('[saavnById] onrender /api/songs error for $songId: $e');
+    }
+    // 1b. Try onrender primary (legacy route, kept as fallback)
+    try {
+      final res = await _client
+          .get(Uri.parse('$_saavnPrimary/song/?id=$songId'))
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final raw = jsonDecode(res.body);
