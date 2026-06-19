@@ -154,6 +154,29 @@ class _HomeScreenState extends State<HomeScreen> {
           src.toggle();
         }),
         IconButton(
+          icon: Icon(Icons.bug_report_outlined,
+              color: AurumTheme.textSecondaryOf(context)),
+          onPressed: () async {
+            final result = await ApiService.debugPlaybackPath();
+            if (!context.mounted) return;
+            showDialog(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: const Text('Playback Diagnostics'),
+                content: SingleChildScrollView(
+                  child: SelectableText(result),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        IconButton(
           icon: Icon(Icons.settings_outlined,
               color: AurumTheme.textSecondaryOf(context)),
           onPressed: () => Navigator.push(context,
