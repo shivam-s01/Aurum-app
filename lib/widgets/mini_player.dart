@@ -9,12 +9,27 @@ import 'aurum_loader.dart';
 import '../screens/full_player_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MiniPlayer v2.0 — Fautune-style Premium
+// MiniPlayer v2.1 — Fautune-style Premium
 // • Swipe UP  → open FullPlayerScreen (smooth slide)
 // • Swipe DOWN → stop music + dismiss with fade+scale out
 // • Drag tracking: real-time translate + opacity + scale
 // • Spring-settle back if drag cancelled
 // • Gold progress bar, glassmorphism, haptics
+//
+// FIXES vs v2.0:
+//   FIX 1: opaque:false -> opaque:true on FullPlayerScreen push. opaque:false
+//      made Flutter stop fully repainting the screen underneath (Home/
+//      Search/Library) while the full player was open, leaving a stale
+//      frozen frame behind after closing it. FullPlayerScreen already
+//      paints its own full opaque background, so opaque:true changes
+//      nothing visually and fixes the freeze.
+//   FIX 2: _dismissed reset now tracks the dismissed song's id instead of
+//      only resetting on `!player.hasSong`. Previously, swiping the mini
+//      player down only paused playback (didn't clear the queue), so
+//      `hasSong` stayed true forever -- meaning `_dismissed` never reset
+//      and the mini player stayed permanently hidden even after resuming/
+//      playing again. Now it reappears as soon as a different song starts,
+//      or playback resumes on the same song.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class MiniPlayer extends StatefulWidget {
@@ -29,6 +44,7 @@ class _MiniPlayerState extends State<MiniPlayer>
   double _dragY = 0;
   bool _isDragging = false;
   bool _dismissed = false;
+  String? _dismissedSongId; // track which song was dismissed
 
   late final AnimationController _settleCtrl;
   late Animation<double> _settleAnim;
@@ -110,9 +126,11 @@ class _MiniPlayerState extends State<MiniPlayer>
     _settleCtrl.forward(from: 0.0).then((_) {
       if (!mounted) return;
       final player = context.read<PlayerProvider>();
-      player.pause();
+      final songId = player.currentSong?.id;
+      player.pause(); // pause only — keeps queue, so user can resume later
       setState(() {
         _dismissed = true;
+        _dismissedSongId = songId;
         _dragY = 0;
       });
       _settleCtrl.reset();
@@ -123,8 +141,12 @@ class _MiniPlayerState extends State<MiniPlayer>
     setState(() => _dragY = 0);
     Navigator.of(context).push(
       PageRouteBuilder(
-        opaque: false,
-        barrierColor: Colors.transparent,
+        // FIX: opaque:false caused the screen underneath (Home/Search/
+        // Library) to freeze while the full player was open — Flutter
+        // skips repainting routes it thinks may still be partially
+        // visible. FullPlayerScreen paints its own full background, so
+        // opaque:true is visually identical and fixes the freeze.
+        opaque: true,
         pageBuilder: (_, __, ___) => const FullPlayerScreen(),
         transitionsBuilder: (_, anim, __, child) => SlideTransition(
           position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
@@ -141,16 +163,27 @@ class _MiniPlayerState extends State<MiniPlayer>
   Widget build(BuildContext context) {
     return Consumer<PlayerProvider>(
       builder: (context, player, _) {
-        if (!player.hasSong) {
-          // Reset dismissed state when new song starts
-          if (_dismissed) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => _dismissed = false);
-            });
-          }
-          return const SizedBox.shrink();
+        // Reset dismissed when a DIFFERENT song starts playing, OR when
+        // playback resumes on the SAME song (e.g. user hits play again
+        // from elsewhere). Must use postFrameCallback — mutating state
+        // inside build() causes Flutter to skip renders, making the mini
+        // player disappear.
+        final shouldReappear = _dismissed &&
+            player.hasSong &&
+            (player.currentSong?.id != _dismissedSongId || player.isPlaying);
+
+        if (shouldReappear) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _dismissed = false;
+                _dismissedSongId = null;
+              });
+            }
+          });
         }
 
+        if (!player.hasSong) return const SizedBox.shrink();
         if (_dismissed) return const SizedBox.shrink();
 
         // Calculate visual transforms

@@ -52,8 +52,19 @@ class _SongTileState extends State<SongTile> {
       if (mounted) {
         Navigator.of(context).push(
           PageRouteBuilder(
-            opaque: false,
-            barrierColor: Colors.transparent,
+            // FIX: opaque:false told Flutter that SearchScreen (or whatever
+            // screen this tile lives on — Home, Library, Search results,
+            // live search) might still be partially visible underneath,
+            // so Flutter stopped fully repainting it while FullPlayerScreen
+            // was open. On pop, the screen's last (stale) frame stayed
+            // frozen on screen — showing as a blank white/black page until
+            // some unrelated state change forced a rebuild. This is the
+            // exact bug that made the search screen go blank after tapping
+            // a live/normal search result. FullPlayerScreen already paints
+            // its own full opaque background (_BgLayer in
+            // full_player_screen.dart), so opaque:true changes nothing
+            // visually and fully fixes the freeze.
+            opaque: true,
             pageBuilder: (_, __, ___) => const FullPlayerScreen(),
             transitionsBuilder: (_, anim, __, child) => SlideTransition(
               position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)

@@ -340,8 +340,15 @@ class _SearchScreenState extends State<SearchScreen>
       context.read<PlayerProvider>().playSong(song, queue: [song], index: 0);
       Navigator.of(context).push(
         PageRouteBuilder(
-          opaque: false,
-          barrierColor: Colors.transparent,
+          // FIX: opaque:false made Flutter treat SearchScreen as possibly
+          // still visible underneath, so it stopped fully repainting this
+          // route while FullPlayerScreen was open. On pop, SearchScreen's
+          // last (stale) frame stayed frozen — showing as a blank
+          // white/black screen until some other state change forced a
+          // rebuild. FullPlayerScreen already paints its own full opaque
+          // background (_BgLayer), so marking this route opaque:true loses
+          // no visual effect and fixes the freeze.
+          opaque: true,
           pageBuilder: (_, __, ___) => const FullPlayerScreen(),
           transitionsBuilder: (_, anim, __, child) => SlideTransition(
             position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
