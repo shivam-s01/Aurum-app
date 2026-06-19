@@ -488,9 +488,13 @@ class ApiService {
     // Try onrender primary first
     for (final base in [_saavnPrimary, _saavn]) {
       try {
-        final url = Uri.parse(
-          '$base/result/?query=${Uri.encodeQueryComponent(query)}&limit=5',
-        );
+        final url = base == _saavnPrimary
+            ? Uri.parse(
+                '$base/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=5',
+              )
+            : Uri.parse(
+                '$base/result/?query=${Uri.encodeQueryComponent(query)}&limit=5',
+              );
         final res = await _client.get(url).timeout(const Duration(seconds: 3));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
@@ -517,7 +521,7 @@ class ApiService {
     // 1. Try onrender primary first
     try {
       final url = Uri.parse(
-        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+        '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
       );
       final res = await _client.get(url).timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
@@ -871,7 +875,7 @@ class ApiService {
     // 1. Try onrender primary
     try {
       final res = await _client
-          .get(Uri.parse('$_saavnPrimary/song/?id=$songId'))
+          .get(Uri.parse('$_saavnPrimary/api/songs/$songId'))
           .timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final raw = jsonDecode(res.body);
