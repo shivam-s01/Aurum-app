@@ -308,8 +308,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       );
     }
 
-    final url = await ApiService.resolveStreamUrl(song)
-        .timeout(const Duration(seconds: 12), onTimeout: () => null);
+    String? url;
+    try {
+      url = await ApiService.resolveStreamUrl(song)
+          .timeout(const Duration(seconds: 12), onTimeout: () => null);
+    } catch (e) {
+      debugPrint('[AurumHandler] resolveStreamUrl threw: \$e');
+      return null;
+    }
     if (url == null) return null;
     return AudioSource.uri(
       Uri.parse(url),
