@@ -530,7 +530,7 @@ class ApiService {
       final res = await _client.get(url).timeout(const Duration(seconds: 8));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        final results = (data is Map ? data['data']?['results'] : null) ?? [];
+        final results = (data is Map ? (data['data']?['results']) : null) ?? [];
         if (results is List && results.isNotEmpty) {
           final songs = results
               .whereType<Map<String, dynamic>>()
