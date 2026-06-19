@@ -1325,14 +1325,35 @@ class ApiService {
 
     // Test Saavn
     buf.writeln('▶ ${_kPipedInstances.length + 2}. Saavn search');
+    List<Song> testSongs = [];
     try {
       final sw = Stopwatch()..start();
-      final songs = await _searchSaavn('arijit singh', limit: 3);
+      testSongs = await _searchSaavn('arijit singh', limit: 3);
       sw.stop();
-      buf.writeln(songs.isNotEmpty
-          ? '   ✅ OK (${sw.elapsedMilliseconds}ms) — ${songs.length} results, first: "${songs.first.title}"'
+      buf.writeln(testSongs.isNotEmpty
+          ? '   ✅ OK (${sw.elapsedMilliseconds}ms) — ${testSongs.length} results, first: "${testSongs.first.title}"'
           : '   ❌ FAILED — 0 results');
     } catch (e) { buf.writeln('   ❌ $e'); }
+
+    // Test actual Saavn STREAM resolve (the real playback path)
+    buf.writeln('▶ ${_kPipedInstances.length + 3}. Saavn STREAM resolve');
+    if (testSongs.isNotEmpty) {
+      final testSong = testSongs.first;
+      buf.writeln('   song: "${testSong.title}" id=${testSong.id}');
+      try {
+        final sw = Stopwatch()..start();
+        final url = await resolveStreamUrl(testSong, forceRefresh: true)
+            .timeout(const Duration(seconds: 15), onTimeout: () => null);
+        sw.stop();
+        buf.writeln(url != null
+            ? '   ✅ OK (${sw.elapsedMilliseconds}ms) — url: ${url.substring(0, url.length.clamp(0, 60))}...'
+            : '   ❌ FAILED — resolveStreamUrl returned null');
+      } catch (e) {
+        buf.writeln('   ❌ EXCEPTION: $e');
+      }
+    } else {
+      buf.writeln('   ⏭ skipped — no test song available');
+    }
 
     return buf.toString();
   }
