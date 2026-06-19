@@ -1128,9 +1128,31 @@ class ApiService {
   // SONG PARSERS
   // ===========================================================================
   static Song _songFromSaavn(Map<String, dynamic> j) {
-    final title  = _cleanText((j['song'] ?? j['name'] ?? j['title'] ?? 'Unknown').toString());
-    final artist = _cleanText((j['primary_artists'] ?? j['singers'] ?? j['artist'] ?? 'Unknown').toString());
-    final album  = _cleanText((j['album'] ?? '').toString());
+    final title = _cleanText((j['song'] ?? j['name'] ?? j['title'] ?? 'Unknown').toString());
+
+    String artist = '';
+    final artistsField = j['artists'];
+    if (artistsField is Map && artistsField['primary'] is List) {
+      artist = (artistsField['primary'] as List)
+          .map((a) => a is Map ? (a['name'] ?? '').toString() : a.toString())
+          .where((s) => s.isNotEmpty)
+          .join(', ');
+    }
+    if (artist.isEmpty) {
+      final fallback = j['primary_artists'] ?? j['singers'] ?? j['artist'];
+      if (fallback is String) artist = fallback;
+    }
+    artist = _cleanText(artist);
+
+    String album = '';
+    final albumField = j['album'];
+    if (albumField is Map) {
+      album = (albumField['name'] ?? '').toString();
+    } else if (albumField is String) {
+      album = albumField;
+    }
+    album = _cleanText(album);
+
     final artwork   = _onrenderArtwork(j);
     final streamUrl = _onrenderStreamUrl(j);
     return Song(
@@ -1218,9 +1240,17 @@ class ApiService {
   // HELPERS
   // ===========================================================================
   static String _onrenderArtwork(Map<String, dynamic> j) {
-    final img = (j['image'] ?? '').toString();
-    if (img.startsWith('http')) {
-      return img
+    final imgField = j['image'];
+    if (imgField is List && imgField.isNotEmpty) {
+      for (final entry in imgField.reversed) {
+        if (entry is Map && entry['url'] is String) {
+          final u = entry['url'] as String;
+          if (u.startsWith('http')) return u;
+        }
+      }
+    }
+    if (imgField is String && imgField.startsWith('http')) {
+      return imgField
           .replaceAll('150x150', '500x500')
           .replaceAll('50x50',   '500x500');
     }
