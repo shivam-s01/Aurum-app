@@ -54,7 +54,6 @@ const Map<String, String> _kStreamHeaders = {
   'User-Agent':
       'Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-  'Range':           'bytes=0-',
   'Connection':      'keep-alive',
   'Accept-Encoding': 'identity',
   'Accept':          'audio/webm,audio/mp4,audio/*;q=0.9,*/*;q=0.5',

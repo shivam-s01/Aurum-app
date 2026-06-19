@@ -1,0 +1,62 @@
+[33mcommit 593a62d4c65d6f7e6b99ed2f1998b9d0c645d9a4[m
+Author: shivam-s01 <sharmashivam9109@gmail.com>
+Date:   Fri Jun 19 02:16:13 2026 +0530
+
+    fix: all bugs - saavn url, audio, mini player, search bg, keyboard, yt, skip loop
+
+[1mdiff --git a/lib/widgets/mini_player.dart b/lib/widgets/mini_player.dart[m
+[1mindex 03da671..f306aa9 100644[m
+[1m--- a/lib/widgets/mini_player.dart[m
+[1m+++ b/lib/widgets/mini_player.dart[m
+[36m@@ -29,7 +29,6 @@[m [mclass _MiniPlayerState extends State<MiniPlayer>[m
+   double _dragY = 0;[m
+   bool _isDragging = false;[m
+   bool _dismissed = false;[m
+[31m-  String? _dismissedSongId; // track which song was dismissed[m
+ [m
+   late final AnimationController _settleCtrl;[m
+   late Animation<double> _settleAnim;[m
+[36m@@ -111,11 +110,9 @@[m [mclass _MiniPlayerState extends State<MiniPlayer>[m
+     _settleCtrl.forward(from: 0.0).then((_) {[m
+       if (!mounted) return;[m
+       final player = context.read<PlayerProvider>();[m
+[31m-      final songId = player.currentSong?.id;[m
+[31m-      player.stop(); // stop() clears queue state; pause() allows auto-resume[m
+[32m+[m[32m      player.pause();[m
+       setState(() {[m
+         _dismissed = true;[m
+[31m-        _dismissedSongId = songId;[m
+         _dragY = 0;[m
+       });[m
+       _settleCtrl.reset();[m
+[36m@@ -144,22 +141,16 @@[m [mclass _MiniPlayerState extends State<MiniPlayer>[m
+   Widget build(BuildContext context) {[m
+     return Consumer<PlayerProvider>([m
+       builder: (context, player, _) {[m
+[31m-        // Reset dismissed when a DIFFERENT song starts playing.[m
+[31m-        // Must use postFrameCallback — mutating state inside build()[m
+[31m-        // causes Flutter to skip renders, making the mini player disappear.[m
+[31m-        if (player.hasSong && _dismissed &&[m
+[31m-            player.currentSong?.id != _dismissedSongId) {[m
+[31m-          WidgetsBinding.instance.addPostFrameCallback((_) {[m
+[31m-            if (mounted) {[m
+[31m-              setState(() {[m
+[31m-                _dismissed = false;[m
+[31m-                _dismissedSongId = null;[m
+[31m-              });[m
+[31m-            }[m
+[31m-          });[m
+[32m+[m[32m        if (!player.hasSong) {[m
+[32m+[m[32m          // Reset dismissed state when new song starts[m
+[32m+[m[32m          if (_dismissed) {[m
+[32m+[m[32m            WidgetsBinding.instance.addPostFrameCallback((_) {[m
+[32m+[m[32m              if (mounted) setState(() => _dismissed = false);[m
+[32m+[m[32m            });[m
+[32m+[m[32m          }[m
+[32m+[m[32m          return const SizedBox.shrink();[m
+         }[m
+ [m
+[31m-        if (!player.hasSong) return const SizedBox.shrink();[m
+         if (_dismissed) return const SizedBox.shrink();[m
+ [m
+         // Calculate visual transforms[m
