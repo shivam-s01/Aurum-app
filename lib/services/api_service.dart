@@ -742,13 +742,13 @@ class ApiService {
     // Stage 2: Remaining Piped instances
     for (int i = 1; i < _kPipedInstances.length; i++) {
       final url = await _pipedStream(videoId, _kPipedInstances[i]);
-      if (url != null) return url;
+      if (url != null) return _proxiedSaavnUrl(url);
     }
 
     // Stage 3: Invidious instances
     for (final inst in _kInvidiousInstances) {
       final url = await _invidiousStream(videoId, inst);
-      if (url != null) return url;
+      if (url != null) return _proxiedSaavnUrl(url);
     }
 
     // Stage 4: youtube_explode_dart (last resort)
@@ -916,6 +916,7 @@ class ApiService {
           songData = raw[0] as Map<String, dynamic>?;
         }
         if (songData != null) {
+          // _onrenderStreamUrl and _extractSaavnStreamUrl already call _proxiedSaavnUrl internally
           final url = _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
           if (url != null) return url;
         }
@@ -948,6 +949,7 @@ class ApiService {
           }
         }
         if (songData != null) {
+          // _onrenderStreamUrl and _extractSaavnStreamUrl already proxy internally
           final url = _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
           if (url != null) return url;
         }
@@ -991,9 +993,9 @@ class ApiService {
 
   static String? _onrenderStreamUrl(Map<String, dynamic> j) {
     final url320   = (j['320kbps'] ?? '').toString();
-    if (url320.startsWith('http')) return url320;
+    if (url320.startsWith('http')) return _proxiedSaavnUrl(url320);
     final urlMedia = (j['media_url'] ?? '').toString();
-    if (urlMedia.startsWith('http')) return urlMedia;
+    if (urlMedia.startsWith('http')) return _proxiedSaavnUrl(urlMedia);
     return null;
   }
 
@@ -1006,15 +1008,15 @@ class ApiService {
                  (d['url'] as String?)?.startsWith('http') == true,
           orElse: () => null,
         );
-        if (match != null) return match['url'] as String;
+        if (match != null) return _proxiedSaavnUrl(match['url'] as String);
       }
       final last = downloads.last;
       if (last is Map && (last['url'] as String?)?.startsWith('http') == true) {
-        return last['url'] as String;
+        return _proxiedSaavnUrl(last['url'] as String);
       }
     }
     final su = song['media_url'] ?? song['streamUrl'];
-    if (su is String && su.startsWith('http')) return su;
+    if (su is String && su.startsWith('http')) return _proxiedSaavnUrl(su);
     return null;
   }
 
@@ -1406,6 +1408,20 @@ buf.writeln('      STACK: $st');          buf.writeln('      code=${e.code} mess
     }
 
     return buf.toString();
+  }
+
+  static String _proxiedSaavnUrl(String url) {
+    // Decode first — onrender may return already-encoded proxied URLs like
+    // "aurum-worker.../stream-proxy?url=https%3A%2F%2Faurum-worker..." which
+    // would slip past a plain .contains() check on the raw string.
+    final decoded = Uri.decodeComponent(url);
+    if (decoded.contains('/stream-proxy?url=') || url.contains('/stream-proxy?url=')) {
+      return decoded; // return clean decoded URL, never double-wrap
+    }
+    if (decoded.contains('saavncdn.com') || url.contains('saavncdn.com')) {
+      return '$_saavn/stream-proxy?url=${Uri.encodeComponent(decoded)}';
+    }
+    return decoded;
   }
 }
 
