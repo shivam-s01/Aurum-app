@@ -655,14 +655,14 @@ class ApiService {
       return _pendingResolutions[cacheKey];
     }
 
-    // Saavn pre-fetched URL — use directly if fresh
+    // Saavn pre-fetched URL — only use if already proxied through worker.
     if (!forceRefresh &&
         song.source == SongSource.saavn &&
         song.streamUrl != null &&
-        song.streamUrl!.startsWith('http')) {
+        song.streamUrl!.contains('/stream-proxy?url=')) {
       final cached = _streamCache[cacheKey];
       if (cached == null) {
-        _log('[resolve] Pre-fetched Saavn URL (fresh): "${song.title}"');
+        _log('[resolve] Pre-fetched Saavn URL (proxied): "${song.title}"');
         _writeStreamCache(cacheKey, song.streamUrl!);
         return song.streamUrl;
       }
