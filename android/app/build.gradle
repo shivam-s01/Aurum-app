@@ -58,3 +58,9 @@ android {
 flutter {
     source '../..'
 }
+
+dependencies {
+    // Force OkHttp 4.12+ — fixes ExoPlayer "Source error code=0" on
+    // Cloudflare Workers (HTTP/2) which older OkHttp versions mishandle.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+}
