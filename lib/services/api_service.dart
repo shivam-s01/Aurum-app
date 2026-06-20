@@ -56,7 +56,7 @@ class ApiService {
 
   // Saavn: onrender = primary (richer song data), existing CF worker = fallback
   static const String _saavnPrimary  = 'https://jiosaavn-op-gits.onrender.com';
-  static const String _saavn         = 'https://aurumsic.shivamsharma962122.workers.dev';
+  static const String _saavn         = 'https://aurum-worker.shivamsharma962122.workers.dev';
   static const String _worker        = AppConstants.apiBase;
 
   // Stream cache
