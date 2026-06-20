@@ -64,6 +64,12 @@ class Song {
       .replaceAll('&gt;', '>');
 
   static String _resolveArtwork(Map<String, dynamic> json) {
+    // Round-trip case: this Song was previously saved via toJson(), which
+    // writes the already-resolved URL under 'artworkUrl'. Must check this
+    // first or saved songs lose their artwork on reload.
+    if (json['artworkUrl'] != null && json['artworkUrl'].toString().isNotEmpty) {
+      return json['artworkUrl'].toString();
+    }
     if (json['artworkUrl100'] != null) {
       return json['artworkUrl100']
           .toString()
