@@ -1395,7 +1395,7 @@ class ApiService {
       } catch (e, st) {
         buf.writeln('   ❌ PLAYBACK EXCEPTION: $e');
         if (e is PlayerException) {
-          buf.writeln('      code=${e.code} message=${e.message}');
+buf.writeln('      STACK: $st');          buf.writeln('      code=${e.code} message=${e.message}');
         }
         debugPrint('[Diagnostics] Playback test stack: $st');
       } finally {
