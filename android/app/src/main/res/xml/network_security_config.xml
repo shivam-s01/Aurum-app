@@ -1,14 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  FIX: this file was only whitelisting "aurum-stream.sharmashivam9109.workers.dev",
+  a domain that doesn't match either Cloudflare Worker actually in use
+  (aurum-worker.shivamsharma962122.workers.dev and
+  aurumsic.shivamsharma962122.workers.dev). Android's network security
+  policy silently blocks ALL traffic to domains not explicitly listed here
+  when usesCleartextTraffic="false" + a custom networkSecurityConfig is set
+  — this is almost certainly why the Worker call failed in diagnostics
+  ("1. Cloudflare Worker ❌ FAILED") and very likely contributed to the
+  ExoPlayer "Source error" too, since some Android versions surface a
+  blocked/refused connection as a generic source error rather than a
+  clear security-exception message.
+
+  Now whitelisting:
+    - *.workers.dev (covers BOTH worker subdomains used by this app, and
+      any future worker renames, without needing to edit this file again)
+    - saavncdn.com (the actual JioSaavn audio CDN — confirmed working via
+      curl: 200 OK, Content-Type: audio/mp4)
+    - jiosaavn.com (used by some direct-fallback API calls in api_service.dart)
+-->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system"/>
         </trust-anchors>
     </base-config>
+
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">aurum-stream.sharmashivam9109.workers.dev</domain>
+        <domain includeSubdomains="true">workers.dev</domain>
     </domain-config>
+
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">saavncdn.com</domain>
+    </domain-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">jiosaavn.com</domain>
+    </domain-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">onrender.com</domain>
     </domain-config>
 </network-security-config>
