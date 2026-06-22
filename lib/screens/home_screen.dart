@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:palette_generator/palette_generator.dart';
@@ -18,6 +19,7 @@ import '../widgets/aurum_loader.dart';
 import 'package:shimmer/shimmer.dart';
 import 'settings_screen.dart';
 import 'profile_screen.dart';
+import 'full_player_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HomeScreen
@@ -105,6 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               slivers: [
                 _buildAppBar(context, src),
+                const SliverToBoxAdapter(child: _HeroNowPlaying()),
                 SliverToBoxAdapter(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 380),
@@ -173,40 +176,38 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       actions: [
-        _SourceToggle(onToggle: () {
-          HapticFeedback.mediumImpact();
-          src.toggle();
-        }),
-        IconButton(
-          icon: Icon(Icons.bug_report_outlined,
-              color: AurumTheme.textSecondaryOf(context)),
-          onPressed: () async {
-            // Wire the REAL handler in, so the "REAL PLAYBACK TEST" step
-            // tests actual in-app playback instead of a throwaway player.
-            // See api_service.dart / audio_handler.dart for why this
-            // distinction matters — it's what made this bug ambiguous.
-            final playerProvider = context.read<PlayerProvider>();
-            final result = await ApiService.debugPlaybackPath(
-              realPlaybackTest: playerProvider.runRealPlaybackTest,
-            );
-            if (!context.mounted) return;
-            showDialog(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('Playback Diagnostics'),
-                content: SingleChildScrollView(
-                  child: SelectableText(result),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Close'),
+        _StatusPill(onTap: () => _showSourceSheet(context, src)),
+        if (kDebugMode)
+          IconButton(
+            icon: Icon(Icons.bug_report_outlined,
+                color: AurumTheme.textSecondaryOf(context)),
+            onPressed: () async {
+              // Wire the REAL handler in, so the "REAL PLAYBACK TEST" step
+              // tests actual in-app playback instead of a throwaway player.
+              // See api_service.dart / audio_handler.dart for why this
+              // distinction matters — it's what made this bug ambiguous.
+              final playerProvider = context.read<PlayerProvider>();
+              final result = await ApiService.debugPlaybackPath(
+                realPlaybackTest: playerProvider.runRealPlaybackTest,
+              );
+              if (!context.mounted) return;
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Playback Diagnostics'),
+                  content: SingleChildScrollView(
+                    child: SelectableText(result),
                   ),
-                ],
-              ),
-            );
-          },
-        ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         IconButton(
           icon: Icon(Icons.settings_outlined,
               color: AurumTheme.textSecondaryOf(context)),
@@ -217,13 +218,243 @@ class _HomeScreenState extends State<HomeScreen> {
       ],
     );
   }
+
+  void _showSourceSheet(BuildContext context, SourceProvider src) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.45),
+      builder: (_) => _SourceSheet(src: src),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Top Ambient Glow — Echo Nightly style, palette from currently playing song
-// Completely self-contained: watches PlayerProvider, extracts color, animates.
-// Uses RepaintBoundary so it NEVER causes the scroll list to repaint.
+// Hero Now Playing — premium immersive section + floating glass card.
+// Lives inside HomeScreen's IndexedStack tab, so Flutter's TickerMode
+// automatically pauses the AnimationController when this tab is offstage —
+// no manual lifecycle wiring needed for the breathing animation.
 // ─────────────────────────────────────────────────────────────────────────────
+
+class _HeroNowPlaying extends StatefulWidget {
+  const _HeroNowPlaying();
+
+  @override
+  State<_HeroNowPlaying> createState() => _HeroNowPlayingState();
+}
+
+class _HeroNowPlayingState extends State<_HeroNowPlaying>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _breatheCtrl;
+  String? _lastUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    // 13s full cycle — within spec's 12-15s range
+    _breatheCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 13000),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _breatheCtrl.dispose();
+    super.dispose();
+  }
+
+  void _openFullPlayer() {
+    HapticFeedback.lightImpact();
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: true,
+        pageBuilder: (_, __, ___) => const FullPlayerScreen(),
+        transitionsBuilder: (_, anim, __, child) => SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+              .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+          child: child,
+        ),
+        transitionDuration: const Duration(milliseconds: 380),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final song = context.select<PlayerProvider, Song?>((p) => p.currentSong);
+    if (song == null) return const SizedBox.shrink();
+
+    final isLight = Theme.of(context).brightness == Brightness.light;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+      child: GestureDetector(
+        onTap: _openFullPlayer,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: SizedBox(
+            height: 168,
+            child: Stack(fit: StackFit.expand, children: [
+              // ── Hero background: blurred artwork, breathing scale ──
+              RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: _breatheCtrl,
+                  builder: (_, child) {
+                    final b = Curves.easeInOut.transform(_breatheCtrl.value);
+                    return Transform.scale(
+                      scale: 1.0 + (b * 0.02), // spec: 1.00 -> 1.02
+                      child: child,
+                    );
+                  },
+                  child: ImageFiltered(
+                    imageFilter: ImageFilter.blur(
+                      sigmaX: isLight ? 12 : 8,
+                      sigmaY: isLight ? 12 : 8,
+                      tileMode: TileMode.clamp,
+                    ),
+                    child: AurumArtwork(
+                      url: song.artworkUrl,
+                      size: double.infinity,
+                      borderRadius: 0,
+                    ),
+                  ),
+                ),
+              ),
+              // ── Scrim for legibility — lighter in light mode (showcase), ──
+              // ── stronger/flatter in dark mode (perf + readability)      ──
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: isLight
+                        ? [
+                            Colors.white.withOpacity(0.10),
+                            Colors.black.withOpacity(0.32),
+                          ]
+                        : [
+                            Colors.black.withOpacity(0.45),
+                            Colors.black.withOpacity(0.78),
+                          ],
+                  ),
+                ),
+              ),
+              // ── Floating glass now-playing card ──
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.18),
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Row(children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: AurumArtwork(
+                                url: song.artworkUrl, size: 48, borderRadius: 12),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  song.title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  song.artist,
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.7),
+                                    fontSize: 12,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          _ResumeButton(onTap: _openFullPlayer),
+                        ]),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ResumeButton extends StatefulWidget {
+  final VoidCallback onTap;
+  const _ResumeButton({required this.onTap});
+
+  @override
+  State<_ResumeButton> createState() => _ResumeButtonState();
+}
+
+class _ResumeButtonState extends State<_ResumeButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
+
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        context.read<PlayerProvider>().togglePlay();
+      },
+      child: AnimatedScale(
+        scale: _pressed ? 0.92 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: Container(
+          width: 40, height: 40,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: AurumTheme.gold,
+          ),
+          child: Icon(
+            isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            color: Colors.black,
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 
 class _TopAmbientGlow extends StatefulWidget {
   const _TopAmbientGlow();
@@ -859,61 +1090,261 @@ class _ProfileAvatarButtonState extends State<_ProfileAvatarButton> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Source Toggle
+// Status Pill — premium glass pill, taps open the source sheet
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _SourceToggle extends StatelessWidget {
-  final VoidCallback onToggle;
-  const _SourceToggle({required this.onToggle});
+class _StatusPill extends StatefulWidget {
+  final VoidCallback onTap;
+  const _StatusPill({required this.onTap});
+
+  @override
+  State<_StatusPill> createState() => _StatusPillState();
+}
+
+class _StatusPillState extends State<_StatusPill> {
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
     final isOnline = context.watch<SourceProvider>().isOnline;
+    final dotColor = isOnline ? AurumTheme.gold : AurumTheme.textMutedOf(context);
+
     return GestureDetector(
-      onTap: onToggle,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeInOut,
-        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-        width: 72,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          color: isOnline
-              ? AurumTheme.gold.withOpacity(0.15)
-              : AurumTheme.bgCardOf(context),
-          border: Border.all(
-            color: isOnline ? AurumTheme.gold : AurumTheme.dividerOf(context),
-            width: 1.2,
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _pressed ? 0.96 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            color: AurumTheme.bgCardOf(context).withOpacity(0.6),
+            border: Border.all(
+              color: AurumTheme.dividerOf(context),
+              width: 0.8,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: dotColor,
+                  boxShadow: isOnline
+                      ? [BoxShadow(color: dotColor.withOpacity(0.55), blurRadius: 5)]
+                      : [],
+                ),
+              ),
+              const SizedBox(width: 7),
+              Text(
+                isOnline ? 'Online' : 'Offline',
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.1,
+                ),
+              ),
+            ],
           ),
         ),
-        child: Stack(children: [
-          AnimatedAlign(
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeInOut,
-            alignment: isOnline ? Alignment.centerLeft : Alignment.centerRight,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 280),
-              width: 28, height: 28,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isOnline
-                    ? AurumTheme.gold
-                    : AurumTheme.bgElevatedOf(context),
-                boxShadow: isOnline
-                    ? [BoxShadow(
-                        color: AurumTheme.gold.withOpacity(0.4),
-                        blurRadius: 8)]
-                    : [],
-              ),
-              child: Icon(
-                isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                size: 14,
-                color: isOnline ? Colors.black : AurumTheme.textMutedOf(context),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Source Sheet — premium glass bottom sheet for switching source mode
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SourceSheet extends StatelessWidget {
+  final SourceProvider src;
+  const _SourceSheet({required this.src});
+
+  @override
+  Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final bg = AurumTheme.bgCardOf(context);
+    final border = AurumTheme.dividerOf(context);
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      builder: (_, v, child) => Opacity(
+        opacity: v,
+        child: Transform.translate(
+          offset: Offset(0, (1 - v) * 16),
+          child: child,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: bg.withOpacity(isLight ? 0.92 : 0.95),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(top: BorderSide(color: border, width: 0.5)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 32, height: 4,
+                        margin: const EdgeInsets.only(bottom: 18),
+                        decoration: BoxDecoration(
+                          color: AurumTheme.textMutedOf(context).withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    Text(
+                      'Playback Source',
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Choose where Aurum plays music from',
+                      style: TextStyle(
+                        color: AurumTheme.textSecondaryOf(context),
+                        fontSize: 12.5,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _SourceOption(
+                      icon: Icons.cloud_outlined,
+                      label: 'Online Streaming',
+                      subtitle: 'Stream from JioSaavn & sources',
+                      selected: src.isOnline,
+                      onTap: () {
+                        if (!src.isOnline) src.toggle();
+                        Navigator.pop(context);
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    _SourceOption(
+                      icon: Icons.phone_iphone_rounded,
+                      label: 'Offline Library',
+                      subtitle: 'Play downloaded songs only',
+                      selected: !src.isOnline,
+                      onTap: () {
+                        if (src.isOnline) src.toggle();
+                        Navigator.pop(context);
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _SourceOption extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+  const _SourceOption({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  State<_SourceOption> createState() => _SourceOptionState();
+}
+
+class _SourceOptionState extends State<_SourceOption> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        widget.onTap();
+      },
+      child: AnimatedScale(
+        scale: _pressed ? 0.98 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: widget.selected
+                ? AurumTheme.gold.withOpacity(0.12)
+                : AurumTheme.bgElevatedOf(context),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: widget.selected
+                  ? AurumTheme.gold.withOpacity(0.5)
+                  : AurumTheme.dividerOf(context),
+              width: 1,
+            ),
+          ),
+          child: Row(children: [
+            Icon(widget.icon,
+                size: 20,
+                color: widget.selected
+                    ? AurumTheme.gold
+                    : AurumTheme.textSecondaryOf(context)),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(widget.label,
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      )),
+                  const SizedBox(height: 2),
+                  Text(widget.subtitle,
+                      style: TextStyle(
+                        color: AurumTheme.textSecondaryOf(context),
+                        fontSize: 11.5,
+                      )),
+                ],
+              ),
+            ),
+            if (widget.selected)
+              Icon(Icons.check_circle_rounded, size: 18, color: AurumTheme.gold),
+          ]),
+        ),
       ),
     );
   }
@@ -944,11 +1375,11 @@ class _SongCardState extends State<_SongCard>
     super.initState();
     _pressCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 90),
-      reverseDuration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 120),
+      reverseDuration: const Duration(milliseconds: 180),
     );
-    _scale = Tween(begin: 1.0, end: 0.94).animate(
-      CurvedAnimation(parent: _pressCtrl, curve: Curves.easeInOut),
+    _scale = Tween(begin: 1.0, end: 0.97).animate(
+      CurvedAnimation(parent: _pressCtrl, curve: Curves.easeOut),
     );
   }
 
