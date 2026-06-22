@@ -33,7 +33,7 @@ class FullPlayerScreen extends StatefulWidget {
 }
 
 class _FullPlayerScreenState extends State<FullPlayerScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
 
   // ── Entry animation (420ms, easeOutCubic) ──
   late final AnimationController _entryCtrl;
@@ -59,8 +59,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   Color _currentBg3 = const Color(0xFF030305);
   Color _currentBg4 = const Color(0xFF0A0A14);
 
-  // ── Breathing gradient (4s loop, reverse) ──
+  // ── Breathing gradient (12s loop, reverse) ──
   late final AnimationController _breatheCtrl;
+
+  // ── Artwork float (5.5s loop, reverse) ──
+  late final AnimationController _artworkFloatCtrl;
 
   // ── Swipe-down to dismiss ──
   double _dragY = 0;
@@ -76,6 +79,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _entryCtrl = AnimationController(
       vsync: this,
@@ -108,21 +112,58 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       duration: const Duration(milliseconds: 700),
     );
 
-    // Breathing: ultra-slow 16s cycle, loops forever
+    // Breathing: bg scale pulse, 12s full cycle (spec: 10-15s)
     _breatheCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 16000),
+      duration: const Duration(milliseconds: 12000),
+    )..repeat(reverse: true);
+
+    // Artwork float: separate faster cycle, 5.5s (spec: 5-6s)
+    _artworkFloatCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 5500),
     )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _entryCtrl.dispose();
     _artworkCtrl.dispose();
+    _artworkFloatCtrl.dispose();
     _playBtnCtrl.dispose();
     _bgColorCtrl.dispose();
     _breatheCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Pause ambient/breathing animations whenever app isn't actively
+    // visible on screen — no point burning GPU ticks while backgrounded,
+    // locked, or in app-switcher.
+    if (state == AppLifecycleState.resumed) {
+      if (!_panelOpen) _resumeAmbientAnims();
+    } else {
+      _pauseAmbientAnims();
+    }
+  }
+
+  bool _panelOpen = false;
+  bool _ambientPaused = false;
+
+  void _pauseAmbientAnims() {
+    if (_ambientPaused) return;
+    _ambientPaused = true;
+    _breatheCtrl.stop();
+    _artworkFloatCtrl.stop();
+  }
+
+  void _resumeAmbientAnims() {
+    if (!_ambientPaused) return;
+    _ambientPaused = false;
+    _breatheCtrl.repeat(reverse: true);
+    _artworkFloatCtrl.repeat(reverse: true);
   }
 
   // ── Palette extraction → 4 colors, theme-adaptive, on track change only ──
@@ -207,6 +248,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   void _openPanel() {
     HapticFeedback.mediumImpact();
+    _panelOpen = true;
+    _pauseAmbientAnims();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -218,7 +261,14 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         bg2: _currentBg2,
         bg3: _currentBg3,
       ),
-    );
+    ).whenComplete(() {
+      _panelOpen = false;
+      if (mounted &&
+          WidgetsBinding.instance.lifecycleState ==
+              AppLifecycleState.resumed) {
+        _resumeAmbientAnims();
+      }
+    });
   }
 
   void _showOptions(BuildContext context) {
@@ -363,6 +413,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               h: h,
               w: w,
               artworkAnim: _artworkAnim,
+              breatheCtrl: _artworkFloatCtrl,
             ),
             SizedBox(height: vGapMd),
             _SongInfo(
@@ -505,6 +556,7 @@ class _Artwork extends StatelessWidget {
   final PlayerProvider player;
   final double hPad, h, w;
   final Animation<double> artworkAnim;
+  final Animation<double> breatheCtrl;
 
   const _Artwork({
     required this.song,
@@ -513,6 +565,7 @@ class _Artwork extends StatelessWidget {
     required this.h,
     required this.w,
     required this.artworkAnim,
+    required this.breatheCtrl,
   });
 
   @override
@@ -523,8 +576,18 @@ class _Artwork extends StatelessWidget {
       child: Center(
         child: SizedBox(
           width: maxArtSize,
-          height: maxArtSize,
+          height: maxArtSize + 8, // headroom for float offset
           child: AnimatedBuilder(
+            animation: breatheCtrl,
+            builder: (_, child) {
+              // Float: 0 → -4 → 0 px, eased, same 16s breathe cycle
+              final floatY = -4.0 * Curves.easeInOut.transform(breatheCtrl.value);
+              return Transform.translate(
+                offset: Offset(0, floatY),
+                child: child,
+              );
+            },
+            child: AnimatedBuilder(
             animation: artworkAnim,
             builder: (_, child) => Transform.scale(
               scale: artworkAnim.value,
@@ -568,6 +631,7 @@ class _Artwork extends StatelessWidget {
                   ),
                 ),
               ),
+            ),
             ),
           ),
         ),
@@ -670,14 +734,16 @@ class _SeekBarState extends State<_SeekBar> {
           height: 32,
           child: SliderTheme(
             data: SliderThemeData(
-              trackHeight: _dragging ? 3.5 : 2.5,
+              trackHeight: _dragging ? 4.0 : 3.0,
               thumbShape: RoundSliderThumbShape(
-                  enabledThumbRadius: _dragging ? 8 : 6),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
+                  enabledThumbRadius: _dragging ? 7.5 : 5.5,
+                  elevation: _dragging ? 4 : 1,
+                  pressedElevation: 6),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
               activeTrackColor: trackActive,
               inactiveTrackColor: trackInactive,
               thumbColor: trackActive,
-              overlayColor: trackActive.withAlpha(16),
+              overlayColor: trackActive.withAlpha(22),
               trackShape: const _BufferedTrackShape(),
             ),
             child: Slider(
@@ -1166,7 +1232,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: Container(
           decoration: BoxDecoration(
             color: bgColor.withAlpha(isLight ? 240 : 245),
@@ -1468,7 +1534,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                 // progress-bar ticks from the player above it).
                 child: RepaintBoundary(
                   child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                    filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
                     child: Container(
                       decoration: BoxDecoration(
                         borderRadius: const BorderRadius.vertical(
@@ -2072,18 +2138,30 @@ class _LyricsPageState extends State<_LyricsPage> {
         ),
       );
     } else {
-      content = SingleChildScrollView(
+      content = TweenAnimationBuilder<double>(
         key: const ValueKey('lyrics'),
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
-        child: Text(
-          _lyrics ?? '',
-          style: TextStyle(
-            color: lyricsColor,
-            fontSize: 15,
-            height: 1.85,
-            fontWeight: FontWeight.w400,
-            letterSpacing: 0.1,
+        tween: Tween(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOut,
+        builder: (_, v, child) => Opacity(
+          opacity: v,
+          child: Transform.translate(
+            offset: Offset(0, (1 - v) * 12),
+            child: child,
+          ),
+        ),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
+          child: Text(
+            _lyrics ?? '',
+            style: TextStyle(
+              color: lyricsColor,
+              fontSize: 16,
+              height: 2.0,
+              fontWeight: FontWeight.w400,
+              letterSpacing: 0.1,
+            ),
           ),
         ),
       );
@@ -2320,15 +2398,18 @@ class _BgLayer extends StatelessWidget {
       // L1: Blurred artwork — ImageFiltered does blur once per frame, GPU-cheap
       //     because the source image is already decoded/cached
       if (song.artworkUrl.isNotEmpty)
-        ImageFiltered(
-          imageFilter: ImageFilter.blur(
-            sigmaX: 60, sigmaY: 60,
-            tileMode: TileMode.clamp,
-          ),
-          child: AurumArtwork(
-            url: song.artworkUrl,
-            size: double.infinity,
-            borderRadius: 0,
+        Transform.scale(
+          scale: 1.0 + (b * 0.03),
+          child: ImageFiltered(
+            imageFilter: ImageFilter.blur(
+              sigmaX: 12, sigmaY: 12,
+              tileMode: TileMode.clamp,
+            ),
+            child: AurumArtwork(
+              url: song.artworkUrl,
+              size: double.infinity,
+              borderRadius: 0,
+            ),
           ),
         ),
 
@@ -2392,12 +2473,13 @@ class _BgLayer extends StatelessWidget {
       ),
 
       // L2: Artwork tint layer — ImageFiltered for cached blur
+      // Dark mode: minimal motion (spec) — opacity breathe only, no scale
       if (song.artworkUrl.isNotEmpty)
         Opacity(
           opacity: artOpacity,
           child: ImageFiltered(
             imageFilter: ImageFilter.blur(
-              sigmaX: 48, sigmaY: 48,
+              sigmaX: 10, sigmaY: 10,
               tileMode: TileMode.clamp,
             ),
             child: AurumArtwork(
