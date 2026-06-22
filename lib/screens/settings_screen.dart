@@ -8,6 +8,7 @@ import 'settings_appearance_screen.dart';
 import 'settings_storage_screen.dart';
 import 'settings_notifications_screen.dart';
 import 'settings_about_screen.dart';
+import 'settings_privacy_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -79,6 +80,14 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: 'Media notification style & artwork',
                   onTap: () =>
                       _push(context, const SettingsNotificationsScreen()),
+                ),
+                const SizedBox(height: 10),
+                _SettingsTile(
+                  icon: Icons.shield_rounded,
+                  title: 'Privacy',
+                  subtitle: 'App lock, incognito mode & data',
+                  onTap: () =>
+                      _push(context, const SettingsPrivacyScreen()),
                 ),
                 const SizedBox(height: 10),
                 _SettingsTile(

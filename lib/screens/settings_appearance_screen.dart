@@ -30,6 +30,10 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   double _lyricsLineSpacing = 1.5;
   String _wordAnimationStyle = 'Fade';
   bool _glowingLyrics = true;
+  // New
+  String _fontStyle = 'Default';
+  String _nowPlayingCardStyle = 'Card';
+  String _artworkShape = 'Rounded';
   // Animations
   bool _enableAnimations = true;
   bool _backAnimations = true;
@@ -70,6 +74,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _backAnimations = p.getBool('back_animations') ?? true;
       _scrollAnimations = p.getBool('scroll_animations') ?? true;
       _bgGradientAnimation = p.getBool('bg_gradient_animation') ?? true;
+      _fontStyle           = p.getString('font_style') ?? 'Default';
+      _nowPlayingCardStyle = p.getString('now_playing_card_style') ?? 'Card';
+      _artworkShape        = p.getString('artwork_shape') ?? 'Rounded';
     });
   }
 
@@ -141,6 +148,18 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
               ),
             ]),
           )),
+          // ── Font Style ──
+          _sectionLabel('🔤 FONT STYLE'),
+          _buildFontSelector(context),
+
+          // ── Now Playing Card Style ──
+          _sectionLabel('🎴 NOW PLAYING CARD'),
+          _buildCardStyleSelector(context),
+
+          // ── Artwork Shape ──
+          _sectionLabel('🖼️ ARTWORK SHAPE'),
+          _buildArtworkShapeSelector(context),
+
           // ── Player ──
           _sectionLabel('🎭 PLAYER'),
           _dropdownTile(context,
@@ -257,6 +276,175 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
         ],
       ),
     );
+  }
+
+  // ── Font Selector ────────────────────────────────────────────────────────
+  Widget _buildFontSelector(BuildContext context) {
+    const fonts = {
+      'Default':  'Aa',
+      'Rounded':  'Aa',
+      'Mono':     'Aa',
+    };
+    const fontFamilies = {
+      'Default': null,
+      'Rounded': 'Nunito',
+      'Mono':    'RobotoMono',
+    };
+    return _card(context, child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('App Font', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+        const SizedBox(height: 12),
+        Row(
+          children: fonts.entries.map((e) {
+            final sel = _fontStyle == e.key;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => _fontStyle = e.key);
+                  _save('font_style', e.key);
+                },
+                child: Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
+                      width: sel ? 1 : 0.5,
+                    ),
+                  ),
+                  child: Column(children: [
+                    Text(
+                      e.value,
+                      style: TextStyle(
+                        fontFamily: fontFamilies[e.key],
+                        color: sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
+                        fontSize: 22, fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      e.key,
+                      style: TextStyle(
+                        color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ]),
+    ));
+  }
+
+  // ── Now Playing Card Style ────────────────────────────────────────────────
+  Widget _buildCardStyleSelector(BuildContext context) {
+    const styles = {
+      'Compact':   Icons.view_headline_rounded,
+      'Card':      Icons.crop_square_rounded,
+      'Immersive': Icons.fullscreen_rounded,
+    };
+    const subtitles = {
+      'Compact':   'Small artwork, text beside',
+      'Card':      'Balanced artwork + info',
+      'Immersive': 'Full-width artwork, minimal UI',
+    };
+    return _card(context, child: Column(
+      children: styles.entries.map((e) {
+        final sel = _nowPlayingCardStyle == e.key;
+        final isLast = e.key == 'Immersive';
+        return Column(children: [
+          ListTile(
+            onTap: () {
+              setState(() => _nowPlayingCardStyle = e.key);
+              _save('now_playing_card_style', e.key);
+            },
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+            leading: Container(
+              width: 38, height: 38,
+              decoration: BoxDecoration(
+                color: sel ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
+                borderRadius: BorderRadius.circular(10),
+                border: sel ? Border.all(color: AurumTheme.gold.withOpacity(0.5)) : null,
+              ),
+              child: Icon(e.value, color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
+            ),
+            title: Text(e.key,
+                style: TextStyle(
+                  color: sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
+                  fontSize: 14, fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
+                )),
+            subtitle: Text(subtitles[e.key]!,
+                style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+            trailing: Icon(
+              sel ? Icons.check_circle_rounded : Icons.circle_outlined,
+              color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+              size: 20,
+            ),
+          ),
+          if (!isLast) _divider(context),
+        ]);
+      }).toList(),
+    ));
+  }
+
+  // ── Artwork Shape ─────────────────────────────────────────────────────────
+  Widget _buildArtworkShapeSelector(BuildContext context) {
+    const shapes = ['Square', 'Rounded', 'Circle'];
+    final previews = {
+      'Square':  BorderRadius.circular(4),
+      'Rounded': BorderRadius.circular(12),
+      'Circle':  BorderRadius.circular(40),
+    };
+    return _card(context, child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: shapes.map((s) {
+          final sel = _artworkShape == s;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () {
+                setState(() => _artworkShape = s);
+                _save('artwork_shape', s);
+              },
+              child: Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
+                    width: sel ? 1 : 0.5,
+                  ),
+                ),
+                child: Column(children: [
+                  Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: sel ? AurumTheme.gold.withOpacity(0.3) : AurumTheme.dividerOf(context),
+                      borderRadius: previews[s],
+                    ),
+                    child: sel ? const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 18) : null,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(s,
+                      style: TextStyle(
+                        color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+                        fontSize: 11,
+                      )),
+                ]),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    ));
   }
 
   Widget _themeTile(BuildContext context, ThemeProvider tp, IconData icon, String label, String sub, AurumThemeMode mode) {
