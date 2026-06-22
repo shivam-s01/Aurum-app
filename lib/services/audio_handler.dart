@@ -165,21 +165,44 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (event.processingState != ProcessingState.idle) return;
       final pos = _player.position;
       if (pos.inMilliseconds < 500) {
-        // Fresh-start failure (not an expired-URL case) — log it so it's
-        // visible instead of silently doing nothing. This state previously
-        // had zero observability: play() looked like it succeeded
-        // (isPlaying stayed true) while the engine sat in idle forever.
-        final songTitle = _queue.isNotEmpty && _currentIndex < _queue.length
-            ? _queue[_currentIndex].title : "?";
+        // FIX: idle@~0ms is NOT always a real failure — it's also the
+        // normal transient state ExoPlayer passes through while swapping
+        // AudioSources (next/previous, queue splicing, internal stop()
+        // calls during recovery). Firing the error popup immediately on
+        // every such transition was a false positive: playback would
+        // continue fine a moment later, but the user still saw a "fresh
+        // start failure" banner over a perfectly working song.
+        //
+        // Debounce: wait briefly, then only treat it as real if the
+        // player is STILL idle at a near-zero position for the SAME
+        // song afterward. A genuine failure stays stuck; a normal
+        // transition moves on to loading/buffering/ready well within
+        // this window.
+        final songAtIdle = _queue.isNotEmpty && _currentIndex < _queue.length
+            ? _queue[_currentIndex] : null;
+        final sessionAtIdle = _playSessionId;
+
+        await Future.delayed(const Duration(milliseconds: 1200));
+
+        // Bail out if anything changed during the wait — song switched,
+        // queue cleared, or a new load started. None of those are the
+        // failure this check is meant to catch.
+        if (sessionAtIdle != _playSessionId) return;
+        if (_isLoadingNewSong) return;
+        if (_queue.isEmpty || _currentIndex >= _queue.length) return;
+        final songNow = _queue[_currentIndex];
+        if (songAtIdle == null || songNow.id != songAtIdle.id) return;
+        if (_player.processingState != ProcessingState.idle) return;
+        if (_player.position.inMilliseconds >= 500) return;
+
+        final songTitle = songNow.title;
         debugPrint('[AurumHandler] FRESH-START FAILURE: processingState=idle '
-            'at pos=${pos.inMilliseconds}ms, queue=${_queue.length}, '
+            'at pos=${_player.position.inMilliseconds}ms, queue=${_queue.length}, '
             'loading=$_isLoadingNewSong, song=$songTitle');
-        if (!_isLoadingNewSong && _queue.isNotEmpty) {
-          onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
-              'setAudioSource appeared to succeed but processingState went '
-              'idle at position 0ms (no exception thrown). last event: '
-              '${event.processingState}');
-        }
+        onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
+            'setAudioSource appeared to succeed but processingState went '
+            'idle at position 0ms (no exception thrown). last event: '
+            '${_player.processingState}');
         return;
       }
       if (_queue.isEmpty || _isLoadingNewSong) return;
@@ -408,10 +431,25 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       );
     }
 
+    // FIX: YouTube resolution races/chains through up to 4 fallback stages
+    // (Worker → 3x Piped → 3x Invidious → youtube_explode_dart), each with
+    // its own 7-10s timeout. On a cold app start (first network call of
+    // the session), DNS lookup + TLS handshake for each new host is slower
+    // than on a warm connection — easily pushing total chain time past 12s
+    // even when every individual stage is healthy. The old flat 12s outer
+    // timeout was killing the FIRST playback attempt of every session
+    // before the chain could finish, while later attempts (warm DNS/TLS)
+    // completed fine — exactly matching the "fails first time, works after"
+    // symptom. Saavn only needs one fast call, so it keeps the tight 12s;
+    // YouTube gets real headroom to actually finish its chain.
+    final resolveTimeout = song.source == SongSource.youtube
+        ? const Duration(seconds: 28)
+        : const Duration(seconds: 12);
+
     String? url;
     try {
       url = await ApiService.resolveStreamUrl(song)
-          .timeout(const Duration(seconds: 12), onTimeout: () => null);
+          .timeout(resolveTimeout, onTimeout: () => null);
     } catch (e) {
       debugPrint('[AurumHandler] resolveStreamUrl threw: \$e');
       return null;
