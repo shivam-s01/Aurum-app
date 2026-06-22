@@ -542,8 +542,21 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
 
       // 3. Resolve clicked song
-      final startSource = await _sourceForSong(songs[startIndex]);
+      var startSource = await _sourceForSong(songs[startIndex]);
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
+      if (startSource == null) {
+        // FIX: same cold-start issue as playSong — the resolve chain
+        // (Worker/Piped/Invidious) often keeps running in the background
+        // past our local timeout and finishes (and caches its result)
+        // just after we gave up waiting. One quick automatic retry picks
+        // that up instantly via the cache instead of forcing the user to
+        // notice the failure and manually cut/replay the song themselves.
+        debugPrint('[AurumHandler] playQueue resolve failed, retrying once: "${songs[startIndex].title}"');
+        await Future.delayed(const Duration(milliseconds: 600));
+        if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
+        startSource = await _sourceForSong(songs[startIndex]);
+        if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
+      }
       if (startSource == null) {
         // Resolve failed — clear queue/notification so the UI doesn't keep
         // showing a song that never actually started playing.
@@ -696,8 +709,22 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     await _player.stop();
     if (mySession != _playSessionId) { await _player.setVolume(1); return; }
 
-    final source = await _sourceForSong(song);
+    var source = await _sourceForSong(song);
     if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+    if (source == null) {
+      // FIX: don't give up immediately. The resolve chain (Worker/Piped/
+      // Invidious) often keeps running in the background even after our
+      // local .timeout() gave up waiting on a cold-start request — by the
+      // time the user manually cuts and replays, that original call has
+      // usually already finished and cached the URL, making the retry
+      // look instant. Do that retry automatically instead of requiring
+      // the user to notice the failure and replay it themselves.
+      debugPrint('[AurumHandler] playSong resolve failed, retrying once: "${song.title}"');
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+      source = await _sourceForSong(song);
+      if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+    }
     if (source == null) {
       // Resolve failed — don't leave the UI pointing at a song that never
       // actually started. Clear queue/notification so mini-player & full
