@@ -60,4 +60,48 @@
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">akamaihd.net</domain>
     </domain-config>
+
+    <!-- FIX: YouTube fallback chain (_ytStreamById) was failing on EVERY
+         stage — Piped, Invidious, and youtube_explode_dart — because none
+         of their domains were whitelisted here. With cleartextTrafficPermitted
+         ="false" + a custom networkSecurityConfig, Android blocks ALL
+         outbound traffic to non-listed domains, so every fallback stage's
+         HTTP request was killed before it left the device. This is the
+         exact same class of bug as the earlier Worker/CDN block — just on
+         a different set of domains. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">kavin.rocks</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">privacy.com.de</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">projectsegfau.lt</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">invidious.io.lol</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">nadeko.net</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">privacydev.net</domain>
+    </domain-config>
+
+    <!-- youtube_explode_dart (last-resort stage) needs youtube.com itself
+         for search/manifest calls, AND googlevideo.com — the actual CDN
+         domain that resolved audio stream URLs point to (this is what
+         ExoPlayer connects to AFTER resolution succeeds, regardless of
+         which fallback stage resolved it). Missing this would make the
+         resolve step succeed but playback fail right after, with the
+         same idle@0ms symptom as before. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">youtube.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">googlevideo.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">ytimg.com</domain>
+    </domain-config>
 </network-security-config>
