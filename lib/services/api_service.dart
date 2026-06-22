@@ -792,10 +792,19 @@ class ApiService {
   }
 
   // ── Cloudflare Worker ────────────────────────────────────────────────────
+  // FIX: the Worker's own resolveYtStreamFast() runs up to 3 internal stages
+  // (Innertube+Piped race → 5-way blast → remaining instances with a 5s
+  // deadline), which can take ~13-15s end-to-end on a cold Worker isolate
+  // (Cloudflare recycles isolates, so the in-memory instanceHealth Map —
+  // used to rank/skip bad instances — starts empty and gives no speed
+  // advantage on the first request). The old 8s timeout was killing the
+  // Worker call before it could finish, forcing every cold-start resolve
+  // onto the slower Dart-side Piped/Invidious chain instead. 16s gives the
+  // Worker's full internal chain room to actually complete.
   static Future<String?> _workerYtStream(String videoId) async {
     try {
       final uri = Uri.parse('$_worker/api/yt-stream?id=$videoId');
-      final res = await _client.get(uri).timeout(const Duration(seconds: 8));
+      final res = await _client.get(uri).timeout(const Duration(seconds: 16));
       if (res.statusCode == 200) {
         final ct = res.headers['content-type'] ?? '';
         if (ct.contains('application/json')) {
