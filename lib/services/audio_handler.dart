@@ -64,7 +64,7 @@ const Map<String, String> _kStreamHeaders = {
 };
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
-  final _player   = AudioPlayer();
+  final _player = AudioPlayer(userAgent: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36');
   final _playlist = ConcatenatingAudioSource(children: []);
 
   List<Song> _queue        = [];
