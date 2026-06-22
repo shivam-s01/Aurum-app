@@ -30,6 +30,27 @@ import 'audio_prefs.dart';
 import 'recommendation_engine.dart';
 
 // =============================================================================
+// Result of a REAL playback attempt, used by debugPlaybackPath's
+// [realPlaybackTest] callback. Lives here (not in audio_handler.dart) so
+// BOTH api_service.dart and audio_handler.dart can reference it without
+// creating a circular import (audio_handler.dart already imports
+// api_service.dart for resolveStreamUrl etc).
+// =============================================================================
+class RealPlaybackResult {
+  final bool success;
+  final int positionMs;
+  final String processingState;
+  final String? errorMessage;
+
+  const RealPlaybackResult({
+    required this.success,
+    required this.positionMs,
+    required this.processingState,
+    this.errorMessage,
+  });
+}
+
+// =============================================================================
 // PIPED / INVIDIOUS INSTANCES — YT stream fallback chain
 // Tried in order until one returns a valid audio URL.
 // Public instances — rotated to spread load.
@@ -1283,6 +1304,13 @@ class ApiService {
   // ===========================================================================
   // DIAGNOSTICS
   // ===========================================================================
+
+  // Result of a REAL playback attempt through the live AurumAudioHandler —
+  // returned by the [realPlaybackTest] callback passed into
+  // [debugPlaybackPath] from the UI. Separate from PlayerException so the
+  // diagnostic function doesn't need to import audio_handler.dart directly
+  // (avoids a circular import: audio_handler.dart already imports
+  // api_service.dart).
   static Map<String, dynamic> getDiagnosticsSnapshot() {
     return {
       'timestamp':           DateTime.now().toIso8601String(),
@@ -1298,7 +1326,14 @@ class ApiService {
     };
   }
 
-  static Future<String> debugPlaybackPath() async {
+  /// [realPlaybackTest], if provided, is called with a test [Song] and
+  /// should attempt REAL playback through the app's live AurumAudioHandler
+  /// (wired in from home_screen.dart via PlayerProvider) and report back
+  /// what actually happened. When null, falls back to the old
+  /// throwaway-AudioPlayer test so this function still works standalone.
+  static Future<String> debugPlaybackPath({
+    Future<RealPlaybackResult> Function(Song)? realPlaybackTest,
+  }) async {
     final buf = StringBuffer();
     buf.writeln('=== Aurum Playback Diagnostics v4 ===');
     buf.writeln('Time:   ${DateTime.now()}');
@@ -1361,50 +1396,90 @@ class ApiService {
 
     // Test REAL PLAYBACK — this is what was missing. Resolve succeeding
     // only proves the URL exists; it says nothing about whether
-    // just_audio/ExoPlayer can actually open and decode it. This step
-    // spins up a throwaway AudioPlayer with the SAME headers used in
-    // production (audio_handler.dart's _kStreamHeaders) and tries to
-    // actually load + play for real, reporting the exact error if any.
-    buf.writeln('▶ ${_kPipedInstances.length + 4}. REAL PLAYBACK TEST');
-    if (resolvedUrl != null) {
-      final testPlayer = AudioPlayer();
-      try {
-        final sw = Stopwatch()..start();
-        await testPlayer.setAudioSource(
-          AudioSource.uri(
-            Uri.parse(resolvedUrl),
-            headers: const {
-              'User-Agent':
-                  'Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 '
-                  '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-            },
-          ),
-          preload: true,
-        ).timeout(const Duration(seconds: 15));
-        sw.stop();
-        final dur = testPlayer.duration;
-        buf.writeln('   ✅ setAudioSource OK (${sw.elapsedMilliseconds}ms), '
-            'duration=${dur ?? "null"}, state=${testPlayer.processingState}');
-
-        // Try actually playing for 2 seconds and check if position moves
-        await testPlayer.play();
-        await Future.delayed(const Duration(seconds: 2));
-        final pos = testPlayer.position;
-        buf.writeln(pos.inMilliseconds > 200
-            ? '   ✅ PLAYBACK CONFIRMED — position advanced to ${pos.inMilliseconds}ms'
-            : '   ❌ PLAYBACK STUCK — position still ${pos.inMilliseconds}ms after 2s play, '
-              'processingState=${testPlayer.processingState}');
-      } catch (e, st) {
-        buf.writeln('   ❌ PLAYBACK EXCEPTION: $e');
-        if (e is PlayerException) {
-buf.writeln('      STACK: $st');          buf.writeln('      code=${e.code} message=${e.message}');
+    // just_audio/ExoPlayer can actually open and decode it.
+    //
+    // v5 CHANGE: previously this spun up a THROWAWAY `AudioPlayer()` with
+    // its own one-off setAudioSource(..., preload: true) call. That is a
+    // DIFFERENT code path from the real app: production playback always
+    // goes through `AurumAudioHandler` (audio_handler.dart) via
+    // `playSong()`/`playQueue()`, which uses `preload: false`, a
+    // `ConcatenatingAudioSource` wrapper, volume-mute/stop choreography,
+    // and the shared `_player` instance with all its listeners attached.
+    // A throwaway player skips ALL of that — so this test could pass or
+    // fail independently of whether real in-app playback works, which is
+    // exactly the ambiguity that made this bug hard to pin down.
+    //
+    // Fix: if [realPlaybackTest] is supplied (wired from home_screen.dart
+    // to PlayerProvider.playSong, which forwards to the real
+    // AurumAudioHandler), use the REAL handler/player instead of a
+    // throwaway one. Falls back to the old throwaway-player behaviour if
+    // no callback is supplied, so this function still works standalone.
+    buf.writeln('▶ ${_kPipedInstances.length + 4}. REAL PLAYBACK TEST'
+        '${realPlaybackTest != null ? " (via live AurumAudioHandler)" : " (throwaway player — no handler wired)"}');
+    if (resolvedUrl != null && testSongs.isNotEmpty) {
+      if (realPlaybackTest != null) {
+        try {
+          final sw = Stopwatch()..start();
+          final result = await realPlaybackTest(testSongs.first)
+              .timeout(const Duration(seconds: 15));
+          sw.stop();
+          buf.writeln('   setAudioSource+play attempted in ${sw.elapsedMilliseconds}ms');
+          buf.writeln(result.success
+              ? '   ✅ PLAYBACK CONFIRMED — position advanced to ${result.positionMs}ms, '
+                'state=${result.processingState}'
+              : '   ❌ PLAYBACK FAILED — position ${result.positionMs}ms after wait, '
+                'state=${result.processingState}'
+                '${result.errorMessage != null ? "\n      ERROR: ${result.errorMessage}" : ""}');
+        } catch (e, st) {
+          buf.writeln('   ❌ PLAYBACK EXCEPTION (real handler): $e');
+          if (e is PlayerException) {
+            buf.writeln('      code=${e.code} message=${e.message}');
+          }
+          buf.writeln('      STACK: $st');
+          debugPrint('[Diagnostics] Real-handler playback test stack: $st');
         }
-        debugPrint('[Diagnostics] Playback test stack: $st');
-      } finally {
-        await testPlayer.dispose();
+      } else {
+        // Legacy throwaway-player fallback — kept so this function still
+        // works if no PlayerProvider callback was wired in from the UI.
+        final testPlayer = AudioPlayer();
+        try {
+          final sw = Stopwatch()..start();
+          await testPlayer.setAudioSource(
+            AudioSource.uri(
+              Uri.parse(resolvedUrl),
+              headers: const {
+                'User-Agent':
+                    'Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 '
+                    '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+              },
+            ),
+            preload: true,
+          ).timeout(const Duration(seconds: 15));
+          sw.stop();
+          final dur = testPlayer.duration;
+          buf.writeln('   ✅ setAudioSource OK (${sw.elapsedMilliseconds}ms), '
+              'duration=${dur ?? "null"}, state=${testPlayer.processingState}');
+
+          await testPlayer.play();
+          await Future.delayed(const Duration(seconds: 2));
+          final pos = testPlayer.position;
+          buf.writeln(pos.inMilliseconds > 200
+              ? '   ✅ PLAYBACK CONFIRMED — position advanced to ${pos.inMilliseconds}ms'
+              : '   ❌ PLAYBACK STUCK — position still ${pos.inMilliseconds}ms after 2s play, '
+                'processingState=${testPlayer.processingState}');
+        } catch (e, st) {
+          buf.writeln('   ❌ PLAYBACK EXCEPTION: $e');
+          if (e is PlayerException) {
+            buf.writeln('      code=${e.code} message=${e.message}');
+          }
+          buf.writeln('      STACK: $st');
+          debugPrint('[Diagnostics] Playback test stack: $st');
+        } finally {
+          await testPlayer.dispose();
+        }
       }
     } else {
-      buf.writeln('   ⏭ skipped — no resolved URL to test');
+      buf.writeln('   ⏭ skipped — no resolved URL/test song to test');
     }
 
     return buf.toString();

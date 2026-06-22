@@ -41,6 +41,30 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final lib = context.read<LibraryProvider>();
       if (!lib.hasLoaded) lib.load();
+
+      // Surface real playback failures immediately via SnackBar — no
+      // logcat/adb needed to see exactly why a tap didn't start sound.
+      // See audio_handler.dart's onPlaybackError / runRealPlaybackTest
+      // for where these messages come from.
+      final player = context.read<PlayerProvider>();
+      player.onPlaybackError = (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red.shade900,
+            duration: const Duration(seconds: 10),
+            content: SelectableText(
+              error,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+            action: SnackBarAction(
+              label: 'OK',
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
+          ),
+        );
+      };
     });
   }
 
@@ -157,7 +181,14 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icon(Icons.bug_report_outlined,
               color: AurumTheme.textSecondaryOf(context)),
           onPressed: () async {
-            final result = await ApiService.debugPlaybackPath();
+            // Wire the REAL handler in, so the "REAL PLAYBACK TEST" step
+            // tests actual in-app playback instead of a throwaway player.
+            // See api_service.dart / audio_handler.dart for why this
+            // distinction matters — it's what made this bug ambiguous.
+            final playerProvider = context.read<PlayerProvider>();
+            final result = await ApiService.debugPlaybackPath(
+              realPlaybackTest: playerProvider.runRealPlaybackTest,
+            );
             if (!context.mounted) return;
             showDialog(
               context: context,

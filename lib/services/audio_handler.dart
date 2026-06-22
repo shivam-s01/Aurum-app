@@ -76,6 +76,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // which only fires once just_audio finishes loading the resolved source.
   void Function()? onQueueChanged;
 
+  // Fired with the exact error string whenever a real playback attempt
+  // (playSong/playQueue) fails to actually start sound — lets the UI show
+  // it immediately (SnackBar/Dialog) instead of it only living in
+  // debugPrint, which is invisible on a release APK with no logcat access.
+  void Function(String error)? onPlaybackError;
+
   // Cancellation token — each new playQueue/playSong call gets a fresh ID.
   // Background resolvers check this before touching the playlist.
   int _playSessionId = 0;
@@ -166,9 +172,17 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         // visible instead of silently doing nothing. This state previously
         // had zero observability: play() looked like it succeeded
         // (isPlaying stayed true) while the engine sat in idle forever.
+        final songTitle = _queue.isNotEmpty && _currentIndex < _queue.length
+            ? _queue[_currentIndex].title : "?";
         debugPrint('[AurumHandler] FRESH-START FAILURE: processingState=idle '
             'at pos=${pos.inMilliseconds}ms, queue=${_queue.length}, '
-            'loading=$_isLoadingNewSong, song=${_queue.isNotEmpty && _currentIndex < _queue.length ? _queue[_currentIndex].title : "?"}');
+            'loading=$_isLoadingNewSong, song=$songTitle');
+        if (!_isLoadingNewSong && _queue.isNotEmpty) {
+          onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
+              'setAudioSource appeared to succeed but processingState went '
+              'idle at position 0ms (no exception thrown). last event: '
+              '${event.processingState}');
+        }
         return;
       }
       if (_queue.isEmpty || _isLoadingNewSong) return;
@@ -299,6 +313,85 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (name == 'reloadSettings') await reloadSettings();
   }
 
+  // ─── DIAGNOSTIC: REAL PLAYBACK TEST (via the live handler/player) ────────
+  // Used by api_service.dart's debugPlaybackPath() so the diagnostic
+  // popup tests the SAME code path real taps use — _sourceForSong(),
+  // the shared _player instance, preload:false — instead of a throwaway
+  // AudioPlayer with different settings (see api_service.dart comment for
+  // why that distinction mattered: a throwaway-player pass/fail told us
+  // nothing about whether normal in-app playback actually worked).
+  //
+  // Saves/restores the user's real queue+position so this test never
+  // disrupts whatever they were actually listening to. If nothing was
+  // playing, simply stops afterward.
+  Future<RealPlaybackResult> runRealPlaybackTest(Song testSong) async {
+    // Snapshot what the user actually had going on, so we can restore it.
+    final savedQueue   = List<Song>.from(_queue);
+    final savedIndex   = _currentIndex;
+    final wasPlaying   = _player.playing;
+    final savedPos     = _player.position;
+
+    try {
+      final source = await _sourceForSong(testSong);
+      if (source == null) {
+        return const RealPlaybackResult(
+          success: false,
+          positionMs: 0,
+          processingState: 'n/a',
+          errorMessage: '_sourceForSong returned null (resolve failed)',
+        );
+      }
+
+      final testPlaylist = ConcatenatingAudioSource(children: [source]);
+      await _player.setAudioSource(testPlaylist, initialIndex: 0, preload: false);
+      await _player.play();
+      await Future.delayed(const Duration(seconds: 2));
+
+      final pos   = _player.position;
+      final state = _player.processingState.toString();
+      final ok    = pos.inMilliseconds > 200;
+
+      return RealPlaybackResult(
+        success: ok,
+        positionMs: pos.inMilliseconds,
+        processingState: state,
+      );
+    } on PlayerException catch (e) {
+      return RealPlaybackResult(
+        success: false,
+        positionMs: 0,
+        processingState: 'error',
+        errorMessage: 'code=${e.code} message=${e.message}',
+      );
+    } catch (e) {
+      return RealPlaybackResult(
+        success: false,
+        positionMs: 0,
+        processingState: 'error',
+        errorMessage: e.toString(),
+      );
+    } finally {
+      // Restore whatever the user actually had playing before this test.
+      await _player.stop();
+      if (savedQueue.isNotEmpty) {
+        try {
+          final restoreSource = await _sourceForSong(savedQueue[savedIndex]);
+          if (restoreSource != null) {
+            final restored = ConcatenatingAudioSource(children: [restoreSource]);
+            await _player.setAudioSource(restored, initialIndex: 0, preload: false);
+            await _player.seek(savedPos);
+            if (wasPlaying) await _player.play();
+          }
+        } catch (_) {
+          // Best-effort restore — if it fails, user can just hit play again.
+        }
+      }
+      _queue = savedQueue;
+      _currentIndex = savedIndex;
+      onQueueChanged?.call();
+    }
+  }
+
   Future<AudioSource?> _sourceForSong(Song song, {bool fromLookahead = false}) async {
     if (song.isLocal) {
       final path = song.localPath!;
@@ -426,6 +519,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         _currentIndex = 0;
         mediaItem.add(null);
         onQueueChanged?.call();
+        onPlaybackError?.call('Resolve failed for "${songs[startIndex].title}" — '
+            '_sourceForSong returned null (stream URL could not be resolved)');
         await _player.setVolume(1);
         _splicingInProgress = false;
         return;
@@ -439,6 +534,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
       } catch (e) {
         debugPrint('[AurumHandler] setAudioSource failed: $e'); // FIX: now works via flutter/foundation.dart
+        final detail = e is PlayerException
+            ? 'code=${e.code} message=${e.message}'
+            : e.toString();
+        onPlaybackError?.call('playQueue setAudioSource failed for '
+            '"${songs[startIndex].title}": $detail');
         await _player.setVolume(1);
         _splicingInProgress = false;
         return;
@@ -574,6 +674,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       _currentIndex = 0;
       mediaItem.add(null);
       onQueueChanged?.call();
+      onPlaybackError?.call('Resolve failed for "${song.title}" — '
+          '_sourceForSong returned null (stream URL could not be resolved)');
       await _player.setVolume(1);
       return;
     }
@@ -583,6 +685,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
     } catch (e) {
       debugPrint('[AurumHandler] playSong setAudioSource failed: $e'); // FIX: now works via flutter/foundation.dart
+      final detail = e is PlayerException
+          ? 'code=${e.code} message=${e.message}'
+          : e.toString();
+      onPlaybackError?.call('playSong setAudioSource failed for '
+          '"${song.title}": $detail');
       await _player.setVolume(1);
       return;
     }

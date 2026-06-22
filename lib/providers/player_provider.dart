@@ -43,6 +43,17 @@ class PlayerProvider extends ChangeNotifier {
 
   bool _isExtendingQueue = false;
 
+  // Last error reported by AurumAudioHandler.onPlaybackError — exposed so
+  // the UI (home_screen.dart) can show it via SnackBar the instant a real
+  // playSong/playQueue attempt fails, without needing logcat/adb access.
+  String? _lastPlaybackError;
+  String? get lastPlaybackError => _lastPlaybackError;
+
+  // Fired every time a new playback error comes in, even if the message
+  // text is identical to the previous one (so repeated taps on the same
+  // broken song each show a fresh SnackBar instead of being deduped away).
+  void Function(String error)? onPlaybackError;
+
   // ── Behavior tracking state ────────────────────────────────────────────────
   // Used to fire one-shot events per song (completion/skip/replay).
   Song?   _lastTrackedSong;       // song currently being tracked
@@ -62,6 +73,12 @@ class PlayerProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   PlayerProvider(this._handler, {RecentlyPlayedProvider? recentlyPlayedProvider})
       : _recentlyPlayed = recentlyPlayedProvider {
+    _handler.onPlaybackError = (error) {
+      _lastPlaybackError = error;
+      onPlaybackError?.call(error);
+      notifyListeners();
+    };
+
     _subs.add(_handler.player.playingStream.listen((playing) {
       _isPlaying = playing;
       notifyListeners();
@@ -423,6 +440,17 @@ class PlayerProvider extends ChangeNotifier {
 
   // Internal getter: prefers the live proxy instance, falls back to constructor arg.
   RecentlyPlayedProvider? get _rp => _latestRecentlyPlayed ?? _recentlyPlayed;
+
+  // ---------------------------------------------------------------------------
+  // DIAGNOSTICS — exposes the real handler's playback test to the UI layer
+  // (home_screen.dart) without that screen needing to know about
+  // AurumAudioHandler directly. See audio_handler.dart's
+  // runRealPlaybackTest() and api_service.dart's debugPlaybackPath() for
+  // why this matters: it lets the diagnostics dialog test the SAME
+  // play path real taps use, instead of a throwaway player.
+  // ---------------------------------------------------------------------------
+  Future<RealPlaybackResult> runRealPlaybackTest(Song song) =>
+      _handler.runRealPlaybackTest(song);
 
   // ---------------------------------------------------------------------------
   // DISPOSE
