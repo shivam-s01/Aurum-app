@@ -41,4 +41,10 @@
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">onrender.com</domain>
     </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">akamaized.net</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">akamaihd.net</domain>
+    </domain-config>
 </network-security-config>
