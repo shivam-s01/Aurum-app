@@ -1486,15 +1486,13 @@ class ApiService {
   }
 
   static String _proxiedSaavnUrl(String url) {
-    // Decode first — onrender may return already-encoded proxied URLs like
-    // "aurum-worker.../stream-proxy?url=https%3A%2F%2Faurum-worker..." which
-    // would slip past a plain .contains() check on the raw string.
     final decoded = Uri.decodeComponent(url);
+    // Unwrap any existing stream-proxy wrapping — return direct CDN URL
+    // ExoPlayer/OkHttp hits saavncdn.com directly (works fine).
+    // stream-proxy caused processingState=idle at 0ms (silent failure).
     if (decoded.contains('/stream-proxy?url=') || url.contains('/stream-proxy?url=')) {
-      return decoded; // return clean decoded URL, never double-wrap
-    }
-    if (decoded.contains('saavncdn.com') || url.contains('saavncdn.com')) {
-      return '$_saavn/stream-proxy?url=${Uri.encodeComponent(decoded)}';
+      final inner = Uri.tryParse(decoded)?.queryParameters['url'];
+      return inner != null ? Uri.decodeComponent(inner) : decoded;
     }
     return decoded;
   }
