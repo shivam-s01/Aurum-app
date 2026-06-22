@@ -26,6 +26,19 @@
         </trust-anchors>
     </base-config>
 
+    <!-- just_audio (Android) spins up a local loopback HTTP proxy on
+         127.0.0.1 whenever AudioSource.uri is given a `headers:` map, or
+         when using LockCachingAudioSource / StreamAudioSource. That proxy
+         talks plain HTTP to itself within the device — cleartext must be
+         allowed for localhost or the player silently fails with a generic
+         ExoPlayer "Source error" (code=0) at position 0ms. We no longer
+         pass headers (see audio_handler.dart), but this stays as a safety
+         net for any future use of those APIs. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">workers.dev</domain>
     </domain-config>

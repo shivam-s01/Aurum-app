@@ -36,32 +36,29 @@ class _LookaheadCache {
 }
 
 // =============================================================================
-// PRODUCTION STREAMING HEADERS
-// Injected on every AudioSource.uri call.
-// - User-Agent: matches Android Chrome — prevents throttling by CDNs
-//   that rate-limit generic/bot UA strings (JioSaavn CDN does this).
-// - Range: open-ended range header signals byte-serving support to the
-//   CDN, enabling ExoPlayer's internal partial-content fetching which
-//   is faster than chunked transfer for audio.
-// - Connection: Keep-Alive: reuses the TCP connection across the stream
-//   lifecycle — eliminates repeated TLS handshake overhead (~100-200ms
-//   on low-end devices with slow CDNs).
-// - Accept-Encoding: identity — tells the CDN not to gzip/deflate the
-//   audio stream; ExoPlayer doesn't benefit from compression on binary
-//   audio and the encode/decode overhead wastes CPU on old phones.
+// ROOT CAUSE OF "Source error code=0 / idle@0ms" — FIXED
+// -----------------------------------------------------------------------
+// On Android, just_audio's AudioSource.uri(..., headers: {...}) does NOT
+// pass headers straight to ExoPlayer's HTTP data source. Instead it spins
+// up a local loopback HTTP proxy (127.0.0.1) inside the app process and
+// routes the request through THAT, attaching headers there.
+//
+// Our network_security_config.xml has a base-config with
+// cleartextTrafficPermitted="false" and no exception carved out for
+// 127.0.0.1/localhost. Android's network security policy was silently
+// blocking the app's own loopback proxy connection — so EVERY AudioSource
+// built with a `headers:` map failed instantly, surfacing as a generic
+// ExoPlayer "Source error" (code=0) with processingState stuck at idle
+// and position stuck at 0ms. This explains why BOTH the direct CDN URL
+// and the Cloudflare Worker proxy URL failed identically: neither ever
+// actually got the chance to be requested by ExoPlayer.
+//
+// FIX: stop passing `headers:` to AudioSource.uri entirely. The User-Agent
+// is already set once, globally, via AudioPlayer(userAgent: ...) in the
+// constructor below — that path goes straight to ExoPlayer's
+// DefaultHttpDataSource.Factory with NO loopback proxy involved. This is
+// the correct, robust way to set UA for every request on Android.
 // =============================================================================
-const Map<String, String> _kStreamHeaders = {
-  'User-Agent':
-      'Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 '
-      '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-  // NOTE: do NOT set 'Range', 'Connection', or 'Accept-Encoding' here.
-  // ExoPlayer's own HTTP data source manages Range (per-chunk seeking),
-  // Connection (keep-alive pooling), and Accept-Encoding internally.
-  // Overriding any of these caused a generic ExoPlaybackException
-  // "Source error" (code=0) — confirmed via curl that the CDN itself
-  // returns a perfectly valid 206 Partial Content with no special
-  // headers required. Only User-Agent is actually needed.
-};
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   final _player = AudioPlayer(userAgent: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36');
@@ -203,7 +200,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         final freshSource = AudioSource.uri(
           Uri.parse(freshUrl),
           tag: _songToMediaItem(song),
-          headers: _kStreamHeaders,
         );
         final seq = _player.audioSource;
         if (seq is ConcatenatingAudioSource) {
@@ -409,7 +405,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       return AudioSource.uri(
         Uri.parse(cachedUrl),
         tag: _songToMediaItem(song),
-        headers: _kStreamHeaders,
       );
     }
 
@@ -425,7 +420,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     return AudioSource.uri(
       Uri.parse(url),
       tag: _songToMediaItem(song),
-      headers: _kStreamHeaders,
     );
   }
 
