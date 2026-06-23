@@ -18,6 +18,7 @@ import '../widgets/song_tile.dart';
 import '../widgets/aurum_loader.dart';
 import 'package:shimmer/shimmer.dart';
 import 'settings_screen.dart';
+import 'artist_screen.dart';
 import 'profile_screen.dart';
 import 'full_player_screen.dart';
 
