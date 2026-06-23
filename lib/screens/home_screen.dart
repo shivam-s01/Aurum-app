@@ -1616,7 +1616,7 @@ class _ArtistChip extends StatelessWidget {
         if (id == null || !context.mounted) return;
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ArtistScreen(artistId: id)),
+          MaterialPageRoute(builder: (_) => ArtistScreen(artistId: id, artistName: artist.name)),
         );
       },
       child: Container(
