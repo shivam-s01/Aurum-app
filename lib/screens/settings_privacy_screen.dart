@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
+import '../services/audio_prefs.dart';
 
 class SettingsPrivacyScreen extends StatefulWidget {
   const SettingsPrivacyScreen({super.key});
@@ -14,6 +15,8 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
   bool   _incognitoMode   = false;
   bool   _hideListenStats = false;
   String _appLockPin      = '';
+  String _lockDelay       = 'After 10 min';
+  bool   _dontLockPlaying = false;
 
   @override
   void initState() {
@@ -29,6 +32,8 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
       _incognitoMode   = p.getBool('incognito_mode')      ?? false;
       _hideListenStats = p.getBool('hide_listen_stats')   ?? false;
       _appLockPin      = p.getString('app_lock_pin')      ?? '';
+      _lockDelay       = p.getString('lock_delay_label')  ?? 'After 10 min';
+      _dontLockPlaying = p.getBool('dont_lock_while_playing') ?? false;
     });
   }
 
@@ -108,6 +113,33 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
                 _save('biometric_lock', v);
               },
             ),
+            _dropdownTile(context,
+              icon: Icons.timer_rounded,
+              title: 'Auto-Lock After',
+              subtitle: 'How long in background before locking',
+              value: _lockDelay,
+              options: const ['Immediately', 'After 1 min', 'After 5 min', 'After 10 min', 'After 30 min'],
+              onChanged: (v) async {
+                setState(() => _lockDelay = v!);
+                await _save('lock_delay_label', v!);
+                const delays = {
+                  'Immediately': 0, 'After 1 min': 1, 'After 5 min': 5,
+                  'After 10 min': 10, 'After 30 min': 30,
+                };
+                final p = await SharedPreferences.getInstance();
+                await p.setInt('lock_delay_mins', delays[v] ?? 10);
+              },
+            ),
+            _switchTile(context,
+              icon: Icons.music_note_rounded,
+              title: 'Don\'t Lock While Playing',
+              subtitle: 'App won\'t lock as long as a song is playing',
+              value: _dontLockPlaying,
+              onChanged: (v) {
+                setState(() => _dontLockPlaying = v);
+                _save('dont_lock_while_playing', v);
+              },
+            ),
           ],
 
           // ── INCOGNITO ─────────────────────────────────────────────────
@@ -120,6 +152,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
             onChanged: (v) {
               setState(() => _incognitoMode = v);
               _save('incognito_mode', v);
+              AudioPrefs.setIncognito(v);
             },
           ),
           if (_incognitoMode)
@@ -136,6 +169,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
             onChanged: (v) {
               setState(() => _hideListenStats = v);
               _save('hide_listen_stats', v);
+              AudioPrefs.setHideListenStats(v);
             },
           ),
 
@@ -442,6 +476,39 @@ Widget _dangerTile(BuildContext context, {
       )),
       subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
       trailing: Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 20),
+    ),
+  );
+}
+
+Widget _dropdownTile(BuildContext context, {
+  required IconData icon, required String title, required String subtitle,
+  required String value, required List<String> options, required ValueChanged<String?> onChanged,
+}) {
+  return Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    decoration: BoxDecoration(
+      color: AurumTheme.bgCardOf(context),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+    ),
+    child: ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      leading: Container(
+        width: 38, height: 38,
+        decoration: BoxDecoration(color: AurumTheme.gold.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+        child: Icon(icon, color: AurumTheme.gold, size: 18),
+      ),
+      title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
+      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+      trailing: DropdownButton<String>(
+        value: value,
+        underline: const SizedBox(),
+        dropdownColor: AurumTheme.bgCardOf(context),
+        style: TextStyle(color: AurumTheme.gold, fontSize: 12, fontWeight: FontWeight.w600),
+        icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.gold, size: 18),
+        items: options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
+        onChanged: onChanged,
+      ),
     ),
   );
 }
