@@ -9,9 +9,12 @@ class SettingsNotificationsScreen extends StatefulWidget {
 }
 
 class _SettingsNotificationsScreenState extends State<SettingsNotificationsScreen> {
-  bool _showMediaNotif = true;
-  bool _showArtworkInNotif = true;
-  String _notifStyle = 'Expanded';
+  bool   _showMediaNotif      = true;
+  bool   _showArtworkInNotif  = true;
+  String _notifStyle          = 'Expanded';
+
+  // New
+  bool _showPrevButton = true;
 
   @override
   void initState() {
@@ -22,15 +25,16 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
     setState(() {
-      _showMediaNotif = p.getBool('show_media_notif') ?? true;
-      _showArtworkInNotif = p.getBool('show_artwork_notif') ?? true;
-      _notifStyle = p.getString('notif_style') ?? 'Expanded';
+      _showMediaNotif     = p.getBool('show_media_notif')    ?? true;
+      _showArtworkInNotif = p.getBool('show_artwork_notif')  ?? true;
+      _notifStyle         = p.getString('notif_style')       ?? 'Expanded';
+      _showPrevButton     = p.getBool('notif_show_prev')     ?? true;
     });
   }
 
   Future<void> _save(String key, dynamic value) async {
     final p = await SharedPreferences.getInstance();
-    if (value is bool) await p.setBool(key, value);
+    if (value is bool)   await p.setBool(key, value);
     if (value is String) await p.setString(key, value);
   }
 
@@ -42,6 +46,8 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
+
+          // ── PLAYER NOTIFICATION ───────────────────────────────────────
           _sectionLabel('🔔 PLAYER NOTIFICATION'),
           _switchTile(context,
             icon: Icons.notifications_rounded,
@@ -57,10 +63,18 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
             value: _showArtworkInNotif,
             onChanged: (v) { setState(() => _showArtworkInNotif = v); _save('show_artwork_notif', v); },
           ),
+          _switchTile(context,
+            icon: Icons.skip_previous_rounded,
+            title: 'Show Previous Track Button',
+            subtitle: 'Add previous button in media notification',
+            value: _showPrevButton,
+            onChanged: (v) { setState(() => _showPrevButton = v); _save('notif_show_prev', v); },
+          ),
+
+          // ── NOTIFICATION STYLE ────────────────────────────────────────
           _sectionLabel('NOTIFICATION STYLE'),
-          // Style selector tiles
-          _styleTile(context, 'Compact', 'Small, minimal controls', Icons.notifications_none_rounded),
-          _styleTile(context, 'Expanded', 'Full controls with artwork', Icons.notifications_active_rounded),
+          _styleTile(context, 'Compact',  'Small, minimal controls',      Icons.notifications_none_rounded),
+          _styleTile(context, 'Expanded', 'Full controls with artwork',   Icons.notifications_active_rounded),
         ],
       ),
     );
@@ -102,6 +116,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
   }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 AppBar _appBar(BuildContext context, String title) => AppBar(
   backgroundColor: AurumTheme.bgOf(context),
   elevation: 0, scrolledUnderElevation: 0,

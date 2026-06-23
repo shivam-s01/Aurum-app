@@ -11,12 +11,17 @@ class SettingsStorageScreen extends StatefulWidget {
 }
 
 class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
-  double _maxSongCache = 500.0; // MB
-  double _maxImageCache = 100.0; // MB
-  int _downloadedSize = 0; // bytes
-  int _songCacheUsed = 0;
-  int _imageCacheUsed = 0;
-  bool _loading = true;
+  double _maxSongCache   = 500.0;
+  double _maxImageCache  = 100.0;
+  int _downloadedSize    = 0;
+  int _songCacheUsed     = 0;
+  int _imageCacheUsed    = 0;
+  bool _loading          = true;
+
+  // New
+  String _downloadQuality    = '320kbps';
+  bool   _autoDownloadLiked  = false;
+  bool   _downloadWifiOnly   = true;
 
   @override
   void initState() {
@@ -25,19 +30,17 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
   }
 
   Future<void> _load() async {
-    final p = await SharedPreferences.getInstance();
-    final appDir = await getApplicationDocumentsDirectory();
+    final p        = await SharedPreferences.getInstance();
+    final appDir   = await getApplicationDocumentsDirectory();
     final cacheDir = await getTemporaryDirectory();
 
-    int downloadSize = 0;
-    int songCacheSize = 0;
+    int downloadSize   = 0;
+    int songCacheSize  = 0;
     int imageCacheSize = 0;
 
     try {
       final downloadDir = Directory('${appDir.path}/downloads');
-      if (await downloadDir.exists()) {
-        downloadSize = await _dirSize(downloadDir);
-      }
+      if (await downloadDir.exists()) downloadSize = await _dirSize(downloadDir);
       final songCache = Directory('${cacheDir.path}/song_cache');
       if (await songCache.exists()) songCacheSize = await _dirSize(songCache);
       final imgCache = Directory('${cacheDir.path}/image_cache');
@@ -45,12 +48,15 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
     } catch (_) {}
 
     setState(() {
-      _maxSongCache = p.getDouble('max_song_cache') ?? 500.0;
-      _maxImageCache = p.getDouble('max_image_cache') ?? 100.0;
-      _downloadedSize = downloadSize;
-      _songCacheUsed = songCacheSize;
-      _imageCacheUsed = imageCacheSize;
-      _loading = false;
+      _maxSongCache        = p.getDouble('max_song_cache')   ?? 500.0;
+      _maxImageCache       = p.getDouble('max_image_cache')  ?? 100.0;
+      _downloadQuality     = p.getString('download_quality') ?? '320kbps';
+      _autoDownloadLiked   = p.getBool('auto_download_liked')  ?? false;
+      _downloadWifiOnly    = p.getBool('download_wifi_only')   ?? true;
+      _downloadedSize  = downloadSize;
+      _songCacheUsed   = songCacheSize;
+      _imageCacheUsed  = imageCacheSize;
+      _loading         = false;
     });
   }
 
@@ -70,11 +76,17 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
   }
 
-  Future<void> _clearDir(String subPath, VoidCallback onDone) async {
+  Future<void> _save(String key, dynamic value) async {
+    final p = await SharedPreferences.getInstance();
+    if (value is bool)   await p.setBool(key, value);
+    if (value is double) await p.setDouble(key, value);
+    if (value is String) await p.setString(key, value);
+  }
+
+  Future<void> _clearDir(String subPath) async {
     final cacheDir = await getTemporaryDirectory();
     final dir = Directory('${cacheDir.path}/$subPath');
     if (await dir.exists()) await dir.delete(recursive: true);
-    onDone();
     _load();
   }
 
@@ -117,37 +129,64 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
               children: [
-                // ── Downloads ──
+
+                // ── DOWNLOADS ─────────────────────────────────────────────
                 _sectionLabel('📥 DOWNLOADS'),
-                _storageCard(
-                  context,
+                _storageCard(context,
                   title: 'Downloaded Songs',
                   used: _fmt(_downloadedSize),
-                  isReadOnly: true,
                   onClear: () => _confirmClear(context, 'All Downloads', _clearDownloads),
-                  fraction: 0,
                 ),
-                // ── Song Cache ──
+
+                // Download Quality
+                _dropdownTile(context,
+                  icon: Icons.high_quality_rounded,
+                  title: 'Download Quality',
+                  subtitle: 'Audio quality for downloaded songs',
+                  value: _downloadQuality,
+                  options: const ['96kbps', '128kbps', '320kbps'],
+                  onChanged: (v) { setState(() => _downloadQuality = v!); _save('download_quality', v!); },
+                ),
+
+                // Auto-download liked songs
+                _switchTile(context,
+                  icon: Icons.favorite_rounded,
+                  title: 'Auto-Download Liked Songs',
+                  subtitle: 'Automatically download songs you like',
+                  value: _autoDownloadLiked,
+                  onChanged: (v) { setState(() => _autoDownloadLiked = v); _save('auto_download_liked', v); },
+                ),
+
+                // WiFi only
+                _switchTile(context,
+                  icon: Icons.wifi_rounded,
+                  title: 'Download on WiFi Only',
+                  subtitle: 'Never use mobile data for downloads',
+                  value: _downloadWifiOnly,
+                  onChanged: (v) { setState(() => _downloadWifiOnly = v); _save('download_wifi_only', v); },
+                ),
+
+                // ── SONG CACHE ─────────────────────────────────────────────
                 _sectionLabel('🎵 SONG CACHE'),
-                _cacheSliderCard(
-                  context,
+                _cacheSliderCard(context,
                   title: 'Max Song Cache Size',
                   value: _maxSongCache,
                   max: 2000,
                   usedBytes: _songCacheUsed,
-                  displayMax: '${(_maxSongCache / 1024).toStringAsFixed(1)}GB',
+                  displayMax: _maxSongCache >= 1000
+                      ? '${(_maxSongCache / 1024).toStringAsFixed(1)}GB'
+                      : '${_maxSongCache.toInt()}MB',
                   onChanged: (v) async {
                     setState(() => _maxSongCache = v);
-                    final p = await SharedPreferences.getInstance();
-                    await p.setDouble('max_song_cache', v);
+                    await _save('max_song_cache', v);
                   },
-                  onClear: () => _confirmClear(context, 'Song Cache', () {}),
-                  cacheSubPath: 'song_cache',
+                  onClear: () => _confirmClear(context, 'Song Cache', () => _clearDir('song_cache')),
+                  clearLabel: 'Clear Song Cache',
                 ),
-                // ── Image Cache ──
+
+                // ── IMAGE CACHE ────────────────────────────────────────────
                 _sectionLabel('🖼️ IMAGE CACHE'),
-                _cacheSliderCard(
-                  context,
+                _cacheSliderCard(context,
                   title: 'Max Image Cache Size',
                   value: _maxImageCache,
                   max: 500,
@@ -155,24 +194,21 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                   displayMax: '${_maxImageCache.toInt()}MB',
                   onChanged: (v) async {
                     setState(() => _maxImageCache = v);
-                    final p = await SharedPreferences.getInstance();
-                    await p.setDouble('max_image_cache', v);
+                    await _save('max_image_cache', v);
                   },
-                  onClear: () => _confirmClear(context, 'Image Cache', () {}),
-                  cacheSubPath: 'image_cache',
+                  onClear: () => _confirmClear(context, 'Image Cache', () => _clearDir('image_cache')),
+                  clearLabel: 'Clear Image Cache',
                 ),
               ],
             ),
     );
   }
 
-  Widget _storageCard(
-    BuildContext context, {
+  // ── Cards ─────────────────────────────────────────────────────────────────
+  Widget _storageCard(BuildContext context, {
     required String title,
     required String used,
-    required bool isReadOnly,
     required VoidCallback onClear,
-    required double fraction,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -187,7 +223,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
           Row(children: [
             Expanded(child: Text(title,
               style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500))),
-            Text(used, style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(used, style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
           ]),
           const SizedBox(height: 12),
           GestureDetector(
@@ -200,10 +236,8 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
               ),
-              child: const Center(
-                child: Text('Clear All Downloads',
-                  style: TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.w600)),
-              ),
+              child: const Center(child: Text('Clear All Downloads',
+                style: TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.w600))),
             ),
           ),
         ]),
@@ -211,8 +245,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
     );
   }
 
-  Widget _cacheSliderCard(
-    BuildContext context, {
+  Widget _cacheSliderCard(BuildContext context, {
     required String title,
     required double value,
     required double max,
@@ -220,9 +253,9 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
     required String displayMax,
     required ValueChanged<double> onChanged,
     required VoidCallback onClear,
-    required String cacheSubPath,
+    required String clearLabel,
   }) {
-    final usedMB = usedBytes / (1024 * 1024);
+    final usedMB   = usedBytes / (1024 * 1024);
     final fraction = (usedMB / (max == 0 ? 1 : max)).clamp(0.0, 1.0);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -237,10 +270,9 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
           Row(children: [
             Expanded(child: Text(title,
               style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500))),
-            Text(displayMax, style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(displayMax, style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
           ]),
           Slider(value: value, min: 0, max: max, divisions: 20, onChanged: onChanged),
-          // Used/Total bar
           Row(children: [
             Text('Used: ${_fmt(usedBytes)}',
               style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 12)),
@@ -254,7 +286,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
             child: LinearProgressIndicator(
               value: fraction,
               backgroundColor: AurumTheme.bgOf(context),
-              valueColor: AlwaysStoppedAnimation<Color>(AurumTheme.gold),
+              valueColor: const AlwaysStoppedAnimation<Color>(AurumTheme.gold),
               minHeight: 6,
             ),
           ),
@@ -269,10 +301,8 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
               ),
-              child: Center(
-                child: Text('Clear ${cacheSubPath == 'song_cache' ? 'Song' : 'Image'} Cache',
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.w600)),
-              ),
+              child: Center(child: Text(clearLabel,
+                style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.w600))),
             ),
           ),
         ]),
@@ -281,19 +311,82 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
   }
 }
 
-AppBar _appBar(BuildContext context, String title) {
-  return AppBar(
-    backgroundColor: AurumTheme.bgOf(context),
-    elevation: 0, scrolledUnderElevation: 0,
-    leading: IconButton(
-      icon: Icon(Icons.arrow_back_ios_new_rounded, color: AurumTheme.textPrimaryOf(context), size: 20),
-      onPressed: () => Navigator.pop(context),
-    ),
-    title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w600)),
-  );
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
+AppBar _appBar(BuildContext context, String title) => AppBar(
+  backgroundColor: AurumTheme.bgOf(context),
+  elevation: 0, scrolledUnderElevation: 0,
+  leading: IconButton(
+    icon: Icon(Icons.arrow_back_ios_new_rounded, color: AurumTheme.textPrimaryOf(context), size: 20),
+    onPressed: () => Navigator.pop(context),
+  ),
+  title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w600)),
+);
 
 Widget _sectionLabel(String label) => Padding(
   padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
   child: Text(label, style: const TextStyle(color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
 );
+
+Widget _switchTile(BuildContext context, {
+  required IconData icon, required String title, required String subtitle,
+  required bool value, required ValueChanged<bool> onChanged,
+}) {
+  return Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    decoration: BoxDecoration(
+      color: AurumTheme.bgCardOf(context),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+    ),
+    child: ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      leading: Container(
+        width: 38, height: 38,
+        decoration: BoxDecoration(
+          color: value ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: value ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
+      ),
+      title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
+      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+      trailing: Switch(value: value, onChanged: onChanged, activeColor: AurumTheme.gold),
+    ),
+  );
+}
+
+Widget _dropdownTile(BuildContext context, {
+  required IconData icon, required String title, required String subtitle,
+  required String value, required List<String> options, required ValueChanged<String?> onChanged,
+}) {
+  return Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    decoration: BoxDecoration(
+      color: AurumTheme.bgCardOf(context),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+    ),
+    child: ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      leading: Container(
+        width: 38, height: 38,
+        decoration: BoxDecoration(
+          color: AurumTheme.gold.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: AurumTheme.gold, size: 18),
+      ),
+      title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
+      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+      trailing: DropdownButton<String>(
+        value: value,
+        underline: const SizedBox(),
+        dropdownColor: AurumTheme.bgCardOf(context),
+        style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600),
+        icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.gold, size: 18),
+        items: options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
+        onChanged: onChanged,
+      ),
+    ),
+  );
+}
