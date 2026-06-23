@@ -29,10 +29,20 @@ class AudioPrefs {
   /// lower or stop song playback.
   static bool duckOnNotifications = false;
 
+  /// If true, the current session's plays are not added to history and
+  /// don't feed the recommendation engine. Set from Settings → Privacy.
+  static bool incognito = false;
+
+  /// If true, play counts / time-listened are not tracked. Set from
+  /// Settings → Privacy.
+  static bool hideListenStats = false;
+
   static const _kStreamQuality = 'stream_quality';
   static const _kDataSaver     = 'data_saver';
   static const _kPauseOnCall   = 'pause_on_call';
   static const _kDuckNotif     = 'duck_on_notifications';
+  static const _kIncognito     = 'incognito_mode';
+  static const _kHideStats     = 'hide_listen_stats';
 
   /// Restore all values from disk. Call once at startup (from the audio
   /// handler's _init()).
@@ -42,6 +52,8 @@ class AudioPrefs {
     dataSaver           = p.getBool(_kDataSaver) ?? dataSaver;
     pauseOnCall         = p.getBool(_kPauseOnCall) ?? pauseOnCall;
     duckOnNotifications = p.getBool(_kDuckNotif) ?? duckOnNotifications;
+    incognito           = p.getBool(_kIncognito) ?? incognito;
+    hideListenStats     = p.getBool(_kHideStats) ?? hideListenStats;
   }
 
   static Future<void> setStreamQuality(String v) async {
@@ -66,6 +78,18 @@ class AudioPrefs {
     duckOnNotifications = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kDuckNotif, v);
+  }
+
+  static Future<void> setIncognito(bool v) async {
+    incognito = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kIncognito, v);
+  }
+
+  static Future<void> setHideListenStats(bool v) async {
+    hideListenStats = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kHideStats, v);
   }
 
   /// Ordered list of Saavn quality strings to try, highest priority first —
