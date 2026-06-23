@@ -11,6 +11,7 @@ import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/download_provider.dart';
 import 'providers/playlist_provider.dart';
+import 'providers/followed_artists_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
 import 'screens/library_screen.dart';
@@ -80,6 +81,7 @@ class AurumApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()), // for Library "Recently Played" + Home "Made For You"
         ChangeNotifierProvider(create: (_) => DownloadProvider()..init()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()..init()), // offline downloads
+        ChangeNotifierProvider(create: (_) => FollowedArtistsProvider()..init()), // Spotify-style "Save" artist
         // PlayerProvider gets RecentlyPlayedProvider for behavior tracking (skip/complete/replay)
         ChangeNotifierProxyProvider<RecentlyPlayedProvider, PlayerProvider>(
           create: (_) => PlayerProvider(handler),
