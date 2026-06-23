@@ -54,6 +54,7 @@ class AudioPrefs {
     duckOnNotifications = p.getBool(_kDuckNotif) ?? duckOnNotifications;
     incognito           = p.getBool(_kIncognito) ?? incognito;
     hideListenStats     = p.getBool(_kHideStats) ?? hideListenStats;
+    gapless             = p.getBool(_kGapless) ?? gapless;
   }
 
   static Future<void> setStreamQuality(String v) async {
@@ -111,3 +112,13 @@ class AudioPrefs {
     }
   }
 }
+
+  // ── Gapless ──────────────────────────────────────────────────────────────
+  static bool gapless = true;
+  static const _kGapless = 'gapless';
+
+  static Future<void> setGapless(bool v) async {
+    gapless = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kGapless, v);
+  }

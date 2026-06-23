@@ -303,6 +303,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                 onTap: () {
                   setState(() => _fontStyle = e.key);
                   _save('font_style', e.key);
+                  context.read<ThemeProvider>().setFontStyle(e.key);
                 },
                 child: Container(
                   margin: const EdgeInsets.only(right: 8),

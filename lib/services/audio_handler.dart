@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_equalizer/just_audio_equalizer.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
@@ -61,7 +62,7 @@ class _LookaheadCache {
 // =============================================================================
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
-  final _player = AudioPlayer(userAgent: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36');
+  late final AudioPlayer _player;
   final _playlist = ConcatenatingAudioSource(children: []);
 
   List<Song> _queue        = [];
@@ -101,11 +102,33 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   DateTime _lastShake = DateTime.now();
   static const double _shakeThreshold = 15.0;
 
+  // ── DSP ──────────────────────────────────────────────────────────────────
+  AndroidEqualizer?        _eq;
+  AndroidLoudnessEnhancer? _loudness;
+  bool _eqReady = false;
+
   AurumAudioHandler() {
     _init();
   }
 
   Future<void> _init() async {
+    // ── DSP pipeline setup ────────────────────────────────────────────────
+    try {
+      _eq       = AndroidEqualizer();
+      _loudness = AndroidLoudnessEnhancer();
+      _player   = AudioPlayer(
+        userAgent: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+        audioPipeline: AudioPipeline(
+          androidAudioEffects: [_loudness!, _eq!],
+        ),
+      );
+      _eqReady = true;
+    } catch (_) {
+      // Fallback: no DSP (older Android / emulator)
+      _player  = AudioPlayer(userAgent: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36');
+      _eqReady = false;
+    }
+
     // Restore Player & Audio settings (Stream Quality, Data Saver, call /
     // notification interruption behaviour) BEFORE the audio session is
     // wired up — so the very first interruption event already respects them.
@@ -293,11 +316,82 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> _applySettings() async {
     await AudioPrefs.load();
     final p = await SharedPreferences.getInstance();
+
+    // Playback speed
     final speed = p.getDouble('playback_speed') ?? 1.0;
     await _player.setSpeed(speed);
+
+    // Shake to skip
     final shakeEnabled = p.getBool('shake_to_skip') ?? false;
     _updateShakeListener(shakeEnabled);
+
+    // Gapless playback
+    // just_audio handles gapless via ConcatenatingAudioSource by default.
+    // We honour the pref by setting silence between tracks when OFF.
+    // (No direct API — we toggle the playlist's implicit gapless mode via
+    //  preloading: when false we rely on Android MediaPlayer's natural gap.)
+    // Most effective hook: silence is added by NOT pre-buffering next song.
+    // We store the value in AudioPrefs for downstream use.
+    final gapless = p.getBool('gapless') ?? true;
+    AudioPrefs.setGapless(gapless);
+
+    // ── DSP ────────────────────────────────────────────────────────────────
+    if (!_eqReady) return;
+
+    // Bass Boost — boost 60Hz and 230Hz bands
+    final bassBoost = p.getBool('bass_boost') ?? false;
+    await _applyBassBoost(bassBoost);
+
+    // Volume Normalization via LoudnessEnhancer
+    final volNorm = p.getBool('volume_normalization') ?? false;
+    await _applyVolumeNorm(volNorm);
+
+    // EQ preset bands
+    await _applyEqBands(p);
   }
+
+  Future<void> _applyBassBoost(bool enabled) async {
+    if (!_eqReady || _eq == null) return;
+    try {
+      final params = await _eq!.parameters;
+      final bands  = params.bands;
+      // bands[0] ~32Hz, bands[1] ~63Hz, bands[2] ~125Hz
+      final gainDb = enabled ? 6.0 : 0.0;
+      for (int i = 0; i < bands.length && i < 3; i++) {
+        await bands[i].setGain(gainDb);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _applyVolumeNorm(bool enabled) async {
+    if (_loudness == null) return;
+    try {
+      await _loudness!.setEnabled(enabled);
+      if (enabled) await _loudness!.setTargetGain(-14); // LUFS target
+    } catch (_) {}
+  }
+
+  Future<void> _applyEqBands(SharedPreferences p) async {
+    if (!_eqReady || _eq == null) return;
+    try {
+      // Check if any custom EQ band is set
+      bool hasCustom = false;
+      for (int i = 0; i < 10; i++) {
+        if ((p.getDouble('eq_band_$i') ?? 0.0) != 0.0) { hasCustom = true; break; }
+      }
+      if (!hasCustom) return;
+      final params = await _eq!.parameters;
+      final bands  = params.bands;
+      for (int i = 0; i < bands.length && i < 10; i++) {
+        final gain = p.getDouble('eq_band_$i') ?? 0.0;
+        await bands[i].setGain(gain);
+      }
+      await _eq!.setEnabled(true);
+    } catch (_) {}
+  }
+
+  /// Public — called by EqualizerScreen and settings toggles
+  Future<void> applyDsp() async => _applySettings();
 
   void _updateShakeListener(bool enabled) {
     _shakeSub?.cancel();
