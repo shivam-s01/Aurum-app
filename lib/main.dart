@@ -18,6 +18,7 @@ import 'providers/source_provider.dart';
 import 'providers/favorites_provider.dart';
 import 'providers/recently_played_provider.dart';
 import 'screens/splash_screen.dart';
+import 'screens/app_lock_screen.dart';
 
 late AurumAudioHandler _audioHandler;
 
@@ -118,7 +119,7 @@ class AurumApp extends StatelessWidget {
             darkTheme: themeProvider.isAmoled
                 ? AurumTheme.amoledTheme
                 : AurumTheme.darkTheme,
-            home: SplashScreen(child: const MainShell()),
+            home: AppLockScreen(child: SplashScreen(child: const MainShell())),
           );
         },
       ),
