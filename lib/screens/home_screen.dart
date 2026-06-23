@@ -31,15 +31,39 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+// ── Curated playlists shown as Spotify-style cards ──
+const List<_PlaylistMeta> _kCuratedPlaylists = [
+  _PlaylistMeta('90s Hits',        '90s bollywood superhits',     '🎸', Color(0xFF7B3F00)),
+  _PlaylistMeta('Romantic Vibes',  'romantic hindi love songs',   '❤️', Color(0xFF8B1A1A)),
+  _PlaylistMeta('Party Mode',      'party dance hindi songs',     '🎉', Color(0xFF1A3A8B)),
+  _PlaylistMeta('Lofi & Chill',    'lofi chill hindi songs',      '🌙', Color(0xFF1A3A3A)),
+  _PlaylistMeta('Workout Energy',  'workout motivation songs',    '💪', Color(0xFF3A1A1A)),
+  _PlaylistMeta('Sad Hours',       'sad heartbreak hindi songs',  '🌧️', Color(0xFF1A1A3A)),
+  _PlaylistMeta('Punjabi Blast',   'punjabi hits songs',          '🔥', Color(0xFF3A2A00)),
+  _PlaylistMeta('Old Is Gold',     'old classic hindi film songs','✨', Color(0xFF2A1A00)),
+];
+
+class _PlaylistMeta {
+  final String name;
+  final String query;
+  final String emoji;
+  final Color color;
+  const _PlaylistMeta(this.name, this.query, this.emoji, this.color);
+}
+
 class _HomeScreenState extends State<HomeScreen> {
   List<SongSection> _onlineSections = [];
   bool _onlineLoading = true;
   String? _onlineError;
 
+  List<ArtistSimple> _homeArtists = [];
+  bool _artistsLoading = true;
+
   @override
   void initState() {
     super.initState();
     _loadOnline();
+    _loadArtists();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final lib = context.read<LibraryProvider>();
       if (!lib.hasLoaded) lib.load();
@@ -68,6 +92,15 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       };
     });
+  }
+
+  Future<void> _loadArtists() async {
+    try {
+      final artists = await ApiService.fetchHomeArtists();
+      if (mounted) setState(() { _homeArtists = artists; _artistsLoading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _artistsLoading = false);
+    }
   }
 
   Future<void> _loadOnline() async {
@@ -126,12 +159,25 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     child: isOnline
-                        ? _OnlineContent(
+                        ? Column(
                             key: const ValueKey('online'),
-                            sections: _onlineSections,
-                            loading: _onlineLoading,
-                            error: _onlineError,
-                            onRetry: _loadOnline,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // ── Artist Strip ──
+                              _ArtistStrip(
+                                artists: _homeArtists,
+                                loading: _artistsLoading,
+                              ),
+                              // ── Curated Playlists ──
+                              const _CuratedPlaylistsSection(),
+                              // ── Song sections ──
+                              _OnlineContent(
+                                sections: _onlineSections,
+                                loading: _onlineLoading,
+                                error: _onlineError,
+                                onRetry: _loadOnline,
+                              ),
+                            ],
                           )
                         : const _OfflineContent(key: ValueKey('offline')),
                   ),
@@ -611,7 +657,6 @@ class _OnlineContent extends StatelessWidget {
   final VoidCallback onRetry;
 
   const _OnlineContent({
-    super.key,
     required this.sections,
     required this.loading,
     required this.error,
@@ -1477,6 +1522,357 @@ class _SongCardState extends State<_SongCard>
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Artist Strip — 5-6 circular artist cards, random each hour
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ArtistStrip extends StatelessWidget {
+  final List<ArtistSimple> artists;
+  final bool loading;
+  const _ArtistStrip({required this.artists, required this.loading});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 24, left: 16, right: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Popular Artists',
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 100,
+            child: loading
+                ? _buildShimmer(context)
+                : artists.isEmpty
+                    ? const SizedBox.shrink()
+                    : ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: artists.length,
+                        itemBuilder: (_, i) => _ArtistChip(artist: artists[i]),
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShimmer(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: AurumTheme.bgCardOf(context),
+      highlightColor: AurumTheme.bgElevatedOf(context),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: 6,
+        itemBuilder: (_, __) => Container(
+          width: 70,
+          margin: const EdgeInsets.only(right: 16),
+          child: Column(children: [
+            const CircleAvatar(radius: 32, backgroundColor: Colors.white),
+            const SizedBox(height: 6),
+            Container(
+              width: 50, height: 10,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _ArtistChip extends StatelessWidget {
+  final ArtistSimple artist;
+  const _ArtistChip({required this.artist});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        HapticFeedback.selectionClick();
+        final id = artist.id.isNotEmpty
+            ? artist.id
+            : await ApiService.searchArtistByName(artist.name);
+        if (id == null || !context.mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => ArtistScreen(artistId: id, artistName: artist.name)),
+        );
+      },
+      child: Container(
+        width: 70,
+        margin: const EdgeInsets.only(right: 16),
+        child: Column(children: [
+          Container(
+            width: 64, height: 64,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: AurumTheme.gold.withOpacity(0.4), width: 1.5),
+            ),
+            child: ClipOval(
+              child: CachedNetworkImage(
+                imageUrl: artist.imageUrl,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => Container(
+                  color: AurumTheme.bgCardOf(context),
+                  child: Icon(Icons.person_rounded,
+                      color: AurumTheme.textMutedOf(context), size: 28),
+                ),
+                errorWidget: (_, __, ___) => Container(
+                  color: AurumTheme.bgCardOf(context),
+                  child: Icon(Icons.person_rounded,
+                      color: AurumTheme.textMutedOf(context), size: 28),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            artist.name,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Curated Playlists — Spotify-type big cards with gradient
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CuratedPlaylistsSection extends StatelessWidget {
+  const _CuratedPlaylistsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Playlists for You',
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 130,
+            child: _FadedHorizontalList(
+              height: 130,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                itemCount: _kCuratedPlaylists.length,
+                itemBuilder: (_, i) =>
+                    _PlaylistCard(playlist: _kCuratedPlaylists[i]),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlaylistCard extends StatefulWidget {
+  final _PlaylistMeta playlist;
+  const _PlaylistCard({required this.playlist});
+
+  @override
+  State<_PlaylistCard> createState() => _PlaylistCardState();
+}
+
+class _PlaylistCardState extends State<_PlaylistCard> {
+  bool _pressed = false;
+
+  Future<void> _openPlaylist() async {
+    HapticFeedback.selectionClick();
+    // Show loading snackbar then fetch songs
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(children: [
+          const SizedBox(
+            width: 16, height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+          ),
+          const SizedBox(width: 10),
+          Text('Loading ${widget.playlist.name}...'),
+        ]),
+        duration: const Duration(seconds: 3),
+        backgroundColor: AurumTheme.bgCardOf(context),
+      ),
+    );
+
+    try {
+      final songs = await ApiService.search(widget.playlist.query);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      if (songs.isEmpty) return;
+
+      // Play the whole playlist as a queue
+      context.read<PlayerProvider>().playSong(songs.first, queue: songs, index: 0);
+
+      // Show bottom sheet with song list
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: AurumTheme.bgCardOf(context),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        isScrollControlled: true,
+        builder: (_) => DraggableScrollableSheet(
+          initialChildSize: 0.75,
+          maxChildSize: 0.93,
+          minChildSize: 0.4,
+          expand: false,
+          builder: (_, ctrl) => Column(children: [
+            // Header
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                color: AurumTheme.dividerOf(context),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Row(children: [
+                Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(
+                    color: widget.playlist.color,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(
+                    child: Text(widget.playlist.emoji,
+                        style: const TextStyle(fontSize: 24)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.playlist.name,
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        )),
+                    Text('${songs.length} songs',
+                        style: TextStyle(
+                            color: AurumTheme.textSecondaryOf(context),
+                            fontSize: 12)),
+                  ],
+                ),
+              ]),
+            ),
+            const SizedBox(height: 8),
+            Divider(height: 1, color: AurumTheme.dividerOf(context)),
+            Expanded(
+              child: ListView.builder(
+                controller: ctrl,
+                physics: const BouncingScrollPhysics(),
+                itemCount: songs.length,
+                itemBuilder: (ctx, i) => SongTile(
+                  song: songs[i],
+                  queue: songs,
+                  index: i,
+                ),
+              ),
+            ),
+          ]),
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.playlist;
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTap: _openPlaylist,
+      child: AnimatedScale(
+        scale: _pressed ? 0.96 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        child: Container(
+          width: 200,
+          margin: const EdgeInsets.only(right: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                p.color.withOpacity(0.9),
+                p.color.withOpacity(0.5),
+                Colors.black.withOpacity(0.3),
+              ],
+            ),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.08),
+              width: 0.8,
+            ),
+          ),
+          child: Stack(children: [
+            // Emoji top-right
+            Positioned(
+              top: 12, right: 12,
+              child: Text(p.emoji, style: const TextStyle(fontSize: 28)),
+            ),
+            // Title bottom-left
+            Positioned(
+              left: 14, bottom: 14, right: 50,
+              child: Text(
+                p.name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                  shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
+                ),
+                maxLines: 2,
+              ),
+            ),
+          ]),
         ),
       ),
     );

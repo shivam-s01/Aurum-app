@@ -233,7 +233,7 @@ class PlayerProvider extends ChangeNotifier {
     if (q.isEmpty) return;
 
     final remaining = q.length - 1 - index;
-    if (q.length < 2 || remaining > 2 || _isExtendingQueue) return;
+    if (q.length < 2 || remaining > 5 || _isExtendingQueue) return;
 
     _isExtendingQueue = true;
     try {
@@ -248,7 +248,7 @@ class PlayerProvider extends ChangeNotifier {
 
       final nextSongs = await ApiService.getAutoQueue(
         current,
-        limit: 10,
+        limit: 20,
         existingQueueIds: existingIds,
       );
 

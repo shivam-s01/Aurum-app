@@ -535,11 +535,20 @@ class RecommendationEngine {
 
   /// Is `candidate` a variant (remix/cover/lofi/etc.) of `original`?
   static bool _isVariant(String candidate, String original) {
-    final candNorm = _titleCore(candidate);
-    final origNorm = _titleCore(original);
-    if (candNorm.isEmpty || origNorm.isEmpty) return false;
-    final prefix = origNorm.substring(0, origNorm.length.clamp(0, 12));
-    return prefix.isNotEmpty && candNorm.startsWith(prefix) && candNorm != origNorm;
+    final candCore = _titleCore(candidate);
+    final origCore = _titleCore(original);
+    if (candCore.isEmpty || origCore.isEmpty) return false;
+    // Block if cores are identical (same song different label)
+    if (candCore == origCore) return true;
+    // Block if candidate core contains the full original core (e.g. "tum hi ho female")
+    if (candCore.contains(origCore) && origCore.length >= 5) return true;
+    // Block if original core contains the candidate core (reverse)
+    if (origCore.contains(candCore) && candCore.length >= 5) return true;
+    // Prefix match — first 15 chars
+    final prefixLen = origCore.length.clamp(0, 15);
+    final prefix = origCore.substring(0, prefixLen);
+    if (prefix.isNotEmpty && candCore.startsWith(prefix) && candCore != origCore) return true;
+    return false;
   }
 
   /// Is this song itself a low-quality variant by title alone?
@@ -552,7 +561,11 @@ class RecommendationEngine {
     r'\b(remix|lofi|lo[- ]?fi|slowed|reverb|nightcore|cover|karaoke|'
     r'instrumental|bass[ -]?boost(?:ed)?|8d|sped[ -]?up|speed(?:ed)?[ -]?up|'
     r'reprise|mashup|tribute|remaster(?:ed)?|unplugged|acoustic version|'
-    r'orchestra|choir|chillout|drill remix)\b',
+    r'orchestra|choir|chillout|drill remix|female version|male version|'
+    r'recreated|lounge mix|jukebox|full song|lyric video|lyrics|'
+    r'official video|music video|audio|video song|full video|'
+    r'version|recreation|recreate|extended|edit|flip|bootleg|'
+    r'vibe|mood|chill mix|punjabi mix|hindi mix|tapori|dj |club mix)\b',
     caseSensitive: false,
   );
 
@@ -589,8 +602,8 @@ class RecommendationEngine {
     int limit = 10,
   }) {
     final seenIds    = <String>{currentSong.id, ...existingIds};
-    final seenTitles = <String>{_titleCore(currentSong.title)};
     final currentCore = _titleCore(currentSong.title);
+    final seenTitles = <String>{currentCore};
 
     final scored = <_ScoredSong>[];
 
@@ -681,12 +694,17 @@ class RecommendationEngine {
   // ---------------------------------------------------------------------------
 
   static List<AutoQueueQuery> generateQueries(Song currentSong) {
+    final genre = detectGenre(currentSong);
+    final lang  = detectLanguage(currentSong);
+    final mood  = _detectMoodEnum(currentSong);
+    final era   = _eraLanguageQuery(currentSong);
+
     if (!_loaded) {
       return [
-        AutoQueueQuery('${currentSong.artist} top songs', weight: 2),
-        AutoQueueQuery('${detectGenre(currentSong)} hits', weight: 1),
-        AutoQueueQuery(_moodQuery(currentSong), weight: 1),
-        AutoQueueQuery(_eraLanguageQuery(currentSong), weight: 1),
+        AutoQueueQuery('${currentSong.artist} $genre songs', weight: 2),
+        AutoQueueQuery('$genre $lang hits', weight: 2),
+        AutoQueueQuery(_sessionMoodQuery(mood, lang), weight: 1),
+        AutoQueueQuery(era, weight: 1),
       ];
     }
 
@@ -697,30 +715,27 @@ class RecommendationEngine {
       ..sort((a, b) => b.value.compareTo(a.value));
     final topArtists = topArtistKeys.take(5).map((e) => e.key).toList();
 
-    // Signal 1: Primary artist — current song's artist (weight=2)
+    // Signal 1: Same artist, same genre — NO song title in query
     final q1 = AutoQueueQuery(
-      '${currentSong.artist} best songs',
+      '${currentSong.artist} $genre $lang songs',
       weight: 2,
     );
 
-    // Signal 2: Similar artist — from genre pool, weighted by user affinity (weight=2)
+    // Signal 2: Similar artist from genre pool
     final similarArtist = _pickSimilarArtist(currentSong, topArtists);
     final q2 = AutoQueueQuery(
-      '$similarArtist hits songs',
+      '$similarArtist $genre $lang hits',
       weight: 2,
     );
 
-    // Signal 3: Mood/session continuation (weight=1)
+    // Signal 3: Mood-based category
     final moodQuery = session != null
-        ? _sessionMoodQuery(session.mood, detectLanguage(currentSong))
-        : _moodQuery(currentSong);
+        ? _sessionMoodQuery(session.mood, lang)
+        : _sessionMoodQuery(mood, lang);
     final q3 = AutoQueueQuery(moodQuery, weight: 1);
 
-    // Signal 4: Era + language pool (weight=1)
-    final q4 = AutoQueueQuery(
-      _eraLanguageQuery(currentSong),
-      weight: 1,
-    );
+    // Signal 4: Era + language category
+    final q4 = AutoQueueQuery(era, weight: 1);
 
     return [q1, q2, q3, q4];
   }
