@@ -31,23 +31,35 @@ class LibraryProvider extends ChangeNotifier {
     _status = LibraryStatus.loading;
     notifyListeners();
 
-    final hasPermission = await LocalMusicService.hasPermission();
-    if (!hasPermission) {
-      final granted = await LocalMusicService.requestPermission();
-      if (!granted) {
-        _status = LibraryStatus.noPermission;
-        notifyListeners();
-        return;
+    try {
+      final hasPermission = await LocalMusicService.hasPermission();
+      if (!hasPermission) {
+        final granted = await LocalMusicService.requestPermission();
+        if (!granted) {
+          _status = LibraryStatus.noPermission;
+          notifyListeners();
+          return;
+        }
       }
+
+      final songs = await LocalMusicService.scanLibrary();
+      final sections = await LocalMusicService.scanLibrarySections();
+
+      _allSongs = songs;
+      _sections = sections;
+      _status = songs.isEmpty ? LibraryStatus.empty : LibraryStatus.loaded;
+      notifyListeners();
+    } catch (_) {
+      // FIX: any unexpected error during the offline scan (native channel
+      // hiccup, malformed MediaStore row, etc.) used to propagate uncaught
+      // and crash the whole widget tree to a white screen the moment the
+      // user toggled to Offline. Now it degrades gracefully to "empty"
+      // instead of taking down the app.
+      _allSongs = [];
+      _sections = [];
+      _status = LibraryStatus.empty;
+      notifyListeners();
     }
-
-    final songs = await LocalMusicService.scanLibrary();
-    final sections = await LocalMusicService.scanLibrarySections();
-
-    _allSongs = songs;
-    _sections = sections;
-    _status = songs.isEmpty ? LibraryStatus.empty : LibraryStatus.loaded;
-    notifyListeners();
   }
 
   Future<void> refresh() async {

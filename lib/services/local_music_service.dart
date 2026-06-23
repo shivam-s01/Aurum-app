@@ -33,28 +33,48 @@ class LocalMusicService {
       final List<dynamic> raw =
           await _channel.invokeMethod('getSongs') ?? [];
 
-      return raw.map((item) {
-        final map = Map<String, dynamic>.from(item as Map);
-        final contentUri = map['contentUri']?.toString() ?? '';
-        final dataPath   = map['localPath']?.toString() ?? '';
-        // Prefer the raw file path over content:// — just_audio/ExoPlayer
-        // plays MediaStore file paths far more reliably than generic
-        // content:// URIs, which can silently fail to produce audio on
-        // some Android versions/devices despite resolving fine for artwork.
-        final resolvedPath = dataPath.isNotEmpty ? dataPath : contentUri;
+      final songs = <Song>[];
+      for (final item in raw) {
+        // FIX: map a single malformed entry individually instead of
+        // letting one bad item's exception escape `.map()` and abort
+        // the entire scan — that uncaught error was propagating up
+        // through LibraryProvider.load() (which also had no try/catch)
+        // and crashing the widget tree to a white screen the instant
+        // the user switched to Offline.
+        try {
+          final map = Map<String, dynamic>.from(item as Map);
+          final contentUri = map['contentUri']?.toString() ?? '';
+          final dataPath   = map['localPath']?.toString() ?? '';
+          // Prefer the raw file path over content:// — just_audio/ExoPlayer
+          // plays MediaStore file paths far more reliably than generic
+          // content:// URIs, which can silently fail to produce audio on
+          // some Android versions/devices despite resolving fine for artwork.
+          final resolvedPath = dataPath.isNotEmpty ? dataPath : contentUri;
 
-        return Song(
-          id: map['id']?.toString() ?? '',
-          title: _cleanTitle(map['title']?.toString() ?? ''),
-          artist: _cleanArtist(map['artist']?.toString()),
-          album: map['album']?.toString() ?? '',
-          artworkUrl: map['artworkUrl']?.toString() ?? '',
-          localPath: resolvedPath,
-          duration: map['duration'] is int ? map['duration'] as int : null,
-          source: SongSource.local,
-        );
-      }).where((s) => s.id.isNotEmpty && s.localPath!.isNotEmpty).toList();
-    } on PlatformException catch (_) {
+          final song = Song(
+            id: map['id']?.toString() ?? '',
+            title: _cleanTitle(map['title']?.toString() ?? ''),
+            artist: _cleanArtist(map['artist']?.toString()),
+            album: map['album']?.toString() ?? '',
+            artworkUrl: map['artworkUrl']?.toString() ?? '',
+            localPath: resolvedPath,
+            duration: map['duration'] is int ? map['duration'] as int : null,
+            source: SongSource.local,
+          );
+          if (song.id.isNotEmpty && song.localPath!.isNotEmpty) {
+            songs.add(song);
+          }
+        } catch (_) {
+          // Skip this single malformed entry, keep scanning the rest.
+          continue;
+        }
+      }
+      return songs;
+    } catch (_) {
+      // FIX: was `on PlatformException catch` only — any other error
+      // type (TypeError, MissingPluginException, cast failure, etc.)
+      // used to propagate uncaught straight into the white-screen crash.
+      // Offline mode degrades to "no local songs" instead of crashing.
       return [];
     }
   }

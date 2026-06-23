@@ -164,11 +164,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             key: const ValueKey('online'),
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // ── Artist Strip ──
-                              _ArtistStrip(
-                                artists: _homeArtists,
-                                loading: _artistsLoading,
-                              ),
                               // ── Curated Playlists ──
                               const _CuratedPlaylistsSection(),
                               // ── Song sections ──
@@ -177,6 +172,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                 loading: _onlineLoading,
                                 error: _onlineError,
                                 onRetry: _loadOnline,
+                              ),
+                              // ── Artist Strip (after recommendations) ──
+                              _ArtistStrip(
+                                artists: _homeArtists,
+                                loading: _artistsLoading,
                               ),
                             ],
                           )
@@ -331,9 +331,40 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   @override
   Widget build(BuildContext context) {
     final song = context.select<PlayerProvider, Song?>((p) => p.currentSong);
-    if (song == null) return const SizedBox.shrink();
-
     final isLight = Theme.of(context).brightness == Brightness.light;
+
+    if (song == null) {
+      // Lightweight static prompt — no blur, no animation, theme-safe.
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+        child: Container(
+          height: 86,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            color: AurumTheme.bgCardOf(context),
+            border: Border.all(color: AurumTheme.dividerOf(context), width: 0.8),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.graphic_eq_rounded,
+                  color: AurumTheme.gold.withOpacity(0.85), size: 22),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  'Pick something to play',
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
@@ -351,14 +382,14 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                   builder: (_, child) {
                     final b = Curves.easeInOut.transform(_breatheCtrl.value);
                     return Transform.scale(
-                      scale: 1.0 + (b * 0.02), // spec: 1.00 -> 1.02
+                      scale: 1.0 + (b * 0.015), // 1.00 -> 1.015: alive, not animated
                       child: child,
                     );
                   },
                   child: ImageFiltered(
                     imageFilter: ImageFilter.blur(
-                      sigmaX: isLight ? 12 : 8,
-                      sigmaY: isLight ? 12 : 8,
+                      sigmaX: isLight ? 6 : 5,
+                      sigmaY: isLight ? 6 : 5,
                       tileMode: TileMode.clamp,
                     ),
                     child: AurumArtwork(
@@ -388,23 +419,21 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                   ),
                 ),
               ),
-              // ── Floating glass now-playing card ──
+              // ── Floating glass-look now-playing card (no real backdrop blur) ──
               Align(
                 alignment: Alignment.bottomCenter,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                      child: Container(
+                    child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.10),
+                          color: Colors.black.withOpacity(0.28),
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.18),
+                            color: Colors.white.withOpacity(0.16),
                             width: 0.8,
                           ),
                         ),
@@ -446,7 +475,6 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                           const SizedBox(width: 10),
                           _ResumeButton(onTap: _openFullPlayer),
                         ]),
-                      ),
                     ),
                   ),
                 ),
@@ -795,8 +823,8 @@ class _OnlineContent extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          // Faded horizontal scroll
-          _FadedHorizontalList(
+          // Plain horizontal scroll — no edge fade overlays
+          SizedBox(
             height: 190,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
@@ -924,64 +952,6 @@ class _StaggeredSectionState extends State<_StaggeredSection>
         child: SlideTransition(position: _slide, child: child),
       ),
       child: widget.child,
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Faded horizontal list edges
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _FadedHorizontalList extends StatelessWidget {
-  final Widget child;
-  final double height;
-  const _FadedHorizontalList({required this.child, required this.height});
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = AurumTheme.bgOf(context);
-    return SizedBox(
-      height: height,
-      child: Stack(
-        children: [
-          // ── Scrollable list ──
-          Positioned.fill(child: child),
-
-          // ── Left fade overlay ──
-          Positioned(
-            left: 0, top: 0, bottom: 0,
-            width: 20,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [bg, bg.withOpacity(0.0)],
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // ── Right fade overlay ──
-          Positioned(
-            right: 0, top: 0, bottom: 0,
-            width: 20,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerRight,
-                    end: Alignment.centerLeft,
-                    colors: [bg, bg.withOpacity(0.0)],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1690,15 +1660,12 @@ class _CuratedPlaylistsSection extends StatelessWidget {
           const SizedBox(height: 14),
           SizedBox(
             height: 130,
-            child: _FadedHorizontalList(
-              height: 130,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                itemCount: _kCuratedPlaylists.length,
-                itemBuilder: (_, i) =>
-                    _PlaylistCard(playlist: _kCuratedPlaylists[i]),
-              ),
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: _kCuratedPlaylists.length,
+              itemBuilder: (_, i) =>
+                  _PlaylistCard(playlist: _kCuratedPlaylists[i]),
             ),
           ),
         ],

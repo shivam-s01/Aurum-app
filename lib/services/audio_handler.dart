@@ -865,11 +865,28 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> skipToNext() async {
-    if (_currentIndex < _queue.length - 1) {
+    // FIX: must check the LIVE player sequence length, not `_queue.length`.
+    // `_queue` is the full intended queue, but `_player`'s own
+    // ConcatenatingAudioSource may still only have 1-2 songs spliced in
+    // while `_resolveQueueInBackground` is running — checking against
+    // `_queue.length` let this branch fire even when the live sequence
+    // had nothing further to seek to, so seekToNext() silently no-op'd
+    // and Next/swipe-next appeared completely dead until splicing finished.
+    final seq = _player.sequence;
+    final liveLen = seq?.length ?? 0;
+    final livePos = _player.currentIndex ?? 0;
+
+    if (livePos < liveLen - 1) {
       await _player.seekToNext();
-    } else if (_player.loopMode == LoopMode.all && _queue.isNotEmpty) {
+      await _player.play();
+    } else if (_player.loopMode == LoopMode.all && liveLen > 0) {
       // Last song + repeat all → jump back to first
       await _player.seek(Duration.zero, index: 0);
+      await _player.play();
+    } else if (_currentIndex < _queue.length - 1 && !_splicingInProgress) {
+      // Edge case: queue mutated/replaced and live sequence hasn't caught
+      // up yet but splicing has actually finished — fall back to queue.
+      await _player.seekToNext();
       await _player.play();
     }
   }
@@ -878,8 +895,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> skipToPrevious() async {
     if (_player.position.inSeconds > 3) {
       await _player.seek(Duration.zero);
-    } else if (_currentIndex > 0) {
+      return;
+    }
+    final livePos = _player.currentIndex ?? 0;
+    if (livePos > 0) {
       await _player.seekToPrevious();
+      await _player.play();
     }
   }
 

@@ -574,7 +574,22 @@ class _Artwork extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad),
       child: Center(
-        child: SizedBox(
+        child: GestureDetector(
+          // Swipe left → next song, swipe right → previous song.
+          // Threshold-based on velocity, not raw distance, so a quick
+          // flick anywhere on the artwork triggers it — matches the
+          // feel of Spotify/Apple Music artwork swipe.
+          onHorizontalDragEnd: (details) {
+            final v = details.primaryVelocity ?? 0;
+            if (v.abs() < 200) return; // ignore slow/accidental drags
+            HapticFeedback.lightImpact();
+            if (v < 0) {
+              player.skipNext();
+            } else {
+              player.skipPrev();
+            }
+          },
+          child: SizedBox(
           width: maxArtSize,
           height: maxArtSize + 8, // headroom for float offset
           child: AnimatedBuilder(
@@ -633,6 +648,7 @@ class _Artwork extends StatelessWidget {
               ),
             ),
             ),
+          ),
           ),
         ),
       ),
