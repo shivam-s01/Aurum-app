@@ -29,7 +29,6 @@ dependencies:
   shimmer: ^3.0.0
   palette_generator: ^0.3.3+3
   google_fonts: ^6.2.1
-  just_audio_equalizer: ^0.0.5
 
   # Persistence
   shared_preferences: ^2.2.2
