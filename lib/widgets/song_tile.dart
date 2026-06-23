@@ -9,6 +9,7 @@ import '../providers/recently_played_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../screens/library_screen.dart' show showAddToPlaylistSheet;
 import '../screens/full_player_screen.dart';
+import '../screens/artist_screen.dart';
 import 'aurum_artwork.dart';
 
 class SongTile extends StatefulWidget {
@@ -414,7 +415,16 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                 children: [
                   ...song.artist.split(',').take(3).map((a) => _ArtistChip(
                         name: a.trim(),
-                        onTap: () => _comingSoon('Artist: ${a.trim()}'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          Navigator.push(
+                            widget.rootContext,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  ArtistScreen(artistName: a.trim()),
+                            ),
+                          );
+                        },
                       )),
                   if (song.album.isNotEmpty)
                     _ArtistChip(

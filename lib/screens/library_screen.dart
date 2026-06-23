@@ -26,6 +26,8 @@ import '../widgets/aurum_artwork.dart';
 import '../models/song.dart';
 import 'settings_screen.dart';
 import 'liked_screen.dart';
+import '../providers/followed_artists_provider.dart';
+import 'artist_screen.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Library Root
@@ -138,6 +140,7 @@ class LibraryScreen extends StatelessWidget {
     final favCount = context.watch<FavoritesProvider>().favorites.length;
     final lib = context.watch<LibraryProvider>();
     final plCount = context.watch<PlaylistProvider>().count;
+    final followedCount = context.watch<FollowedArtistsProvider>().followed.length;
 
     final items = [
       _CollectionItem(
@@ -167,7 +170,7 @@ class LibraryScreen extends StatelessWidget {
       _CollectionItem(
         icon: Icons.person_rounded,
         label: 'Artists',
-        subtitle: 'Following',
+        subtitle: followedCount == 0 ? 'Following' : '$followedCount following',
         color: Colors.blueAccent,
         onTap: () => Navigator.push(context,
             MaterialPageRoute(builder: (_) => const _ArtistsScreen())),
@@ -2021,13 +2024,242 @@ class _AlbumsScreen extends StatelessWidget {
 
 class _ArtistsScreen extends StatelessWidget {
   const _ArtistsScreen();
+
   @override
-  Widget build(BuildContext context) => _ComingSoonScreen(
-        title: 'Artists',
-        icon: Icons.person_rounded,
-        color: Colors.blueAccent,
-        message: 'Artists you follow will appear here.',
-      );
+  Widget build(BuildContext context) {
+    final followed = context.watch<FollowedArtistsProvider>().followed;
+
+    return Scaffold(
+      backgroundColor: AurumTheme.bgOf(context),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 100,
+            floating: true,
+            snap: true,
+            backgroundColor: AurumTheme.bgOf(context),
+            leading: IconButton(
+              icon: Icon(Icons.arrow_back_ios_rounded,
+                  color: AurumTheme.textSecondaryOf(context), size: 20),
+              onPressed: () => Navigator.pop(context),
+            ),
+            flexibleSpace: FlexibleSpaceBar(
+              titlePadding: const EdgeInsets.fromLTRB(52, 0, 16, 16),
+              title: Row(
+                children: [
+                  const Icon(Icons.person_rounded,
+                      color: Colors.blueAccent, size: 22),
+                  const SizedBox(width: 8),
+                  ShaderMask(
+                    shaderCallback: (b) =>
+                        AurumTheme.goldGradient.createShader(b),
+                    child: const Text('Artists',
+                        style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (followed.isEmpty)
+            SliverFillRemaining(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: Colors.blueAccent.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                          border:
+                              Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+                        ),
+                        child: const Icon(Icons.person_rounded,
+                            color: Colors.blueAccent, size: 36),
+                      ),
+                      const SizedBox(height: 20),
+                      Text('No artists saved yet',
+                          style: TextStyle(
+                              color: AurumTheme.textPrimaryOf(context),
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      Text('Artists you follow will appear here.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: AurumTheme.textMutedOf(context),
+                              fontSize: 13,
+                              height: 1.5)),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, i) => _FollowedArtistTile(artist: followed[i]),
+                  childCount: followed.length,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FollowedArtistTile extends StatelessWidget {
+  final Map<String, dynamic> artist;
+  const _FollowedArtistTile({required this.artist});
+
+  @override
+  Widget build(BuildContext context) {
+    final id = (artist['id'] ?? '').toString();
+    final name = (artist['name'] ?? '').toString();
+    final imageUrl = (artist['imageUrl'] ?? '').toString();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ArtistScreen(artistId: id, artistName: name),
+            ),
+          ),
+          onLongPress: () => _showUnfollowSheet(context, id, name, imageUrl),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: AurumTheme.goldGradient,
+                  ),
+                  child: ClipOval(
+                    child: AurumArtwork(url: imageUrl, size: 54, borderRadius: 27),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Icon(Icons.check_circle_rounded,
+                              size: 13, color: AurumTheme.gold.withOpacity(0.85)),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Artist',
+                            style: TextStyle(
+                              color: AurumTheme.textMutedOf(context),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.more_vert_rounded,
+                      color: AurumTheme.textMutedOf(context)),
+                  onPressed: () => _showUnfollowSheet(context, id, name, imageUrl),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showUnfollowSheet(
+      BuildContext context, String id, String name, String imageUrl) {
+    final rootContext = context;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: AurumTheme.bgElevatedOf(rootContext),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                ClipOval(
+                  child: AurumArtwork(url: imageUrl, size: 44, borderRadius: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    name,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(rootContext),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.person_remove_rounded,
+                  color: Colors.redAccent),
+              title: const Text('Unfollow artist'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                rootContext.read<FollowedArtistsProvider>().toggleFollow(
+                      artistId: id,
+                      name: name,
+                      imageUrl: imageUrl,
+                    );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _ComingSoonScreen extends StatelessWidget {
