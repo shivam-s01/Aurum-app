@@ -316,6 +316,8 @@ class ApiService {
     }).toList();
     final signalResults = await Future.wait(searchFutures);
     final merged = <Song>[];
+    final mergedIds = <String>{};      // ID-level dedup
+    final mergedTitles = <String>{};   // Title-level dedup (prevents "Tere Jaisa Yaar Kahan" x7)
     final iters = signalResults.map((r) => r.songs.iterator).toList();
     bool anyLeft = true;
     while (anyLeft && merged.length < limit * 6) {
@@ -323,7 +325,16 @@ class ApiService {
       for (int i = 0; i < iters.length; i++) {
         final w = signalResults[i].weight;
         for (int x = 0; x < w; x++) {
-          if (iters[i].moveNext()) { merged.add(iters[i].current); anyLeft = true; }
+          if (iters[i].moveNext()) {
+            anyLeft = true;
+            final song = iters[i].current;
+            // Skip if same ID already added
+            if (!mergedIds.add(song.id)) continue;
+            // Skip if same core title already in merged (different album/version of same song)
+            final titleKey = _normTitle(song.title);
+            if (!mergedTitles.add(titleKey)) continue;
+            merged.add(song);
+          }
         }
       }
     }

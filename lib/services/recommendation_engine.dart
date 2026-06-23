@@ -37,7 +37,7 @@ import '../models/song.dart';
 // =============================================================================
 
 enum SessionMood { romantic, sad, party, devotional, workout, chill, energetic, neutral }
-enum SessionGenre { bollywood, punjabi, hiphop, english, lofi, devotional, other }
+enum SessionGenre { bollywood, punjabi, hiphop, english, lofi, devotional, bhojpuri, other }
 enum SessionLanguage { hindi, punjabi, english, tamil, telugu, bengali, marathi, gujarati, malayalam, other }
 enum TimeSlot { morning, afternoon, evening, night, lateNight }
 
@@ -511,15 +511,13 @@ class RecommendationEngine {
     // Block if in recent session window (last 20 songs)
     if (_session != null && _session!.recentIds.contains(song.id)) return true;
 
-    // Block artist if appeared in last 3 songs
-    if (_session != null) {
-      final recentThree = _session!.recentArtists.take(3).toList();
-      final artistNorm  = _normalizeKey(song.artist);
-      if (recentThree.any((a) => _normalizeKey(a) == artistNorm)) {
-        // Allow if no other artist available (caller should handle fallback)
-        // Here we just signal it's potentially repetitive
-        if (recentThree.length >= 2) return true;
-      }
+    // Block artist only if appeared in last 2 CONSECUTIVE songs
+    // (not last 3 unique — that's too aggressive for small genre pools like bhojpuri)
+    if (_session != null && _session!.recentArtists.length >= 2) {
+      final lastTwo   = _session!.recentArtists.take(2).toList();
+      final artistNorm = _normalizeKey(song.artist);
+      // Only block if BOTH of the last 2 were this same artist
+      if (lastTwo.every((a) => _normalizeKey(a) == artistNorm)) return true;
     }
 
     // Block if this is a variant of the current/recently played song
@@ -694,50 +692,88 @@ class RecommendationEngine {
   // ---------------------------------------------------------------------------
 
   static List<AutoQueueQuery> generateQueries(Song currentSong) {
-    final genre = detectGenre(currentSong);
-    final lang  = detectLanguage(currentSong);
-    final mood  = _detectMoodEnum(currentSong);
-    final era   = _eraLanguageQuery(currentSong);
+    final genre   = detectGenre(currentSong);
+    final lang    = detectLanguage(currentSong);
+    final mood    = _detectMoodEnum(currentSong);
+    final era     = _eraLanguageQuery(currentSong);
+    // Use session mood if available — session mood is the locked context
+    final activeMood = _session?.mood ?? mood;
 
     if (!_loaded) {
       return [
-        AutoQueueQuery('${currentSong.artist} $genre songs', weight: 2),
-        AutoQueueQuery('$genre $lang hits', weight: 2),
-        AutoQueueQuery(_sessionMoodQuery(mood, lang), weight: 1),
+        AutoQueueQuery('${currentSong.artist} songs', weight: 2),
+        AutoQueueQuery(_moodLockedQuery(activeMood, lang, genre), weight: 2),
+        AutoQueueQuery(_sessionMoodQuery(activeMood, lang), weight: 1),
         AutoQueueQuery(era, weight: 1),
       ];
     }
 
-    final session = _session;
     final topArtistKeys = _artistW.entries
         .where((e) => e.value > 0.55)
         .toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final topArtists = topArtistKeys.take(5).map((e) => e.key).toList();
 
-    // Signal 1: Same artist, same genre — NO song title in query
+    // Signal 1: Same artist, NO title — gets that artist's other songs
+    // Weight 2 but NOT 3 — we don't want only one artist
     final q1 = AutoQueueQuery(
-      '${currentSong.artist} $genre $lang songs',
+      '${currentSong.artist} songs',
       weight: 2,
     );
 
-    // Signal 2: Similar artist from genre pool
-    final similarArtist = _pickSimilarArtist(currentSong, topArtists);
+    // Signal 2: Mood-locked + genre — THIS is the YouTube magic
+    // Sad song → "sad bollywood hindi songs", Party → "party bhojpuri dance songs"
+    // Different artists, same vibe
     final q2 = AutoQueueQuery(
-      '$similarArtist $genre $lang hits',
+      _moodLockedQuery(activeMood, lang, genre),
       weight: 2,
     );
 
-    // Signal 3: Mood-based category
-    final moodQuery = session != null
-        ? _sessionMoodQuery(session.mood, lang)
-        : _sessionMoodQuery(mood, lang);
-    final q3 = AutoQueueQuery(moodQuery, weight: 1);
+    // Signal 3: Similar artist from genre pool (artist diversity)
+    final similarArtist = _pickSimilarArtist(currentSong, topArtists);
+    final q3 = AutoQueueQuery(
+      '$similarArtist songs',
+      weight: 1,
+    );
 
-    // Signal 4: Era + language category
-    final q4 = AutoQueueQuery(era, weight: 1);
+    // Signal 4: Pure mood query — broadest net, catches mood-matching songs
+    // across artists the user hasn't explicitly listened to
+    final q4 = AutoQueueQuery(
+      _sessionMoodQuery(activeMood, lang),
+      weight: 1,
+    );
 
     return [q1, q2, q3, q4];
+  }
+
+  /// Builds a mood-locked query combining mood + language + genre.
+  /// This is what makes the queue feel like YouTube's mood-aware mix.
+  static String _moodLockedQuery(SessionMood mood, String lang, String genre) {
+    final moodWord = _moodSearchWord(mood);
+    // For regional genres, use genre name directly — more precise Saavn results
+    if (genre == 'bhojpuri') return '$moodWord bhojpuri songs';
+    if (genre == 'punjabi')  return '$moodWord punjabi songs';
+    if (genre == 'english')  return '$moodWord english songs';
+    if (genre == 'hiphop')   return '$moodWord hindi rap songs';
+    if (genre == 'devotional') return 'bhakti devotional songs';
+    if (genre == 'lofi')     return 'lofi chill songs hindi';
+    if (genre == 'tamil')    return '$moodWord tamil songs';
+    if (genre == 'telugu')   return '$moodWord telugu songs';
+    // Default bollywood
+    return '$moodWord bollywood hindi songs';
+  }
+
+  static String _moodSearchWord(SessionMood mood) {
+    switch (mood) {
+      case SessionMood.romantic:   return 'romantic love';
+      case SessionMood.sad:        return 'sad heartbreak dard';
+      case SessionMood.party:      return 'party dance';
+      case SessionMood.workout:    return 'energetic motivation';
+      case SessionMood.chill:      return 'chill relax';
+      case SessionMood.energetic:  return 'energetic upbeat';
+      case SessionMood.devotional: return 'bhakti devotional';
+      case SessionMood.neutral:    return 'top hits';
+    }
   }
 
   static String _pickSimilarArtist(Song song, List<String> userTopArtists) {
@@ -806,6 +842,18 @@ class RecommendationEngine {
 
   static String detectGenre(Song song) {
     final text = '${song.title} ${song.artist} ${song.language ?? ""}'.toLowerCase();
+    final langLow = (song.language ?? '').toLowerCase();
+
+    // Bhojpuri — detect before bollywood fallback
+    if (langLow.contains('bhojpuri') || text.contains('bhojpuri') ||
+        text.contains('pawan singh') || text.contains('khesari') ||
+        text.contains('neelkamal singh') || text.contains('shilpi raj') ||
+        text.contains('pramod premi') || text.contains('arvind akela') ||
+        text.contains('nirhua') || text.contains('dinesh lal') ||
+        text.contains('samar singh') || text.contains('ritesh pandey') ||
+        text.contains('ankush raja') || text.contains('gunjan singh') ||
+        text.contains('amrapali dubey') || text.contains('akshara singh')) return 'bhojpuri';
+
     if (text.contains('punjabi') || text.contains('bhangra') ||
         text.contains('diljit') || text.contains('sidhu') ||
         (song.language ?? '').toLowerCase() == 'punjabi') return 'punjabi';
@@ -825,14 +873,21 @@ class RecommendationEngine {
 
   static String detectLanguage(Song song) {
     final lang = (song.language ?? '').toLowerCase();
-    if (lang.contains('punjabi')) return 'punjabi';
-    if (lang.contains('english')) return 'english';
-    if (lang.contains('tamil'))   return 'tamil';
-    if (lang.contains('telugu'))  return 'telugu';
-    if (lang.contains('bengali')) return 'bengali';
-    if (lang.contains('marathi')) return 'marathi';
+    if (lang.contains('bhojpuri')) return 'bhojpuri';
+    if (lang.contains('punjabi'))  return 'punjabi';
+    if (lang.contains('english'))  return 'english';
+    if (lang.contains('tamil'))    return 'tamil';
+    if (lang.contains('telugu'))   return 'telugu';
+    if (lang.contains('bengali'))  return 'bengali';
+    if (lang.contains('marathi'))  return 'marathi';
     if (lang.contains('gujarati')) return 'gujarati';
     if (lang.contains('malayalam')) return 'malayalam';
+    // Artist-name fallback for bhojpuri (Saavn often tags these as 'hindi')
+    final a = song.artist.toLowerCase();
+    if (a.contains('pawan singh') || a.contains('khesari') || a.contains('neelkamal') ||
+        a.contains('shilpi raj') || a.contains('pramod premi') || a.contains('nirhua') ||
+        a.contains('samar singh') || a.contains('ritesh pandey') || a.contains('ankush raja') ||
+        a.contains('gunjan singh') || a.contains('amrapali') || a.contains('akshara singh')) return 'bhojpuri';
     return 'hindi';
   }
 
@@ -850,7 +905,11 @@ class RecommendationEngine {
         text.contains('dil') && !text.contains('dildaar')) return SessionMood.romantic;
     if (text.contains('party') || text.contains('dance') || text.contains('naach') ||
         text.contains('bajao') || text.contains('dj') || text.contains('balle') ||
-        text.contains('garmi') || text.contains('hookah bar') || text.contains('lungi')) return SessionMood.party;
+        text.contains('garmi') || text.contains('hookah bar') || text.contains('lungi') ||
+        // Bhojpuri party keywords
+        text.contains('kamariya') || text.contains('lachke') || text.contains('hila') ||
+        text.contains('nathuniya') || text.contains('saiya') && text.contains('dance') ||
+        text.contains('tohar') || text.contains('ghaghra')) return SessionMood.party;
     if (text.contains('workout') || text.contains('gym') || text.contains('motivation') ||
         text.contains('power') || text.contains('beast') || text.contains('fire') ||
         text.contains('thunder')) return SessionMood.workout;
@@ -873,6 +932,7 @@ class RecommendationEngine {
       case 'english':    return SessionGenre.english;
       case 'lofi':       return SessionGenre.lofi;
       case 'devotional': return SessionGenre.devotional;
+      case 'bhojpuri':   return SessionGenre.bhojpuri;
       default:           return SessionGenre.other;
     }
   }
@@ -970,6 +1030,12 @@ class RecommendationEngine {
     'lofi': [
       'lofi hip hop', 'chillhop music', 'lo-fi beats', 'study music',
       'calm music', 'sleep music', 'coffee shop music',
+    ],
+    'bhojpuri': [
+      'pawan singh', 'khesari lal yadav', 'neelkamal singh', 'shilpi raj',
+      'pramod premi yadav', 'ritesh pandey', 'samar singh', 'gunjan singh',
+      'ankush raja', 'dinesh lal nirhua', 'arvind akela kallu',
+      'awadhesh premi yadav', 'manoj tiwari', 'indu sonali',
     ],
     'devotional': [
       'lata mangeshkar bhajan', 'anuradha paudwal', 'narendra chanchal',

@@ -883,11 +883,13 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       // Last song + repeat all → jump back to first
       await _player.seek(Duration.zero, index: 0);
       await _player.play();
-    } else if (_currentIndex < _queue.length - 1 && !_splicingInProgress) {
-      // Edge case: queue mutated/replaced and live sequence hasn't caught
-      // up yet but splicing has actually finished — fall back to queue.
-      await _player.seekToNext();
-      await _player.play();
+    } else if (!_splicingInProgress && _currentIndex < _queue.length - 1) {
+      // Live sequence is exhausted but `_queue` has more songs that
+      // somehow never got spliced in (e.g. a song before this one failed
+      // to resolve and the splice loop silently skipped it). Recover by
+      // resolving the next song fresh instead of repeating the same
+      // seekToNext() call that already proved to be a no-op above.
+      await playQueue(_queue, _currentIndex + 1);
     }
   }
 
@@ -906,8 +908,25 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> skipToQueueItem(int index) async {
-    await _player.seek(Duration.zero, index: index);
-    await _player.play();
+    // FIX: same root cause as skipToNext/skipToPrevious — `index` here is
+    // a position in `_queue` (the full intended queue), but `_player.seek`
+    // operates on the LIVE ConcatenatingAudioSource, which may still only
+    // have 1-2 songs spliced in while `_resolveQueueInBackground` runs.
+    // Tapping a queue item that hasn't been spliced in yet used to silently
+    // no-op. Now: if the target is already in the live sequence, seek
+    // directly (instant). Otherwise fall back to a fresh playQueue resolve
+    // for that song — same reliable path as a normal tap-to-play.
+    if (index < 0 || index >= _queue.length) return;
+
+    final seq = _player.sequence;
+    final liveLen = seq?.length ?? 0;
+
+    if (!_splicingInProgress && index < liveLen) {
+      await _player.seek(Duration.zero, index: index);
+      await _player.play();
+    } else {
+      await playQueue(_queue, index);
+    }
   }
 
   @override
