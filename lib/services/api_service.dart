@@ -25,6 +25,7 @@ import 'package:just_audio/just_audio.dart';
 import 'dart:math' as math;
 
 import '../models/song.dart';
+import '../models/artist.dart';
 import '../utils/constants.dart';
 import 'audio_prefs.dart';
 import 'recommendation_engine.dart';
@@ -300,27 +301,24 @@ class ApiService {
   // ===========================================================================
   static Future<List<Song>> getAutoQueue(
     Song currentSong, {
-    int limit = 10,
+    int limit = 20,
     Set<String>? existingQueueIds,
   }) async {
     await RecommendationEngine.load();
     if (currentSong.isLocal) return [];
-    final isYt = currentSong.source == SongSource.youtube;
     final queries = RecommendationEngine.generateQueries(currentSong);
     _log('[autoQueue] "${currentSong.title}" → ${queries.length} signals');
-    final searchFutures = queries.asMap().entries.map((entry) async {
-      final idx = entry.key;
-      final q   = entry.value;
-      final results = (isYt && idx == 0)
-          ? await _searchYt(q.query,    limit: 8 * q.weight)
-          : await _searchSaavn(q.query, limit: 8 * q.weight);
+    final searchFutures = queries.map((q) async {
+      final perLimit = 20 * q.weight;
+      final results = await _searchSaavn(q.query, limit: perLimit)
+          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
       return _SignalResult(results, q.weight);
     }).toList();
     final signalResults = await Future.wait(searchFutures);
     final merged = <Song>[];
     final iters = signalResults.map((r) => r.songs.iterator).toList();
     bool anyLeft = true;
-    while (anyLeft && merged.length < limit * 3) {
+    while (anyLeft && merged.length < limit * 6) {
       anyLeft = false;
       for (int i = 0; i < iters.length; i++) {
         final w = signalResults[i].weight;
@@ -1202,6 +1200,183 @@ class ApiService {
     );
   }
 
+  // ===========================================================================
+  // HOME ARTISTS STRIP
+  // ===========================================================================
+
+  /// 5-6 random popular artists with images for the home artist strip.
+  static Future<List<ArtistSimple>> fetchHomeArtists() async {
+    // Curated pool — picked from Saavn's most followed artists
+    const pool = [
+      _ArtistEntry('arijit singh',   'Arijit Singh'),
+      _ArtistEntry('jubin nautiyal', 'Jubin Nautiyal'),
+      _ArtistEntry('neha kakkar',    'Neha Kakkar'),
+      _ArtistEntry('ap dhillon',     'AP Dhillon'),
+      _ArtistEntry('atif aslam',     'Atif Aslam'),
+      _ArtistEntry('shreya ghoshal', 'Shreya Ghoshal'),
+      _ArtistEntry('pritam',         'Pritam'),
+      _ArtistEntry('sonu nigam',     'Sonu Nigam'),
+      _ArtistEntry('diljit dosanjh', 'Diljit Dosanjh'),
+      _ArtistEntry('badshah',        'Badshah'),
+      _ArtistEntry('armaan malik',   'Armaan Malik'),
+      _ArtistEntry('darshan raval',  'Darshan Raval'),
+      _ArtistEntry('b praak',        'B Praak'),
+      _ArtistEntry('vishal mishra',  'Vishal Mishra'),
+      _ArtistEntry('kumar sanu',     'Kumar Sanu'),
+    ];
+
+    final rng = math.Random(DateTime.now().difference(DateTime(2026, 1, 1)).inHours);
+    final shuffled = List<_ArtistEntry>.from(pool)..shuffle(rng);
+    final picked = shuffled.take(6).toList();
+
+    final results = await Future.wait(picked.map((a) async {
+      try {
+        final uri = Uri.parse('$_saavnPrimary/api/search/artists')
+            .replace(queryParameters: {'query': a.query, 'limit': '1'});
+        final res = await _client.get(uri).timeout(const Duration(seconds: 5));
+        if (res.statusCode != 200) return null;
+        final body = jsonDecode(res.body);
+        final results = body['data']?['results'] as List?;
+        if (results == null || results.isEmpty) return null;
+        final r = results.first as Map<String, dynamic>;
+        final imageList = r['image'] as List?;
+        String imageUrl = '';
+        if (imageList != null && imageList.isNotEmpty) {
+          imageUrl = (imageList.last['url'] ?? imageList.last['link'] ?? '').toString();
+        }
+        if (imageUrl.isEmpty) return null;
+        return ArtistSimple(
+          id: (r['id'] ?? '').toString(),
+          name: a.displayName,
+          imageUrl: imageUrl,
+        );
+      } catch (_) {
+        return null;
+      }
+    }));
+
+    return results.whereType<ArtistSimple>().toList();
+  }
+
+  // ===========================================================================
+  // ARTIST PAGE
+  // ===========================================================================
+
+  /// Resolve an artist's Saavn ID from their display name (used when navigating
+  /// from a song tile, where we only have the artist's name string).
+  static Future<String?> searchArtistByName(String name) async {
+    if (name.trim().isEmpty) return null;
+    try {
+      final uri = Uri.parse('$_saavnPrimary/api/search/artists')
+          .replace(queryParameters: {'query': name});
+      final res = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (res.statusCode != 200) return null;
+      final body = jsonDecode(res.body);
+      final results = body['data']?['results'] as List?;
+      if (results == null || results.isEmpty) return null;
+      // Prefer an exact (case-insensitive) name match, else take the first hit.
+      final lower = name.trim().toLowerCase();
+      final exact = results.firstWhere(
+        (r) => (r['name'] ?? '').toString().toLowerCase() == lower,
+        orElse: () => results.first,
+      );
+      return (exact['id'] ?? '').toString();
+    } catch (e) {
+      _log('[artist] searchArtistByName failed: $e');
+      return null;
+    }
+  }
+
+  /// Fetch full artist page data: profile, top songs, top albums and singles.
+  static Future<Artist?> fetchArtist(String artistId,
+      {int songCount = 15, int albumCount = 12}) async {
+    if (artistId.isEmpty) return null;
+    try {
+      final uri = Uri.parse('$_saavnPrimary/api/artists/$artistId').replace(
+        queryParameters: {
+          'songCount': '$songCount',
+          'albumCount': '$albumCount',
+        },
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return null;
+      final body = jsonDecode(res.body);
+      if (body['success'] != true) return null;
+      final d = body['data'] as Map<String, dynamic>?;
+      if (d == null) return null;
+
+      final topSongs = ((d['topSongs'] as List?) ?? [])
+          .whereType<Map>()
+          .map((s) => _songFromSaavn(Map<String, dynamic>.from(s)))
+          .toList();
+
+      final topAlbums = ((d['topAlbums'] as List?) ?? [])
+          .whereType<Map>()
+          .map((a) => _artistAlbumFromJson(Map<String, dynamic>.from(a), type: 'album'))
+          .toList();
+
+      final singles = ((d['singles'] as List?) ?? [])
+          .whereType<Map>()
+          .map((a) => _artistAlbumFromJson(Map<String, dynamic>.from(a), type: 'single'))
+          .toList();
+
+      String bio = '';
+      final bioField = d['bio'];
+      if (bioField is List && bioField.isNotEmpty) {
+        final first = bioField.first;
+        if (first is Map && first['text'] is String) {
+          bio = _cleanText(first['text'] as String);
+        }
+      }
+
+      return Artist(
+        id: (d['id'] ?? artistId).toString(),
+        name: _cleanText((d['name'] ?? '').toString()),
+        imageUrl: _onrenderArtwork(d),
+        followerCount: _parseInt(d['followerCount']) ?? 0,
+        isVerified: d['isVerified'] == true,
+        bio: bio,
+        topSongs: topSongs,
+        topAlbums: topAlbums,
+        singles: singles,
+      );
+    } catch (e) {
+      _log('[artist] fetchArtist failed: $e');
+      return null;
+    }
+  }
+
+  /// Fetch the songs inside an album or single, by its Saavn ID.
+  static Future<List<Song>> fetchAlbumSongs(String albumId) async {
+    if (albumId.isEmpty) return [];
+    try {
+      final uri = Uri.parse('$_saavnPrimary/api/albums')
+          .replace(queryParameters: {'id': albumId});
+      final res = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return [];
+      final body = jsonDecode(res.body);
+      if (body['success'] != true) return [];
+      final songs = (body['data']?['songs'] as List?) ?? [];
+      return songs
+          .whereType<Map>()
+          .map((s) => _songFromSaavn(Map<String, dynamic>.from(s)))
+          .toList();
+    } catch (e) {
+      _log('[artist] fetchAlbumSongs failed: $e');
+      return [];
+    }
+  }
+
+  static ArtistAlbum _artistAlbumFromJson(Map<String, dynamic> j, {required String type}) {
+    return ArtistAlbum(
+      id: (j['id'] ?? '').toString(),
+      name: _cleanText((j['name'] ?? j['title'] ?? 'Unknown').toString()),
+      artworkUrl: _onrenderArtwork(j),
+      year: j['year']?.toString(),
+      type: type,
+    );
+  }
+
   static SongSource sourceFromString(String? s) {
     switch (s) {
       case 'saavn':   return SongSource.saavn;
@@ -1548,4 +1723,17 @@ class _PoolEntry {
   final String query;
   final String label;
   const _PoolEntry(this.query, this.label);
+}
+
+class _ArtistEntry {
+  final String query;
+  final String displayName;
+  const _ArtistEntry(this.query, this.displayName);
+}
+
+class ArtistSimple {
+  final String id;
+  final String name;
+  final String imageUrl;
+  const ArtistSimple({required this.id, required this.name, required this.imageUrl});
 }
