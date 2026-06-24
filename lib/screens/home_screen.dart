@@ -18,16 +18,21 @@ import '../widgets/song_tile.dart';
 import '../widgets/aurum_loader.dart';
 import 'package:shimmer/shimmer.dart';
 import 'settings_screen.dart';
+import 'artist_screen.dart';
 import 'profile_screen.dart';
 import 'full_player_screen.dart';
-import 'artist_screen.dart';
+import '../providers/auth_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HomeScreen
 // ─────────────────────────────────────────────────────────────────────────────
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  /// Called when user taps Offline Library in the top toggle
+  final VoidCallback? onSwitchToOffline;
+
+  const HomeScreen({super.key, this.onSwitchToOffline});
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -164,11 +169,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             key: const ValueKey('online'),
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // ── Artist Strip ──
-                              _ArtistStrip(
-                                artists: _homeArtists,
-                                loading: _artistsLoading,
-                              ),
                               // ── Curated Playlists ──
                               const _CuratedPlaylistsSection(),
                               // ── Song sections ──
@@ -177,6 +177,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                 loading: _onlineLoading,
                                 error: _onlineError,
                                 onRetry: _loadOnline,
+                              ),
+                              // ── Artist Strip (after recommendations) ──
+                              _ArtistStrip(
+                                artists: _homeArtists,
+                                loading: _artistsLoading,
                               ),
                             ],
                           )
@@ -223,6 +228,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       actions: [
+        _TopToggle(onSwitchToOffline: widget.onSwitchToOffline),
         _StatusPill(onTap: () => _showSourceSheet(context, src)),
         if (kDebugMode)
           IconButton(
@@ -331,9 +337,40 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   @override
   Widget build(BuildContext context) {
     final song = context.select<PlayerProvider, Song?>((p) => p.currentSong);
-    if (song == null) return const SizedBox.shrink();
-
     final isLight = Theme.of(context).brightness == Brightness.light;
+
+    if (song == null) {
+      // Lightweight static prompt — no blur, no animation, theme-safe.
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+        child: Container(
+          height: 86,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            color: AurumTheme.bgCardOf(context),
+            border: Border.all(color: AurumTheme.dividerOf(context), width: 0.8),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.graphic_eq_rounded,
+                  color: AurumTheme.gold.withOpacity(0.85), size: 22),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  'Pick something to play',
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
@@ -351,14 +388,14 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                   builder: (_, child) {
                     final b = Curves.easeInOut.transform(_breatheCtrl.value);
                     return Transform.scale(
-                      scale: 1.0 + (b * 0.02), // spec: 1.00 -> 1.02
+                      scale: 1.0 + (b * 0.015), // 1.00 -> 1.015: alive, not animated
                       child: child,
                     );
                   },
                   child: ImageFiltered(
                     imageFilter: ImageFilter.blur(
-                      sigmaX: isLight ? 12 : 8,
-                      sigmaY: isLight ? 12 : 8,
+                      sigmaX: isLight ? 6 : 5,
+                      sigmaY: isLight ? 6 : 5,
                       tileMode: TileMode.clamp,
                     ),
                     child: AurumArtwork(
@@ -388,23 +425,21 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                   ),
                 ),
               ),
-              // ── Floating glass now-playing card ──
+              // ── Floating glass-look now-playing card (no real backdrop blur) ──
               Align(
                 alignment: Alignment.bottomCenter,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                      child: Container(
+                    child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.10),
+                          color: Colors.black.withOpacity(0.28),
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.18),
+                            color: Colors.white.withOpacity(0.16),
                             width: 0.8,
                           ),
                         ),
@@ -446,7 +481,6 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                           const SizedBox(width: 10),
                           _ResumeButton(onTap: _openFullPlayer),
                         ]),
-                      ),
                     ),
                   ),
                 ),
@@ -795,8 +829,8 @@ class _OnlineContent extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          // Faded horizontal scroll
-          _FadedHorizontalList(
+          // Plain horizontal scroll — no edge fade overlays
+          SizedBox(
             height: 190,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
@@ -929,64 +963,6 @@ class _StaggeredSectionState extends State<_StaggeredSection>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Faded horizontal list edges
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _FadedHorizontalList extends StatelessWidget {
-  final Widget child;
-  final double height;
-  const _FadedHorizontalList({required this.child, required this.height});
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = AurumTheme.bgOf(context);
-    return SizedBox(
-      height: height,
-      child: Stack(
-        children: [
-          // ── Scrollable list ──
-          Positioned.fill(child: child),
-
-          // ── Left fade overlay ──
-          Positioned(
-            left: 0, top: 0, bottom: 0,
-            width: 20,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [bg, bg.withOpacity(0.0)],
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // ── Right fade overlay ──
-          Positioned(
-            right: 0, top: 0, bottom: 0,
-            width: 20,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerRight,
-                    end: Alignment.centerLeft,
-                    colors: [bg, bg.withOpacity(0.0)],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Offline Content
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1088,25 +1064,51 @@ class _ProfileAvatarButton extends StatefulWidget {
 }
 
 class _ProfileAvatarButtonState extends State<_ProfileAvatarButton> {
-  String? _avatarPath;
+  String? _localAvatarPath;
 
   @override
   void initState() { super.initState(); _load(); }
 
   Future<void> _load() async {
     final path = await UserProfile.getAvatarPath();
-    if (mounted) setState(() => _avatarPath = path);
+    if (mounted) setState(() => _localAvatarPath = path);
   }
 
   Future<void> _openProfile() async {
     HapticFeedback.lightImpact();
     await Navigator.push(
         context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-    _load();
+    _load(); // reload local avatar after returning
   }
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+
+    // Priority: local file > Google photo > placeholder icon
+    Widget avatarChild;
+    if (_localAvatarPath != null) {
+      avatarChild = Image.file(File(_localAvatarPath!), fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) =>
+              Icon(Icons.person_rounded,
+                  color: AurumTheme.textSecondaryOf(context), size: 20));
+    } else if (auth.isSignedIn && auth.photoUrl != null) {
+      avatarChild = CachedNetworkImage(
+        imageUrl: auth.photoUrl!,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => const SizedBox(
+          width: 14, height: 14,
+          child: CircularProgressIndicator(strokeWidth: 1.5, color: AurumTheme.gold),
+        ),
+        errorWidget: (_, __, ___) =>
+            Icon(Icons.person_rounded,
+                color: AurumTheme.textSecondaryOf(context), size: 20),
+      );
+    } else {
+      avatarChild = Icon(Icons.person_rounded,
+          color: AurumTheme.textSecondaryOf(context), size: 20);
+    }
+
     return Padding(
       padding: const EdgeInsets.only(right: 16, left: 4),
       child: GestureDetector(
@@ -1116,17 +1118,16 @@ class _ProfileAvatarButtonState extends State<_ProfileAvatarButton> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: AurumTheme.goldGradient,
+            boxShadow: auth.isSignedIn
+                ? [BoxShadow(color: AurumTheme.gold.withOpacity(0.4),
+                    blurRadius: 8, offset: const Offset(0, 2))]
+                : [],
           ),
           padding: const EdgeInsets.all(1.5),
           child: ClipOval(
             child: Container(
               color: AurumTheme.bgOf(context),
-              child: _avatarPath != null
-                  ? Image.file(File(_avatarPath!), fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Icon(Icons.person_rounded,
-                          color: AurumTheme.textSecondaryOf(context), size: 20))
-                  : Icon(Icons.person_rounded,
-                      color: AurumTheme.textSecondaryOf(context), size: 20),
+              child: avatarChild,
             ),
           ),
         ),
@@ -1690,15 +1691,12 @@ class _CuratedPlaylistsSection extends StatelessWidget {
           const SizedBox(height: 14),
           SizedBox(
             height: 130,
-            child: _FadedHorizontalList(
-              height: 130,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                itemCount: _kCuratedPlaylists.length,
-                itemBuilder: (_, i) =>
-                    _PlaylistCard(playlist: _kCuratedPlaylists[i]),
-              ),
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: _kCuratedPlaylists.length,
+              itemBuilder: (_, i) =>
+                  _PlaylistCard(playlist: _kCuratedPlaylists[i]),
             ),
           ),
         ],
@@ -1882,3 +1880,67 @@ class _PlaylistCardState extends State<_PlaylistCard> {
 
 // ignore: avoid_void_async
 void unawaited(Future<void> f) {}
+
+// ── Top Online/Offline toggle pill ──────────────────────────────────────────
+
+class _TopToggle extends StatefulWidget {
+  final VoidCallback? onSwitchToOffline;
+  const _TopToggle({this.onSwitchToOffline});
+
+  @override
+  State<_TopToggle> createState() => _TopToggleState();
+}
+
+class _TopToggleState extends State<_TopToggle> {
+  bool _offline = false;
+
+  void _toggle() {
+    if (!_offline) {
+      widget.onSwitchToOffline?.call();
+    }
+    setState(() => _offline = !_offline);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _toggle,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeInOut,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: _offline
+              ? AurumTheme.gold.withOpacity(0.15)
+              : AurumTheme.bgSurfaceOf(context),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: _offline
+                ? AurumTheme.gold.withOpacity(0.5)
+                : AurumTheme.dividerOf(context),
+            width: 0.8,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _offline ? Icons.download_done_rounded : Icons.wifi_rounded,
+              size: 12,
+              color: _offline ? AurumTheme.gold : AurumTheme.textSecondary,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              _offline ? 'Offline' : 'Online',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: _offline ? AurumTheme.gold : AurumTheme.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
