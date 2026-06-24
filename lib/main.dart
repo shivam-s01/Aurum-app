@@ -119,12 +119,8 @@ class AurumApp extends StatelessWidget {
               ? AurumTheme.amoledTheme
               : AurumTheme.darkTheme;
 
-          final lightTheme = baseLight.copyWith(
-            textTheme: themeProvider.resolvedTextTheme(baseLight.textTheme),
-          );
-          final darkTheme = baseDark.copyWith(
-            textTheme: themeProvider.resolvedTextTheme(baseDark.textTheme),
-          );
+          final lightTheme = baseLight;
+          final darkTheme = baseDark;
 
           return MaterialApp(
             navigatorKey: navigatorKey,
