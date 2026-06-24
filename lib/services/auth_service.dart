@@ -81,7 +81,10 @@ class AuthService {
       return null;
     } catch (e) {
       if (kDebugMode) debugPrint('[AuthService] signIn error: $e');
-      return 'Sign-in failed. Check your connection and try again.';
+      // TEMP: surfacing the raw error so we can see the real cause on a
+      // release APK (no logcat access from Termux-only workflow).
+      // Revert to the generic message once the real issue is found.
+      return 'Sign-in failed: $e';
     }
   }
 
