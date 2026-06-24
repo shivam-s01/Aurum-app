@@ -20,6 +20,7 @@ import 'package:shimmer/shimmer.dart';
 import 'settings_screen.dart';
 import 'artist_screen.dart';
 import 'profile_screen.dart';
+import 'login_screen.dart';
 import 'full_player_screen.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
@@ -1078,35 +1079,38 @@ class _ProfileAvatarButtonState extends State<_ProfileAvatarButton> {
 
     final auth = context.read<AuthProvider>();
 
-    // Not signed in yet → skip straight to the Google account picker
-    // instead of opening ProfileScreen first.
+    // Not signed in yet → show the proper animated login screen with an
+    // explicit "Continue with Google" button, instead of jumping straight
+    // to the native account picker.
     if (!auth.isSignedIn) {
-      final ok = await auth.signInWithGoogle();
+      final signedIn = await Navigator.push<bool>(
+        context,
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 320),
+          pageBuilder: (_, __, ___) => const LoginScreen(),
+          transitionsBuilder: (_, animation, __, child) {
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.05),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+                child: child,
+              ),
+            );
+          },
+        ),
+      );
       if (!mounted) return;
-
-      if (ok) {
-        try {
-          await SyncService.instance.syncAll(
-            playlists: context.read<PlaylistProvider>(),
-            followedArtists: context.read<FollowedArtistsProvider>(),
-            favorites: context.read<FavoritesProvider>(),
-          );
-        } catch (_) {}
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Signed in — your library is synced'),
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 2),
-          ));
-        }
-      } else if (auth.lastError != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(auth.lastError!),
+      if (signedIn == true) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Signed in — your library is synced'),
           behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
+          duration: Duration(seconds: 2),
         ));
+        _load();
       }
-      // Cancelled or failed — stay on Home, don't open ProfileScreen.
       return;
     }
 
