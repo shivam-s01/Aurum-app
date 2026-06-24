@@ -15,6 +15,7 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace "com.aurum.music"
     compileSdk 35
+    compileSdkVersion 35
     ndkVersion "27.0.12077973"
 
     compileOptions {
