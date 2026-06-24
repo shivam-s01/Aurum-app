@@ -37,12 +37,16 @@ class AudioPrefs {
   /// Settings → Privacy.
   static bool hideListenStats = false;
 
+  // ── Gapless ──────────────────────────────────────────────────────────────
+  static bool gapless = true;
+
   static const _kStreamQuality = 'stream_quality';
   static const _kDataSaver     = 'data_saver';
   static const _kPauseOnCall   = 'pause_on_call';
   static const _kDuckNotif     = 'duck_on_notifications';
   static const _kIncognito     = 'incognito_mode';
   static const _kHideStats     = 'hide_listen_stats';
+  static const _kGapless       = 'gapless';
 
   /// Restore all values from disk. Call once at startup (from the audio
   /// handler's _init()).
@@ -93,6 +97,12 @@ class AudioPrefs {
     await p.setBool(_kHideStats, v);
   }
 
+  static Future<void> setGapless(bool v) async {
+    gapless = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kGapless, v);
+  }
+
   /// Ordered list of Saavn quality strings to try, highest priority first —
   /// driven by [streamQuality] and [dataSaver]. Data Saver always wins and
   /// forces the lowest tier regardless of the manual Stream Quality choice.
@@ -107,18 +117,7 @@ class AudioPrefs {
         return const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
       case 'Auto':
       default:
-        // Auto: best quality first — original/unchanged default behaviour.
         return const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
     }
   }
 }
-
-  // ── Gapless ──────────────────────────────────────────────────────────────
-  static bool gapless = true;
-  static const _kGapless = 'gapless';
-
-  static Future<void> setGapless(bool v) async {
-    gapless = v;
-    final p = await SharedPreferences.getInstance();
-    await p.setBool(_kGapless, v);
-  }
