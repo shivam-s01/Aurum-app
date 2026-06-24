@@ -1,17 +1,6 @@
-// =============================================================================
-// FILE: lib/providers/favorites_provider.dart
-// PROJECT: Aurum Music
-// VERSION: 2.0.0 — RecommendationEngine Integration
-//
-// WHAT'S NEW IN v2:
-//   ✅ toggleFavorite() fires RecommendationEngine.onFavorited/onUnfavorited
-//   ✅ All existing API unchanged — fully backward compatible
-// =============================================================================
-
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/song.dart';
-import '../services/recommendation_engine.dart';
 
 class FavoritesProvider extends ChangeNotifier {
   static const _boxName = 'aurum_favorites';
@@ -19,8 +8,8 @@ class FavoritesProvider extends ChangeNotifier {
   List<Song> _favorites = [];
   bool _isLoading = true;
 
-  List<Song> get favorites   => List.unmodifiable(_favorites);
-  bool get isLoading         => _isLoading;
+  List<Song> get favorites => List.unmodifiable(_favorites);
+  bool get isLoading => _isLoading;
   bool isFavorite(String id) => _favorites.any((s) => s.id == id);
 
   Future<void> init() async {
@@ -37,16 +26,8 @@ class FavoritesProvider extends ChangeNotifier {
   Future<void> toggleFavorite(Song song) async {
     if (isFavorite(song.id)) {
       await _remove(song.id);
-      // Strong negative signal — user un-favorited
-      if (song.source != SongSource.local) {
-        RecommendationEngine.onUnfavorited(song);
-      }
     } else {
       await _add(song);
-      // Very strong positive signal — user favorited
-      if (song.source != SongSource.local) {
-        RecommendationEngine.onFavorited(song);
-      }
     }
   }
 

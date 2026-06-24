@@ -11,7 +11,6 @@ import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/download_provider.dart';
 import 'providers/playlist_provider.dart';
-import 'providers/followed_artists_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
 import 'screens/library_screen.dart';
@@ -76,12 +75,12 @@ class AurumApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => LibraryProvider()),
-        ChangeNotifierProvider(create: (_) => SourceProvider()),
-        ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()),
-        ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()),
+        ChangeNotifierProvider(create: (_) => SourceProvider()), // ← offline
+        ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()), // was missing — used by liked/library/song_tile
+        ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()), // for Library "Recently Played" + Home "Made For You"
         ChangeNotifierProvider(create: (_) => DownloadProvider()..init()),
-        ChangeNotifierProvider(create: (_) => PlaylistProvider()..init()),
-        ChangeNotifierProvider(create: (_) => FollowedArtistsProvider()..init()),
+        ChangeNotifierProvider(create: (_) => PlaylistProvider()..init()), // offline downloads
+        // PlayerProvider gets RecentlyPlayedProvider for behavior tracking (skip/complete/replay)
         ChangeNotifierProxyProvider<RecentlyPlayedProvider, PlayerProvider>(
           create: (_) => PlayerProvider(handler),
           update: (_, recentlyPlayed, player) {
@@ -111,26 +110,15 @@ class AurumApp extends StatelessWidget {
                 isDark ? Brightness.light : Brightness.dark,
           ));
 
-          // Resolve font-aware ThemeData
-          final baseLight = AurumTheme.lightTheme;
-          final baseDark  = themeProvider.isAmoled
-              ? AurumTheme.amoledTheme
-              : AurumTheme.darkTheme;
-
-          final lightTheme = baseLight.copyWith(
-            textTheme: themeProvider.resolvedTextTheme(baseLight.textTheme),
-          );
-          final darkTheme = baseDark.copyWith(
-            textTheme: themeProvider.resolvedTextTheme(baseDark.textTheme),
-          );
-
           return MaterialApp(
             navigatorKey: navigatorKey,
             title: 'Aurum Music',
             debugShowCheckedModeBanner: false,
             themeMode: themeProvider.themeMode,
-            theme: lightTheme,
-            darkTheme: darkTheme,
+            theme: AurumTheme.lightTheme,
+            darkTheme: themeProvider.isAmoled
+                ? AurumTheme.amoledTheme
+                : AurumTheme.darkTheme,
             home: AppLockScreen(child: SplashScreen(child: const MainShell())),
           );
         },
