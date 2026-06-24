@@ -228,7 +228,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       actions: [
-        _TopToggle(onSwitchToOffline: widget.onSwitchToOffline),
         _StatusPill(onTap: () => _showSourceSheet(context, src)),
         if (kDebugMode)
           IconButton(
