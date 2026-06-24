@@ -43,15 +43,20 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Build Release APK
-        run: flutter build apk --release
-
-      - name: Get version
+      - name: Set build number
         id: ver
         run: |
-          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d '\r')
-          BUILD=$(echo $VERSION | cut -d'+' -f2)
+          # Build number = GitHub run number → always unique & always
+          # increasing, never depends on remembering to bump pubspec.yaml.
+          # update_service.dart compares against this number, so it can
+          # never go stale or collide with an existing release tag.
+          BUILD=${{ github.run_number }}
+          VERSION_NAME=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1 | tr -d '\r')
+          sed -i "s/^version: .*/version: $VERSION_NAME+$BUILD/" pubspec.yaml
           echo "build=$BUILD" >> $GITHUB_OUTPUT
+
+      - name: Build Release APK
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
