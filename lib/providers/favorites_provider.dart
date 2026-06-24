@@ -61,4 +61,12 @@ class FavoritesProvider extends ChangeNotifier {
     _favorites.removeWhere((s) => s.id == id);
     notifyListeners();
   }
+
+  /// Called by SyncService after pulling from Supabase
+  Future<void> addFromRemote(Map<String, dynamic> data) async {
+    final song = Song.fromJson(data);
+    if (!isFavorite(song.id)) {
+      await _add(song);
+    }
+  }
 }
