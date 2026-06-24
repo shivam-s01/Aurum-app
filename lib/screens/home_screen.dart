@@ -22,17 +22,17 @@ import 'artist_screen.dart';
 import 'profile_screen.dart';
 import 'full_player_screen.dart';
 import '../providers/auth_provider.dart';
+import '../providers/playlist_provider.dart';
+import '../providers/followed_artists_provider.dart';
+import '../providers/favorites_provider.dart';
+import '../services/sync_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HomeScreen
 // ─────────────────────────────────────────────────────────────────────────────
 
 class HomeScreen extends StatefulWidget {
-  /// Called when user taps Offline Library in the top toggle
-  final VoidCallback? onSwitchToOffline;
-
-  const HomeScreen({super.key, this.onSwitchToOffline});
-
+  const HomeScreen({super.key});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -1063,51 +1063,60 @@ class _ProfileAvatarButton extends StatefulWidget {
 }
 
 class _ProfileAvatarButtonState extends State<_ProfileAvatarButton> {
-  String? _localAvatarPath;
+  String? _avatarPath;
 
   @override
   void initState() { super.initState(); _load(); }
 
   Future<void> _load() async {
     final path = await UserProfile.getAvatarPath();
-    if (mounted) setState(() => _localAvatarPath = path);
+    if (mounted) setState(() => _avatarPath = path);
   }
 
   Future<void> _openProfile() async {
     HapticFeedback.lightImpact();
+
+    final auth = context.read<AuthProvider>();
+
+    // Not signed in yet → skip straight to the Google account picker
+    // instead of opening ProfileScreen first.
+    if (!auth.isSignedIn) {
+      final ok = await auth.signInWithGoogle();
+      if (!mounted) return;
+
+      if (ok) {
+        try {
+          await SyncService.instance.syncAll(
+            playlists: context.read<PlaylistProvider>(),
+            followedArtists: context.read<FollowedArtistsProvider>(),
+            favorites: context.read<FavoritesProvider>(),
+          );
+        } catch (_) {}
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Signed in — your library is synced'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ));
+        }
+      } else if (auth.lastError != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(auth.lastError!),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ));
+      }
+      // Cancelled or failed — stay on Home, don't open ProfileScreen.
+      return;
+    }
+
     await Navigator.push(
         context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-    _load(); // reload local avatar after returning
+    _load();
   }
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-
-    // Priority: local file > Google photo > placeholder icon
-    Widget avatarChild;
-    if (_localAvatarPath != null) {
-      avatarChild = Image.file(File(_localAvatarPath!), fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) =>
-              Icon(Icons.person_rounded,
-                  color: AurumTheme.textSecondaryOf(context), size: 20));
-    } else if (auth.isSignedIn && auth.photoUrl != null) {
-      avatarChild = CachedNetworkImage(
-        imageUrl: auth.photoUrl!,
-        fit: BoxFit.cover,
-        placeholder: (_, __) => const SizedBox(
-          width: 14, height: 14,
-          child: CircularProgressIndicator(strokeWidth: 1.5, color: AurumTheme.gold),
-        ),
-        errorWidget: (_, __, ___) =>
-            Icon(Icons.person_rounded,
-                color: AurumTheme.textSecondaryOf(context), size: 20),
-      );
-    } else {
-      avatarChild = Icon(Icons.person_rounded,
-          color: AurumTheme.textSecondaryOf(context), size: 20);
-    }
-
     return Padding(
       padding: const EdgeInsets.only(right: 16, left: 4),
       child: GestureDetector(
@@ -1117,16 +1126,17 @@ class _ProfileAvatarButtonState extends State<_ProfileAvatarButton> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: AurumTheme.goldGradient,
-            boxShadow: auth.isSignedIn
-                ? [BoxShadow(color: AurumTheme.gold.withOpacity(0.4),
-                    blurRadius: 8, offset: const Offset(0, 2))]
-                : [],
           ),
           padding: const EdgeInsets.all(1.5),
           child: ClipOval(
             child: Container(
               color: AurumTheme.bgOf(context),
-              child: avatarChild,
+              child: _avatarPath != null
+                  ? Image.file(File(_avatarPath!), fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Icon(Icons.person_rounded,
+                          color: AurumTheme.textSecondaryOf(context), size: 20))
+                  : Icon(Icons.person_rounded,
+                      color: AurumTheme.textSecondaryOf(context), size: 20),
             ),
           ),
         ),
@@ -1879,67 +1889,3 @@ class _PlaylistCardState extends State<_PlaylistCard> {
 
 // ignore: avoid_void_async
 void unawaited(Future<void> f) {}
-
-// ── Top Online/Offline toggle pill ──────────────────────────────────────────
-
-class _TopToggle extends StatefulWidget {
-  final VoidCallback? onSwitchToOffline;
-  const _TopToggle({this.onSwitchToOffline});
-
-  @override
-  State<_TopToggle> createState() => _TopToggleState();
-}
-
-class _TopToggleState extends State<_TopToggle> {
-  bool _offline = false;
-
-  void _toggle() {
-    if (!_offline) {
-      widget.onSwitchToOffline?.call();
-    }
-    setState(() => _offline = !_offline);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: _toggle,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: _offline
-              ? AurumTheme.gold.withOpacity(0.15)
-              : AurumTheme.bgSurfaceOf(context),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: _offline
-                ? AurumTheme.gold.withOpacity(0.5)
-                : AurumTheme.dividerOf(context),
-            width: 0.8,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              _offline ? Icons.download_done_rounded : Icons.wifi_rounded,
-              size: 12,
-              color: _offline ? AurumTheme.gold : AurumTheme.textSecondary,
-            ),
-            const SizedBox(width: 5),
-            Text(
-              _offline ? 'Offline' : 'Online',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: _offline ? AurumTheme.gold : AurumTheme.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

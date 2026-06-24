@@ -28,6 +28,7 @@ dependencies:
   cached_network_image: ^3.3.1
   shimmer: ^3.0.0
   palette_generator: ^0.3.3+3
+  google_fonts: ^6.2.1
 
   # Persistence
   shared_preferences: ^2.2.2
@@ -50,12 +51,13 @@ dependencies:
   # Notifications (download progress)
   flutter_local_notifications: ^17.2.3
 
-  # Auth
-  google_sign_in: ^6.2.1
-
   # Settings features
   sensors_plus: ^5.0.1
   local_auth: ^2.3.0
+
+  # Auth & Cloud Sync
+  supabase_flutter: ^2.5.6
+  google_sign_in: ^6.2.1
 
 dev_dependencies:
   flutter_test:

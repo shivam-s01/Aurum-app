@@ -6,6 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'services/audio_handler.dart';
 import 'services/notification_service.dart';
 import 'services/api_service.dart';
+import 'services/auth_service.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
@@ -37,6 +38,11 @@ Future<void> main() async {
 
   // Hive init for local DB (favorites, playlists, recently played, downloads)
   await Hive.initFlutter();
+
+  // Supabase init — must happen before any AuthService/Supabase.instance use.
+  try {
+    await AuthService.init();
+  } catch (_) {} // app still works fully offline/unauthenticated if this fails
 
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
@@ -83,7 +89,7 @@ class AurumApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => DownloadProvider()..init()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()..init()),
         ChangeNotifierProvider(create: (_) => FollowedArtistsProvider()..init()),
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
         ChangeNotifierProxyProvider<RecentlyPlayedProvider, PlayerProvider>(
           create: (_) => PlayerProvider(handler),
           update: (_, recentlyPlayed, player) {
@@ -119,8 +125,12 @@ class AurumApp extends StatelessWidget {
               ? AurumTheme.amoledTheme
               : AurumTheme.darkTheme;
 
-          final lightTheme = baseLight;
-          final darkTheme = baseDark;
+          final lightTheme = baseLight.copyWith(
+            textTheme: themeProvider.resolvedTextTheme(baseLight.textTheme),
+          );
+          final darkTheme = baseDark.copyWith(
+            textTheme: themeProvider.resolvedTextTheme(baseDark.textTheme),
+          );
 
           return MaterialApp(
             navigatorKey: navigatorKey,
