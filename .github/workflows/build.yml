@@ -28,6 +28,14 @@ jobs:
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/aurum-release.jks
 
+      - name: Print Keystore SHA-1 (for Google Cloud Console OAuth client)
+        run: |
+          keytool -list -v \
+            -keystore android/app/aurum-release.jks \
+            -alias "${{ secrets.KEY_ALIAS }}" \
+            -storepass "${{ secrets.STORE_PASSWORD }}" \
+            | grep -A1 "SHA1:"
+
       - name: Write key.properties
         run: |
           printf 'storePassword=${{ secrets.STORE_PASSWORD }}\nkeyPassword=${{ secrets.KEY_PASSWORD }}\nkeyAlias=${{ secrets.KEY_ALIAS }}\nstoreFile=aurum-release.jks\n' > android/key.properties
