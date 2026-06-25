@@ -630,7 +630,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       for (int i = startIndex + 1; i < songs.length; i++) {
         if (sessionId != _playSessionId) return;
         try {
-          final source = await _sourceForSong(songs[i], sessionId: mySession);
+          final source = await _sourceForSong(songs[i], sessionId: sessionId);
           if (sessionId != _playSessionId) return;
           if (source != null) {
             final seq = _player.audioSource;
@@ -655,7 +655,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       for (int i = startIndex - 1; i >= 0; i--) {
         if (sessionId != _playSessionId) return;
         try {
-          final source = await _sourceForSong(songs[i], sessionId: mySession);
+          final source = await _sourceForSong(songs[i], sessionId: sessionId);
           if (sessionId != _playSessionId) return;
           if (source != null) {
             final seq = _player.audioSource;
