@@ -1046,8 +1046,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<void> disposeHandler() async {
     _shakeSub?.cancel();
-    await _eq?.dispose();
-    await _loudness?.dispose();
     await _player.dispose();
   }
 }
