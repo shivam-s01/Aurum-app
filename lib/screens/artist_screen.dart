@@ -10,9 +10,11 @@ import '../models/artist.dart';
 import '../models/song.dart';
 import '../providers/player_provider.dart';
 import '../providers/followed_artists_provider.dart';
+import '../providers/premium_provider.dart';
 import '../services/api_service.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/premium_gate.dart';
 import '../widgets/song_tile.dart';
 import 'album_screen.dart';
 
@@ -234,11 +236,18 @@ class _ArtistScreenState extends State<ArtistScreen> {
             child: Row(
               children: [
                 OutlinedButton(
-                  onPressed: () => followed.toggleFollow(
-                    artistId: artist.id,
-                    name: artist.name,
-                    imageUrl: artist.imageUrl,
-                  ),
+                  onPressed: () {
+                    PremiumGate.guard(
+                      context,
+                      feature: 'Follow Artist',
+                      description: 'Sign in and upgrade to follow artists and stay updated.',
+                      onAllowed: () => followed.toggleFollow(
+                        artistId: artist.id,
+                        name: artist.name,
+                        imageUrl: artist.imageUrl,
+                      ),
+                    );
+                  },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: isFollowing
                         ? AurumTheme.gold

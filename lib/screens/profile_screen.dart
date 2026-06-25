@@ -8,6 +8,7 @@ import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -202,25 +203,30 @@ class _ProfileHero extends StatelessWidget {
               ],
               const SizedBox(height: 10),
 
-              // Gold badge
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  gradient: AurumTheme.goldGradient,
-                ),
-                child: const Text(
-                  '✦ Aurum Premium',
-                  style: TextStyle(
-                    color: Colors.black,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.3,
+              // Gold badge — only shown for premium users
+              Builder(builder: (context) {
+                final isPremium = context.watch<PremiumProvider>().isPremium;
+                if (!isPremium) return const SizedBox(height: 22);
+                return Column(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      gradient: AurumTheme.goldGradient,
+                    ),
+                    child: const Text(
+                      '✦ Aurum Premium',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 22),
+                  const SizedBox(height: 22),
+                ]);
+              }),
             ],
           ),
         ),
@@ -259,6 +265,8 @@ class _PremiumCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isPremium = context.watch<PremiumProvider>().isPremium;
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -298,11 +306,13 @@ class _PremiumCard extends StatelessWidget {
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
                       )),
-                  Text('All features unlocked',
-                      style: TextStyle(
-                        color: AurumTheme.textMutedOf(context),
-                        fontSize: 12,
-                      )),
+                  Text(
+                    isPremium ? 'All features unlocked' : 'Upgrade to unlock everything',
+                    style: TextStyle(
+                      color: AurumTheme.textMutedOf(context),
+                      fontSize: 12,
+                    ),
+                  ),
                 ],
               ),
               const Spacer(),
@@ -311,16 +321,25 @@ class _PremiumCard extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
-                  color: AurumTheme.gold.withOpacity(0.15),
-                  border:
-                      Border.all(color: AurumTheme.gold.withOpacity(0.4)),
+                  color: isPremium
+                      ? AurumTheme.gold.withOpacity(0.15)
+                      : Colors.white.withOpacity(0.07),
+                  border: Border.all(
+                    color: isPremium
+                        ? AurumTheme.gold.withOpacity(0.4)
+                        : AurumTheme.dividerOf(context),
+                  ),
                 ),
-                child: Text('Active',
-                    style: TextStyle(
-                      color: AurumTheme.gold,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    )),
+                child: Text(
+                  isPremium ? 'Active' : 'Free',
+                  style: TextStyle(
+                    color: isPremium
+                        ? AurumTheme.gold
+                        : AurumTheme.textMutedOf(context),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ]),
           ),
@@ -335,6 +354,7 @@ class _PremiumCard extends StatelessWidget {
                 icon: b.$1,
                 title: b.$2,
                 subtitle: b.$3,
+                active: isPremium,
               )).toList(),
             ),
           ),
@@ -348,7 +368,8 @@ class _BenefitRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  const _BenefitRow({required this.icon, required this.title, required this.subtitle});
+  final bool active;
+  const _BenefitRow({required this.icon, required this.title, required this.subtitle, this.active = true});
 
   @override
   Widget build(BuildContext context) {
@@ -359,9 +380,9 @@ class _BenefitRow extends StatelessWidget {
           width: 36, height: 36,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: AurumTheme.gold.withOpacity(0.12),
+            color: AurumTheme.gold.withOpacity(active ? 0.12 : 0.05),
           ),
-          child: Icon(icon, color: AurumTheme.gold, size: 18),
+          child: Icon(icon, color: active ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -370,7 +391,7 @@ class _BenefitRow extends StatelessWidget {
             children: [
               Text(title,
                   style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
+                    color: active ? AurumTheme.textPrimaryOf(context) : AurumTheme.textMutedOf(context),
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                   )),
@@ -382,8 +403,11 @@ class _BenefitRow extends StatelessWidget {
             ],
           ),
         ),
-        Icon(Icons.check_circle_rounded,
-            color: AurumTheme.gold, size: 18),
+        Icon(
+          active ? Icons.check_circle_rounded : Icons.lock_rounded,
+          color: active ? AurumTheme.gold : AurumTheme.textMutedOf(context).withOpacity(0.5),
+          size: 18,
+        ),
       ]),
     );
   }
@@ -406,22 +430,37 @@ class _AccountCardState extends State<_AccountCard> {
     final ok = await auth.signInWithGoogle();
     if (!mounted) return;
     if (ok) {
-      setState(() => _syncing = true);
-      try {
-        await SyncService.instance.syncAll(
-          playlists: context.read<PlaylistProvider>(),
-          followedArtists: context.read<FollowedArtistsProvider>(),
-          favorites: context.read<FavoritesProvider>(),
-        );
-      } finally {
-        if (mounted) setState(() => _syncing = false);
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Signed in — your library is synced'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
-        ));
+      // Refresh premium status after sign-in
+      await context.read<PremiumProvider>().refresh();
+      final isPremium = context.read<PremiumProvider>().isPremium;
+
+      if (isPremium) {
+        // Phase 3 — Cloud sync is premium-only
+        setState(() => _syncing = true);
+        try {
+          await SyncService.instance.syncAll(
+            playlists: context.read<PlaylistProvider>(),
+            followedArtists: context.read<FollowedArtistsProvider>(),
+            favorites: context.read<FavoritesProvider>(),
+          );
+        } finally {
+          if (mounted) setState(() => _syncing = false);
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Signed in — your library is synced'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ));
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Signed in! Upgrade to Premium to enable cloud sync.'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 3),
+          ));
+        }
       }
     } else if (auth.lastError != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(

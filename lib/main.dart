@@ -7,6 +7,7 @@ import 'services/audio_handler.dart';
 import 'services/notification_service.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
+import 'services/audio_prefs.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
@@ -14,6 +15,7 @@ import 'providers/download_provider.dart';
 import 'providers/playlist_provider.dart';
 import 'providers/followed_artists_provider.dart';
 import 'providers/auth_provider.dart';
+import 'providers/premium_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
 import 'screens/library_screen.dart';
@@ -90,6 +92,16 @@ class AurumApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => PlaylistProvider()..init()),
         ChangeNotifierProvider(create: (_) => FollowedArtistsProvider()..init()),
         ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
+        ChangeNotifierProvider(
+          create: (_) {
+            final pp = PremiumProvider();
+            pp.init();
+            // Keep AudioPrefs in sync so service-layer (ApiService) can
+            // check isPremium without a BuildContext.
+            pp.addListener(() => AudioPrefs.isPremium = pp.isPremium);
+            return pp;
+          },
+        ),
         ChangeNotifierProxyProvider<RecentlyPlayedProvider, PlayerProvider>(
           create: (_) => PlayerProvider(handler),
           update: (_, recentlyPlayed, player) {

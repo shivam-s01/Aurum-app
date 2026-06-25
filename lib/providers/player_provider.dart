@@ -25,6 +25,7 @@ import 'package:just_audio/just_audio.dart';
 import '../models/song.dart';
 import '../services/audio_handler.dart';
 import '../services/api_service.dart';
+import '../services/audio_prefs.dart';
 import '../services/recommendation_engine.dart';
 import 'recently_played_provider.dart';
 
@@ -53,6 +54,42 @@ class PlayerProvider extends ChangeNotifier {
   // text is identical to the previous one (so repeated taps on the same
   // broken song each show a fresh SnackBar instead of being deduped away).
   void Function(String error)? onPlaybackError;
+
+  // ── Phase 4: Skip limit for free users ───────────────────────────────────
+  // Free users get 6 skips per hour. Resets automatically after 60 min.
+  static const int _kFreeSkipLimit = 6;
+  static const Duration _kSkipWindow = Duration(hours: 1);
+
+  int _skipsUsed = 0;
+  DateTime _skipWindowStart = DateTime.now();
+
+  /// How many skips remain for free users this hour. Returns null if premium.
+  int? get freeSkipsRemaining {
+    if (AudioPrefs.isPremium) return null; // unlimited
+    _resetWindowIfExpired();
+    return (_kFreeSkipLimit - _skipsUsed).clamp(0, _kFreeSkipLimit);
+  }
+
+  bool get skipLimitReached {
+    if (AudioPrefs.isPremium) return false;
+    _resetWindowIfExpired();
+    return _skipsUsed >= _kFreeSkipLimit;
+  }
+
+  void _resetWindowIfExpired() {
+    if (DateTime.now().difference(_skipWindowStart) >= _kSkipWindow) {
+      _skipsUsed = 0;
+      _skipWindowStart = DateTime.now();
+    }
+  }
+
+  void _recordSkip() {
+    if (!AudioPrefs.isPremium) {
+      _resetWindowIfExpired();
+      _skipsUsed++;
+      notifyListeners();
+    }
+  }
 
   // ── Behavior tracking state ────────────────────────────────────────────────
   // Used to fire one-shot events per song (completion/skip/replay).
@@ -312,7 +349,7 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // PLAYBACK CONTROL (all unchanged — skipNext gets early-skip hook)
+  // PLAYBACK CONTROL
   // ---------------------------------------------------------------------------
   Future<void> playSong(Song song, {List<Song>? queue, int? index}) async {
     if (queue != null && index != null) {
@@ -344,9 +381,13 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> seekTo(Duration pos) => _handler.seek(pos);
 
-  Future<void> skipNext() async {
+  /// Returns true if skip was allowed, false if limit reached (UI should show gate).
+  Future<bool> skipNext() async {
+    if (skipLimitReached) return false; // caller shows PremiumGate
+    _recordSkip();
     _fireEarlySkipIfArmed(); // ← behavior tracking hook
     await _handler.skipToNext();
+    return true;
   }
 
   Future<void> skipPrev() => _handler.skipToPrevious();

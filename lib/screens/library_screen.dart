@@ -20,9 +20,11 @@ import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/playlist_provider.dart';
+import '../providers/premium_provider.dart';
 import '../models/download_item.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/premium_gate.dart';
 import '../models/song.dart';
 import 'settings_screen.dart';
 import 'liked_screen.dart';
@@ -366,9 +368,16 @@ class PlaylistsScreen extends StatelessWidget {
   }
 
   Future<void> _showCreateDialog(BuildContext context) async {
-    await showDialog(
-      context: context,
-      builder: (_) => _CreatePlaylistDialog(),
+    PremiumGate.guard(
+      context,
+      feature: 'Create Playlist',
+      description: 'Organize your music into custom playlists with Aurum Premium.',
+      onAllowed: () async {
+        await showDialog(
+          context: context,
+          builder: (_) => _CreatePlaylistDialog(),
+        );
+      },
     );
   }
 }

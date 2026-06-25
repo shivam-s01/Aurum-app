@@ -8,9 +8,11 @@ import 'package:just_audio/just_audio.dart' show LoopMode;
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/download_provider.dart';
+import '../providers/premium_provider.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/premium_gate.dart';
 import 'library_screen.dart' show showAddToPlaylistSheet;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -422,8 +424,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               isTablet: isTablet,
               isFav: _isFav,
               onFavTap: () {
-                HapticFeedback.lightImpact();
-                setState(() => _isFav = !_isFav);
+                PremiumGate.guard(
+                  context,
+                  feature: 'Like Songs',
+                  description: 'Like songs to save them to your library with Aurum Premium.',
+                  onAllowed: () {
+                    HapticFeedback.lightImpact();
+                    setState(() => _isFav = !_isFav);
+                  },
+                );
               },
             ),
             SizedBox(height: vGapSm),
@@ -850,7 +859,15 @@ class _Controls extends StatelessWidget {
             semanticLabel: 'Next',
             onTap: () {
               HapticFeedback.mediumImpact();
-              player.skipNext();
+              player.skipNext().then((allowed) {
+                if (!allowed && context.mounted) {
+                  PremiumGate.show(
+                    context,
+                    feature: 'Unlimited Skips',
+                    description: 'Free users get 6 skips per hour. Upgrade for unlimited.',
+                  );
+                }
+              });
             },
           ),
           _CtrlBtn(
@@ -1181,9 +1198,16 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
         isLiked ? 'Liked' : 'Like',
         const Color(0xFFE1306C),
         () {
-          fav.toggleFavorite(song);
-          final nowLiked = fav.isFavorite(song.id);
-          _snack(nowLiked ? 'Added to Liked' : 'Removed from Liked');
+          PremiumGate.guard(
+            context,
+            feature: 'Like Songs',
+            description: 'Like songs to build your personal library with Aurum Premium.',
+            onAllowed: () {
+              fav.toggleFavorite(song);
+              final nowLiked = fav.isFavorite(song.id);
+              _snack(nowLiked ? 'Added to Liked' : 'Removed from Liked');
+            },
+          );
         },
       ),
       _SheetAction(Icons.share_rounded, 'Share', Colors.greenAccent, () {

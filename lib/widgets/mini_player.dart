@@ -6,6 +6,7 @@ import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_artwork.dart';
 import 'aurum_loader.dart';
+import 'premium_gate.dart';
 import '../screens/full_player_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -367,7 +368,15 @@ class _MiniPlayerContent extends StatelessWidget {
                                 icon: Icons.skip_next_rounded,
                                 onTap: () {
                                   HapticFeedback.selectionClick();
-                                  player.skipNext();
+                                  player.skipNext().then((allowed) {
+                                    if (!allowed && context.mounted) {
+                                      PremiumGate.show(
+                                        context,
+                                        feature: 'Unlimited Skips',
+                                        description: 'Free users get 6 skips per hour.',
+                                      );
+                                    }
+                                  });
                                 },
                                 size: 22,
                                 context: context),

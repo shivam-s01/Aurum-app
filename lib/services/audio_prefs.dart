@@ -37,6 +37,11 @@ class AudioPrefs {
   /// Settings → Privacy.
   static bool hideListenStats = false;
 
+  /// Mirrors PremiumProvider.isPremium for service-layer code (ApiService)
+  /// that has no BuildContext. Set by PremiumProvider whenever its value
+  /// changes. Default false — never self-grant.
+  static bool isPremium = false;
+
   static const _kStreamQuality = 'stream_quality';
   static const _kDataSaver     = 'data_saver';
   static const _kPauseOnCall   = 'pause_on_call';
@@ -97,6 +102,20 @@ class AudioPrefs {
   /// forces the lowest tier regardless of the manual Stream Quality choice.
   static List<String> qualityOrder() {
     if (dataSaver) return const ['48kbps', '96kbps', '12kbps', '160kbps', '320kbps'];
+
+    // Phase 5 — 320kbps is premium-only. Free users capped at 160kbps.
+    if (!isPremium) {
+      switch (streamQuality) {
+        case 'Low':
+          return const ['96kbps', '48kbps', '12kbps', '160kbps'];
+        case 'Medium':
+        case 'High':
+        case 'Auto':
+        default:
+          return const ['160kbps', '96kbps', '48kbps', '12kbps'];
+      }
+    }
+
     switch (streamQuality) {
       case 'Low':
         return const ['96kbps', '48kbps', '12kbps', '160kbps', '320kbps'];
@@ -106,7 +125,6 @@ class AudioPrefs {
         return const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
       case 'Auto':
       default:
-        // Auto: best quality first — original/unchanged default behaviour.
         return const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
     }
   }
