@@ -1057,74 +1057,65 @@ class _OfflineContent extends StatelessWidget {
 // Profile Avatar Button
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _ProfileAvatarButton extends StatefulWidget {
+class _ProfileAvatarButton extends StatelessWidget {
   const _ProfileAvatarButton();
-  @override
-  State<_ProfileAvatarButton> createState() => _ProfileAvatarButtonState();
-}
 
-class _ProfileAvatarButtonState extends State<_ProfileAvatarButton> {
-  String? _avatarPath;
-
-  @override
-  void initState() { super.initState(); _load(); }
-
-  Future<void> _load() async {
-    final path = await UserProfile.getAvatarPath();
-    if (mounted) setState(() => _avatarPath = path);
-  }
-
-  Future<void> _openProfile() async {
+  Future<void> _openProfile(BuildContext context) async {
     HapticFeedback.lightImpact();
-
     final auth = context.read<AuthProvider>();
 
-    // Not signed in yet → show the proper animated login screen with an
-    // explicit "Continue with Google" button, instead of jumping straight
-    // to the native account picker.
     if (!auth.isSignedIn) {
-      final signedIn = await Navigator.push<bool>(
+      // Not signed in → animated slide to LoginScreen
+      await Navigator.push<bool>(
         context,
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 320),
           pageBuilder: (_, __, ___) => const LoginScreen(),
-          transitionsBuilder: (_, animation, __, child) {
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.05),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-                child: child,
-              ),
-            );
-          },
+          transitionsBuilder: (_, animation, __, child) => FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.05),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                  parent: animation, curve: Curves.easeOutCubic)),
+              child: child,
+            ),
+          ),
         ),
       );
-      if (!mounted) return;
-      if (signedIn == true) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Signed in — your library is synced'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
-        ));
-        _load();
-      }
       return;
     }
 
+    // Signed in → go straight to ProfileScreen
     await Navigator.push(
-        context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-    _load();
+      context,
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 320),
+        pageBuilder: (_, __, ___) => const ProfileScreen(),
+        transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.05),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(
+                parent: animation, curve: Curves.easeOutCubic)),
+            child: child,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final avatarUrl = context.watch<AuthProvider>().avatarUrl;
+
     return Padding(
       padding: const EdgeInsets.only(right: 16, left: 4),
       child: GestureDetector(
-        onTap: _openProfile,
+        onTap: () => _openProfile(context),
         child: Container(
           width: 34, height: 34,
           decoration: BoxDecoration(
@@ -1133,20 +1124,24 @@ class _ProfileAvatarButtonState extends State<_ProfileAvatarButton> {
           ),
           padding: const EdgeInsets.all(1.5),
           child: ClipOval(
-            child: Container(
-              color: AurumTheme.bgOf(context),
-              child: _avatarPath != null
-                  ? Image.file(File(_avatarPath!), fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Icon(Icons.person_rounded,
-                          color: AurumTheme.textSecondaryOf(context), size: 20))
-                  : Icon(Icons.person_rounded,
-                      color: AurumTheme.textSecondaryOf(context), size: 20),
-            ),
+            child: avatarUrl != null
+                ? CachedNetworkImage(
+                    imageUrl: avatarUrl,
+                    fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) => _defaultIcon(context),
+                  )
+                : _defaultIcon(context),
           ),
         ),
       ),
     );
   }
+
+  Widget _defaultIcon(BuildContext context) => Container(
+        color: AurumTheme.bgOf(context),
+        child: Icon(Icons.person_rounded,
+            color: AurumTheme.textSecondaryOf(context), size: 20),
+      );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
