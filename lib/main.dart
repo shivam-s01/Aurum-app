@@ -120,8 +120,9 @@ class AurumApp extends StatelessWidget {
 
           SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
-            statusBarIconBrightness:
-                isDark ? Brightness.light : Brightness.dark,
+            statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+            statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+            systemStatusBarContrastEnforced: false,
             systemNavigationBarColor: isDark
                 ? (themeProvider.isAmoled
                     ? AurumTheme.amoledBgCard
@@ -129,6 +130,7 @@ class AurumApp extends StatelessWidget {
                 : AurumTheme.lightBgCard,
             systemNavigationBarIconBrightness:
                 isDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarContrastEnforced: false,
           ));
 
           // Resolve font-aware ThemeData

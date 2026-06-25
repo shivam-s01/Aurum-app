@@ -58,6 +58,9 @@ class _PlaylistMeta {
   const _PlaylistMeta(this.name, this.query, this.emoji, this.color);
 }
 
+// Cache: query → first song artwork URL (fetched once, reused)
+final Map<String, String?> _kPlaylistArtCache = {};
+
 class _HomeScreenState extends State<HomeScreen> {
   List<SongSection> _onlineSections = [];
   bool _onlineLoading = true;
@@ -1723,6 +1726,27 @@ class _PlaylistCard extends StatefulWidget {
 
 class _PlaylistCardState extends State<_PlaylistCard> {
   bool _pressed = false;
+  String? _artUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadArt();
+  }
+
+  Future<void> _loadArt() async {
+    final q = widget.playlist.query;
+    if (_kPlaylistArtCache.containsKey(q)) {
+      if (mounted) setState(() => _artUrl = _kPlaylistArtCache[q]);
+      return;
+    }
+    try {
+      final songs = await ApiService.search(q);
+      final url = songs.isNotEmpty ? songs.first.artworkUrl : null;
+      _kPlaylistArtCache[q] = url;
+      if (mounted) setState(() => _artUrl = url);
+    } catch (_) {}
+  }
 
   Future<void> _openPlaylist() async {
     HapticFeedback.selectionClick();
@@ -1826,6 +1850,22 @@ class _PlaylistCardState extends State<_PlaylistCard> {
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
     }
+  }
+
+  Widget _gradientFallback(_PlaylistMeta p) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            p.color.withOpacity(0.9),
+            p.color.withOpacity(0.5),
+            Colors.black.withOpacity(0.4),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
