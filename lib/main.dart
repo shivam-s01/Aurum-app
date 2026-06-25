@@ -6,11 +6,16 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'services/audio_handler.dart';
 import 'services/notification_service.dart';
 import 'services/api_service.dart';
+import 'services/auth_service.dart';
+import 'services/audio_prefs.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/download_provider.dart';
 import 'providers/playlist_provider.dart';
+import 'providers/followed_artists_provider.dart';
+import 'providers/auth_provider.dart';
+import 'providers/premium_provider.dart';
 import 'theme/aurum_theme.dart';
 import 'screens/main_shell.dart';
 import 'screens/library_screen.dart';
@@ -35,6 +40,11 @@ Future<void> main() async {
 
   // Hive init for local DB (favorites, playlists, recently played, downloads)
   await Hive.initFlutter();
+
+  // Supabase init — must happen before any AuthService/Supabase.instance use.
+  try {
+    await AuthService.init();
+  } catch (_) {} // app still works fully offline/unauthenticated if this fails
 
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
@@ -75,12 +85,23 @@ class AurumApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => LibraryProvider()),
-        ChangeNotifierProvider(create: (_) => SourceProvider()), // ← offline
-        ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()), // was missing — used by liked/library/song_tile
-        ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()), // for Library "Recently Played" + Home "Made For You"
+        ChangeNotifierProvider(create: (_) => SourceProvider()),
+        ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()),
+        ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()),
         ChangeNotifierProvider(create: (_) => DownloadProvider()..init()),
-        ChangeNotifierProvider(create: (_) => PlaylistProvider()..init()), // offline downloads
-        // PlayerProvider gets RecentlyPlayedProvider for behavior tracking (skip/complete/replay)
+        ChangeNotifierProvider(create: (_) => PlaylistProvider()..init()),
+        ChangeNotifierProvider(create: (_) => FollowedArtistsProvider()..init()),
+        ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
+        ChangeNotifierProvider(
+          create: (_) {
+            final pp = PremiumProvider();
+            pp.init();
+            // Keep AudioPrefs in sync so service-layer (ApiService) can
+            // check isPremium without a BuildContext.
+            pp.addListener(() => AudioPrefs.isPremium = pp.isPremium);
+            return pp;
+          },
+        ),
         ChangeNotifierProxyProvider<RecentlyPlayedProvider, PlayerProvider>(
           create: (_) => PlayerProvider(handler),
           update: (_, recentlyPlayed, player) {
@@ -99,8 +120,9 @@ class AurumApp extends StatelessWidget {
 
           SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
-            statusBarIconBrightness:
-                isDark ? Brightness.light : Brightness.dark,
+            statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+            statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+            systemStatusBarContrastEnforced: false,
             systemNavigationBarColor: isDark
                 ? (themeProvider.isAmoled
                     ? AurumTheme.amoledBgCard
@@ -108,17 +130,29 @@ class AurumApp extends StatelessWidget {
                 : AurumTheme.lightBgCard,
             systemNavigationBarIconBrightness:
                 isDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarContrastEnforced: false,
           ));
+
+          // Resolve font-aware ThemeData
+          final baseLight = AurumTheme.lightTheme;
+          final baseDark  = themeProvider.isAmoled
+              ? AurumTheme.amoledTheme
+              : AurumTheme.darkTheme;
+
+          final lightTheme = baseLight.copyWith(
+            textTheme: themeProvider.resolvedTextTheme(baseLight.textTheme),
+          );
+          final darkTheme = baseDark.copyWith(
+            textTheme: themeProvider.resolvedTextTheme(baseDark.textTheme),
+          );
 
           return MaterialApp(
             navigatorKey: navigatorKey,
             title: 'Aurum Music',
             debugShowCheckedModeBanner: false,
             themeMode: themeProvider.themeMode,
-            theme: AurumTheme.lightTheme,
-            darkTheme: themeProvider.isAmoled
-                ? AurumTheme.amoledTheme
-                : AurumTheme.darkTheme,
+            theme: lightTheme,
+            darkTheme: darkTheme,
             home: AppLockScreen(child: SplashScreen(child: const MainShell())),
           );
         },

@@ -8,9 +8,11 @@ import 'package:just_audio/just_audio.dart' show LoopMode;
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/download_provider.dart';
+import '../providers/premium_provider.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/premium_gate.dart';
 import 'library_screen.dart' show showAddToPlaylistSheet;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -422,8 +424,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               isTablet: isTablet,
               isFav: _isFav,
               onFavTap: () {
-                HapticFeedback.lightImpact();
-                setState(() => _isFav = !_isFav);
+                PremiumGate.guard(
+                  context,
+                  feature: 'Like Songs',
+                  description: 'Like songs to save them to your library with Aurum Premium.',
+                  onAllowed: () {
+                    HapticFeedback.lightImpact();
+                    setState(() => _isFav = !_isFav);
+                  },
+                );
               },
             ),
             SizedBox(height: vGapSm),
@@ -574,22 +583,7 @@ class _Artwork extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad),
       child: Center(
-        child: GestureDetector(
-          // Swipe left → next song, swipe right → previous song.
-          // Threshold-based on velocity, not raw distance, so a quick
-          // flick anywhere on the artwork triggers it — matches the
-          // feel of Spotify/Apple Music artwork swipe.
-          onHorizontalDragEnd: (details) {
-            final v = details.primaryVelocity ?? 0;
-            if (v.abs() < 200) return; // ignore slow/accidental drags
-            HapticFeedback.lightImpact();
-            if (v < 0) {
-              player.skipNext();
-            } else {
-              player.skipPrev();
-            }
-          },
-          child: SizedBox(
+        child: SizedBox(
           width: maxArtSize,
           height: maxArtSize + 8, // headroom for float offset
           child: AnimatedBuilder(
@@ -648,7 +642,6 @@ class _Artwork extends StatelessWidget {
               ),
             ),
             ),
-          ),
           ),
         ),
       ),
@@ -866,7 +859,15 @@ class _Controls extends StatelessWidget {
             semanticLabel: 'Next',
             onTap: () {
               HapticFeedback.mediumImpact();
-              player.skipNext();
+              player.skipNext().then((allowed) {
+                if (!allowed && context.mounted) {
+                  PremiumGate.show(
+                    context,
+                    feature: 'Unlimited Skips',
+                    description: 'Free users get 6 skips per hour. Upgrade for unlimited.',
+                  );
+                }
+              });
             },
           ),
           _CtrlBtn(
@@ -1197,9 +1198,16 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
         isLiked ? 'Liked' : 'Like',
         const Color(0xFFE1306C),
         () {
-          fav.toggleFavorite(song);
-          final nowLiked = fav.isFavorite(song.id);
-          _snack(nowLiked ? 'Added to Liked' : 'Removed from Liked');
+          PremiumGate.guard(
+            context,
+            feature: 'Like Songs',
+            description: 'Like songs to build your personal library with Aurum Premium.',
+            onAllowed: () {
+              fav.toggleFavorite(song);
+              final nowLiked = fav.isFavorite(song.id);
+              _snack(nowLiked ? 'Added to Liked' : 'Removed from Liked');
+            },
+          );
         },
       ),
       _SheetAction(Icons.share_rounded, 'Share', Colors.greenAccent, () {
@@ -2412,20 +2420,24 @@ class _BgLayer extends StatelessWidget {
       Container(color: const Color(0xFFF2EDE4)),
 
       // L1: Blurred artwork — ImageFiltered does blur once per frame, GPU-cheap
-      //     because the source image is already decoded/cached
+      //     because the source image is already decoded/cached.
+      // NOTE: previously wrapped in Transform.scale(scale: 1.0 + b*0.03) tied
+      // to the breathe value — that forced a full re-layout + re-blur of this
+      // subtree on every animation tick (continuous GPU blur recompute for
+      // as long as the screen stays open), which was the main driver behind
+      // reports of the phone heating up while the full player was visible.
+      // The visual gain from that subtle 3% scale breathing was minimal —
+      // dropping it removes the costliest recurring operation on this screen.
       if (song.artworkUrl.isNotEmpty)
-        Transform.scale(
-          scale: 1.0 + (b * 0.03),
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(
-              sigmaX: 12, sigmaY: 12,
-              tileMode: TileMode.clamp,
-            ),
-            child: AurumArtwork(
-              url: song.artworkUrl,
-              size: double.infinity,
-              borderRadius: 0,
-            ),
+        ImageFiltered(
+          imageFilter: ImageFilter.blur(
+            sigmaX: 12, sigmaY: 12,
+            tileMode: TileMode.clamp,
+          ),
+          child: AurumArtwork(
+            url: song.artworkUrl,
+            size: double.infinity,
+            borderRadius: 0,
           ),
         ),
 
@@ -2566,7 +2578,12 @@ class _AmbientGlowPainter extends CustomPainter {
     final h = size.height;
     final b = breathe;
 
-    // Base alpha: light mode glows are more visible, dark mode subtle
+    // Base alpha: light mode glows are more visible, dark mode subtle.
+    // Swing amplitudes reduced (18→8, 14→6, 10→4) — the original swing was
+    // large enough that, combined with discrete repaint steps (see
+    // shouldRepaint threshold below), the orbs near the screen edges read
+    // as a visible "blink" rather than a smooth ambient breathe. Smaller
+    // swing keeps the effect ambient without being perceptible as flicker.
     final baseAlpha = isLight ? 55 : 38;
 
     // ── Orb 1: Top-left area, drifts right and down slowly ──
@@ -2578,7 +2595,7 @@ class _AmbientGlowPainter extends CustomPainter {
       ),
       radiusX: w * 0.55,
       radiusY: h * 0.38,
-      color: color1.withAlpha(baseAlpha + (b * 18).toInt()),
+      color: color1.withAlpha(baseAlpha + (b * 8).toInt()),
     );
 
     // ── Orb 2: Bottom-right, drifts left and up ──
@@ -2590,7 +2607,7 @@ class _AmbientGlowPainter extends CustomPainter {
       ),
       radiusX: w * 0.52,
       radiusY: h * 0.40,
-      color: color2.withAlpha(baseAlpha - 8 + (b * 14).toInt()),
+      color: color2.withAlpha(baseAlpha - 8 + (b * 6).toInt()),
     );
 
     // ── Orb 3: Center-ish, very slow pulse in size ──
@@ -2602,7 +2619,7 @@ class _AmbientGlowPainter extends CustomPainter {
       ),
       radiusX: w * (0.38 + b * 0.06),
       radiusY: h * (0.28 + b * 0.05),
-      color: color3.withAlpha(baseAlpha - 16 + (b * 10).toInt()),
+      color: color3.withAlpha(baseAlpha - 16 + (b * 4).toInt()),
     );
   }
 
@@ -2626,7 +2643,7 @@ class _AmbientGlowPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_AmbientGlowPainter old) =>
-      (breathe - old.breathe).abs() > 0.004 ||
+      (breathe - old.breathe).abs() > 0.008 ||
       color1 != old.color1 ||
       color2 != old.color2 ||
       color3 != old.color3;

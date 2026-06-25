@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/theme_provider.dart';
+import '../providers/premium_provider.dart';
+import '../widgets/premium_gate.dart';
 
 class SettingsAppearanceScreen extends StatefulWidget {
   const SettingsAppearanceScreen({super.key});
@@ -125,27 +127,74 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           _card(context, child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Accent Color', style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
+              Row(children: [
+                Text('Accent Color', style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AurumTheme.gold.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.workspace_premium_rounded, color: AurumTheme.gold, size: 10),
+                    const SizedBox(width: 3),
+                    Text('Extra colors = Premium', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+                  ]),
+                ),
+              ]),
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 10,
-                children: _accentOptions.map((c) {
-                  final sel = _accentColor.value == c.value;
-                  return GestureDetector(
-                    onTap: () { setState(() => _accentColor = c); _save('accent_color', c.value); },
-                    child: Container(
-                      width: 32, height: 32,
-                      decoration: BoxDecoration(
-                        color: c,
-                        shape: BoxShape.circle,
-                        border: sel ? Border.all(color: Colors.white, width: 2.5) : null,
-                        boxShadow: sel ? [BoxShadow(color: c.withOpacity(0.5), blurRadius: 8)] : null,
-                      ),
-                      child: sel ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
-                    ),
-                  );
-                }).toList(),
-              ),
+              Builder(builder: (context) {
+                final isPremium = context.watch<PremiumProvider>().isPremium;
+                return Wrap(
+                  spacing: 10,
+                  children: _accentOptions.asMap().entries.map((entry) {
+                    final i = entry.key;
+                    final c = entry.value;
+                    final isFree = i == 0; // only gold is free
+                    final sel = _accentColor.value == c.value;
+                    final locked = !isFree && !isPremium;
+                    return GestureDetector(
+                      onTap: () {
+                        if (locked) {
+                          PremiumGate.show(context,
+                            feature: 'Custom Accent Colors',
+                            description: 'Unlock more accent colors with Aurum Premium.',
+                          );
+                          return;
+                        }
+                        setState(() => _accentColor = c);
+                        _save('accent_color', c.value);
+                      },
+                      child: Stack(children: [
+                        Container(
+                          width: 32, height: 32,
+                          decoration: BoxDecoration(
+                            color: locked ? c.withOpacity(0.4) : c,
+                            shape: BoxShape.circle,
+                            border: sel ? Border.all(color: Colors.white, width: 2.5) : null,
+                            boxShadow: sel ? [BoxShadow(color: c.withOpacity(0.5), blurRadius: 8)] : null,
+                          ),
+                          child: sel ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
+                        ),
+                        if (locked)
+                          Positioned(
+                            right: 0, bottom: 0,
+                            child: Container(
+                              width: 13, height: 13,
+                              decoration: BoxDecoration(
+                                color: AurumTheme.bgCardOf(context),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.lock_rounded, size: 9, color: AurumTheme.gold),
+                            ),
+                          ),
+                      ]),
+                    );
+                  }).toList(),
+                );
+              }),
             ]),
           )),
           // ── Font Style ──
@@ -290,57 +339,97 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       'Rounded': 'Nunito',
       'Mono':    'RobotoMono',
     };
-    return _card(context, child: Padding(
-      padding: const EdgeInsets.all(14),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('App Font', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-        const SizedBox(height: 12),
-        Row(
-          children: fonts.entries.map((e) {
-            final sel = _fontStyle == e.key;
-            return Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  setState(() => _fontStyle = e.key);
-                  _save('font_style', e.key);
-                  context.read<ThemeProvider>().setFontStyle(e.key);
-                },
-                child: Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
-                      width: sel ? 1 : 0.5,
-                    ),
-                  ),
-                  child: Column(children: [
-                    Text(
-                      e.value,
-                      style: TextStyle(
-                        fontFamily: fontFamilies[e.key],
-                        color: sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
-                        fontSize: 22, fontWeight: FontWeight.w700,
+    const premiumFonts = {'Rounded', 'Mono'};
+
+    return Builder(builder: (context) {
+      final isPremium = context.watch<PremiumProvider>().isPremium;
+      return _card(context, child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text('App Font', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: AurumTheme.gold.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.workspace_premium_rounded, color: AurumTheme.gold, size: 10),
+                const SizedBox(width: 3),
+                Text('Rounded & Mono = Premium', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Row(
+            children: fonts.entries.map((e) {
+              final sel = _fontStyle == e.key;
+              final locked = premiumFonts.contains(e.key) && !isPremium;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    if (locked) {
+                      PremiumGate.show(context,
+                        feature: '${e.key} Font',
+                        description: 'Unlock premium fonts with Aurum Premium.',
+                      );
+                      return;
+                    }
+                    setState(() => _fontStyle = e.key);
+                    _save('font_style', e.key);
+                    context.read<ThemeProvider>().setFontStyle(e.key);
+                  },
+                  child: Stack(children: [
+                    Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
+                          width: sel ? 1 : 0.5,
+                        ),
                       ),
+                      child: Column(children: [
+                        Text(
+                          e.value,
+                          style: TextStyle(
+                            fontFamily: fontFamilies[e.key],
+                            color: locked
+                                ? AurumTheme.textMutedOf(context).withOpacity(0.5)
+                                : (sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context)),
+                            fontSize: 22, fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          e.key,
+                          style: TextStyle(
+                            color: locked
+                                ? AurumTheme.textMutedOf(context).withOpacity(0.4)
+                                : (sel ? AurumTheme.gold : AurumTheme.textMutedOf(context)),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ]),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      e.key,
-                      style: TextStyle(
-                        color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context),
-                        fontSize: 11,
+                    if (locked)
+                      Positioned(
+                        top: 6, right: 14,
+                        child: Icon(Icons.lock_rounded, size: 13, color: AurumTheme.gold.withOpacity(0.7)),
                       ),
-                    ),
                   ]),
                 ),
-              ),
-            );
-          }).toList(),
-        ),
-      ]),
-    ));
+              );
+            }).toList(),
+          ),
+        ]),
+      ));
+    });
   }
 
   // ── Now Playing Card Style ────────────────────────────────────────────────
@@ -355,43 +444,80 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       'Card':      'Balanced artwork + info',
       'Immersive': 'Full-width artwork, minimal UI',
     };
-    return _card(context, child: Column(
-      children: styles.entries.map((e) {
-        final sel = _nowPlayingCardStyle == e.key;
-        final isLast = e.key == 'Immersive';
-        return Column(children: [
-          ListTile(
-            onTap: () {
-              setState(() => _nowPlayingCardStyle = e.key);
-              _save('now_playing_card_style', e.key);
-            },
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-            leading: Container(
-              width: 38, height: 38,
-              decoration: BoxDecoration(
-                color: sel ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
-                borderRadius: BorderRadius.circular(10),
-                border: sel ? Border.all(color: AurumTheme.gold.withOpacity(0.5)) : null,
+    // 'Compact' is free; 'Card' and 'Immersive' are premium
+    const premiumStyles = {'Card', 'Immersive'};
+
+    return Builder(builder: (context) {
+      final isPremium = context.watch<PremiumProvider>().isPremium;
+      return _card(context, child: Column(
+        children: styles.entries.map((e) {
+          final sel = _nowPlayingCardStyle == e.key;
+          final isLast = e.key == 'Immersive';
+          final locked = premiumStyles.contains(e.key) && !isPremium;
+          return Column(children: [
+            ListTile(
+              onTap: () {
+                if (locked) {
+                  PremiumGate.show(context,
+                    feature: '${e.key} Player Style',
+                    description: 'Unlock the ${e.key} now-playing style with Aurum Premium.',
+                  );
+                  return;
+                }
+                setState(() => _nowPlayingCardStyle = e.key);
+                _save('now_playing_card_style', e.key);
+              },
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+              leading: Container(
+                width: 38, height: 38,
+                decoration: BoxDecoration(
+                  color: sel ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
+                  borderRadius: BorderRadius.circular(10),
+                  border: sel ? Border.all(color: AurumTheme.gold.withOpacity(0.5)) : null,
+                ),
+                child: Icon(e.value, color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
               ),
-              child: Icon(e.value, color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
+              title: Row(children: [
+                Text(e.key,
+                    style: TextStyle(
+                      color: locked
+                          ? AurumTheme.textMutedOf(context)
+                          : (sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context)),
+                      fontSize: 14,
+                      fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
+                    )),
+                if (locked) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AurumTheme.gold.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.workspace_premium_rounded, color: AurumTheme.gold, size: 9),
+                      const SizedBox(width: 2),
+                      Text('Premium', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+                    ]),
+                  ),
+                ],
+              ]),
+              subtitle: Text(subtitles[e.key]!,
+                  style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+              trailing: locked
+                  ? Icon(Icons.lock_rounded, color: AurumTheme.gold.withOpacity(0.5), size: 18)
+                  : Icon(
+                      sel ? Icons.check_circle_rounded : Icons.circle_outlined,
+                      color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+                      size: 20,
+                    ),
             ),
-            title: Text(e.key,
-                style: TextStyle(
-                  color: sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
-                  fontSize: 14, fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
-                )),
-            subtitle: Text(subtitles[e.key]!,
-                style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-            trailing: Icon(
-              sel ? Icons.check_circle_rounded : Icons.circle_outlined,
-              color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context),
-              size: 20,
-            ),
-          ),
-          if (!isLast) _divider(context),
-        ]);
-      }).toList(),
-    ));
+            if (!isLast) _divider(context),
+          ]);
+        }).toList(),
+      ));
+    });
   }
 
   // ── Artwork Shape ─────────────────────────────────────────────────────────
