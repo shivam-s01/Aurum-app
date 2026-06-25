@@ -416,7 +416,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
   }
 
-  Future<AudioSource?> _sourceForSong(Song song, {bool fromLookahead = false}) async {
+  Future<AudioSource?> _sourceForSong(Song song, {bool fromLookahead = false, int? sessionId}) async {
     if (song.isLocal) {
       final path = song.localPath!;
       final uri = path.startsWith('content://') || path.startsWith('file://')
@@ -460,6 +460,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       return null;
     }
     if (url == null) return null;
+    if (sessionId != null && sessionId != _playSessionId) return null;
     return AudioSource.uri(
       Uri.parse(url),
       tag: _songToMediaItem(song),
@@ -547,7 +548,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
 
       // 3. Resolve clicked song
-      var startSource = await _sourceForSong(songs[startIndex]);
+      var startSource = await _sourceForSong(songs[startIndex], sessionId: mySession);
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
       if (startSource == null) {
         // FIX: same cold-start issue as playSong — the resolve chain
@@ -559,7 +560,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         debugPrint('[AurumHandler] playQueue resolve failed, retrying once: "${songs[startIndex].title}"');
         await Future.delayed(const Duration(milliseconds: 600));
         if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
-        startSource = await _sourceForSong(songs[startIndex]);
+        startSource = await _sourceForSong(songs[startIndex], sessionId: mySession);
         if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
       }
       if (startSource == null) {
@@ -629,7 +630,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       for (int i = startIndex + 1; i < songs.length; i++) {
         if (sessionId != _playSessionId) return;
         try {
-          final source = await _sourceForSong(songs[i]);
+          final source = await _sourceForSong(songs[i], sessionId: mySession);
           if (sessionId != _playSessionId) return;
           if (source != null) {
             final seq = _player.audioSource;
@@ -654,7 +655,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       for (int i = startIndex - 1; i >= 0; i--) {
         if (sessionId != _playSessionId) return;
         try {
-          final source = await _sourceForSong(songs[i]);
+          final source = await _sourceForSong(songs[i], sessionId: mySession);
           if (sessionId != _playSessionId) return;
           if (source != null) {
             final seq = _player.audioSource;
