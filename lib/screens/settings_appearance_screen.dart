@@ -339,57 +339,97 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       'Rounded': 'Nunito',
       'Mono':    'RobotoMono',
     };
-    return _card(context, child: Padding(
-      padding: const EdgeInsets.all(14),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('App Font', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-        const SizedBox(height: 12),
-        Row(
-          children: fonts.entries.map((e) {
-            final sel = _fontStyle == e.key;
-            return Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  setState(() => _fontStyle = e.key);
-                  _save('font_style', e.key);
-                  context.read<ThemeProvider>().setFontStyle(e.key);
-                },
-                child: Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
-                      width: sel ? 1 : 0.5,
-                    ),
-                  ),
-                  child: Column(children: [
-                    Text(
-                      e.value,
-                      style: TextStyle(
-                        fontFamily: fontFamilies[e.key],
-                        color: sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
-                        fontSize: 22, fontWeight: FontWeight.w700,
+    const premiumFonts = {'Rounded', 'Mono'};
+
+    return Builder(builder: (context) {
+      final isPremium = context.watch<PremiumProvider>().isPremium;
+      return _card(context, child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text('App Font', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: AurumTheme.gold.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.workspace_premium_rounded, color: AurumTheme.gold, size: 10),
+                const SizedBox(width: 3),
+                Text('Rounded & Mono = Premium', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Row(
+            children: fonts.entries.map((e) {
+              final sel = _fontStyle == e.key;
+              final locked = premiumFonts.contains(e.key) && !isPremium;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    if (locked) {
+                      PremiumGate.show(context,
+                        feature: '${e.key} Font',
+                        description: 'Unlock premium fonts with Aurum Premium.',
+                      );
+                      return;
+                    }
+                    setState(() => _fontStyle = e.key);
+                    _save('font_style', e.key);
+                    context.read<ThemeProvider>().setFontStyle(e.key);
+                  },
+                  child: Stack(children: [
+                    Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
+                          width: sel ? 1 : 0.5,
+                        ),
                       ),
+                      child: Column(children: [
+                        Text(
+                          e.value,
+                          style: TextStyle(
+                            fontFamily: fontFamilies[e.key],
+                            color: locked
+                                ? AurumTheme.textMutedOf(context).withOpacity(0.5)
+                                : (sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context)),
+                            fontSize: 22, fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          e.key,
+                          style: TextStyle(
+                            color: locked
+                                ? AurumTheme.textMutedOf(context).withOpacity(0.4)
+                                : (sel ? AurumTheme.gold : AurumTheme.textMutedOf(context)),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ]),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      e.key,
-                      style: TextStyle(
-                        color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context),
-                        fontSize: 11,
+                    if (locked)
+                      Positioned(
+                        top: 6, right: 14,
+                        child: Icon(Icons.lock_rounded, size: 13, color: AurumTheme.gold.withOpacity(0.7)),
                       ),
-                    ),
                   ]),
                 ),
-              ),
-            );
-          }).toList(),
-        ),
-      ]),
-    ));
+              );
+            }).toList(),
+          ),
+        ]),
+      ));
+    });
   }
 
   // ── Now Playing Card Style ────────────────────────────────────────────────

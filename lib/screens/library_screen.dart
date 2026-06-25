@@ -21,6 +21,7 @@ import '../providers/recently_played_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/premium_provider.dart';
+import '../providers/auth_provider.dart';
 import '../models/download_item.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
@@ -368,6 +369,15 @@ class PlaylistsScreen extends StatelessWidget {
   }
 
   Future<void> _showCreateDialog(BuildContext context) async {
+    final auth = context.read<AuthProvider>();
+    if (!auth.isSignedIn) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Sign in to create playlists'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 2),
+      ));
+      return;
+    }
     PremiumGate.guard(
       context,
       feature: 'Create Playlist',
