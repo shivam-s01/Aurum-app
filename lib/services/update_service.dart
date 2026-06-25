@@ -5,14 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 class UpdateService {
   static const _repo = 'shivam-s01/Aurum-app';
   static const _apiUrl = 'https://api.github.com/repos/$_repo/releases/latest';
   static const _channel = MethodChannel('com.aurum.music/media_store');
-  static const _prefKeyDismissed = 'update_dismissed_version';
+
+  // Session-only dismiss: "Later" hides the dialog for the rest of this
+  // app session, but a fresh app launch always re-checks and re-shows it
+  // until the update is actually installed. Not persisted to disk on
+  // purpose — that's what makes it "ask again next open".
+  static String? _dismissedThisSession;
 
   static Future<void> checkForUpdate(BuildContext context) async {
     try {
@@ -45,13 +49,13 @@ class UpdateService {
       // Only show if newer version exists
       if (latestBuild <= currentBuild) return;
 
-      // Don't show again if user already dismissed this exact version
-      final prefs = await SharedPreferences.getInstance();
-      final dismissedVersion = prefs.getString(_prefKeyDismissed) ?? '';
-      if (dismissedVersion == latestTag) return;
+      // Don't show again THIS SESSION if user already tapped "Later" for
+      // this exact version — but a fresh app launch clears this, so the
+      // popup comes back next time until the user actually updates.
+      if (_dismissedThisSession == latestTag) return;
 
       if (context.mounted) {
-        _showDialog(context, latestTag, downloadUrl, prefs);
+        _showDialog(context, latestTag, downloadUrl);
       }
     } catch (_) {}
   }
@@ -60,7 +64,6 @@ class UpdateService {
     BuildContext context,
     String version,
     String url,
-    SharedPreferences prefs,
   ) {
     showDialog(
       context: context,
@@ -68,9 +71,8 @@ class UpdateService {
       builder: (_) => _UpdateDialog(
         version: version,
         url: url,
-        onDismiss: () async {
-          // Store dismissed version so it won't show again this version
-          await prefs.setString(_prefKeyDismissed, version);
+        onDismiss: () {
+          _dismissedThisSession = version;
         },
       ),
     );
