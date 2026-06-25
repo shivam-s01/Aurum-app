@@ -9,7 +9,7 @@ import '../models/song.dart';
 import 'home_screen.dart';
 import 'search_screen.dart';
 import 'library_screen.dart';
-import '../providers/player_provider.dart';
+import '../providers/player_provider.dart'; // kept for _saveQueue()
 import '../services/update_service.dart';
 
 class MainShell extends StatefulWidget {
@@ -21,10 +21,11 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _tab = 0;
 
+  // Keep screens alive so tab switches don't rebuild from scratch
   final _screens = const [
-    HomeScreen(),
-    SearchScreen(),
-    LibraryScreen(),
+    _KeepAliveScreen(child: HomeScreen()),
+    _KeepAliveScreen(child: SearchScreen()),
+    _KeepAliveScreen(child: LibraryScreen()),
   ];
 
   @override
@@ -107,50 +108,66 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<PlayerProvider>(
-      builder: (context, player, _) {
-        return Scaffold(
-          backgroundColor: AurumTheme.bgOf(context),
-          body: IndexedStack(index: _tab, children: _screens),
-          bottomNavigationBar: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const MiniPlayer(),
-              Container(
-                decoration: BoxDecoration(
-                  color: AurumTheme.bgCardOf(context),
-                  border: Border(
-                      top: BorderSide(
-                          color: AurumTheme.dividerOf(context), width: 0.5)),
-                ),
-                child: BottomNavigationBar(
-                  currentIndex: _tab,
-                  onTap: (i) => setState(() => _tab = i),
-                  backgroundColor: Colors.transparent,
-                  elevation: 0,
-                  selectedLabelStyle: const TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w600),
-                  unselectedLabelStyle: const TextStyle(fontSize: 11),
-                  items: const [
-                    BottomNavigationBarItem(
-                        icon: Icon(Icons.home_outlined),
-                        activeIcon: Icon(Icons.home_rounded),
-                        label: 'Home'),
-                    BottomNavigationBarItem(
-                        icon: Icon(Icons.search_outlined),
-                        activeIcon: Icon(Icons.search_rounded),
-                        label: 'Search'),
-                    BottomNavigationBarItem(
-                        icon: Icon(Icons.library_music_outlined),
-                        activeIcon: Icon(Icons.library_music_rounded),
-                        label: 'Library'),
-                  ],
-                ),
-              ),
-            ],
+    return Scaffold(
+      backgroundColor: AurumTheme.bgOf(context),
+      body: IndexedStack(index: _tab, children: _screens),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const MiniPlayer(),
+          Container(
+            decoration: BoxDecoration(
+              color: AurumTheme.bgCardOf(context),
+              border: Border(
+                  top: BorderSide(
+                      color: AurumTheme.dividerOf(context), width: 0.5)),
+            ),
+            child: BottomNavigationBar(
+              currentIndex: _tab,
+              onTap: (i) => setState(() => _tab = i),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              selectedLabelStyle: const TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w600),
+              unselectedLabelStyle: const TextStyle(fontSize: 11),
+              items: const [
+                BottomNavigationBarItem(
+                    icon: Icon(Icons.home_outlined),
+                    activeIcon: Icon(Icons.home_rounded),
+                    label: 'Home'),
+                BottomNavigationBarItem(
+                    icon: Icon(Icons.search_outlined),
+                    activeIcon: Icon(Icons.search_rounded),
+                    label: 'Search'),
+                BottomNavigationBarItem(
+                    icon: Icon(Icons.library_music_outlined),
+                    activeIcon: Icon(Icons.library_music_rounded),
+                    label: 'Library'),
+              ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
+  }
+}
+
+
+// Keeps tab screens alive so switching tabs doesn't rebuild them from scratch
+class _KeepAliveScreen extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveScreen({required this.child});
+  @override
+  State<_KeepAliveScreen> createState() => _KeepAliveScreenState();
+}
+
+class _KeepAliveScreenState extends State<_KeepAliveScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }
