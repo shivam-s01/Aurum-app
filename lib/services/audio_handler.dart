@@ -64,6 +64,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   late final AudioPlayer _player;
   final _playlist = ConcatenatingAudioSource(children: []);
 
+  // ── DSP ──────────────────────────────────────────────────────────────────
+  AndroidEqualizer?        _eq;
+  AndroidLoudnessEnhancer? _loudness;
+  bool _eqReady = false;
+
   List<Song> _queue        = [];
   int        _currentIndex = 0;
 
@@ -99,12 +104,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   StreamSubscription<AccelerometerEvent>? _shakeSub;
   DateTime _lastShake = DateTime.now();
-  static const double _shakeThreshold = 15.0;
-
-  // ── DSP ──────────────────────────────────────────────────────────────────
-  AndroidEqualizer?        _eq;
-  AndroidLoudnessEnhancer? _loudness;
-  bool _eqReady = false;
+  // Raised from 15.0 → 24.0: at 15.0, normal footstep impact magnitude
+  // while walking with the phone in a pocket regularly exceeded this
+  // (gravity alone contributes ~9.8 baseline, and footstep jolts easily
+  // add another 6-10+), causing skipToNext() to fire from walking, not
+  // an intentional shake. 24.0 requires a genuinely deliberate jerk.
+  static const double _shakeThreshold = 24.0;
 
   AurumAudioHandler() {
     _init();
@@ -112,6 +117,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<void> _init() async {
     // ── DSP pipeline setup ────────────────────────────────────────────────
+    // Try to wire up Equalizer + LoudnessEnhancer via AudioPipeline.
+    // Falls back to a plain AudioPlayer on older Android / emulators where
+    // these effects aren't available.
     try {
       _eq       = AndroidEqualizer();
       _loudness = AndroidLoudnessEnhancer();
@@ -123,8 +131,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       );
       _eqReady = true;
     } catch (_) {
-      // Fallback: no DSP (older Android / emulator)
-      _player  = AudioPlayer(userAgent: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36');
+      _player  = AudioPlayer(
+        userAgent: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+      );
       _eqReady = false;
     }
 
@@ -325,19 +334,13 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _updateShakeListener(shakeEnabled);
 
     // Gapless playback
-    // just_audio handles gapless via ConcatenatingAudioSource by default.
-    // We honour the pref by setting silence between tracks when OFF.
-    // (No direct API — we toggle the playlist's implicit gapless mode via
-    //  preloading: when false we rely on Android MediaPlayer's natural gap.)
-    // Most effective hook: silence is added by NOT pre-buffering next song.
-    // We store the value in AudioPrefs for downstream use.
     final gapless = p.getBool('gapless') ?? true;
     AudioPrefs.setGapless(gapless);
 
     // ── DSP ────────────────────────────────────────────────────────────────
     if (!_eqReady) return;
 
-    // Bass Boost — boost 60Hz and 230Hz bands
+    // Bass Boost
     final bassBoost = p.getBool('bass_boost') ?? false;
     await _applyBassBoost(bassBoost);
 
@@ -354,8 +357,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     try {
       final params = await _eq!.parameters;
       final bands  = params.bands;
-      // bands[0] ~32Hz, bands[1] ~63Hz, bands[2] ~125Hz
       final gainDb = enabled ? 6.0 : 0.0;
+      // Boost first 3 bands (sub-bass + bass range: ~32/63/125 Hz)
       for (int i = 0; i < bands.length && i < 3; i++) {
         await bands[i].setGain(gainDb);
       }
@@ -366,17 +369,19 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (_loudness == null) return;
     try {
       await _loudness!.setEnabled(enabled);
-      if (enabled) await _loudness!.setTargetGain(-14); // LUFS target
+      if (enabled) await _loudness!.setTargetGain(-14); // LUFS broadcast target
     } catch (_) {}
   }
 
   Future<void> _applyEqBands(SharedPreferences p) async {
     if (!_eqReady || _eq == null) return;
     try {
-      // Check if any custom EQ band is set
       bool hasCustom = false;
       for (int i = 0; i < 10; i++) {
-        if ((p.getDouble('eq_band_$i') ?? 0.0) != 0.0) { hasCustom = true; break; }
+        if ((p.getDouble('eq_band_$i') ?? 0.0) != 0.0) {
+          hasCustom = true;
+          break;
+        }
       }
       if (!hasCustom) return;
       final params = await _eq!.parameters;
@@ -389,8 +394,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     } catch (_) {}
   }
 
-  /// Public — called by EqualizerScreen and settings toggles
+  /// Called by EqualizerScreen / settings toggles to immediately apply DSP changes.
   Future<void> applyDsp() async => _applySettings();
+
+  /// Expose EQ instance for EqualizerScreen slider access.
+  AndroidEqualizer? get equalizer => _eqReady ? _eq : null;
 
   void _updateShakeListener(bool enabled) {
     _shakeSub?.cancel();
@@ -399,7 +407,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _shakeSub = accelerometerEventStream().listen((event) {
       final magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
       final now = DateTime.now();
-      if (magnitude > _shakeThreshold && now.difference(_lastShake).inMilliseconds > 1000) {
+      if (magnitude > _shakeThreshold && now.difference(_lastShake).inMilliseconds > 1500) {
         _lastShake = now;
         skipToNext();
       }
@@ -504,7 +512,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
   }
 
-  Future<AudioSource?> _sourceForSong(Song song, {bool fromLookahead = false}) async {
+  Future<AudioSource?> _sourceForSong(Song song, {bool fromLookahead = false, int? sessionId}) async {
     if (song.isLocal) {
       final path = song.localPath!;
       final uri = path.startsWith('content://') || path.startsWith('file://')
@@ -548,6 +556,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       return null;
     }
     if (url == null) return null;
+    if (sessionId != null && sessionId != _playSessionId) return null;
     return AudioSource.uri(
       Uri.parse(url),
       tag: _songToMediaItem(song),
@@ -635,7 +644,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
 
       // 3. Resolve clicked song
-      var startSource = await _sourceForSong(songs[startIndex]);
+      var startSource = await _sourceForSong(songs[startIndex], sessionId: mySession);
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
       if (startSource == null) {
         // FIX: same cold-start issue as playSong — the resolve chain
@@ -647,7 +656,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         debugPrint('[AurumHandler] playQueue resolve failed, retrying once: "${songs[startIndex].title}"');
         await Future.delayed(const Duration(milliseconds: 600));
         if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
-        startSource = await _sourceForSong(songs[startIndex]);
+        startSource = await _sourceForSong(songs[startIndex], sessionId: mySession);
         if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
       }
       if (startSource == null) {
@@ -717,7 +726,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       for (int i = startIndex + 1; i < songs.length; i++) {
         if (sessionId != _playSessionId) return;
         try {
-          final source = await _sourceForSong(songs[i]);
+          final source = await _sourceForSong(songs[i], sessionId: sessionId);
           if (sessionId != _playSessionId) return;
           if (source != null) {
             final seq = _player.audioSource;
@@ -742,7 +751,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       for (int i = startIndex - 1; i >= 0; i--) {
         if (sessionId != _playSessionId) return;
         try {
-          final source = await _sourceForSong(songs[i]);
+          final source = await _sourceForSong(songs[i], sessionId: sessionId);
           if (sessionId != _playSessionId) return;
           if (source != null) {
             final seq = _player.audioSource;
@@ -958,14 +967,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> skipToNext() async {
-    // FIX: must check the LIVE player sequence length, not `_queue.length`.
-    // `_queue` is the full intended queue, but `_player`'s own
-    // ConcatenatingAudioSource may still only have 1-2 songs spliced in
-    // while `_resolveQueueInBackground` is running — checking against
-    // `_queue.length` let this branch fire even when the live sequence
-    // had nothing further to seek to, so seekToNext() silently no-op'd
-    // and Next/swipe-next appeared completely dead until splicing finished.
-    final seq = _player.sequence;
+    // Must check the LIVE player sequence length, NOT `_queue.length`.
+    // During background splicing, the live ConcatenatingAudioSource may
+    // only have 1-2 songs while `_queue` already has the full list — using
+    // `_queue.length` lets this branch fire even when seekToNext() has
+    // nothing to seek to (silent no-op, Next button appears dead).
+    final seq     = _player.sequence;
     final liveLen = seq?.length ?? 0;
     final livePos = _player.currentIndex ?? 0;
 
@@ -973,15 +980,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       await _player.seekToNext();
       await _player.play();
     } else if (_player.loopMode == LoopMode.all && liveLen > 0) {
-      // Last song + repeat all → jump back to first
       await _player.seek(Duration.zero, index: 0);
       await _player.play();
     } else if (!_splicingInProgress && _currentIndex < _queue.length - 1) {
-      // Live sequence is exhausted but `_queue` has more songs that
-      // somehow never got spliced in (e.g. a song before this one failed
-      // to resolve and the splice loop silently skipped it). Recover by
-      // resolving the next song fresh instead of repeating the same
-      // seekToNext() call that already proved to be a no-op above.
+      // Live sequence exhausted but queue has more songs that failed to splice.
+      // Recover by resolving the next song fresh.
       await playQueue(_queue, _currentIndex + 1);
     }
   }
@@ -990,34 +993,28 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> skipToPrevious() async {
     if (_player.position.inSeconds > 3) {
       await _player.seek(Duration.zero);
-      return;
-    }
-    final livePos = _player.currentIndex ?? 0;
-    if (livePos > 0) {
-      await _player.seekToPrevious();
-      await _player.play();
+    } else {
+      // Check live player position, not just _currentIndex.
+      // During splicing, live index may differ from _currentIndex.
+      final livePos = _player.currentIndex ?? 0;
+      if (livePos > 0) {
+        await _player.seekToPrevious();
+      } else if (_currentIndex > 0) {
+        await playQueue(_queue, _currentIndex - 1);
+      }
     }
   }
 
   @override
   Future<void> skipToQueueItem(int index) async {
-    // FIX: same root cause as skipToNext/skipToPrevious — `index` here is
-    // a position in `_queue` (the full intended queue), but `_player.seek`
-    // operates on the LIVE ConcatenatingAudioSource, which may still only
-    // have 1-2 songs spliced in while `_resolveQueueInBackground` runs.
-    // Tapping a queue item that hasn't been spliced in yet used to silently
-    // no-op. Now: if the target is already in the live sequence, seek
-    // directly (instant). Otherwise fall back to a fresh playQueue resolve
-    // for that song — same reliable path as a normal tap-to-play.
-    if (index < 0 || index >= _queue.length) return;
-
-    final seq = _player.sequence;
-    final liveLen = seq?.length ?? 0;
-
-    if (!_splicingInProgress && index < liveLen) {
+    // Check live sequence first — if splicing isn't done, the player's
+    // ConcatenatingAudioSource may not have `index` yet. Fall back to
+    // playQueue to resolve + start that song properly.
+    final seq = _player.audioSource;
+    if (seq is ConcatenatingAudioSource && index < seq.length) {
       await _player.seek(Duration.zero, index: index);
       await _player.play();
-    } else {
+    } else if (index < _queue.length) {
       await playQueue(_queue, index);
     }
   }
@@ -1049,6 +1046,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<void> disposeHandler() async {
     _shakeSub?.cancel();
+    await _eq?.dispose();
+    await _loudness?.dispose();
     await _player.dispose();
   }
 }
