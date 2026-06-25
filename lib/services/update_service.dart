@@ -39,7 +39,7 @@ class UpdateService {
       if (apkAsset == null) return;
 
       final downloadUrl = apkAsset['browser_download_url'] as String;
-      final buildMatch = RegExp(r'build(\d+)').firstMatch(latestTag);
+      final buildMatch = RegExp(r'(?:build)?(\d+)').firstMatch(latestTag);
       final latestBuild = int.tryParse(buildMatch?.group(1) ?? '0') ?? 0;
 
       // Only show if newer version exists
