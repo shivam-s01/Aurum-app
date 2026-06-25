@@ -333,10 +333,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final shakeEnabled = p.getBool('shake_to_skip') ?? false;
     _updateShakeListener(shakeEnabled);
 
-    // Gapless playback
-    final gapless = p.getBool('gapless') ?? true;
-    AudioPrefs.setGapless(gapless);
-
     // ── DSP ────────────────────────────────────────────────────────────────
     if (!_eqReady) return;
 
