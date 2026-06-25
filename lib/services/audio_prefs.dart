@@ -37,8 +37,10 @@ class AudioPrefs {
   /// Settings → Privacy.
   static bool hideListenStats = false;
 
-  // ── Gapless ──────────────────────────────────────────────────────────────
-  static bool gapless = true;
+  /// Mirrors PremiumProvider.isPremium for service-layer code (ApiService)
+  /// that has no BuildContext. Set by PremiumProvider whenever its value
+  /// changes. Default false — never self-grant.
+  static bool isPremium = false;
 
   static const _kStreamQuality = 'stream_quality';
   static const _kDataSaver     = 'data_saver';
@@ -46,7 +48,6 @@ class AudioPrefs {
   static const _kDuckNotif     = 'duck_on_notifications';
   static const _kIncognito     = 'incognito_mode';
   static const _kHideStats     = 'hide_listen_stats';
-  static const _kGapless       = 'gapless';
 
   /// Restore all values from disk. Call once at startup (from the audio
   /// handler's _init()).
@@ -58,7 +59,6 @@ class AudioPrefs {
     duckOnNotifications = p.getBool(_kDuckNotif) ?? duckOnNotifications;
     incognito           = p.getBool(_kIncognito) ?? incognito;
     hideListenStats     = p.getBool(_kHideStats) ?? hideListenStats;
-    gapless             = p.getBool(_kGapless) ?? gapless;
   }
 
   static Future<void> setStreamQuality(String v) async {
@@ -97,17 +97,25 @@ class AudioPrefs {
     await p.setBool(_kHideStats, v);
   }
 
-  static Future<void> setGapless(bool v) async {
-    gapless = v;
-    final p = await SharedPreferences.getInstance();
-    await p.setBool(_kGapless, v);
-  }
-
   /// Ordered list of Saavn quality strings to try, highest priority first —
   /// driven by [streamQuality] and [dataSaver]. Data Saver always wins and
   /// forces the lowest tier regardless of the manual Stream Quality choice.
   static List<String> qualityOrder() {
     if (dataSaver) return const ['48kbps', '96kbps', '12kbps', '160kbps', '320kbps'];
+
+    // Phase 5 — 320kbps is premium-only. Free users capped at 160kbps.
+    if (!isPremium) {
+      switch (streamQuality) {
+        case 'Low':
+          return const ['96kbps', '48kbps', '12kbps', '160kbps'];
+        case 'Medium':
+        case 'High':
+        case 'Auto':
+        default:
+          return const ['160kbps', '96kbps', '48kbps', '12kbps'];
+      }
+    }
+
     switch (streamQuality) {
       case 'Low':
         return const ['96kbps', '48kbps', '12kbps', '160kbps', '320kbps'];
