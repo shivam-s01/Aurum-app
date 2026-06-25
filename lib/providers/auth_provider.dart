@@ -1,51 +1,58 @@
 // =============================================================================
 // FILE: lib/providers/auth_provider.dart
 // PROJECT: Aurum Music
-// DESCRIPTION: Google Sign-In provider — wraps google_sign_in package.
-//   ✅ Sign in / sign out
-//   ✅ Persists signed-in state across restarts (google_sign_in handles it)
-//   ✅ Exposes user photo, name, email
+// DESCRIPTION: Reactive wrapper around AuthService — exposes sign-in state
+//   to the widget tree via Provider. ProfileScreen and any gated UI watch
+//   this instead of touching Supabase/Google directly.
 // =============================================================================
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/auth_service.dart';
 
 class AuthProvider extends ChangeNotifier {
-  static final _gsi = GoogleSignIn(scopes: ['email', 'profile']);
+  StreamSubscription<AuthState>? _sub;
+  bool _isSigningIn = false;
+  String? _lastError;
 
-  GoogleSignInAccount? _user;
+  bool get isSignedIn => AuthService.instance.isSignedIn;
+  bool get isSigningIn => _isSigningIn;
+  String? get lastError => _lastError;
+  String? get displayName => AuthService.instance.displayName;
+  String? get email => AuthService.instance.email;
+  String? get avatarUrl => AuthService.instance.avatarUrl;
+  String? get userId => AuthService.instance.currentUser?.id;
 
-  GoogleSignInAccount? get user     => _user;
-  bool get isSignedIn               => _user != null;
-  String get displayName            => _user?.displayName ?? 'Guest';
-  String? get email                 => _user?.email;
-  String? get photoUrl              => _user?.photoUrl;
-
-  AuthProvider() {
-    _gsi.onCurrentUserChanged.listen((account) {
-      _user = account;
+  void init() {
+    _sub = AuthService.instance.authStateChanges.listen((_) {
       notifyListeners();
     });
-    _tryRestoreSession();
   }
 
-  Future<void> _tryRestoreSession() async {
-    try {
-      _user = await _gsi.signInSilently();
-      notifyListeners();
-    } catch (_) {}
-  }
+  Future<bool> signInWithGoogle() async {
+    _isSigningIn = true;
+    _lastError = null;
+    notifyListeners();
 
-  Future<void> signIn() async {
-    try {
-      _user = await _gsi.signIn();
-      notifyListeners();
-    } catch (_) {}
+    final error = await AuthService.instance.signInWithGoogle();
+
+    _isSigningIn = false;
+    if (error != null && error != 'cancelled') {
+      _lastError = error;
+    }
+    notifyListeners();
+    return error == null;
   }
 
   Future<void> signOut() async {
-    await _gsi.signOut();
-    _user = null;
+    await AuthService.instance.signOut();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 }

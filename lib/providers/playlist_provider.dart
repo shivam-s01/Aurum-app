@@ -229,6 +229,16 @@ class PlaylistProvider extends ChangeNotifier {
     _playlists.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
+  /// Called by SyncService after pulling from Supabase
+  Future<void> upsertFromRemote(AurumPlaylist pl) async {
+    final existing = _findById(pl.id);
+    if (existing != null) _playlists.remove(existing);
+    _playlists.add(pl);
+    _sortByUpdated();
+    await _persist(pl);
+    notifyListeners();
+  }
+
   String _generateId() =>
       'pl_${DateTime.now().millisecondsSinceEpoch}_${_playlists.length}';
 }
