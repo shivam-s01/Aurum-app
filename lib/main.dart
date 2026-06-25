@@ -85,7 +85,19 @@ class AurumApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => LibraryProvider()),
-        ChangeNotifierProvider(create: (_) => SourceProvider()),
+        ChangeNotifierProvider(
+          create: (_) {
+            final sp = SourceProvider();
+            // Auto-switch is driven by real connectivity (see init()).
+            // When it flips while a song is playing, the previous source's
+            // playback (online stream URL or local file) is no longer
+            // valid for the new mode — stop it immediately instead of
+            // leaving a dead/wrong song stuck in the mini player.
+            sp.onSourceChanged = () => handler.stop();
+            sp.init();
+            return sp;
+          },
+        ),
         ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()),
         ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()),
         ChangeNotifierProvider(create: (_) => DownloadProvider()..init()),

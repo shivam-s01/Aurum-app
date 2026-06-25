@@ -58,6 +58,9 @@ dependencies:
   # Auth & Cloud Sync
   supabase_flutter: ^2.5.6
   app_links: 6.3.2
+
+  # Network detection (auto Online/Offline switching)
+  connectivity_plus: ^6.0.5
   google_sign_in: ^6.2.1
 
 dev_dependencies:

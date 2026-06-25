@@ -100,14 +100,22 @@ class AudioPrefs {
   /// Ordered list of Saavn quality strings to try, highest priority first —
   /// driven by [streamQuality] and [dataSaver]. Data Saver always wins and
   /// forces the lowest tier regardless of the manual Stream Quality choice.
+  ///
+  /// FIX: the old lists put 160kbps/320kbps as fallback entries even in
+  /// Data Saver / Low quality mode. Since Saavn doesn't have every bitrate
+  /// available for every song, the "lowest quality first" list would often
+  /// fail to find 48/96/12kbps and silently fall through to 160kbps or even
+  /// 320kbps — quietly burning far more mobile data than the user asked for,
+  /// while Data Saver still showed as "on". Low-tier lists now only ever
+  /// fall back to other LOW tiers (12/48/96kbps), never to 160/320kbps.
   static List<String> qualityOrder() {
-    if (dataSaver) return const ['48kbps', '96kbps', '12kbps', '160kbps', '320kbps'];
+    if (dataSaver) return const ['12kbps', '48kbps', '96kbps'];
 
     // Phase 5 — 320kbps is premium-only. Free users capped at 160kbps.
     if (!isPremium) {
       switch (streamQuality) {
         case 'Low':
-          return const ['96kbps', '48kbps', '12kbps', '160kbps'];
+          return const ['12kbps', '48kbps', '96kbps'];
         case 'Medium':
         case 'High':
         case 'Auto':
@@ -118,7 +126,7 @@ class AudioPrefs {
 
     switch (streamQuality) {
       case 'Low':
-        return const ['96kbps', '48kbps', '12kbps', '160kbps', '320kbps'];
+        return const ['12kbps', '48kbps', '96kbps'];
       case 'Medium':
         return const ['160kbps', '96kbps', '320kbps', '48kbps', '12kbps'];
       case 'High':

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
@@ -510,11 +511,34 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<AudioSource?> _sourceForSong(Song song, {bool fromLookahead = false, int? sessionId}) async {
     if (song.isLocal) {
-      final path = song.localPath!;
-      final uri = path.startsWith('content://') || path.startsWith('file://')
-          ? Uri.parse(path)
-          : Uri.file(path);
-      return AudioSource.uri(uri, tag: _songToMediaItem(song));
+      // FIX: this whole block used to run with zero error handling. Any
+      // bad path (file deleted/moved since last scan, '#' or other chars
+      // Uri.file() can't safely encode, malformed content:// string) threw
+      // a synchronous exception here that escaped every caller's try block
+      // (playSong/playQueue only wrap this in try/finally, no catch) —
+      // crashing the whole app to a white screen on a single bad tap.
+      // Now: validate file existence first, catch any URI parse failure,
+      // and return null so callers show "couldn't play this song" instead
+      // of crashing.
+      try {
+        final path = song.localPath!;
+        final isUriString =
+            path.startsWith('content://') || path.startsWith('file://');
+
+        if (!isUriString) {
+          final exists = await File(path).exists();
+          if (!exists) {
+            debugPrint('[AurumHandler] Local file missing: $path');
+            return null;
+          }
+        }
+
+        final uri = isUriString ? Uri.parse(path) : Uri.file(path);
+        return AudioSource.uri(uri, tag: _songToMediaItem(song));
+      } catch (e) {
+        debugPrint('[AurumHandler] Failed to build local AudioSource: $e');
+        return null;
+      }
     }
 
     // Check lookahead cache first — populated at 70% of previous song
@@ -693,6 +717,18 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       await _player.setVolume(1); // restore volume BEFORE play — avoids silent-start race
       await _player.play();
 
+    } catch (e) {
+      // FIX: this try block previously had only `finally`, no `catch` —
+      // any unexpected exception (most notably from _sourceForSong on a
+      // local song with a bad/missing file path) escaped uncaught past
+      // this function's caller (PlayerProvider.playSong → fire-and-forget
+      // from SongTile's tap handler), crashing the entire app to a blank
+      // white screen / forced restart on a single bad tap in Offline Library.
+      debugPrint('[AurumHandler] playQueue unexpected error: $e');
+      onPlaybackError?.call(
+          'playQueue failed for "${songs[startIndex].title}": $e');
+      try { await _player.setVolume(1); } catch (_) {}
+      _splicingInProgress = false;
     } finally {
       if (mySession == _playSessionId) {
         _isLoadingNewSong = false;
@@ -702,8 +738,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         _isLoadingNewSong   = false;
       }
     }
-
-    // 4. Background: build full queue without blocking playback
     _resolveQueueInBackground(songs, startIndex, mySession);
   }
 
@@ -802,60 +836,74 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _splicingInProgress = false; // single-song queue, no splice phase
     onQueueChanged?.call();
 
-    // Mute first — see playQueue for why stop() alone isn't instant enough.
-    await _player.setVolume(0);
-    await _player.stop();
-    if (mySession != _playSessionId) { await _player.setVolume(1); return; }
-
-    var source = await _sourceForSong(song);
-    if (mySession != _playSessionId) { await _player.setVolume(1); return; }
-    if (source == null) {
-      // FIX: don't give up immediately. The resolve chain (Worker/Piped/
-      // Invidious) often keeps running in the background even after our
-      // local .timeout() gave up waiting on a cold-start request — by the
-      // time the user manually cuts and replays, that original call has
-      // usually already finished and cached the URL, making the retry
-      // look instant. Do that retry automatically instead of requiring
-      // the user to notice the failure and replay it themselves.
-      debugPrint('[AurumHandler] playSong resolve failed, retrying once: "${song.title}"');
-      await Future.delayed(const Duration(milliseconds: 600));
-      if (mySession != _playSessionId) { await _player.setVolume(1); return; }
-      source = await _sourceForSong(song);
-      if (mySession != _playSessionId) { await _player.setVolume(1); return; }
-    }
-    if (source == null) {
-      // Resolve failed — don't leave the UI pointing at a song that never
-      // actually started. Clear queue/notification so mini-player & full
-      // player reflect reality instead of showing a "ghost" song.
-      _queue = [];
-      _currentIndex = 0;
-      mediaItem.add(null);
-      onQueueChanged?.call();
-      onPlaybackError?.call('Resolve failed for "${song.title}" — '
-          '_sourceForSong returned null (stream URL could not be resolved)');
-      await _player.setVolume(1);
-      return;
-    }
-
-    final fresh = ConcatenatingAudioSource(children: [source]);
     try {
-      await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
-    } catch (e) {
-      debugPrint('[AurumHandler] playSong setAudioSource failed: $e'); // FIX: now works via flutter/foundation.dart
-      final detail = e is PlayerException
-          ? 'code=${e.code} message=${e.message}'
-          : e.toString();
-      onPlaybackError?.call('playSong setAudioSource failed for '
-          '"${song.title}": $detail');
-      await _player.setVolume(1);
-      return;
-    }
-    if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+      // Mute first — see playQueue for why stop() alone isn't instant enough.
+      await _player.setVolume(0);
+      await _player.stop();
+      if (mySession != _playSessionId) { await _player.setVolume(1); return; }
 
-    await _reapplySpeed();
-    _updateMediaItem(song);
-    await _player.setVolume(1); // restore volume BEFORE play
-    await _player.play();
+      var source = await _sourceForSong(song);
+      if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+      if (source == null) {
+        // FIX: don't give up immediately. The resolve chain (Worker/Piped/
+        // Invidious) often keeps running in the background even after our
+        // local .timeout() gave up waiting on a cold-start request — by the
+        // time the user manually cuts and replays, that original call has
+        // usually already finished and cached the URL, making the retry
+        // look instant. Do that retry automatically instead of requiring
+        // the user to notice the failure and replay it themselves.
+        debugPrint('[AurumHandler] playSong resolve failed, retrying once: "${song.title}"');
+        await Future.delayed(const Duration(milliseconds: 600));
+        if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+        source = await _sourceForSong(song);
+        if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+      }
+      if (source == null) {
+        // Resolve failed — don't leave the UI pointing at a song that never
+        // actually started. Clear queue/notification so mini-player & full
+        // player reflect reality instead of showing a "ghost" song.
+        _queue = [];
+        _currentIndex = 0;
+        mediaItem.add(null);
+        onQueueChanged?.call();
+        onPlaybackError?.call('Resolve failed for "${song.title}" — '
+            '_sourceForSong returned null (stream URL could not be resolved, '
+            'or the local file is missing)');
+        await _player.setVolume(1);
+        return;
+      }
+
+      final fresh = ConcatenatingAudioSource(children: [source]);
+      try {
+        await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
+      } catch (e) {
+        debugPrint('[AurumHandler] playSong setAudioSource failed: $e'); // FIX: now works via flutter/foundation.dart
+        final detail = e is PlayerException
+            ? 'code=${e.code} message=${e.message}'
+            : e.toString();
+        onPlaybackError?.call('playSong setAudioSource failed for '
+            '"${song.title}": $detail');
+        await _player.setVolume(1);
+        return;
+      }
+      if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+
+      await _reapplySpeed();
+      _updateMediaItem(song);
+      await _player.setVolume(1); // restore volume BEFORE play
+      await _player.play();
+    } catch (e) {
+      // FIX: top-level safety net. Previously this function had NO outer
+      // try/catch at all — any unexpected exception (bad local file URI,
+      // native plugin error, etc.) escaped straight past this function's
+      // caller (PlayerProvider.playSong, called un-awaited/fire-and-forget
+      // from SongTile's tap handler) as an unhandled async error, which
+      // crashes the whole Flutter app to a blank white screen / restart.
+      // Now it's reported through the normal error channel instead.
+      debugPrint('[AurumHandler] playSong unexpected error: $e');
+      onPlaybackError?.call('playSong failed for "${song.title}": $e');
+      try { await _player.setVolume(1); } catch (_) {}
+    }
   }
 
   // ─── QUEUE MUTATIONS ──────────────────────────────────────────────────────
