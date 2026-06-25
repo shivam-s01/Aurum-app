@@ -125,7 +125,18 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 ),
                 child: BottomNavigationBar(
                   currentIndex: _tab,
-                  onTap: (i) => setState(() => _tab = i),
+                  onTap: (i) {
+                    // FIX: SearchScreen lives inside an IndexedStack, so it's
+                    // never disposed when switching tabs — just hidden. If
+                    // its search TextField still had focus, that focus (and
+                    // the keyboard) stayed alive underneath, and Android
+                    // would randomly resurface the keyboard on later tab
+                    // switches even on screens with no text field at all.
+                    // Force-closing focus on every tab switch fixes it for
+                    // every tab, not just Search.
+                    FocusScope.of(context).unfocus();
+                    setState(() => _tab = i);
+                  },
                   backgroundColor: Colors.transparent,
                   elevation: 0,
                   selectedLabelStyle: const TextStyle(

@@ -244,7 +244,17 @@ class _MiniPlayerContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final song = player.currentSong!;
+    final song = player.currentSong;
+    // FIX: this used to force-unwrap (`player.currentSong!`). The parent
+    // Consumer guards on `player.hasSong` one frame before this widget
+    // builds, but currentSong is also re-read live inside AnimatedBuilder's
+    // child (rebuilt independently of the Consumer on every settle-animation
+    // tick) — if the queue resolve fails and clears the song in between
+    // those two reads, the `!` throws here and crashes the whole app to a
+    // blank white screen, which is exactly what was happening intermittently
+    // on local/offline playback. Render nothing instead; the parent's
+    // hasSong guard will hide this widget on the very next frame anyway.
+    if (song == null) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Hint: show up/down arrows while dragging
