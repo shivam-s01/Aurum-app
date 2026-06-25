@@ -99,7 +99,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   StreamSubscription<AccelerometerEvent>? _shakeSub;
   DateTime _lastShake = DateTime.now();
-  static const double _shakeThreshold = 15.0;
+  // Raised from 15.0 → 24.0: at 15.0, normal footstep impact magnitude
+  // while walking with the phone in a pocket regularly exceeded this
+  // (gravity alone contributes ~9.8 baseline, and footstep jolts easily
+  // add another 6-10+), causing skipToNext() to fire from walking, not
+  // an intentional shake. 24.0 requires a genuinely deliberate jerk.
+  static const double _shakeThreshold = 24.0;
 
   AurumAudioHandler() {
     _init();
@@ -306,7 +311,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _shakeSub = accelerometerEventStream().listen((event) {
       final magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
       final now = DateTime.now();
-      if (magnitude > _shakeThreshold && now.difference(_lastShake).inMilliseconds > 1000) {
+      if (magnitude > _shakeThreshold && now.difference(_lastShake).inMilliseconds > 1500) {
         _lastShake = now;
         skipToNext();
       }
