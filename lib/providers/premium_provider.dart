@@ -24,7 +24,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class PremiumProvider extends ChangeNotifier {
-  static const _kCachedPremium = 'aurum_is_premium_cached';
+  static const _kCachedPremium      = 'aurum_is_premium_cached';
+  static const _kPremiumGrantedAt   = 'aurum_premium_granted_at';
+  static const _kPremiumExpiryDays  = 365; // 1 year free offer
 
   bool _isPremium = false;
   bool _isChecking = false;
@@ -61,15 +63,37 @@ class PremiumProvider extends ChangeNotifier {
         return;
       }
 
-      // Server sets this flag — client never self-grants premium
+      // Server flags take priority
       final meta     = user.userMetadata ?? {};
       final fromMeta = meta['is_premium'] == true;
+      final appMeta  = user.appMetadata ?? {};
+      final fromApp  = appMeta['is_premium'] == true;
 
-      // Also check app_metadata (set via Supabase Admin / server-side)
-      final appMeta     = user.appMetadata ?? {};
-      final fromApp     = appMeta['is_premium'] == true;
+      // Limited 1-year free offer: any Google-signed-in user gets premium,
+      // but only for 365 days from the date they first signed in.
+      final isGoogleUser = user.appMetadata['provider'] == 'google' ||
+          (user.identities ?? []).any((id) => id.provider == 'google');
 
-      _setPremium(fromMeta || fromApp);
+      bool offerActive = false;
+      if (isGoogleUser) {
+        final prefs = await SharedPreferences.getInstance();
+        // Record grant date on first sign-in
+        if (!prefs.containsKey(_kPremiumGrantedAt)) {
+          await prefs.setString(
+              _kPremiumGrantedAt, DateTime.now().toIso8601String());
+        }
+        final grantedAtStr = prefs.getString(_kPremiumGrantedAt);
+        if (grantedAtStr != null) {
+          final grantedAt = DateTime.tryParse(grantedAtStr);
+          if (grantedAt != null) {
+            final expiry = grantedAt.add(
+                const Duration(days: _kPremiumExpiryDays));
+            offerActive = DateTime.now().isBefore(expiry);
+          }
+        }
+      }
+
+      _setPremium(fromMeta || fromApp || offerActive);
     } catch (e) {
       if (kDebugMode) debugPrint('[PremiumProvider] _refresh error: $e');
       // Keep cached value on network error — don't downgrade silently

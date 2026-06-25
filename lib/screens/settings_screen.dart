@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
 import '../providers/premium_provider.dart';
+import 'premium_screen.dart';
 import '../services/audio_handler.dart';
 import 'settings_player_screen.dart';
 import 'settings_appearance_screen.dart';
@@ -374,9 +375,8 @@ class _PremiumSettingsTile extends StatelessWidget {
               ),
               child: ElevatedButton(
                 onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Premium upgrades coming soon — stay tuned!'),
-                    behavior: SnackBarBehavior.floating,
+                  Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => const PremiumScreen(),
                   ));
                 },
                 style: ElevatedButton.styleFrom(
