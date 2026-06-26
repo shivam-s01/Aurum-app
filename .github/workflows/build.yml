@@ -35,6 +35,32 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      # FIX: this workflow used to read the build number straight out of
+      # pubspec.yaml, which only changes when someone manually edits it.
+      # Every regular code push (bug fixes, UI tweaks, etc.) left pubspec.yaml's
+      # version untouched, so this step kept computing the SAME build number
+      # as the previous release. The "Create Release" step below then tried
+      # to publish to the SAME tag every time — overwriting the prior
+      # release's asset in place rather than creating a new one. From the
+      # app's point of view, UpdateService.checkForUpdate() compares the
+      # GitHub release's build number against the number baked into the
+      # currently-installed APK; if they're equal (which they always were,
+      # since the tag never changed) `latestBuild <= currentBuild` is true
+      # and the function returns immediately — the "Update Available"
+      # popup silently never appears, even though a brand new APK with all
+      # the latest fixes really had just been built and uploaded.
+      #
+      # github.run_number is provided by GitHub Actions itself and strictly
+      # increases by 1 on every single workflow run for this repo — it can
+      # never repeat or go backwards, so every push now automatically
+      # produces a genuinely higher build number with zero manual steps.
+      - name: Set build number from run number
+        run: |
+          BASE_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//' | tr -d '\r')
+          NEW_VERSION="${BASE_VERSION}+${{ github.run_number }}"
+          sed -i "s/^version:.*/version: ${NEW_VERSION}/" pubspec.yaml
+          echo "Set pubspec.yaml version to ${NEW_VERSION}"
+
       - name: Build Release APK
         run: flutter build apk --release
 
