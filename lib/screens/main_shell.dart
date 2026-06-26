@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -126,15 +127,23 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 child: BottomNavigationBar(
                   currentIndex: _tab,
                   onTap: (i) {
-                    // FIX: SearchScreen lives inside an IndexedStack, so it's
-                    // never disposed when switching tabs — just hidden. If
-                    // its search TextField still had focus, that focus (and
-                    // the keyboard) stayed alive underneath, and Android
-                    // would randomly resurface the keyboard on later tab
-                    // switches even on screens with no text field at all.
-                    // Force-closing focus on every tab switch fixes it for
-                    // every tab, not just Search.
-                    FocusScope.of(context).unfocus();
+                    // FIX: SearchScreen lives inside an IndexedStack — never
+                    // disposed, just hidden. Unfocus on EVERY tab tap (not
+                    // just when leaving search) so the keyboard never bleeds
+                    // through to other screens. The primary keyboard issue was:
+                    // user opens search → types → switches tab → keyboard hides
+                    // visually but focus is still held by the TextField → any
+                    // rebuild (song change, mini-player update) causes Android
+                    // to resurface the keyboard. Calling primaryFocus?.unfocus()
+                    // with UnfocusDisposition.scope drops focus from the entire
+                    // widget tree, not just the current scope — this is more
+                    // aggressive than FocusScope.of(context).unfocus() and
+                    // correctly handles the case where focus is held by a
+                    // widget in a different branch of the tree (IndexedStack).
+                    primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+                    // OS-level keyboard kill — most reliable way to ensure
+                    // keyboard never bleeds through from IndexedStack branches.
+                    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
                     setState(() => _tab = i);
                   },
                   backgroundColor: Colors.transparent,

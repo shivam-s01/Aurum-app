@@ -185,9 +185,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (event.begin) {
         _player.pause();
       } else {
-        // Don't auto-resume if this was a silently-restored queue (app reopen).
-        // Only resume if the user had explicitly started playback themselves.
-        if (!_restoredSilently) _player.play();
+        // Don't auto-resume if:
+        // 1. Queue was silently restored (app reopen) — user didn't start it.
+        // 2. A new song is currently loading (_isLoadingNewSong) — the player
+        //    is between stop() and setAudioSource(), so play() here would
+        //    restart the OLD AudioSource still attached to the player, causing
+        //    the ghost-audio bug on YT songs (old song plays in notification
+        //    while UI shows new song, because YT resolution takes 5-28s).
+        if (!_restoredSilently && !_isLoadingNewSong) _player.play();
       }
     });
 

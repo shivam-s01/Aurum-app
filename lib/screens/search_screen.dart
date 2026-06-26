@@ -176,6 +176,37 @@ class _SearchScreenState extends State<SearchScreen>
     ApiService.wakeSaavn();
   }
 
+  // FIX: SearchScreen sits in an IndexedStack — it's never disposed when the
+  // user switches tabs, just hidden. If the TextField had focus, that focus
+  // (and the keyboard) stays alive in the background. Any rebuild triggered
+  // by PlayerProvider (song change, position update) can cause Android to
+  // resurface the keyboard even on a completely different tab.
+  //
+  // didUpdateWidget fires every time the parent rebuilds this widget. When
+  // the search tab is no longer visible (user switched away), we drop focus
+  // immediately so there's nothing for Android to resurface.
+  //
+  // We detect visibility via ModalRoute.of(context)?.isCurrent — if the
+  // search tab is not the active tab, the route is not current and we unfocus.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // STRICT keyboard policy: when this screen is not the active tab,
+    // force-unfocus AND block any future focus requests on the node.
+    // canRequestFocus=false means even if PlayerProvider triggers a rebuild
+    // (song change, position update) the TextField can never auto-grab focus
+    // and resurface the keyboard. It's re-enabled only when user explicitly
+    // taps the search bar (onTap on the TextField container).
+    final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    if (!isCurrent) {
+      if (_focusNode.hasFocus) _focusNode.unfocus();
+      _focusNode.canRequestFocus = false;
+      SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    } else {
+      _focusNode.canRequestFocus = true;
+    }
+  }
+
   void _onFocusChange() {
     if (!mounted) return;
     final shouldShowHistory =
@@ -300,7 +331,8 @@ class _SearchScreenState extends State<SearchScreen>
     _suggestDebounce?.cancel();
     _debounce?.cancel();
     _controller.clear();
-    _focusNode.requestFocus();
+    // STRICT: do NOT requestFocus here — user cleared the text but that
+    // doesn't mean they want the keyboard back. They can tap the bar again.
     setState(() {
       _results = []; _liveResults = []; _suggestions = [];
       _liveLoading = false; _loading = false;
