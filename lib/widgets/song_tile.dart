@@ -39,17 +39,16 @@ class _SongTileState extends State<SongTile> {
   Future<void> _handleTap(BuildContext context) async {
     if (_isTapping) return;
     _isTapping = true;
-    HapticFeedback.lightImpact(); // instant tactile feedback before async work
+    HapticFeedback.lightImpact();
     try {
-      // Fire-and-forget — no await so UI responds instantly
-      unawaited(context.read<RecentlyPlayedProvider>().addPlay(widget.song));
-      unawaited(context.read<PlayerProvider>().playSong(
+      context.read<RecentlyPlayedProvider>().addPlay(widget.song).catchError((_) {});
+      context.read<PlayerProvider>().playSong(
             widget.song,
             queue: widget.queue ?? [widget.song],
             index: widget.index ?? 0,
-          ));
-      // Tapping any song goes straight to the full player — same slide-up
-      // transition mini_player.dart uses, so it feels consistent everywhere.
+          ).catchError((e) {
+        debugPrint('[SongTile] playSong error: $e');
+      });
       if (mounted) {
         Navigator.of(context).push(
           PageRouteBuilder(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -32,6 +33,7 @@ late AurumAudioHandler _audioHandler;
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
+  runZonedGuarded(() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Wake the Saavn free-tier backend the instant the app launches — by the
@@ -73,6 +75,9 @@ Future<void> main() async {
   } catch (_) {}
 
   runApp(AurumApp(handler: _audioHandler));
+  }, (error, stack) {
+    debugPrint('[Aurum] Uncaught error: $error\n$stack');
+  });
 }
 
 class AurumApp extends StatelessWidget {

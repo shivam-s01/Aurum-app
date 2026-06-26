@@ -927,6 +927,9 @@ class _StaggeredSection extends StatefulWidget {
   State<_StaggeredSection> createState() => _StaggeredSectionState();
 }
 
+// Tracks which section indices have already animated — survives rebuilds/back-nav
+final _seenSections = <int>{};
+
 class _StaggeredSectionState extends State<_StaggeredSection>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
@@ -950,9 +953,16 @@ class _StaggeredSectionState extends State<_StaggeredSection>
       CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic),
     );
 
-    Future.delayed(Duration(milliseconds: 50 + widget.index * 70), () {
-      if (mounted) _ctrl.forward();
-    });
+    // If this section has been seen before (e.g. returning from FullPlayerScreen),
+    // skip the animation entirely — jump to end state immediately.
+    if (_seenSections.contains(widget.index)) {
+      _ctrl.value = 1.0;
+    } else {
+      _seenSections.add(widget.index);
+      Future.delayed(Duration(milliseconds: 50 + widget.index * 70), () {
+        if (mounted) _ctrl.forward();
+      });
+    }
   }
 
   @override

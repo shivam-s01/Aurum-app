@@ -89,6 +89,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // Background resolvers check this before touching the playlist.
   int _playSessionId = 0;
 
+  // Debounce rapid currentIndexStream events during song transitions.
+  // Prepend-phase seek() calls and gapless auto-advance both fire multiple
+  // index events in quick succession — processing each one separately caused
+  // the UI to rapidly cycle through songs. We hold off 120ms and only act
+  // on the last event in a burst.
+  Timer? _indexDebounce;
+  int?   _lastProcessedIndex;
+
   // Prevent concurrent playQueue calls from racing each other.
   bool _isLoadingNewSong = false;
 
@@ -278,45 +286,41 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
 
     _player.currentIndexStream.listen((index) {
-      // FIX: while songs are still being spliced into the live player
-      // sequence (playQueue's background prepend/append phase), the
-      // player's own index is NOT the same coordinate space as
-      // `_currentIndex` (queue position) — trusting it here caused the
-      // displayed "now playing" song to jump around on its own.
       if (_splicingInProgress) return;
       if (index == null) return;
 
-      // FIX (notification metadata mismatch): right after splicing ends,
-      // a stray currentIndexStream event can fire with an index that no
-      // longer matches `_queue`'s current contents (queue mutated on a
-      // background isolate boundary vs this stream's delivery timing).
-      // Trusting `_queue[index]` blindly here was painting the WRONG
-      // song's title/artist/art into the lockscreen/notification while
-      // the correct audio kept playing underneath.
-      //
-      // The player's own current AudioSource tag is the ground truth —
-      // it's the exact MediaItem we attached via `_songToMediaItem` when
-      // the source was created, so it can never be out of sync with what
-      // is actually sounding.
-      final sequence = _player.sequence;
-      final inSourceRange = sequence != null && index < sequence.length;
-      final tag = inSourceRange ? sequence[index].tag : null;
+      // FIX: rapid-skip bug — during song transitions (gapless auto-advance
+      // or prepend-phase seek() calls), currentIndexStream fires multiple
+      // times in quick succession with different index values. Processing
+      // each event immediately caused the UI to visibly cycle through songs
+      // in a split second. Debounce: hold 120ms and only process the final
+      // settled index. Skip entirely if index hasn't changed since last time.
+      _indexDebounce?.cancel();
+      _indexDebounce = Timer(const Duration(milliseconds: 120), () {
+        if (_splicingInProgress) return;
+        if (index == _lastProcessedIndex) return;
+        _lastProcessedIndex = index;
 
-      if (tag is MediaItem) {
-        if (mediaItem.value?.id != tag.id) {
-          mediaItem.add(tag);
+        final sequence = _player.sequence;
+        final inSourceRange = sequence != null && index < sequence.length;
+        final tag = inSourceRange ? sequence[index].tag : null;
+
+        if (tag is MediaItem) {
+          if (mediaItem.value?.id != tag.id) {
+            mediaItem.add(tag);
+          }
+          if (index != _currentIndex && index < _queue.length) {
+            _currentIndex = index;
+          }
+          return;
         }
+
+        // Fallback: no usable source tag yet, use queue if indices align.
         if (index != _currentIndex && index < _queue.length) {
           _currentIndex = index;
+          _updateMediaItem(_queue[index]);
         }
-        return;
-      }
-
-      // Fallback: no usable source tag yet, use queue if indices align.
-      if (index != _currentIndex && index < _queue.length) {
-        _currentIndex = index;
-        _updateMediaItem(_queue[index]);
-      }
+      });
     });
 
     await _applySettings();

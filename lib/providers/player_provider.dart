@@ -43,6 +43,8 @@ class PlayerProvider extends ChangeNotifier {
   bool     _showFullPlayer = false;
 
   bool _isExtendingQueue = false;
+  Timer? _indexDebounce;
+  int?   _lastHandledIndex;
 
   // Last error reported by AurumAudioHandler.onPlaybackError — exposed so
   // the UI (home_screen.dart) can show it via SnackBar the instant a real
@@ -153,8 +155,16 @@ class PlayerProvider extends ChangeNotifier {
     // Song change: reset tracking + trigger auto-queue
     _subs.add(_handler.player.currentIndexStream.listen((index) {
       if (index == null) return;
-      _onSongChanged(index);
-      _maybeExtendQueue(index);
+      // Debounce: same rapid-fire burst that hits audio_handler's listener
+      // also hits this one — skip duplicate/sequential events so _onSongChanged
+      // and _maybeExtendQueue don't fire multiple times per real transition.
+      _indexDebounce?.cancel();
+      _indexDebounce = Timer(const Duration(milliseconds: 150), () {
+        if (index == _lastHandledIndex) return;
+        _lastHandledIndex = index;
+        _onSongChanged(index);
+        _maybeExtendQueue(index);
+      });
     }));
 
     // Fired synchronously the instant audio_handler updates its queue —
@@ -498,6 +508,7 @@ class PlayerProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   @override
   void dispose() {
+    _indexDebounce?.cancel();
     for (final sub in _subs) sub.cancel();
     super.dispose();
   }
