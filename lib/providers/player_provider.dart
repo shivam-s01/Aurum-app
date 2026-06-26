@@ -362,6 +362,7 @@ class PlayerProvider extends ChangeNotifier {
   // PLAYBACK CONTROL
   // ---------------------------------------------------------------------------
   Future<void> playSong(Song song, {List<Song>? queue, int? index}) async {
+    _lastHandledIndex = null; // reset so same-index replays are detected
     if (queue != null && index != null) {
       await _handler.playQueue(queue, index);
     } else {

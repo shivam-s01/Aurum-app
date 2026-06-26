@@ -625,6 +625,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> playQueue(List<Song> songs, int startIndex) async {
     // Debounce rapid taps — if already loading, cancel previous and take over
     _playSessionId++;
+    _lastProcessedIndex = null; // reset so same-index replays are detected
     final mySession = _playSessionId;
     _isLoadingNewSong = true;
     _restoredSilently = false; // user explicitly triggered playback
@@ -832,6 +833,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<void> playSong(Song song) async {
     _playSessionId++;
+    _lastProcessedIndex = null;
     final mySession = _playSessionId;
     _restoredSilently = false; // user explicitly triggered playback
 
@@ -1093,6 +1095,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   Future<void> disposeHandler() async {
+    _indexDebounce?.cancel();
     _shakeSub?.cancel();
     await _player.dispose();
   }
