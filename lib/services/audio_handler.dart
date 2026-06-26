@@ -291,8 +291,21 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
 
     _player.currentIndexStream.listen((index) {
-      if (_splicingInProgress) return;
       if (index == null) return;
+
+      // FIX (session-ID guard, replaces flag-only check):
+      // _splicingInProgress is cleared from an async `finally` block in
+      // _resolveQueueInBackground — there is a real race where a
+      // prepend-phase seek() fires this stream RIGHT before that finally
+      // runs, the 120ms debounce timer starts, splicing finishes and clears
+      // the flag, and only THEN does the debounce callback fire — by which
+      // point _splicingInProgress reads false even though this event was
+      // generated mid-splice. A boolean flag mutated by a separate async
+      // callback can't reliably gate a timer firing later; only an
+      // immediately-and-synchronously-bumped value can. _playSessionId is
+      // bumped synchronously on every tap/skip, so capture it now and
+      // re-check it (not the flag) right before acting.
+      final session = _playSessionId;
 
       // FIX: rapid-skip bug — during song transitions (gapless auto-advance
       // or prepend-phase seek() calls), currentIndexStream fires multiple
@@ -302,6 +315,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       // settled index. Skip entirely if index hasn't changed since last time.
       _indexDebounce?.cancel();
       _indexDebounce = Timer(const Duration(milliseconds: 120), () {
+        // Re-check BOTH: a newer tap superseded us, or splicing is still
+        // actively running for THIS session. Checking session first means
+        // a stale event from an old splice can never touch state for a
+        // session that has since moved on, regardless of flag timing.
+        if (session != _playSessionId) return;
         if (_splicingInProgress) return;
         if (index == _lastProcessedIndex) return;
         _lastProcessedIndex = index;
@@ -310,12 +328,22 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         final inSourceRange = sequence != null && index < sequence.length;
         final tag = inSourceRange ? sequence[index].tag : null;
 
+        // FIX: previously this branch set `_currentIndex = index` directly —
+        // but `index` here is the LIVE ConcatenatingAudioSource position,
+        // which is NOT the same number space as `_currentIndex` (position
+        // within the full `_queue`) during/after prepend splicing shifted
+        // things. Trusting the raw live index caused _currentIndex to point
+        // at the wrong song in `_queue` even when the tag/mediaItem shown
+        // was correct — a 3-way desync between UI, notification, and actual
+        // audio. Fix: derive the queue index by looking up the tag's song
+        // id inside `_queue`, never from the raw live `index` number.
         if (tag is MediaItem) {
           if (mediaItem.value?.id != tag.id) {
             mediaItem.add(tag);
           }
-          if (index != _currentIndex && index < _queue.length) {
-            _currentIndex = index;
+          final queueIdx = _queue.indexWhere((s) => s.id == tag.id);
+          if (queueIdx != -1 && queueIdx != _currentIndex) {
+            _currentIndex = queueIdx;
           }
           return;
         }
@@ -956,18 +984,28 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // ─── QUEUE MUTATIONS ──────────────────────────────────────────────────────
 
   Future<void> addToQueue(Song song) async {
+    // FIX: YouTube resolve can take up to 28s. With no session guard here,
+    // a stale resolve for a song the user has since moved away from (e.g.
+    // they tapped Play on something else while this was still resolving)
+    // would still splice into the LIVE queue once it finally completed —
+    // injecting a song the user never asked to hear right now. Capture the
+    // session before resolving and bail if a newer tap has since happened.
+    final session = _playSessionId;
     _queue.add(song);
-    final source = await _sourceForSong(song);
+    final source = await _sourceForSong(song, sessionId: session);
     if (source == null) return;
+    if (session != _playSessionId) return;
     final seq = _player.audioSource;
     if (seq is ConcatenatingAudioSource) await seq.add(source);
   }
 
   Future<void> playNext(Song song) async {
+    final session = _playSessionId;
     final insertIdx = _currentIndex + 1;
     _queue.insert(insertIdx, song);
-    final source = await _sourceForSong(song);
+    final source = await _sourceForSong(song, sessionId: session);
     if (source == null) return;
+    if (session != _playSessionId) return;
     final seq = _player.audioSource;
     if (seq is ConcatenatingAudioSource) await seq.insert(insertIdx, source);
   }
