@@ -1,26 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12+ (API 31+) uses the system SplashScreen API, which by
-         default shows the launcher icon centered on a WHITE card,
-         regardless of what launch_background.xml says. This override
-         forces that system splash to use our dark brand color instead,
-         and disables the default icon-background "card" so the icon
-         isn't wrapped in white. -->
+    <!-- Android 12+ (API 31+) shows a system splash screen by default,
+         using a WHITE background, even without any installSplashScreen()
+         call in code — this theme override is what actually controls
+         that, independent of MainActivity.
+
+         We deliberately set ONLY windowSplashScreenBackground (the flat
+         color behind everything) and windowSplashScreenBrandingImage
+         (set to null to suppress the bottom branding strip). We do NOT
+         set windowSplashScreenAnimatedIcon or
+         windowSplashScreenIconBackgroundColor — setting either of those,
+         even to our own dark color, still causes several OEM skins
+         (MIUI, OxygenOS, etc.) to draw the manifest icon centered on a
+         light "icon card" that ignores the color we ask for. Leaving
+         both unset means no icon is drawn on the system splash at all —
+         just our flat dark background — which avoids that OEM override
+         entirely. -->
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:windowSplashScreenBackground">@color/bgColor</item>
-        <!-- Deliberately NOT setting windowSplashScreenAnimatedIcon.
-             When this is set to a plain (non-adaptive) icon, Android draws
-             it inside its own rounded/circular mask and fills the padding
-             with a light card-like backdrop — this is exactly the white
-             square you were seeing, and it happens regardless of
-             windowSplashScreenBackground or IconBackgroundColor. Leaving
-             it unset means the system splash is just a flat dark
-             background with no icon, which combined with the immediate
-             splashScreen.remove() in MainActivity.onCreate() means this
-             frame is on screen for at most a few ms before our own
-             Dart-side _A_ + AURUM animation takes over. -->
-        <item name="android:windowSplashScreenIconBackgroundColor">@color/bgColor</item>
         <item name="android:windowSplashScreenBrandingImage">@null</item>
     </style>
 

@@ -6,11 +6,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
-import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import androidx.core.splashscreen.SplashScreen
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -25,28 +22,18 @@ class MainActivity : AudioServiceActivity() {
         private const val MIN_SIZE_BYTES = 500_000L
     }
 
-    // Installs the system splash screen and immediately tears it down the
-    // instant this Activity is ready to draw — so the white/icon "card"
-    // Android 12+ shows by default never actually gets a frame on screen.
-    // Our own Dart-side _A_ + AURUM animation (splash_screen.dart) becomes
-    // the very first thing the user sees instead.
-    override fun onCreate(savedInstanceState: Bundle?) {
-        val splashScreen: SplashScreen = installSplashScreen()
-        super.onCreate(savedInstanceState)
-        splashScreen.setOnExitAnimationListener { provider ->
-            provider.remove()
-            // installSplashScreen() sets up its own WindowInsetsController
-            // state while the splash is showing, which can leave the
-            // status bar in a solid/non-transparent mode after teardown —
-            // overriding Flutter's own SystemChrome.setSystemUIOverlayStyle
-            // (transparent status bar) call from the Dart side. Forcing
-            // edge-to-edge + a transparent status bar color here, right
-            // after the splash is removed, restores the look Flutter
-            // expects so main.dart's overlay style takes effect normally.
-            window.statusBarColor = android.graphics.Color.TRANSPARENT
-            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
-        }
-    }
+    // NOTE: We intentionally do NOT use androidx.core.splashscreen's
+    // installSplashScreen() here. On several OEM skins (MIUI, OxygenOS,
+    // etc.) it forces the launcher icon to render inside a light/white
+    // "icon card" on the Android 12+ system splash regardless of any
+    // background/icon-background color set in styles.xml, and it also
+    // interferes with the status bar's edge-to-edge transparency that
+    // Flutter sets up in main.dart. Falling back to the plain
+    // launch_background.xml + dark LaunchTheme (no SplashScreen API
+    // involvement at all) avoids both issues consistently across devices.
+    // The system splash is then just a flat dark frame for ~1 cold-start
+    // frame, immediately replaced by Flutter's own UI — including our
+    // _A_ + AURUM animation in splash_screen.dart.
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
