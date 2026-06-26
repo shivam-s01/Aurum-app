@@ -9,9 +9,17 @@
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:windowSplashScreenBackground">@color/bgColor</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
-        <!-- Removes the white circular/square backdrop Android draws
-             behind the icon on the system splash screen. -->
+        <!-- Deliberately NOT setting windowSplashScreenAnimatedIcon.
+             When this is set to a plain (non-adaptive) icon, Android draws
+             it inside its own rounded/circular mask and fills the padding
+             with a light card-like backdrop — this is exactly the white
+             square you were seeing, and it happens regardless of
+             windowSplashScreenBackground or IconBackgroundColor. Leaving
+             it unset means the system splash is just a flat dark
+             background with no icon, which combined with the immediate
+             splashScreen.remove() in MainActivity.onCreate() means this
+             frame is on screen for at most a few ms before our own
+             Dart-side _A_ + AURUM animation takes over. -->
         <item name="android:windowSplashScreenIconBackgroundColor">@color/bgColor</item>
         <item name="android:windowSplashScreenBrandingImage">@null</item>
     </style>

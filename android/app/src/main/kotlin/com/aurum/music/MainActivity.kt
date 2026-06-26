@@ -35,6 +35,16 @@ class MainActivity : AudioServiceActivity() {
         super.onCreate(savedInstanceState)
         splashScreen.setOnExitAnimationListener { provider ->
             provider.remove()
+            // installSplashScreen() sets up its own WindowInsetsController
+            // state while the splash is showing, which can leave the
+            // status bar in a solid/non-transparent mode after teardown —
+            // overriding Flutter's own SystemChrome.setSystemUIOverlayStyle
+            // (transparent status bar) call from the Dart side. Forcing
+            // edge-to-edge + a transparent status bar color here, right
+            // after the splash is removed, restores the look Flutter
+            // expects so main.dart's overlay style takes effect normally.
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         }
     }
 
