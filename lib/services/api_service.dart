@@ -667,12 +667,28 @@ class ApiService {
   // ===========================================================================
   // STREAM URL RESOLUTION — v4 YT fix
   // ===========================================================================
+  static int _anonymousResolveCounter = 0;
+
   static Future<String?> resolveStreamUrl(Song song, {bool forceRefresh = false}) async {
     if (song.isLocal) return song.localPath;
 
-    final cacheKey = '${song.source.name}:${song.id}';
+    // FIX: Song.fromJson falls back to id: '' when the API response has no
+    // trackId/id/song_id field (happens on some recommendation/related-song
+    // payloads). That made cacheKey collapse to a bare 'saavn:' or
+    // 'youtube:' for EVERY id-less song. Two different songs tapped close
+    // together then shared one _streamCache entry / one in-flight
+    // _pendingResolutions future — whichever resolved first "won," so the
+    // second tap's UI (artwork/title, which come straight from the tapped
+    // Song object) showed the new song while the audio that actually
+    // played was whichever URL that shared cache slot held. Giving each
+    // id-less song its own unique key opts it out of caching/de-duping
+    // instead of silently colliding with unrelated songs.
+    final hasStableId = song.id.isNotEmpty;
+    final cacheKey = hasStableId
+        ? '${song.source.name}:${song.id}'
+        : '${song.source.name}:anon:${song.title}:${song.artist}:${_anonymousResolveCounter++}';
 
-    if (!forceRefresh) {
+    if (!forceRefresh && hasStableId) {
       final cached = _streamCache[cacheKey];
       if (cached != null && !cached.isExpired) {
         _log('[resolve] Cache HIT: "${song.title}"');
@@ -680,13 +696,14 @@ class ApiService {
       }
     }
 
-    if (!forceRefresh && _pendingResolutions.containsKey(cacheKey)) {
+    if (!forceRefresh && hasStableId && _pendingResolutions.containsKey(cacheKey)) {
       _log('[resolve] Joining in-flight: "$cacheKey"');
       return _pendingResolutions[cacheKey];
     }
 
     // Saavn pre-fetched URL — only use if already proxied through worker.
     if (!forceRefresh &&
+        hasStableId &&
         song.source == SongSource.saavn &&
         song.streamUrl != null &&
         song.streamUrl!.contains('/stream-proxy?url=')) {

@@ -546,7 +546,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
 
     // Check lookahead cache first — populated at 70% of previous song
-    final cachedUrl = _LookaheadCache.get(song.id);
+    //
+    // FIX: skip the lookahead cache entirely for songs with no stable id
+    // (Song.fromJson falls back to id: '' when the API payload lacks
+    // trackId/id/song_id). Looking up by '' would return whichever id-less
+    // song's URL happened to be cached last — playing song A's audio while
+    // the UI (artwork/title, taken straight from the tapped Song object)
+    // shows the song you actually tapped.
+    final cachedUrl = song.id.isEmpty ? null : _LookaheadCache.get(song.id);
     if (cachedUrl != null && !fromLookahead) {
       debugPrint('[AurumHandler] Lookahead HIT: "${song.title}"');
       _LookaheadCache.remove(song.id);
@@ -592,6 +599,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // If URL is already in ApiService's stream cache, this is near-instant.
   Future<void> lookaheadResolve(Song nextSong) async {
     if (nextSong.isLocal) return;
+    if (nextSong.id.isEmpty) return; // FIX: avoid id:'' collisions — see _sourceForSong
     if (_LookaheadCache.get(nextSong.id) != null) return; // already cached
     try {
       debugPrint('[AurumHandler] Lookahead resolving: "${nextSong.title}"');
