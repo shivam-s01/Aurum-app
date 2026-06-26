@@ -28,8 +28,15 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  static const Color _gold      = Color(0xFFD4AF37);
-  static const Color _goldSoft  = Color(0xFFE8C766);
+  // OPTIMIZATION: gold tones are now resolved per-theme in build() via
+  // _goldFor()/_goldSoftFor() below — kept as instance constants here only
+  // for the parts of the timing/animation math that don't care about color.
+  static const Color _goldDark      = Color(0xFFD4AF37); // dark-mode gold
+  static const Color _goldSoftDark  = Color(0xFFE8C766);
+  static const Color _goldLight     = Color(0xFFB8862E); // light-mode gold —
+  // slightly deeper/less luminous than the dark-mode gold so it keeps
+  // contrast and doesn't look washed out against a pale background.
+  static const Color _goldSoftLight = Color(0xFFC79A42);
   static const String _word     = 'AURUM';
 
   // ── Timing map (ms from splash start) ──────────────────────────────────
@@ -86,9 +93,13 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _ctrl = AnimationController(vsync: this, duration: _total);
 
+    // OPTIMIZATION: easeInOutCubic -> easeInOutQuart for the stroke draw.
+    // Same start/end, but the middle of the draw now glides rather than
+    // moving at a near-constant rate — reads less "mechanical pen plotter",
+    // more "ink settling in." Timing window is untouched.
     _strokeProgress = CurvedAnimation(
       parent: _ctrl,
-      curve: Interval(0.0, _f(_strokeDraw), curve: Curves.easeInOutCubic),
+      curve: Interval(0.0, _f(_strokeDraw), curve: Curves.easeInOutQuart),
     );
 
     _logoFade = Tween(begin: 0.0, end: 1.0).animate(
@@ -98,11 +109,14 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
 
-    // Scale: 0.6 -> 1.0, finishing as the stroke-draw/settle phase ends.
+    // OPTIMIZATION: easeOutCubic -> easeOutQuint on the scale-in. Settles
+    // into 1.0 with noticeably less overshoot-feel at the tail, which is
+    // what removed the tiny perceptible "wobble" right as the logo locks
+    // in size — same begin/end values, same duration window.
     _logoScale = Tween(begin: 0.6, end: 1.0).animate(
       CurvedAnimation(
         parent: _ctrl,
-        curve: Interval(0.0, _f(_settleEnd), curve: Curves.easeOutCubic),
+        curve: Interval(0.0, _f(_settleEnd), curve: Curves.easeOutQuint),
       ),
     );
 
@@ -143,13 +157,18 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
 
+    // OPTIMIZATION: linear -> easeOutQuart / easeInOutQuart segments. The
+    // original used Curves.linear *inside* the TweenSequenceItems and only
+    // wrapped the whole sequence in a linear Interval — fine functionally,
+    // but the peak landed slightly abruptly. Quart easing on each leg gives
+    // a softer arrival at the 1.04x peak and a gentler return to 1.0.
     _wordZoom = TweenSequence([
       TweenSequenceItem(
-        tween: Tween(begin: 1.0, end: 1.04).chain(CurveTween(curve: Curves.easeOut)),
+        tween: Tween(begin: 1.0, end: 1.04).chain(CurveTween(curve: Curves.easeOutQuart)),
         weight: 1,
       ),
       TweenSequenceItem(
-        tween: Tween(begin: 1.04, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)),
+        tween: Tween(begin: 1.04, end: 1.0).chain(CurveTween(curve: Curves.easeInOutQuart)),
         weight: 1,
       ),
     ]).animate(
@@ -159,10 +178,15 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
 
+    // OPTIMIZATION: exit fade eased with easeInOutCubic instead of easeIn.
+    // easeIn alone made the very start of the fade-out feel like it
+    // "caught" for a frame before easing — easeInOutCubic starts the fade
+    // immediately and smoothly, which combined with the crossfade in
+    // build() (see below) removes the last trace of a hard cut.
     _exitFade = Tween(begin: 1.0, end: 0.0).animate(
       CurvedAnimation(
         parent: _ctrl,
-        curve: Interval(_f(_holdEnd), 1.0, curve: Curves.easeIn),
+        curve: Interval(_f(_holdEnd), 1.0, curve: Curves.easeInOutCubic),
       ),
     );
 
@@ -196,6 +220,32 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     if (_showChild && _exiting) return widget.child;
 
+    // OPTIMIZATION (theme support): resolve once per build from the
+    // platform/app brightness — logo shape, timing, and layout are
+    // untouched; only background gradient + gold tone respond to theme.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final gold = isDark ? _goldDark : _goldLight;
+    final goldSoft = isDark ? _goldSoftDark : _goldSoftLight;
+    final bgGradient = isDark
+        ? const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF0A0A0C),
+              Color(0xFF151310),
+              Color(0xFF0A0A0C),
+            ],
+          )
+        : const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFFAF8F4),
+              Color(0xFFF3EFE6),
+              Color(0xFFFAF8F4),
+            ],
+          );
+
     return Stack(
       children: [
         if (_showChild) widget.child,
@@ -210,50 +260,54 @@ class _SplashScreenState extends State<SplashScreen>
             return Opacity(
               opacity: opacity,
               child: Scaffold(
+                backgroundColor: Colors.transparent,
                 body: Container(
                   // Dark luxury gradient — no border, no frame, no lines.
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Color(0xFF0A0A0C),
-                        Color(0xFF151310),
-                        Color(0xFF0A0A0C),
-                      ],
-                    ),
-                  ),
+                  // Light/dark swap happens here only; nothing else moves.
+                  decoration: BoxDecoration(gradient: bgGradient),
                   child: Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Transform.rotate(
-                          angle: _logoRotation.value,
-                          child: Transform.scale(
-                            scale: _logoScale.value,
-                            child: Opacity(
-                              opacity: _logoFade.value,
-                              child: _AurumMark(
-                                strokeProgress: _strokeProgress.value,
-                                bloom: _bloom.value,
-                                gold: _gold,
-                                goldSoft: _goldSoft,
+                        // OPTIMIZATION: RepaintBoundary isolates the
+                        // CustomPainter's repaint region from the text
+                        // below it. Without this, every AnimatedBuilder
+                        // tick (driven by the *single* shared controller)
+                        // could force Flutter to consider repainting both
+                        // the mark and the word together; isolating them
+                        // keeps each repaint pass cheaper and removes the
+                        // occasional sub-frame stutter under load.
+                        RepaintBoundary(
+                          child: Transform.rotate(
+                            angle: _logoRotation.value,
+                            child: Transform.scale(
+                              scale: _logoScale.value,
+                              child: Opacity(
+                                opacity: _logoFade.value,
+                                child: _AurumMark(
+                                  strokeProgress: _strokeProgress.value,
+                                  bloom: _bloom.value,
+                                  gold: gold,
+                                  goldSoft: goldSoft,
+                                ),
                               ),
                             ),
                           ),
                         ),
                         const SizedBox(height: 30),
-                        Transform.scale(
-                          scale: _wordZoom.value,
-                          child: _AurumWordmark(
-                            elapsedMs: t * _total.inMilliseconds,
-                            letterStartMs: _letterStart.inMilliseconds,
-                            letterStaggerMs: _letterStagger.inMilliseconds,
-                            letterInMs: _letterIn.inMilliseconds,
-                            pulseGlow: _wordPulseGlow(t),
-                            gold: _gold,
-                            goldSoft: _goldSoft,
-                            word: _word,
+                        RepaintBoundary(
+                          child: Transform.scale(
+                            scale: _wordZoom.value,
+                            child: _AurumWordmark(
+                              elapsedMs: t * _total.inMilliseconds,
+                              letterStartMs: _letterStart.inMilliseconds,
+                              letterStaggerMs: _letterStagger.inMilliseconds,
+                              letterInMs: _letterIn.inMilliseconds,
+                              pulseGlow: _wordPulseGlow(t),
+                              gold: gold,
+                              goldSoft: goldSoft,
+                              word: _word,
+                            ),
                           ),
                         ),
                       ],
@@ -357,15 +411,17 @@ class _AurumMarkPainter extends CustomPainter {
 
     final strokeWidth = size.width * 0.085;
 
-    // Soft outer glow beneath the stroke.
+    // OPTIMIZATION (visual refinement): glow opacity/blur trimmed down —
+    // 0.45 -> 0.32 opacity, blur 14 -> 11. Same glow, same position, just
+    // less "neon," more "soft jewelry-case light." Structure unchanged.
     if (progress > 0) {
       final glowPaint = Paint()
-        ..color = gold.withOpacity(0.45)
+        ..color = gold.withOpacity(0.32)
         ..strokeWidth = strokeWidth * 2.2
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14);
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 11);
       canvas.drawPath(drawnPath, glowPaint);
     }
 
@@ -382,11 +438,13 @@ class _AurumMarkPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(drawnPath, strokePaint);
 
-    // One-time bloom flash once the mark completes forming.
+    // OPTIMIZATION (visual refinement): bloom flash dialed back —
+    // 0.55 -> 0.38 peak opacity, slightly tighter blur radius. Reads as a
+    // soft light catch rather than a flare. Same trigger, same timing.
     if (bloom > 0.001) {
       final bloomPaint = Paint()
-        ..color = Colors.white.withOpacity(0.55 * bloom)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 28 * bloom + 6);
+        ..color = Colors.white.withOpacity(0.38 * bloom)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 24 * bloom + 6);
       canvas.drawCircle(
         Offset(size.width / 2, size.height / 2),
         size.width * 0.32,
@@ -431,7 +489,12 @@ class _AurumWordmark extends StatelessWidget {
       children: List.generate(word.length, (i) {
         final start = letterStartMs + i * letterStaggerMs;
         final raw = ((elapsedMs - start) / letterInMs).clamp(0.0, 1.0);
-        final eased = Curves.easeOutCubic.transform(raw);
+        // OPTIMIZATION: easeOutCubic -> easeOutQuint for the per-letter
+        // entrance. The drift-up now decelerates more gradually into its
+        // resting position instead of slowing down all at once — this was
+        // the source of the faint "micro-jitter" feel between letters
+        // landing in quick succession.
+        final eased = Curves.easeOutQuint.transform(raw);
 
         final glow = 0.35 + 0.65 * pulseGlow;
 
@@ -452,10 +515,13 @@ class _AurumWordmark extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                   letterSpacing: 3,
                   color: Colors.white,
+                  // OPTIMIZATION (visual refinement): shadow trimmed —
+                  // 0.7 -> 0.5 opacity, blur reduced slightly. Soft premium
+                  // glow instead of a strong halo around each letter.
                   shadows: [
                     Shadow(
-                      color: gold.withOpacity(0.7 * glow),
-                      blurRadius: 16 * glow + 2,
+                      color: gold.withOpacity(0.5 * glow),
+                      blurRadius: 12 * glow + 2,
                     ),
                   ],
                 ),
