@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ (API 31+) uses the system SplashScreen API, which by
+         default shows the launcher icon centered on a WHITE card,
+         regardless of what launch_background.xml says. This override
+         forces that system splash to use our dark brand color instead,
+         and disables the default icon-background "card" so the icon
+         isn't wrapped in white. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/bgColor</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <!-- Removes the white circular/square backdrop Android draws
+             behind the icon on the system splash screen. -->
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/bgColor</item>
+        <item name="android:windowSplashScreenBrandingImage">@null</item>
+    </style>
+
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@color/bgColor</item>
+    </style>
+</resources>

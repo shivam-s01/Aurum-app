@@ -6,8 +6,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import androidx.core.splashscreen.SplashScreen
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -20,6 +23,19 @@ class MainActivity : AudioServiceActivity() {
         private const val TAG = "AurumMainActivity"
         private val ALBUM_ART_URI = Uri.parse("content://media/external/audio/albumart")
         private const val MIN_SIZE_BYTES = 500_000L
+    }
+
+    // Installs the system splash screen and immediately tears it down the
+    // instant this Activity is ready to draw — so the white/icon "card"
+    // Android 12+ shows by default never actually gets a frame on screen.
+    // Our own Dart-side _A_ + AURUM animation (splash_screen.dart) becomes
+    // the very first thing the user sees instead.
+    override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen: SplashScreen = installSplashScreen()
+        super.onCreate(savedInstanceState)
+        splashScreen.setOnExitAnimationListener { provider ->
+            provider.remove()
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
