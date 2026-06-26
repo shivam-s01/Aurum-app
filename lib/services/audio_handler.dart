@@ -682,8 +682,19 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       // regardless of how long stop()/resolve() actually take.
       await _player.setVolume(0);
 
-      // 2. Hard stop — old song's engine state is torn down
+      // 2. Hard stop — pause first to flush ExoPlayer's audio pipeline,
+      // then stop to tear down the engine state entirely.
+      // FIX: on ExoPlayer, stop() alone does NOT immediately flush buffered
+      // audio frames — the native renderer can keep outputting buffered PCM
+      // for a brief window even after stop() returns on the Dart side. This
+      // is the root cause of "ghost audio" on YT songs: old song keeps
+      // playing through the speakers while the UI already shows the new song.
+      // pause() first forces the audio renderer to stop consuming its buffer
+      // RIGHT NOW (synchronous on the native sink), then stop() tears down
+      // the MediaSession/ExoPlayer state cleanly.
+      await _player.pause();
       await _player.stop();
+      await Future.microtask(() {});
 
       // Check if superseded by an even newer tap
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
@@ -864,8 +875,13 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     try {
       // Mute first — see playQueue for why stop() alone isn't instant enough.
+      // FIX: pause() before stop() flushes ExoPlayer's buffered audio frames
+      // immediately — this is the fix for "ghost audio" on YT songs where
+      // old audio kept playing after UI switched to new song.
       await _player.setVolume(0);
+      await _player.pause();
       await _player.stop();
+      await Future.microtask(() {});
       if (mySession != _playSessionId) { await _player.setVolume(1); return; }
 
       var source = await _sourceForSong(song);

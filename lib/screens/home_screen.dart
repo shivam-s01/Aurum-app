@@ -1039,20 +1039,20 @@ class _OfflineContent extends StatelessWidget {
                         fontSize: 17,
                         fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
-                ...e.value.songs.map((song) {
-                  // FIX: indexOf can return -1 if `song` isn't found by
-                  // equality inside `lib.allSongs` (e.g. Song doesn't
-                  // override == and this is a different-but-equivalent
-                  // instance, or allSongs was rebuilt between this build
-                  // and the tap). A -1 index used to flow straight into
-                  // playQueue and crash the whole screen blank on tap.
-                  // Falling back to this song's own position in its own
-                  // section list keeps playback sane even in that case.
-                  final i = lib.allSongs.indexOf(song);
+                // FIX: use asMap() so we have the song's actual position
+                // within this section's list. Queue is also scoped to this
+                // section so index always matches — previously queue was
+                // lib.allSongs but index was from indexOf() on that same
+                // list, which returned -1 for songs whose Song.== isn't
+                // overridden (different object instances), causing the
+                // fallback `index: 0` to always play the first song.
+                ...e.value.songs.asMap().entries.map((entry) {
+                  final idx  = entry.key;
+                  final song = entry.value;
                   return SongTile(
                     song: song,
-                    queue: lib.allSongs,
-                    index: i >= 0 ? i : 0,
+                    queue: e.value.songs,
+                    index: idx,
                   );
                 }),
               ],

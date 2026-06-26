@@ -195,71 +195,34 @@ class AurumApp extends StatelessWidget {
 // _SplashOnEveryEntry
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// FIX: SplashScreen only ever played once per Dart VM lifetime. On Android,
-// pressing Home (or swiping to recents without force-closing) does NOT kill
-// the process — especially here, since the audio_service background service
-// (`stopWithTask="false"`) keeps the app process alive deliberately so music
-// keeps playing. Reopening the app from the launcher/recents then just
-// resumes the existing Activity; main() never re-runs, so
-// SplashScreen.initState() never fires again and the user lands straight on
-// whatever screen was already showing — no animation, and if that screen
-// was mid-crash/blank, it stays that way until a real process kill.
+// Shows the Aurum intro animation ONLY on a true cold start (first process
+// launch). Background-resume (Home button → reopen, recents → reopen) skips
+// straight back to whatever the user was doing — no repeated animation.
 //
-// This wrapper watches app lifecycle directly and gives SplashScreen a fresh
-// ValueKey every time the app transitions from backgrounded → resumed (not
-// just on cold start), forcing Flutter to throw away the old splash State
-// and build a brand new one — replaying the full intro animation every
-// single time the user opens the app, exactly like a true fresh start.
-//
-// A real "closed it then reopened" press always passes through `paused`
-// (or `inactive` → `paused` if backgrounded for any meaningful time), so
-// this fires for both real cold starts AND resume-from-background, without
-// needing any extra permission or platform channel.
-class _SplashOnEveryEntry extends StatefulWidget {
+// How: a static bool `_played` is set to true the first time the splash
+// completes. It lives on the class (not in State) so it survives hot-reload
+// and background/foreground cycles for the entire Dart VM lifetime. On Android,
+// the audio_service process stays alive in the background, so the Dart VM is
+// never restarted on a normal resume — `_played` stays true and the splash
+// is skipped. Only a genuine force-close + relaunch resets the process and
+// clears `_played`, giving a fresh cold-start animation.
+class _SplashOnEveryEntry extends StatelessWidget {
   final Widget child;
   const _SplashOnEveryEntry({required this.child});
 
-  @override
-  State<_SplashOnEveryEntry> createState() => _SplashOnEveryEntryState();
-}
-
-class _SplashOnEveryEntryState extends State<_SplashOnEveryEntry>
-    with WidgetsBindingObserver {
-  // Changing this key forces SplashScreen to rebuild as a brand-new widget
-  // instance, discarding its old State (and therefore its old, already-
-  // completed AnimationController) and starting the intro from frame zero.
-  Key _splashKey = UniqueKey();
-  bool _wasBackgrounded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _wasBackgrounded = true;
-      return;
-    }
-
-    if (state == AppLifecycleState.resumed && _wasBackgrounded) {
-      _wasBackgrounded = false;
-      // Fresh key → fresh SplashScreen State → full animation replays.
-      setState(() => _splashKey = UniqueKey());
-    }
-  }
+  // True after the animation plays once per process lifetime.
+  static bool _played = false;
 
   @override
   Widget build(BuildContext context) {
-    return SplashScreen(key: _splashKey, child: widget.child);
+    if (_played) return child;
+    return SplashScreen(
+      key: const ValueKey('aurum_splash_once'),
+      child: Builder(builder: (_) {
+        // Mark as played as soon as SplashScreen hands off to its child.
+        _played = true;
+        return child;
+      }),
+    );
   }
 }
