@@ -646,8 +646,20 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     // first item in a playlist), and the desync only "resolved itself"
     // once the background prepend loop finished — which looked like
     // the song randomly changing mid-playback.
+    // FIX: startIndex can arrive as -1 (a caller did `list.indexOf(song)`
+    // and the song wasn't actually found in that exact list instance —
+    // e.g. home screen's offline tab passing `lib.allSongs.indexOf(song)`
+    // when allSongs had just been rebuilt) or otherwise out of range.
+    // _currentIndex = -1 made every later `_queue[_currentIndex]` read
+    // (via the currentSong getter, hit on nearly every rebuild) throw a
+    // RangeError — every listening widget crashed at once, which looked
+    // like the whole screen going blank/white right after tapping an
+    // offline song. Clamp defensively instead of trusting the caller.
+    final safeIndex = songs.isEmpty
+        ? 0
+        : startIndex.clamp(0, songs.length - 1);
     _queue        = List<Song>.from(songs);
-    _currentIndex = startIndex;
+    _currentIndex = safeIndex;
     _splicingInProgress = true; // raised until background splice finishes
     onQueueChanged?.call();
 
@@ -669,7 +681,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
 
       // 3. Resolve clicked song
-      var startSource = await _sourceForSong(songs[startIndex], sessionId: mySession);
+      var startSource = await _sourceForSong(songs[safeIndex], sessionId: mySession);
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
       if (startSource == null) {
         // FIX: same cold-start issue as playSong — the resolve chain
@@ -678,10 +690,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         // just after we gave up waiting. One quick automatic retry picks
         // that up instantly via the cache instead of forcing the user to
         // notice the failure and manually cut/replay the song themselves.
-        debugPrint('[AurumHandler] playQueue resolve failed, retrying once: "${songs[startIndex].title}"');
+        debugPrint('[AurumHandler] playQueue resolve failed, retrying once: "${songs[safeIndex].title}"');
         await Future.delayed(const Duration(milliseconds: 600));
         if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
-        startSource = await _sourceForSong(songs[startIndex], sessionId: mySession);
+        startSource = await _sourceForSong(songs[safeIndex], sessionId: mySession);
         if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
       }
       if (startSource == null) {
@@ -691,7 +703,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         _currentIndex = 0;
         mediaItem.add(null);
         onQueueChanged?.call();
-        onPlaybackError?.call('Resolve failed for "${songs[startIndex].title}" — '
+        onPlaybackError?.call('Resolve failed for "${songs[safeIndex].title}" — '
             '_sourceForSong returned null (stream URL could not be resolved)');
         await _player.setVolume(1);
         _splicingInProgress = false;
@@ -710,7 +722,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
             ? 'code=${e.code} message=${e.message}'
             : e.toString();
         onPlaybackError?.call('playQueue setAudioSource failed for '
-            '"${songs[startIndex].title}": $detail');
+            '"${songs[safeIndex].title}": $detail');
         await _player.setVolume(1);
         _splicingInProgress = false;
         return;
@@ -718,7 +730,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
 
       await _reapplySpeed();
-      _updateMediaItem(songs[startIndex]);
+      _updateMediaItem(songs[safeIndex]);
       await _player.setVolume(1); // restore volume BEFORE play — avoids silent-start race
       await _player.play();
 
@@ -731,7 +743,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       // white screen / forced restart on a single bad tap in Offline Library.
       debugPrint('[AurumHandler] playQueue unexpected error: $e');
       onPlaybackError?.call(
-          'playQueue failed for "${songs[startIndex].title}": $e');
+          'playQueue failed for "${songs[safeIndex].title}": $e');
       try { await _player.setVolume(1); } catch (_) {}
       _splicingInProgress = false;
     } finally {
@@ -743,7 +755,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         _isLoadingNewSong   = false;
       }
     }
-    _resolveQueueInBackground(songs, startIndex, mySession);
+    _resolveQueueInBackground(songs, safeIndex, mySession);
   }
 
   // Resolves all other songs and splices them into the live playlist.
@@ -960,7 +972,21 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // ─── GETTERS ──────────────────────────────────────────────────────────────
 
   List<Song> get currentQueue  => List.unmodifiable(_queue);
-  Song?      get currentSong   => _queue.isNotEmpty ? _queue[_currentIndex] : null;
+  // FIX: was `_queue[_currentIndex]` with only an isNotEmpty check on the
+  // queue. If _currentIndex was ever -1 (e.g. a caller did
+  // `list.indexOf(song)` and the song wasn't found, getting -1, then
+  // passed that straight in as startIndex) or >= _queue.length, this threw
+  // a RangeError. currentSong is read on basically every rebuild
+  // (mini player, full player, home header) via Consumer<PlayerProvider>,
+  // so one bad index crashed every listening widget at once → blank white
+  // screen with the app still "running". Now it's bounds-checked and just
+  // returns null instead of throwing.
+  Song? get currentSong {
+    if (_queue.isEmpty || _currentIndex < 0 || _currentIndex >= _queue.length) {
+      return null;
+    }
+    return _queue[_currentIndex];
+  }
   int        get currentIndex  => _currentIndex;
   AudioPlayer get player       => _player;
 
@@ -1012,7 +1038,19 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override Future<void> play() { _restoredSilently = false; return _player.play(); }
   @override Future<void> pause() => _player.pause();
-  @override Future<void> stop()  => _player.stop();
+  @override
+  Future<void> stop() async {
+    // FIX: _player.stop() can throw on some Android/ExoPlayer states (e.g.
+    // no source ever loaded yet, or a mid-transition state). This used to
+    // propagate straight up to whatever called stop() — including the
+    // SourceProvider Online/Offline toggle in main.dart — and crash the
+    // app. Stopping is best-effort housekeeping, never allowed to throw.
+    try {
+      await _player.stop();
+    } catch (e) {
+      debugPrint('[Aurum] _player.stop() failed (ignored): $e');
+    }
+  }
   @override Future<void> seek(Duration position) => _player.seek(position);
 
   @override
