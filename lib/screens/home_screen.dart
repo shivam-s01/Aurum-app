@@ -22,6 +22,7 @@ import 'artist_screen.dart';
 import 'profile_screen.dart';
 import 'login_screen.dart';
 import 'full_player_screen.dart';
+import 'premium_screen.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
@@ -214,11 +215,30 @@ class _HomeScreenState extends State<HomeScreen> {
         statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
         statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
       ),
-      title: RichText(
-        text: TextSpan(
+      title: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.of(context).push(
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 380),
+            pageBuilder: (_, __, ___) => const PremiumScreen(),
+            transitionsBuilder: (_, animation, __, child) {
+              final fade = CurvedAnimation(parent: animation, curve: Curves.easeOut);
+              final slide = Tween<Offset>(
+                begin: const Offset(0, 0.04),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+              return FadeTransition(
+                opacity: fade,
+                child: SlideTransition(position: slide, child: child),
+              );
+            },
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            TextSpan(
-              text: 'Aurum ',
+            Text(
+              'Aurum',
               style: TextStyle(
                 color: AurumTheme.gold,
                 fontSize: 26,
@@ -226,12 +246,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 letterSpacing: -0.5,
               ),
             ),
-            TextSpan(
-              text: 'Music',
-              style: TextStyle(
-                color: AurumTheme.textSecondaryOf(context),
-                fontSize: 26,
-                fontWeight: FontWeight.w300,
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                gradient: const LinearGradient(
+                  colors: [AurumTheme.goldDark, AurumTheme.gold, AurumTheme.goldLight],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AurumTheme.gold.withOpacity(0.45),
+                    blurRadius: 10,
+                    spreadRadius: 0.5,
+                  ),
+                ],
+              ),
+              child: const Text(
+                '✦ Plus',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.2,
+                ),
               ),
             ),
           ],
