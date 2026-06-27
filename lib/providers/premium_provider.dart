@@ -4,54 +4,43 @@
 // DESCRIPTION: Single source of truth for premium status.
 //
 //   HOW PREMIUM IS DETERMINED (priority order):
-//   1. Supabase user_metadata / app_metadata -> 'is_premium' = true
-//      (set server-side by an admin, OR mirrored client-side right after
-//      a successful Razorpay payment - see PaymentService._handleSuccess)
-//   2. Local Razorpay payment grant (SharedPreferences), validated against
-//      its expiry window (30 days for monthly, 365 days for yearly)
-//   3. Default -> false (free user)
-//
-//   Google Sign-In is NO LONGER a path to premium. It is used purely for
-//   account identity / cloud sync. Premium is granted only via:
-//     - Supabase admin flag (is_premium = true in metadata), or
-//     - A successful Razorpay payment (validated locally by expiry date)
+//   1. Supabase user_metadata → 'is_premium' = true  (set server-side)
+//   2. SharedPreferences fallback (cached from last successful check)
+//   3. Default → false (free user)
 //
 //   PREMIUM FEATURES GATED:
-//   [x] High bitrate streaming (320kbps)
-//   [x] Unlimited skips (free = 6/hour)
-//   [x] Follow artist
-//   [x] Create playlist
-//   [x] Like/Favorite songs
-//   [x] Cloud sync (sign-in required)
-//   [x] Extra accent colors (beyond default gold)
-//   [x] Now Playing Card style: "Card" and "Immersive"
+//   ✅ High bitrate streaming (320kbps)
+//   ✅ Unlimited skips (free = 6/hour)
+//   ✅ Follow artist
+//   ✅ Create playlist
+//   ✅ Like/Favorite songs
+//   ✅ Cloud sync (sign-in required)
+//   ✅ Extra accent colors (beyond default gold)
+//   ✅ Now Playing Card style: "Card" and "Immersive"
 // =============================================================================
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../services/payment_service.dart';
 
 class PremiumProvider extends ChangeNotifier {
-  static const _kCachedPremium = 'aurum_is_premium_cached';
-  static const _kPremiumPlan = 'aurum_premium_plan';
+  static const _kCachedPremium      = 'aurum_is_premium_cached';
+  static const _kPremiumGrantedAt   = 'aurum_premium_granted_at';
+  static const _kPremiumExpiryDays  = 365; // 1 year free offer
 
   bool _isPremium = false;
   bool _isChecking = false;
-  String? _activePlanId; // 'monthly' | 'yearly' | null (admin-granted)
 
-  bool get isPremium => _isPremium;
-  bool get isChecking => _isChecking;
-  String? get activePlanId => _activePlanId;
+  bool get isPremium   => _isPremium;
+  bool get isChecking  => _isChecking;
 
-  // -- Init --------------------------------------------------------------
+  // ── Init ──────────────────────────────────────────────────────────────────
   // Call once from main.dart after AuthService.init().
   // Loads cached value immediately so UI doesn't flash, then re-checks live.
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _isPremium = prefs.getBool(_kCachedPremium) ?? false;
-    _activePlanId = prefs.getString(_kPremiumPlan);
     notifyListeners();
 
     // Subscribe to auth changes so premium status auto-refreshes on sign-in
@@ -60,44 +49,54 @@ class PremiumProvider extends ChangeNotifier {
     await _refresh();
   }
 
-  // -- Refresh -------------------------------------------------------------
-  // Checks (in priority order): Supabase admin flag -> local Razorpay grant.
+  // ── Refresh ───────────────────────────────────────────────────────────────
+  // Reads is_premium from Supabase user_metadata and caches locally.
 
   Future<void> _refresh() async {
     _isChecking = true;
     notifyListeners();
 
     try {
-      bool fromAdmin = false;
-
       final user = Supabase.instance.client.auth.currentUser;
-      if (user != null) {
-        final meta = user.userMetadata ?? {};
-        final fromMeta = meta['is_premium'] == true;
-        final appMeta = user.appMetadata;
-        final fromApp = appMeta['is_premium'] == true;
-        fromAdmin = fromMeta || fromApp;
+      if (user == null) {
+        _setPremium(false);
+        return;
       }
 
-      // Local Razorpay payment grant - validated against its own expiry,
-      // independent of sign-in state (works even if the user isn't signed
-      // in with Google, since payment != identity).
-      final hasValidPayment = await PaymentService.hasValidLocalGrant();
+      // Server flags take priority
+      final meta     = user.userMetadata ?? {};
+      final fromMeta = meta['is_premium'] == true;
+      final appMeta  = user.appMetadata ?? {};
+      final fromApp  = appMeta['is_premium'] == true;
 
-      final isPremiumNow = fromAdmin || hasValidPayment;
+      // Limited 1-year free offer: any Google-signed-in user gets premium,
+      // but only for 365 days from the date they first signed in.
+      final isGoogleUser = user.appMetadata['provider'] == 'google' ||
+          (user.identities ?? []).any((id) => id.provider == 'google');
 
-      String? planId;
-      if (hasValidPayment) {
-        planId = await PaymentService.currentPlanId();
-      } else if (fromAdmin) {
-        planId = null; // admin-granted, no specific plan
+      bool offerActive = false;
+      if (isGoogleUser) {
+        final prefs = await SharedPreferences.getInstance();
+        // Record grant date on first sign-in
+        if (!prefs.containsKey(_kPremiumGrantedAt)) {
+          await prefs.setString(
+              _kPremiumGrantedAt, DateTime.now().toIso8601String());
+        }
+        final grantedAtStr = prefs.getString(_kPremiumGrantedAt);
+        if (grantedAtStr != null) {
+          final grantedAt = DateTime.tryParse(grantedAtStr);
+          if (grantedAt != null) {
+            final expiry = grantedAt.add(
+                const Duration(days: _kPremiumExpiryDays));
+            offerActive = DateTime.now().isBefore(expiry);
+          }
+        }
       }
-      _activePlanId = planId;
 
-      _setPremium(isPremiumNow);
+      _setPremium(fromMeta || fromApp || offerActive);
     } catch (e) {
       if (kDebugMode) debugPrint('[PremiumProvider] _refresh error: $e');
-      // Keep cached value on network error - don't downgrade silently
+      // Keep cached value on network error — don't downgrade silently
     } finally {
       _isChecking = false;
       notifyListeners();
@@ -111,21 +110,10 @@ class PremiumProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Call after sign-in, or right after a successful Razorpay payment,
-  /// to force a fresh entitlement check.
+  /// Call after sign-in to force a fresh check
   Future<void> refresh() => _refresh();
 
-  /// Call immediately after PaymentService reports success, so the UI
-  /// reflects premium status without waiting for a full async refresh.
-  void markPremiumGranted(String planId) {
-    _isPremium = true;
-    _activePlanId = planId;
-    notifyListeners();
-    // Persist + reconcile with server in the background.
-    _refresh();
-  }
-
-  /// DEV ONLY - toggle premium locally for testing UI.
+  /// DEV ONLY — toggle premium locally for testing UI.
   /// Remove before production release.
   void devToggle() {
     assert(() {

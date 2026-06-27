@@ -1,0 +1,77 @@
+name: aurum_music
+description: Aurum Music - Premium Gold Music Experience
+publish_to: 'none'
+version: 1.0.0+342
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Audio
+  just_audio: ^0.9.40
+  audio_service: ^0.18.13
+  audio_session: ^0.1.18
+
+  # State Management
+  provider: ^6.1.1
+
+  # HTTP
+  http: ^1.2.0
+
+  # YouTube
+  youtube_explode_dart: ^2.2.1
+
+  # UI
+  cached_network_image: ^3.3.1
+  shimmer: ^3.0.0
+  palette_generator: ^0.3.3+3
+  google_fonts: ^6.2.1
+
+  # Persistence
+  shared_preferences: ^2.2.2
+  image_picker: ^1.0.7
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # Utils
+  rxdart: ^0.27.7
+  uuid: ^4.3.3
+  url_launcher: ^6.3.0
+  share_plus: ^10.1.2
+  permission_handler: ^11.3.1
+  async: ^2.11.0
+
+  # Offline
+  dio: ^5.4.0
+  package_info_plus: ^4.2.0
+  path_provider: ^2.1.1
+
+  # Notifications (download progress)
+  flutter_local_notifications: ^17.2.3
+
+  # Settings features
+  sensors_plus: ^5.0.1
+  local_auth: ^2.3.0
+
+  # Auth & Cloud Sync
+  supabase_flutter: ^2.5.6
+  app_links: 6.3.2
+
+  # Network detection (auto Online/Offline switching)
+  connectivity_plus: ^6.0.5
+  google_sign_in: ^6.2.1
+  razorpay_flutter: ^1.3.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/fonts/
