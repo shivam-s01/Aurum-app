@@ -1,71 +1,5 @@
-// =============================================================================
-// FILE: lib/services/audio_handler.dart
-// PROJECT: Aurum Music
-// VERSION: 6.0.0 — Complete rewrite, based on the ACTUAL deployed file
-//
-// =============================================================================
-// THE BUG THIS REWRITE TARGETS — "purana YT song hi bajta rehta hai"
-// -----------------------------------------------------------------------
-// Reported behaviour: play a YouTube song, then tap a different song —
-// the OLD YouTube song keeps playing; the new one never starts.
-//
-// ROOT CAUSE, confirmed by reading the actual deployed code path:
-//
-//   1. playSong()/playQueue() call `_player.stop()` THEN start resolving
-//      the new song's URL via `_sourceForSong()` → `ApiService
-//      .resolveStreamUrl()`.
-//
-//   2. `_sourceForSong()` wraps that call in `.timeout(28s)` for YouTube.
-//      `.timeout()` only makes OUR Dart Future give up waiting — it does
-//      NOT cancel the underlying HTTP request running inside ApiService,
-//      and does NOT clear ApiService's internal "this song is currently
-//      being resolved" bookkeeping (`_pendingResolutions`).
-//
-//   3. While our handler is waiting (up to 28s, THEN an extra 600ms retry
-//      delay, THEN another up-to-28s wait) for a YouTube resolve that may
-//      be stuck on a slow/dead Worker+Piped+Invidious chain, the player
-//      sits in a half-stopped state: `stop()` was called, but
-//      `setAudioSource()` for the NEW song has not run yet because we're
-//      still awaiting the resolve.
-//
-//   4. On Android/ExoPlayer, calling `stop()` does not always instantly
-//      flush the audio renderer's buffer — if the new `setAudioSource()`
-//      call is delayed long enough (which a 28s+ YouTube resolve
-//      absolutely is), the renderer can still be draining whatever PCM it
-//      had already decoded from the OLD song, which is exactly what
-//      sounds like "the old song keeps playing."
-//
-// THE FIX (entirely inside this file, api_service.dart untouched):
-//
-//   A. _hardStopAndMute() now ALSO clears the player's AudioSource
-//      entirely — `_player.setAudioSource(ConcatenatingAudioSource
-//      (children: []))` after stop() — instead of just calling stop().
-//      An empty source means there is nothing left for ExoPlayer's
-//      renderer to drain or resume; old audio cannot physically continue
-//      because the engine no longer references it. This is the single
-//      most important change in this file.
-//
-//   B. The resolve-then-retry-once pattern is replaced with a capped,
-//      fast-failing retry (2 attempts, short backoff) PLUS a hard
-//      ceiling: if the new song hasn't started playing within ~6
-//      seconds of being tapped, the UI is told via onPlaybackError so it
-//      is never left silently waiting forever — but the player is
-//      ALREADY silent (per fix A) the whole time, so there is no
-//      "old song" to be heard regardless of how long resolve takes.
-//
-//   C. Session-ID checks are unchanged/preserved everywhere they already
-//      existed (this part of the original file was correct) — a
-//      superseded tap still cannot touch the player on behalf of a song
-//      the user has since moved away from.
-//
-// EVERYTHING ELSE — lookahead cache, idle/403 recovery, splicing,
-// interruption handling, shake-to-skip, settings, DSP — is carried
-// forward from the real deployed file with only the resolve/stop
-// sequencing changed. No public method signature changed, so
-// player_provider.dart needs zero changes.
-// =============================================================================
-
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
@@ -79,9 +13,9 @@ import 'audio_prefs.dart';
 
 // =============================================================================
 // LOOKAHEAD STREAM CACHE
-// Stores the *resolved* playback URL so when the next song actually starts,
-// we skip the entire resolve round-trip. Keyed by song.id, max 3 entries.
-// Populated at 70% of current song (called from PlayerProvider).
+// Separate from ApiService's stream cache — stores the *resolved* stream URL
+// so when the next song actually starts, we skip the entire resolve round-trip.
+// Keyed by song.id, max 3 entries. Populated at 70% of current song.
 // =============================================================================
 class _LookaheadCache {
   static final Map<String, String> _urls = {};
@@ -100,49 +34,143 @@ class _LookaheadCache {
 }
 
 // =============================================================================
-// ROOT CAUSE OF "Source error code=0 / idle@0ms" — unchanged fix, kept as-is.
-// just_audio's AudioSource.uri(..., headers: {...}) routes through a local
-// loopback HTTP proxy on Android, which network_security_config.xml blocks
-// (cleartextTrafficPermitted=false, no localhost exception). Never pass
-// `headers:` to AudioSource.uri — User-Agent is set once globally via
-// AudioPlayer(userAgent: ...) instead, which bypasses the loopback proxy.
+// ROOT CAUSE OF "Source error code=0 / idle@0ms" — FIXED
+// -----------------------------------------------------------------------
+// On Android, just_audio's AudioSource.uri(..., headers: {...}) does NOT
+// pass headers straight to ExoPlayer's HTTP data source. Instead it spins
+// up a local loopback HTTP proxy (127.0.0.1) inside the app process.
+//
+// Our network_security_config.xml blocks cleartext to 127.0.0.1 — silently
+// breaking every AudioSource built with a `headers:` map.
+//
+// FIX: never pass `headers:` to AudioSource.uri. The User-Agent is set
+// once globally via AudioPlayer(userAgent: ...) which goes straight to
+// ExoPlayer's DefaultHttpDataSource.Factory with no loopback proxy.
 // =============================================================================
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
-  final _player = AudioPlayer(
-    userAgent:
-        'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
-  );
+  // Single live player — `late final` restored (was incorrectly changed to
+  // `late` mutable for the dual-player swap, which is now removed entirely).
+  // See URL-ONLY PRELOAD section below for the correct fast-path architecture.
+  late final AudioPlayer _player;
+
+  // ── DSP ──────────────────────────────────────────────────────────────────
+  AndroidEqualizer?        _eq;
+  AndroidLoudnessEnhancer? _loudness;
+  bool _eqReady = false;
 
   List<Song> _queue        = [];
   int        _currentIndex = 0;
 
+  // Fired synchronously the instant _queue/_currentIndex change.
   void Function()? onQueueChanged;
+
+  // Fired with the exact error string whenever a real playback attempt fails.
   void Function(String error)? onPlaybackError;
 
   // Cancellation token — each new playQueue/playSong call gets a fresh ID.
-  // Background resolvers check this before touching the playlist.
   int _playSessionId = 0;
 
-  bool _isLoadingNewSong   = false;
+  // Debounce rapid currentIndexStream events during song transitions.
+  Timer? _indexDebounce;
+  int?   _lastProcessedIndex;
+
+  // Prevent concurrent playQueue calls from racing each other.
+  bool _isLoadingNewSong = false;
+
+  // True while _resolveQueueInBackground is still splicing songs.
   bool _splicingInProgress = false;
-  bool _restoredSilently   = false;
+
+  // Set by loadQueueSilently — prevents interruption-end from auto-playing.
+  bool _restoredSilently = false;
+
+  // =============================================================================
+  // URL-ONLY PRELOAD (replaces broken dual-player swap architecture)
+  // -----------------------------------------------------------------------
+  // The previous dual-player swap had fundamental, unfixable problems:
+  //
+  //   • setAudioSource() on the promoted player destroys all preload buffering.
+  //     Buffered state lives in the native ExoPlayer instance and is NOT
+  //     transferable. Calling setAudioSource() again — even with the same Dart
+  //     AudioSource object — causes the native side to rebuild the MediaSource
+  //     from scratch, making the preload a no-op.
+  //
+  //   • ConcatenatingAudioSource wrapping also re-prepares the native
+  //     MediaSource, destroying buffering for the same reason.
+  //
+  //   • _nextPlayer had no DSP AudioPipeline — EQ/loudness silently stopped
+  //     working after the first swap because the promoted player had no
+  //     AndroidEqualizer or AndroidLoudnessEnhancer attached.
+  //
+  //   • Two ExoPlayer instances in the same process competed for AudioFocus,
+  //     causing the live _player to receive AUDIOFOCUS_LOSS_TRANSIENT when
+  //     _nextPlayer finished preloading, randomly pausing playback.
+  //
+  //   • AudioSession interruption/noisy subscriptions were anonymous — never
+  //     stored, never cancelled. They leaked for the lifetime of the process.
+  //
+  //   • _nextPlayer.dispose() without stop() first could crash native ExoPlayer
+  //     on some Android API levels when called during buffering.
+  //
+  // CORRECT ARCHITECTURE: resolve the next song's stream URL in background
+  // and store it in _LookaheadCache. When skipToNext() fires, _sourceForSong()
+  // gets a near-instant cache hit — playQueue() skips the 5-28s network
+  // resolve and calls setAudioSource() immediately with the pre-resolved URL.
+  // ExoPlayer starts buffering on setAudioSource(), so the perceived gap is
+  // near-zero. No second AudioPlayer, no DSP detachment, no AudioFocus fight.
+  // =============================================================================
+  int     _preloadSessionId = 0;
+  String? _preloadedSongId; // which song.id was last successfully URL-preloaded
+
+  // AudioSession stream subscriptions — stored for cancellation on dispose.
+  // FIX #7: were anonymous (leaked forever) previously.
+  StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
+  StreamSubscription<void>?                  _noisySub;
 
   StreamSubscription<AccelerometerEvent>? _shakeSub;
   DateTime _lastShake = DateTime.now();
+  // 24.0 avoids false positives from footstep impact while walking.
   static const double _shakeThreshold = 24.0;
+
+  // Player stream subscriptions.
+  StreamSubscription<PlaybackEvent>? _broadcastSub;
+  StreamSubscription<PlaybackEvent>? _recoverySub;
+  StreamSubscription<Duration?>?     _durationSub;
+  StreamSubscription<int?>?          _currentIndexSub;
 
   AurumAudioHandler() {
     _init();
   }
 
   Future<void> _init() async {
+    // ── DSP pipeline setup ────────────────────────────────────────────────
+    // Try to wire up Equalizer + LoudnessEnhancer via AudioPipeline.
+    // Falls back to a plain AudioPlayer on older Android / emulators.
+    try {
+      _eq       = AndroidEqualizer();
+      _loudness = AndroidLoudnessEnhancer();
+      _player   = AudioPlayer(
+        userAgent: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+        audioPipeline: AudioPipeline(
+          androidAudioEffects: [_loudness!, _eq!],
+        ),
+      );
+      _eqReady = true;
+    } catch (_) {
+      _player = AudioPlayer(
+        userAgent: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+      );
+      _eqReady = false;
+    }
+
     await AudioPrefs.load();
 
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
-    session.interruptionEventStream.listen((event) {
+    // FIX #7: store AudioSession subscriptions so they are cancelled on dispose.
+    // Previously were anonymous — leaked for the process lifetime.
+    _interruptionSub = session.interruptionEventStream.listen((event) {
       final isDuck = event.type == AudioInterruptionType.duck;
 
       if (isDuck && !AudioPrefs.duckOnNotifications) return;
@@ -151,130 +179,204 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (event.begin) {
         _player.pause();
       } else {
+        // FIX #24/#29: _isLoadingNewSong now set by both playQueue AND playSong
+        // so this guard correctly blocks auto-resume during all load paths.
         if (!_restoredSilently && !_isLoadingNewSong) _player.play();
       }
     });
 
-    session.becomingNoisyEventStream.listen((_) => _player.pause());
+    _noisySub = session.becomingNoisyEventStream.listen((_) => _player.pause());
 
-    _player.playbackEventStream.listen(_broadcastState);
-    _player.playbackEventStream.listen(_handleIdleEvent);
+    _bindPlayerListeners();
+    await _applySettings();
+  }
 
-    _player.durationStream.listen((d) {
+  // ─── PLAYER LISTENERS ─────────────────────────────────────────────────────
+
+  void _bindPlayerListeners() {
+    _broadcastSub?.cancel();
+    _recoverySub?.cancel();
+    _durationSub?.cancel();
+    _currentIndexSub?.cancel();
+
+    // Broadcast state to audio_service (notification, lock screen).
+    _broadcastSub = _player.playbackEventStream.listen(_broadcastState);
+
+    // ── 403 / Expired stream recovery ────────────────────────────────────
+    // JioSaavn CDN URLs expire ~50min. YouTube signed URLs expire faster.
+    // Detects idle@>500ms, force-refreshes the URL, rebuilds AudioSource,
+    // resumes at exact position.
+    _recoverySub = _player.playbackEventStream.listen((event) async {
+      if (event.processingState != ProcessingState.idle) return;
+      final pos = _player.position;
+      if (pos.inMilliseconds < 500) {
+        // idle@~0ms is also a normal transient during AudioSource swaps.
+        // Debounce 1200ms and only treat as real failure if still stuck.
+        final songAtIdle = _queue.isNotEmpty && _currentIndex < _queue.length
+            ? _queue[_currentIndex] : null;
+        final sessionAtIdle = _playSessionId;
+
+        await Future.delayed(const Duration(milliseconds: 1200));
+
+        if (sessionAtIdle != _playSessionId) return;
+        if (_isLoadingNewSong) return;
+        if (_queue.isEmpty || _currentIndex >= _queue.length) return;
+        final songNow = _queue[_currentIndex];
+        if (songAtIdle == null || songNow.id != songAtIdle.id) return;
+        if (_player.processingState != ProcessingState.idle) return;
+        if (_player.position.inMilliseconds >= 500) return;
+
+        final songTitle = songNow.title;
+        debugPrint('[AurumHandler] FRESH-START FAILURE: processingState=idle '
+            'at pos=${_player.position.inMilliseconds}ms, song=$songTitle');
+        onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
+            'processingState went idle at position 0ms');
+        return;
+      }
+      if (_queue.isEmpty || _isLoadingNewSong) return;
+
+      final song = _queue[_currentIndex];
+      if (song.isLocal) return;
+
+      debugPrint('[AurumHandler] Stream expired for "${song.title}" at ${pos.inSeconds}s — recovering');
+      ApiService.invalidateStream(song);
+      _LookaheadCache.remove(song.id);
+
+      final sessionAtError = _playSessionId;
+      try {
+        final freshUrl = await ApiService.resolveStreamUrl(song, forceRefresh: true)
+            .timeout(const Duration(seconds: 12), onTimeout: () => null);
+        if (freshUrl == null || sessionAtError != _playSessionId) return;
+
+        final freshSource = AudioSource.uri(
+          Uri.parse(freshUrl),
+          tag: _songToMediaItem(song),
+        );
+        final seq = _player.audioSource;
+        if (seq is ConcatenatingAudioSource) {
+          final playerIdx = _player.currentIndex ?? 0;
+          if (playerIdx < seq.length) {
+            await seq.removeAt(playerIdx);
+            await seq.insert(playerIdx, freshSource);
+            await _player.seek(pos, index: playerIdx);
+            await _player.play();
+            debugPrint('[AurumHandler] Recovered "${song.title}" at ${pos.inSeconds}s ✓');
+          }
+        }
+      } catch (e) {
+        debugPrint('[AurumHandler] Recovery failed: $e');
+      }
+    });
+
+    _durationSub = _player.durationStream.listen((d) {
       if (d != null && mediaItem.value != null) {
         mediaItem.add(mediaItem.value!.copyWith(duration: d));
       }
     });
 
-    _player.currentIndexStream.listen(_handleCurrentIndexChanged);
+    _currentIndexSub = _player.currentIndexStream.listen((index) {
+      if (index == null) return;
 
-    await _applySettings();
-  }
+      // Capture session synchronously — the debounce timer checks a snapshot,
+      // not the live value, avoiding the splice/timer race.
+      final session = _playSessionId;
 
-  // ─── IDLE / 403 RECOVERY ───────────────────────────────────────────────────
+      _indexDebounce?.cancel();
+      _indexDebounce = Timer(const Duration(milliseconds: 120), () {
+        if (session != _playSessionId) return;
+        if (_splicingInProgress) return;
+        if (index == _lastProcessedIndex) return;
+        _lastProcessedIndex = index;
 
-  Future<void> _handleIdleEvent(PlaybackEvent event) async {
-    if (event.processingState != ProcessingState.idle) return;
-    final pos = _player.position;
+        final sequence = _player.sequence;
+        final inSourceRange = sequence != null && index < sequence.length;
+        final tag = inSourceRange ? sequence[index].tag : null;
 
-    if (pos.inMilliseconds < 500) {
-      await _handleFreshStartIdle();
-      return;
-    }
-    await _handleMidStreamIdle(pos);
-  }
-
-  Future<void> _handleFreshStartIdle() async {
-    final songAtIdle = _queue.isNotEmpty && _currentIndex < _queue.length
-        ? _queue[_currentIndex] : null;
-    final sessionAtIdle = _playSessionId;
-
-    await Future.delayed(const Duration(milliseconds: 1200));
-
-    if (sessionAtIdle != _playSessionId) return;
-    if (_isLoadingNewSong) return;
-    if (_queue.isEmpty || _currentIndex >= _queue.length) return;
-    final songNow = _queue[_currentIndex];
-    if (songAtIdle == null || songNow.id != songAtIdle.id) return;
-    if (_player.processingState != ProcessingState.idle) return;
-    if (_player.position.inMilliseconds >= 500) return;
-
-    final songTitle = songNow.title;
-    debugPrint('[AurumHandler] FRESH-START FAILURE: processingState=idle '
-        'at pos=${_player.position.inMilliseconds}ms, song=$songTitle');
-    onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
-        'setAudioSource appeared to succeed but processingState went '
-        'idle at position 0ms.');
-  }
-
-  Future<void> _handleMidStreamIdle(Duration pos) async {
-    if (_queue.isEmpty || _isLoadingNewSong) return;
-    final song = _queue[_currentIndex];
-    if (song.isLocal) return;
-
-    debugPrint('[AurumHandler] Stream expired for "${song.title}" at ${pos.inSeconds}s — recovering');
-    ApiService.invalidateStream(song);
-    _LookaheadCache.remove(song.id);
-
-    final sessionAtError = _playSessionId;
-    try {
-      final freshUrl = await ApiService.resolveStreamUrl(song, forceRefresh: true)
-          .timeout(const Duration(seconds: 12), onTimeout: () => null);
-      if (freshUrl == null || sessionAtError != _playSessionId) return;
-
-      final freshSource = AudioSource.uri(Uri.parse(freshUrl), tag: _songToMediaItem(song));
-      final seq = _player.audioSource;
-      if (seq is ConcatenatingAudioSource) {
-        final playerIdx = _player.currentIndex ?? 0;
-        if (playerIdx < seq.length) {
-          await seq.removeAt(playerIdx);
-          await seq.insert(playerIdx, freshSource);
-          await _player.seek(pos, index: playerIdx);
-          await _player.play();
-          debugPrint('[AurumHandler] Recovered "${song.title}" at ${pos.inSeconds}s ✓');
+        if (tag is MediaItem) {
+          if (mediaItem.value?.id != tag.id) {
+            mediaItem.add(tag);
+          }
+          final queueIdx = _queue.indexWhere((s) => s.id == tag.id);
+          if (queueIdx != -1 && queueIdx != _currentIndex) {
+            _currentIndex = queueIdx;
+          }
+          return;
         }
-      }
-    } catch (e) {
-      debugPrint('[AurumHandler] Recovery failed: $e');
-    }
+
+        if (index != _currentIndex && index < _queue.length) {
+          _currentIndex = index;
+          _updateMediaItem(_queue[index]);
+        }
+      });
+    });
   }
-
-  // ─── CURRENT INDEX STREAM HANDLING ─────────────────────────────────────────
-
-  void _handleCurrentIndexChanged(int? index) {
-    if (_splicingInProgress) return;
-    if (index == null) return;
-
-    final sequence = _player.sequence;
-    final inSourceRange = sequence != null && index < sequence.length;
-    final tag = inSourceRange ? sequence[index].tag : null;
-
-    if (tag is MediaItem) {
-      if (mediaItem.value?.id != tag.id) {
-        mediaItem.add(tag);
-      }
-      if (index != _currentIndex && index < _queue.length) {
-        _currentIndex = index;
-      }
-      return;
-    }
-
-    if (index != _currentIndex && index < _queue.length) {
-      _currentIndex = index;
-      _updateMediaItem(_queue[index]);
-    }
-  }
-
-  // ─── SETTINGS ─────────────────────────────────────────────────────────────
 
   Future<void> _applySettings() async {
     await AudioPrefs.load();
     final p = await SharedPreferences.getInstance();
+
     final speed = p.getDouble('playback_speed') ?? 1.0;
     await _player.setSpeed(speed);
+
     final shakeEnabled = p.getBool('shake_to_skip') ?? false;
     _updateShakeListener(shakeEnabled);
+
+    if (!_eqReady) return;
+
+    final bassBoost = p.getBool('bass_boost') ?? false;
+    await _applyBassBoost(bassBoost);
+
+    final volNorm = p.getBool('volume_normalization') ?? false;
+    await _applyVolumeNorm(volNorm);
+
+    await _applyEqBands(p);
   }
+
+  Future<void> _applyBassBoost(bool enabled) async {
+    if (!_eqReady || _eq == null) return;
+    try {
+      final params = await _eq!.parameters;
+      final bands  = params.bands;
+      final gainDb = enabled ? 6.0 : 0.0;
+      for (int i = 0; i < bands.length && i < 3; i++) {
+        await bands[i].setGain(gainDb);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _applyVolumeNorm(bool enabled) async {
+    if (_loudness == null) return;
+    try {
+      await _loudness!.setEnabled(enabled);
+      if (enabled) await _loudness!.setTargetGain(-14);
+    } catch (_) {}
+  }
+
+  Future<void> _applyEqBands(SharedPreferences p) async {
+    if (!_eqReady || _eq == null) return;
+    try {
+      bool hasCustom = false;
+      for (int i = 0; i < 10; i++) {
+        if ((p.getDouble('eq_band_$i') ?? 0.0) != 0.0) {
+          hasCustom = true;
+          break;
+        }
+      }
+      if (!hasCustom) return;
+      final params = await _eq!.parameters;
+      final bands  = params.bands;
+      for (int i = 0; i < bands.length && i < 10; i++) {
+        await bands[i].setGain(p.getDouble('eq_band_$i') ?? 0.0);
+      }
+      await _eq!.setEnabled(true);
+    } catch (_) {}
+  }
+
+  /// Called by EqualizerScreen / settings toggles to immediately apply DSP changes.
+  Future<void> applyDsp() async => _applySettings();
+
+  /// Expose EQ instance for EqualizerScreen slider access.
+  AndroidEqualizer? get equalizer => _eqReady ? _eq : null;
 
   void _updateShakeListener(bool enabled) {
     _shakeSub?.cancel();
@@ -291,11 +393,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   Future<void> reloadSettings() async => _applySettings();
-
-  Future<void> _reapplySpeed() async {
-    final p = await SharedPreferences.getInstance();
-    await _player.setSpeed(p.getDouble('playback_speed') ?? 1.0);
-  }
 
   @override
   Future<void> onTaskRemoved() async {
@@ -314,13 +411,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (name == 'reloadSettings') await reloadSettings();
   }
 
-  // ─── DIAGNOSTIC: REAL PLAYBACK TEST ───────────────────────────────────────
+  // ─── DIAGNOSTIC: REAL PLAYBACK TEST ──────────────────────────────────────
 
   Future<RealPlaybackResult> runRealPlaybackTest(Song testSong) async {
-    final savedQueue = List<Song>.from(_queue);
-    final savedIndex = _currentIndex;
-    final wasPlaying = _player.playing;
-    final savedPos   = _player.position;
+    final savedQueue   = List<Song>.from(_queue);
+    final savedIndex   = _currentIndex;
+    final wasPlaying   = _player.playing;
+    final savedPos     = _player.position;
+    // FIX #27: capture session before async work so the restore doesn't
+    // stomp a newer user-initiated playback that started during the test.
+    final savedSession = _playSessionId;
 
     try {
       final source = await _sourceForSong(testSong);
@@ -342,44 +442,73 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       final state = _player.processingState.toString();
       final ok    = pos.inMilliseconds > 200;
 
-      return RealPlaybackResult(success: ok, positionMs: pos.inMilliseconds, processingState: state);
+      return RealPlaybackResult(
+        success: ok,
+        positionMs: pos.inMilliseconds,
+        processingState: state,
+      );
     } on PlayerException catch (e) {
       return RealPlaybackResult(
-        success: false, positionMs: 0, processingState: 'error',
+        success: false,
+        positionMs: 0,
+        processingState: 'error',
         errorMessage: 'code=${e.code} message=${e.message}',
       );
     } catch (e) {
-      return RealPlaybackResult(success: false, positionMs: 0, processingState: 'error', errorMessage: e.toString());
+      return RealPlaybackResult(
+        success: false,
+        positionMs: 0,
+        processingState: 'error',
+        errorMessage: e.toString(),
+      );
     } finally {
-      await _player.stop();
-      if (savedQueue.isNotEmpty) {
-        try {
-          final restoreSource = await _sourceForSong(savedQueue[savedIndex]);
-          if (restoreSource != null) {
-            final restored = ConcatenatingAudioSource(children: [restoreSource]);
-            await _player.setAudioSource(restored, initialIndex: 0, preload: false);
-            await _player.seek(savedPos);
-            if (wasPlaying) await _player.play();
-          }
-        } catch (_) {}
+      // FIX #27: session guard — only restore if user didn't tap something new.
+      if (savedSession == _playSessionId) {
+        await _player.stop();
+        if (savedQueue.isNotEmpty) {
+          try {
+            final restoreSource = await _sourceForSong(savedQueue[savedIndex]);
+            if (restoreSource != null && savedSession == _playSessionId) {
+              final restored = ConcatenatingAudioSource(children: [restoreSource]);
+              await _player.setAudioSource(restored, initialIndex: 0, preload: false);
+              await _player.seek(savedPos);
+              if (wasPlaying) await _player.play();
+            }
+          } catch (_) {}
+        }
+        _queue = savedQueue;
+        _currentIndex = savedIndex;
+        onQueueChanged?.call();
       }
-      _queue = savedQueue;
-      _currentIndex = savedIndex;
-      onQueueChanged?.call();
     }
   }
 
-  // ─── SOURCE RESOLUTION ──────────────────────────────────────────────────────
+  // ─── SOURCE RESOLUTION ────────────────────────────────────────────────────
 
   Future<AudioSource?> _sourceForSong(Song song, {bool fromLookahead = false, int? sessionId}) async {
     if (song.isLocal) {
-      final path = song.localPath!;
-      final uri = path.startsWith('content://') || path.startsWith('file://')
-          ? Uri.parse(path)
-          : Uri.file(path);
-      return AudioSource.uri(uri, tag: _songToMediaItem(song));
+      try {
+        final path = song.localPath!;
+        final isUriString =
+            path.startsWith('content://') || path.startsWith('file://');
+
+        if (!isUriString) {
+          final exists = await File(path).exists();
+          if (!exists) {
+            debugPrint('[AurumHandler] Local file missing: $path');
+            return null;
+          }
+        }
+
+        final uri = isUriString ? Uri.parse(path) : Uri.file(path);
+        return AudioSource.uri(uri, tag: _songToMediaItem(song));
+      } catch (e) {
+        debugPrint('[AurumHandler] Failed to build local AudioSource: $e');
+        return null;
+      }
     }
 
+    // Check lookahead cache. Skip for id:'' to avoid cross-song collisions.
     final cachedUrl = song.id.isEmpty ? null : _LookaheadCache.get(song.id);
     if (cachedUrl != null && !fromLookahead) {
       debugPrint('[AurumHandler] Lookahead HIT: "${song.title}"');
@@ -387,179 +516,210 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       return AudioSource.uri(Uri.parse(cachedUrl), tag: _songToMediaItem(song));
     }
 
-    final url = await _resolveFast(song, sessionId: sessionId);
+    // YouTube chains through up to 4 fallback stages — needs more headroom.
+    final resolveTimeout = song.source == SongSource.youtube
+        ? const Duration(seconds: 28)
+        : const Duration(seconds: 12);
+
+    String? url;
+    try {
+      url = await ApiService.resolveStreamUrl(song)
+          .timeout(resolveTimeout, onTimeout: () => null);
+    } catch (e) {
+      debugPrint('[AurumHandler] resolveStreamUrl threw: $e');
+      return null;
+    }
     if (url == null) return null;
+    // FIX #14: session check always applied when sessionId provided —
+    // including from preload-path callers.
     if (sessionId != null && sessionId != _playSessionId) return null;
     return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
   }
 
-  // ── FAST RESOLVE — capped attempts, short backoff ──────────────────────────
-  // 2 attempts max (not 3+), because the real fix for "stuck on old song" is
-  // fix A in _hardStopAndMute (player goes silent immediately, regardless of
-  // how long resolve takes) — this helper's job is just to give a genuinely
-  // transient failure one more shot without making the user wait excessively
-  // long before seeing an error if both attempts fail.
-  Future<String?> _resolveFast(Song song, {int? sessionId, int maxAttempts = 2}) async {
-    final perAttemptTimeout = song.source == SongSource.youtube
-        ? const Duration(seconds: 28)
-        : const Duration(seconds: 12);
-
-    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-      if (sessionId != null && sessionId != _playSessionId) return null;
-
-      String? url;
-      try {
-        url = await ApiService.resolveStreamUrl(song)
-            .timeout(perAttemptTimeout, onTimeout: () => null);
-      } catch (e) {
-        debugPrint('[AurumHandler] resolve attempt $attempt/$maxAttempts threw for "${song.title}": $e');
-        url = null;
-      }
-
-      if (sessionId != null && sessionId != _playSessionId) return null;
-      if (url != null && url.isNotEmpty) return url;
-
-      if (attempt < maxAttempts) {
-        debugPrint('[AurumHandler] resolve attempt $attempt/$maxAttempts failed for '
-            '"${song.title}", retrying shortly');
-        await Future.delayed(const Duration(milliseconds: 500));
-      }
-    }
-    return null;
-  }
+  // ─── LOOKAHEAD RESOLVE ────────────────────────────────────────────────────
+  // Called at 70% of current song from PlayerProvider.
 
   Future<void> lookaheadResolve(Song nextSong) async {
+    // Also kick the URL-only preload path in parallel.
+    _preloadNextSongUrl(nextSong);
+
     if (nextSong.isLocal) return;
     if (nextSong.id.isEmpty) return;
     if (_LookaheadCache.get(nextSong.id) != null) return;
-    debugPrint('[AurumHandler] Lookahead resolving: "${nextSong.title}"');
-    final url = await _resolveFast(nextSong, maxAttempts: 1);
-    if (url != null) {
-      _LookaheadCache.put(nextSong.id, url);
-      debugPrint('[AurumHandler] Lookahead cached: "${nextSong.title}"');
-    }
-  }
-
-  // ─── SHARED MUTE / HARD-STOP SEQUENCE — THE ACTUAL FIX ─────────────────────
-  //
-  // This is the single most important change in the whole file.
-  //
-  // OLD behaviour: setVolume(0) → stop(). stop() tears down ExoPlayer's
-  // playback state, but the player STILL HOLDS A REFERENCE to the old
-  // AudioSource/ConcatenatingAudioSource until setAudioSource() is called
-  // with something new. If the new song's resolve takes a long time (a
-  // YouTube chain can legitimately take up to ~28s), the player sits in a
-  // stopped-but-still-attached-to-old-source state for that whole window.
-  // On some Android/ExoPlayer builds, a renderer in this state can resume
-  // outputting buffered audio from the OLD source — especially if anything
-  // (play() called too early, an interruption-end auto-resume, a UI replay)
-  // nudges the player before the new setAudioSource() call lands. This is
-  // the direct mechanism behind "purana YT song hi bajta rehta hai."
-  //
-  // NEW behaviour: setVolume(0) → pause() → stop() → setAudioSource(EMPTY).
-  // Replacing the source with an empty ConcatenatingAudioSource means there
-  // is nothing left in the player for any stray resume to play — old audio
-  // becomes physically impossible to hear, not just unlikely. The player
-  // sits in a genuinely empty, silent state for the entire duration of the
-  // resolve, no matter how long that takes.
-  Future<void> _hardStopAndMute() async {
-    await _player.setVolume(0);
-    await _player.pause();
-    await _player.stop();
     try {
-      await _player.setAudioSource(ConcatenatingAudioSource(children: []));
+      debugPrint('[AurumHandler] Lookahead resolving: "${nextSong.title}"');
+      final url = await ApiService.resolveStreamUrl(nextSong)
+          .timeout(const Duration(seconds: 10), onTimeout: () => null);
+      if (url != null) {
+        _LookaheadCache.put(nextSong.id, url);
+        debugPrint('[AurumHandler] Lookahead cached: "${nextSong.title}"');
+      }
     } catch (e) {
-      // Defensive only — clearing to empty should never throw, but a clean
-      // failure here must not block the new song from loading right after.
-      debugPrint('[AurumHandler] clearing AudioSource before new song failed (ignored): $e');
+      debugPrint('[AurumHandler] Lookahead failed: $e');
     }
   }
 
-  Future<void> _restoreVolume() async {
+  // ─── URL-ONLY PRELOAD ────────────────────────────────────────────────────
+  // Resolves the next song's stream URL in background and stores it in
+  // _LookaheadCache. When skipToNext() fires, _sourceForSong() gets a cache
+  // hit and returns immediately — no network round trip needed.
+
+  Future<void> _preloadNextSongUrl(Song? nextSong) async {
+    if (nextSong == null) return;
+    if (nextSong.isLocal) return; // local files resolve instantly, no preload needed
+    if (nextSong.id.isEmpty) return;
+    if (nextSong.id == _preloadedSongId) return; // already in cache
+
+    final mySession = ++_preloadSessionId;
+    _preloadedSongId = null;
+
     try {
-      await _player.setVolume(1);
-    } catch (_) {}
+      final url = await ApiService.resolveStreamUrl(nextSong)
+          .timeout(const Duration(seconds: 20), onTimeout: () => null);
+      if (mySession != _preloadSessionId) return;
+      if (url == null) return;
+
+      _LookaheadCache.put(nextSong.id, url);
+      _preloadedSongId = nextSong.id;
+      debugPrint('[AurumHandler] URL preload ready: "${nextSong.title}"');
+    } catch (e) {
+      debugPrint('[AurumHandler] URL preload failed (ignored): $e');
+    }
+  }
+
+  void _kickOffUrlPreloadForUpcomingSong() {
+    if (_queue.isEmpty) return;
+    final nextIdx = _currentIndex + 1;
+    if (nextIdx >= _queue.length) return;
+    _preloadNextSongUrl(_queue[nextIdx]);
+  }
+
+  // Invalidate preload state if the song at _currentIndex+1 changed.
+  void _invalidatePreloadIfStale() {
+    if (_preloadedSongId == null) return;
+    final nextIdx = _currentIndex + 1;
+    final stillValid = nextIdx >= 0 &&
+        nextIdx < _queue.length &&
+        _queue[nextIdx].id == _preloadedSongId;
+    if (!stillValid) {
+      _preloadedSongId = null;
+    }
+  }
+
+  Future<void> _reapplySpeed() async {
+    final p = await SharedPreferences.getInstance();
+    await _player.setSpeed(p.getDouble('playback_speed') ?? 1.0);
   }
 
   // ─── MAIN PLAY ENTRY POINT ───────────────────────────────────────────────
 
   Future<void> playQueue(List<Song> songs, int startIndex) async {
     _playSessionId++;
+    _lastProcessedIndex = null;
     final mySession = _playSessionId;
     _isLoadingNewSong = true;
     _restoredSilently = false;
 
-    final safeIndex = songs.isEmpty ? 0 : startIndex.clamp(0, songs.length - 1);
+    // FIX #13: cancel in-flight URL preload on new play.
+    _preloadSessionId++;
+    _preloadedSongId = null;
 
+    final safeIndex = songs.isEmpty
+        ? 0
+        : startIndex.clamp(0, songs.length - 1);
     _queue        = List<Song>.from(songs);
     _currentIndex = safeIndex;
     _splicingInProgress = true;
     onQueueChanged?.call();
 
-    bool started = false;
+    // FIX #25: keep AudioService queue BehaviorSubject in sync so lock-screen
+    // queue display and assistant "next/previous" commands work correctly.
+    queue.add(_queue.map(_songToMediaItem).toList());
+
     try {
-      // Player is now guaranteed silent and source-free — see
-      // _hardStopAndMute's doc comment for why this is the real fix.
-      await _hardStopAndMute();
-      if (mySession != _playSessionId) return;
+      // 1. Mute first — setVolume(0) is synchronous on the audio sink.
+      await _player.setVolume(0);
 
+      // 2. pause() flushes ExoPlayer's buffered PCM frames immediately,
+      //    then stop() tears down the engine state (ghost-audio fix).
+      await _player.pause();
+      await _player.stop();
+      await Future.microtask(() {});
+
+      if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
+
+      // 3. Resolve the clicked song. If URL preload already stored the URL
+      //    in _LookaheadCache, this returns near-instantly.
       var startSource = await _sourceForSong(songs[safeIndex], sessionId: mySession);
-      if (mySession != _playSessionId) return;
-
+      if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
       if (startSource == null) {
-        _failPlayback(songs[safeIndex], 'stream URL could not be resolved after retries');
+        debugPrint('[AurumHandler] playQueue resolve failed, retrying once: "${songs[safeIndex].title}"');
+        await Future.delayed(const Duration(milliseconds: 600));
+        if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
+        startSource = await _sourceForSong(songs[safeIndex], sessionId: mySession);
+        if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
+      }
+      if (startSource == null) {
+        _queue = [];
+        _currentIndex = 0;
+        mediaItem.add(null);
+        queue.add([]);
+        onQueueChanged?.call();
+        onPlaybackError?.call('Resolve failed for "${songs[safeIndex].title}" — '
+            'stream URL could not be resolved');
+        await _player.setVolume(1);
+        _splicingInProgress = false;
         return;
       }
 
+      // 4. Fresh single-song playlist. preload:false avoids blocking on
+      //    slow/unreachable URLs.
       final fresh = ConcatenatingAudioSource(children: [startSource]);
       try {
         await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
       } catch (e) {
-        _failPlayback(songs[safeIndex], _exceptionDetail(e), prefix: 'setAudioSource failed');
+        debugPrint('[AurumHandler] setAudioSource failed: $e');
+        final detail = e is PlayerException
+            ? 'code=${e.code} message=${e.message}'
+            : e.toString();
+        onPlaybackError?.call('playQueue setAudioSource failed for '
+            '"${songs[safeIndex].title}": $detail');
+        await _player.setVolume(1);
+        _splicingInProgress = false;
         return;
       }
-      if (mySession != _playSessionId) return;
+      if (mySession != _playSessionId) { await _player.setVolume(1); _splicingInProgress = false; return; }
 
       await _reapplySpeed();
       _updateMediaItem(songs[safeIndex]);
-      await _restoreVolume();
+      await _player.setVolume(1); // restore volume BEFORE play
       await _player.play();
-      started = true;
+
+      // Kick off URL preload for the next song so skipToNext() is instant.
+      _kickOffUrlPreloadForUpcomingSong();
+
     } catch (e) {
       debugPrint('[AurumHandler] playQueue unexpected error: $e');
       onPlaybackError?.call('playQueue failed for "${songs[safeIndex].title}": $e');
+      try { await _player.setVolume(1); } catch (_) {}
+      _splicingInProgress = false;
     } finally {
-      await _restoreVolume();
       if (mySession == _playSessionId) {
         _isLoadingNewSong = false;
-        if (!started) _splicingInProgress = false;
       } else {
         _splicingInProgress = false;
         _isLoadingNewSong   = false;
       }
     }
-
-    if (started && mySession == _playSessionId) {
-      _resolveQueueInBackground(songs, safeIndex, mySession);
-    }
+    _resolveQueueInBackground(songs, safeIndex, mySession);
   }
 
-  void _failPlayback(Song song, String detail, {String prefix = 'Resolve failed'}) {
-    _queue = [];
-    _currentIndex = 0;
-    _splicingInProgress = false;
-    mediaItem.add(null);
-    onQueueChanged?.call();
-    onPlaybackError?.call('$prefix for "${song.title}" — $detail');
-  }
-
-  String _exceptionDetail(Object e) {
-    if (e is PlayerException) return 'code=${e.code} message=${e.message}';
-    return e.toString();
-  }
-
-  void _resolveQueueInBackground(List<Song> songs, int startIndex, int sessionId) async {
+  // Resolves remaining songs and splices into the live ConcatenatingAudioSource.
+  // FIX #26: Future<void> (not void) so unhandled errors don't escape to zone.
+  Future<void> _resolveQueueInBackground(
+      List<Song> songs, int startIndex, int sessionId) async {
     try {
+      // --- Songs AFTER startIndex (append) ---
       for (int i = startIndex + 1; i < songs.length; i++) {
         if (sessionId != _playSessionId) return;
         try {
@@ -574,6 +734,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         } catch (_) {}
       }
 
+      // --- Songs BEFORE startIndex (prepend in reverse, track playerIndex) ---
       int playerIndex = 0;
       for (int i = startIndex - 1; i >= 0; i--) {
         if (sessionId != _playSessionId) return;
@@ -590,6 +751,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
           }
         } catch (_) {}
       }
+    } catch (e) {
+      debugPrint('[AurumHandler] _resolveQueueInBackground unexpected error: $e');
     } finally {
       if (sessionId == _playSessionId) _splicingInProgress = false;
     }
@@ -602,6 +765,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final index = startIndex.clamp(0, songs.length - 1);
 
     _playSessionId++;
+    // FIX #13: also cancel preload on silent restore.
+    _preloadSessionId++;
+    _preloadedSongId = null;
     _splicingInProgress = false;
     _queue        = List<Song>.from(songs);
     _currentIndex = index;
@@ -616,26 +782,50 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<void> playSong(Song song) async {
     _playSessionId++;
+    _lastProcessedIndex = null;
     final mySession = _playSessionId;
     _restoredSilently = false;
+
+    // FIX #13: cancel in-flight preload.
+    _preloadSessionId++;
+    _preloadedSongId = null;
 
     _queue        = [song];
     _currentIndex = 0;
     _splicingInProgress = false;
     onQueueChanged?.call();
+    queue.add([_songToMediaItem(song)]);
 
     try {
-      // Same real fix as playQueue — player goes fully silent and
-      // source-free before we even start resolving the new song.
-      await _hardStopAndMute();
-      if (mySession != _playSessionId) return;
+      // FIX #29: set _isLoadingNewSong here too — previously only playQueue
+      // set this flag, so interruption-end could auto-resume during playSong's
+      // setAudioSource() load window.
+      _isLoadingNewSong = true;
 
-      var source = await _sourceForSong(song, sessionId: mySession);
-      if (mySession != _playSessionId) return;
+      await _player.setVolume(0);
+      await _player.pause();
+      await _player.stop();
+      await Future.microtask(() {});
+      if (mySession != _playSessionId) { await _player.setVolume(1); return; }
 
+      var source = await _sourceForSong(song);
+      if (mySession != _playSessionId) { await _player.setVolume(1); return; }
       if (source == null) {
-        _failPlayback(song, 'stream URL could not be resolved after retries, '
-            'or the local file is missing');
+        debugPrint('[AurumHandler] playSong resolve failed, retrying once: "${song.title}"');
+        await Future.delayed(const Duration(milliseconds: 600));
+        if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+        source = await _sourceForSong(song);
+        if (mySession != _playSessionId) { await _player.setVolume(1); return; }
+      }
+      if (source == null) {
+        _queue = [];
+        _currentIndex = 0;
+        mediaItem.add(null);
+        queue.add([]);
+        onQueueChanged?.call();
+        onPlaybackError?.call('Resolve failed for "${song.title}" — '
+            'stream URL could not be resolved, or the local file is missing');
+        await _player.setVolume(1);
         return;
       }
 
@@ -643,20 +833,27 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       try {
         await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
       } catch (e) {
-        _failPlayback(song, _exceptionDetail(e), prefix: 'setAudioSource failed');
+        debugPrint('[AurumHandler] playSong setAudioSource failed: $e');
+        final detail = e is PlayerException
+            ? 'code=${e.code} message=${e.message}'
+            : e.toString();
+        onPlaybackError?.call('playSong setAudioSource failed for "${song.title}": $detail');
+        await _player.setVolume(1);
         return;
       }
-      if (mySession != _playSessionId) return;
+      if (mySession != _playSessionId) { await _player.setVolume(1); return; }
 
       await _reapplySpeed();
       _updateMediaItem(song);
-      await _restoreVolume();
+      await _player.setVolume(1);
       await _player.play();
     } catch (e) {
       debugPrint('[AurumHandler] playSong unexpected error: $e');
       onPlaybackError?.call('playSong failed for "${song.title}": $e');
+      try { await _player.setVolume(1); } catch (_) {}
     } finally {
-      await _restoreVolume();
+      // FIX #29: always clear in finally regardless of path taken.
+      if (mySession == _playSessionId) _isLoadingNewSong = false;
     }
   }
 
@@ -665,61 +862,75 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> addToQueue(Song song) async {
     final session = _playSessionId;
     _queue.add(song);
+    // FIX #12: addToQueue now invalidates stale preload (was missing previously).
+    _invalidatePreloadIfStale();
     final source = await _sourceForSong(song, sessionId: session);
     if (source == null) return;
     if (session != _playSessionId) return;
     final seq = _player.audioSource;
     if (seq is ConcatenatingAudioSource) await seq.add(source);
+    // FIX #25: keep AudioService queue in sync after mutation.
+    queue.add(_queue.map(_songToMediaItem).toList());
   }
 
   Future<void> playNext(Song song) async {
     final session = _playSessionId;
     final insertIdx = _currentIndex + 1;
     _queue.insert(insertIdx, song);
+    _invalidatePreloadIfStale();
     final source = await _sourceForSong(song, sessionId: session);
     if (source == null) return;
     if (session != _playSessionId) return;
     final seq = _player.audioSource;
     if (seq is ConcatenatingAudioSource) await seq.insert(insertIdx, source);
+    queue.add(_queue.map(_songToMediaItem).toList());
   }
 
   Future<void> removeFromQueue(int index) async {
     if (index >= _queue.length) return;
     _queue.removeAt(index);
+    _invalidatePreloadIfStale();
     final seq = _player.audioSource;
     if (seq is ConcatenatingAudioSource && index < seq.length) {
       await seq.removeAt(index);
     }
+    queue.add(_queue.map(_songToMediaItem).toList());
   }
 
   Future<void> moveQueueItem(int from, int to) async {
     final song = _queue.removeAt(from);
     _queue.insert(to, song);
+    _invalidatePreloadIfStale();
     final seq = _player.audioSource;
     if (seq is ConcatenatingAudioSource) await seq.move(from, to);
+    queue.add(_queue.map(_songToMediaItem).toList());
   }
 
   Future<void> clearQueue() async {
     _playSessionId++;
+    _preloadSessionId++;
+    _preloadedSongId = null;
     _queue        = [];
     _currentIndex = 0;
     _splicingInProgress = false;
     final seq = _player.audioSource;
     if (seq is ConcatenatingAudioSource) await seq.clear();
     mediaItem.add(null);
+    queue.add([]);
   }
 
   // ─── GETTERS ──────────────────────────────────────────────────────────────
 
   List<Song> get currentQueue => List.unmodifiable(_queue);
+
   Song? get currentSong {
     if (_queue.isEmpty || _currentIndex < 0 || _currentIndex >= _queue.length) {
       return null;
     }
     return _queue[_currentIndex];
   }
-  int get currentIndex => _currentIndex;
-  AudioPlayer get player => _player;
+  int         get currentIndex => _currentIndex;
+  AudioPlayer get player       => _player;
 
   // ─── MEDIA ITEM ───────────────────────────────────────────────────────────
 
@@ -738,6 +949,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   void _broadcastState(PlaybackEvent event) {
     final playing = _player.playing;
+    // FIX #30: null-safe fallback instead of `!` force-unwrap — future
+    // just_audio versions adding new ProcessingState values won't crash here.
+    final ps = {
+      ProcessingState.idle:      AudioProcessingState.idle,
+      ProcessingState.loading:   AudioProcessingState.loading,
+      ProcessingState.buffering: AudioProcessingState.buffering,
+      ProcessingState.ready:     AudioProcessingState.ready,
+      ProcessingState.completed: AudioProcessingState.completed,
+    }[_player.processingState] ?? AudioProcessingState.idle;
+
     playbackState.add(playbackState.value.copyWith(
       controls: [
         MediaControl.skipToPrevious,
@@ -750,13 +971,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         MediaAction.seekBackward,
       },
       androidCompactActionIndices: const [0, 1, 2],
-      processingState: {
-        ProcessingState.idle:      AudioProcessingState.idle,
-        ProcessingState.loading:   AudioProcessingState.loading,
-        ProcessingState.buffering: AudioProcessingState.buffering,
-        ProcessingState.ready:     AudioProcessingState.ready,
-        ProcessingState.completed: AudioProcessingState.completed,
-      }[_player.processingState]!,
+      processingState:  ps,
       playing:          playing,
       updatePosition:   _player.position,
       bufferedPosition: _player.bufferedPosition,
@@ -775,7 +990,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     try {
       await _player.stop();
     } catch (e) {
-      debugPrint('[AurumHandler] stop() failed (ignored): $e');
+      debugPrint('[Aurum] _player.stop() failed (ignored): $e');
     }
   }
 
@@ -783,6 +998,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   @override
   Future<void> skipToNext() async {
+    // URL-only preload means _LookaheadCache already has the next song's URL.
+    // playQueue() → _sourceForSong() gets a cache hit → near-instant start.
     final seq     = _player.sequence;
     final liveLen = seq?.length ?? 0;
     final livePos = _player.currentIndex ?? 0;
@@ -794,6 +1011,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       await _player.seek(Duration.zero, index: 0);
       await _player.play();
     } else if (!_splicingInProgress && _currentIndex < _queue.length - 1) {
+      // Live sequence exhausted but queue has more — recover via playQueue.
       await playQueue(_queue, _currentIndex + 1);
     }
   }
@@ -849,7 +1067,31 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   Future<void> disposeHandler() async {
+    _indexDebounce?.cancel();
     _shakeSub?.cancel();
+    _broadcastSub?.cancel();
+    _recoverySub?.cancel();
+    _durationSub?.cancel();
+    _currentIndexSub?.cancel();
+    // FIX #7: cancel AudioSession subscriptions — were leaked previously.
+    _interruptionSub?.cancel();
+    _noisySub?.cancel();
     await _player.dispose();
   }
+}
+
+// ─── RESULT TYPE ──────────────────────────────────────────────────────────────
+
+class RealPlaybackResult {
+  final bool    success;
+  final int     positionMs;
+  final String  processingState;
+  final String? errorMessage;
+
+  const RealPlaybackResult({
+    required this.success,
+    required this.positionMs,
+    required this.processingState,
+    this.errorMessage,
+  });
 }
