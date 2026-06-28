@@ -305,19 +305,29 @@ class _MiniPlayerContent extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       height: 68,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withAlpha(isDragging ? 14 : 9)
-                  : Colors.black.withAlpha(isDragging ? 12 : 7),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: isDragging
+      // RepaintBoundary forces this blur onto its OWN compositing layer.
+      // FIX: without this, having multiple BackdropFilters active at once
+      // (mini player + anything else mounted underneath, e.g. right as a
+      // song starts and the mini player appears) can make some Android
+      // GPU/Skia configs blur the entire shared backdrop layer instead of
+      // just this clipped capsule — which is what was making the WHOLE
+      // Home screen appear blurred the instant the mini player showed up,
+      // and fixing itself the moment the mini player (and its filter) was
+      // removed via swipe-down dismiss.
+      child: RepaintBoundary(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withAlpha(isDragging ? 14 : 9)
+                    : Colors.black.withAlpha(isDragging ? 12 : 7),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isDragging
                     ? AurumTheme.gold.withAlpha(60)
                     : AurumTheme.gold.withAlpha(isDark ? 35 : 50),
                 width: 0.8,
@@ -461,13 +471,11 @@ class _MiniPlayerContent extends StatelessWidget {
           ),
         ),
       ),
+      ),
     );
   }
 
   // ── Compact Bar — premium edge-to-edge style (Settings → Appearance) ──
-  // Same blur/gold language as the capsule, but full-width with no side
-  // margins, a slimmer height, and the progress bar running the entire
-  // width as a thin gold line at the very top edge.
   Widget _buildCompactBar(BuildContext context, dynamic song) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final showUpHint = dragY < -20;
@@ -485,27 +493,32 @@ class _MiniPlayerContent extends StatelessWidget {
           ),
         ),
       ),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withAlpha(isDragging ? 16 : 11)
-                : Colors.black.withAlpha(isDragging ? 14 : 9),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withAlpha(isDark ? 90 : 26),
-                blurRadius: isDragging ? 22 : 16,
-                offset: const Offset(0, -2),
-              ),
-            ],
-          ),
-          child: Stack(
-            children: [
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+      // RepaintBoundary isolates this blur onto its own compositing layer —
+      // same fix as the capsule style, see comment there for why this
+      // matters (prevents the whole screen from appearing blurred the
+      // instant the mini player mounts).
+      child: RepaintBoundary(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withAlpha(isDragging ? 16 : 11)
+                  : Colors.black.withAlpha(isDragging ? 14 : 9),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withAlpha(isDark ? 90 : 26),
+                  blurRadius: isDragging ? 22 : 16,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                   // Edge-to-edge progress line
                   LinearProgressIndicator(
                     value: player.progress,
@@ -618,6 +631,7 @@ class _MiniPlayerContent extends StatelessWidget {
             ],
           ),
         ),
+      ),
       ),
     );
   }
