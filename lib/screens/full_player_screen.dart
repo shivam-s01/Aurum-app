@@ -1,3 +1,4 @@
+import '../widgets/aurum_loader.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1022,10 +1023,7 @@ class _PremiumPlayButton extends StatelessWidget {
                     key: ValueKey('loading'),
                     width: 26,
                     height: 26,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.black38,
-                    ),
+                    child: Center(child: AurumM3Loader(width: 26, height: 2.5)),
                   )
                 : Icon(
                     isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
@@ -1330,14 +1328,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
                           style: TextStyle(color: textMuted, fontSize: 12)),
                       ]),
                       const SizedBox(height: 6),
-                      LinearProgressIndicator(
-                        value: dlItem?.progress,
-                        backgroundColor: isLight
-                            ? AurumTheme.lightBgSurface
-                            : Colors.white.withAlpha(20),
-                        valueColor: const AlwaysStoppedAnimation(AurumTheme.gold),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+                      const AurumM3Loader(height: 3, borderRadius: 2),
                     ]),
                   ),
                 // Action grid
@@ -1467,6 +1458,20 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   late final AnimationController _tabCtrl;
   late final Animation<double> _tabFade;
 
+  // Spring-back-to-zero controller for an aborted drag-to-dismiss.
+  late final AnimationController _springBackCtrl;
+  Animation<double>? _springBackAnim;
+
+  // Reverse exit animation (translate down + fade out) played before pop.
+  late final AnimationController _exitCtrl;
+  late final Animation<double> _exitTranslate;
+  late final Animation<double> _exitFade;
+
+  // Tracks current scroll offset of whichever tab's scrollable is active,
+  // so drag-to-dismiss only engages when that scrollable is at its top.
+  double _scrollOffset = 0;
+  bool _isDismissing = false;
+
   @override
   void initState() {
     super.initState();
@@ -1474,11 +1479,28 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
         vsync: this, duration: const Duration(milliseconds: 220));
     _tabFade = CurvedAnimation(parent: _tabCtrl, curve: Curves.easeOut);
     _tabCtrl.forward();
+
+    _springBackCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 420));
+    _springBackCtrl.addListener(() {
+      if (_springBackAnim != null) {
+        setState(() => _dragY = _springBackAnim!.value);
+      }
+    });
+
+    _exitCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 280));
+    _exitTranslate = Tween<double>(begin: 0, end: 1).animate(
+        CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInCubic));
+    _exitFade = Tween<double>(begin: 1, end: 0).animate(
+        CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInCubic));
   }
 
   @override
   void dispose() {
     _tabCtrl.dispose();
+    _springBackCtrl.dispose();
+    _exitCtrl.dispose();
     super.dispose();
   }
 
@@ -1492,9 +1514,24 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     });
   }
 
+  void _springBackToZero() {
+    _springBackAnim = Tween<double>(begin: _dragY, end: 0).animate(
+      CurvedAnimation(parent: _springBackCtrl, curve: Curves.elasticOut),
+    );
+    _springBackCtrl
+      ..reset()
+      ..forward();
+  }
+
   void _dismiss() {
+    if (_isDismissing) return;
+    _isDismissing = true;
     HapticFeedback.lightImpact();
-    Navigator.of(context).pop();
+    _exitCtrl.forward().then((_) {
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+    });
   }
 
   @override
@@ -1502,8 +1539,13 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     final isLight = Theme.of(context).brightness == Brightness.light;
     final screenH = MediaQuery.of(context).size.height;
     final dragFraction = (_dragY / screenH).clamp(0.0, 1.0);
-    final opacity = (1.0 - dragFraction * 2.5).clamp(0.0, 1.0);
+    final dragOpacity = (1.0 - dragFraction * 2.5).clamp(0.0, 1.0);
     final scale = (1.0 - dragFraction * 0.06).clamp(0.88, 1.0);
+
+    // Exit animation (translate down + fade) layers on top of any
+    // drag-driven offset/opacity when the panel is being dismissed.
+    final exitOffsetY = _exitTranslate.value * screenH * 0.4;
+    final opacity = (dragOpacity * _exitFade.value).clamp(0.0, 1.0);
 
     // ── Theme-aware glass tint ──
     // Light: airy white glass tinted faintly by the palette (Echo Nightly look)
@@ -1529,78 +1571,103 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
         ? AurumTheme.lightTextMuted.withAlpha(90)
         : Colors.white.withAlpha(40);
 
-    return GestureDetector(
-      onVerticalDragUpdate: (d) {
-        if (d.delta.dy > 0) setState(() => _dragY += d.delta.dy);
-      },
-      onVerticalDragEnd: (d) {
-        if (_dragY > 90 || (d.primaryVelocity ?? 0) > 600) {
-          _dismiss();
-        } else {
-          setState(() => _dragY = 0);
-        }
-      },
-      child: Transform.translate(
-        offset: Offset(0, _dragY.clamp(0.0, screenH * 0.5)),
-        child: Transform.scale(
-          scale: scale,
-          alignment: Alignment.topCenter,
-          child: Opacity(
-            opacity: opacity,
-            child: SizedBox(
-              height: screenH * 0.95,
-              child: ClipRRect(
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(32)),
-                // Lightweight glass: sigma 16 instead of 24 — still reads as
-                // frosted but noticeably cheaper on GPU. RepaintBoundary
-                // stops it from repainting on every parent rebuild (e.g.
-                // progress-bar ticks from the player above it).
-                child: RepaintBoundary(
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(32)),
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: glassColors,
-                          stops: const [0.0, 0.5, 1.0],
-                        ),
-                        border: Border(
-                          top: BorderSide(color: borderColor, width: 0.5),
-                        ),
-                      ),
-                      child: Column(children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12, bottom: 6),
-                          child: Container(
-                            width: 32,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: handleColor,
-                              borderRadius: BorderRadius.circular(2),
+    return AnimatedBuilder(
+      animation: _exitCtrl,
+      builder: (context, _) {
+        return GestureDetector(
+          onVerticalDragUpdate: (d) {
+            // Block drag-to-dismiss while the active tab's scrollable is
+            // not at its top — avoids hijacking ListView/CustomScrollView
+            // scroll gestures inside the panel.
+            if (_scrollOffset > 0) return;
+            if (d.delta.dy > 0) {
+              _springBackCtrl.stop();
+              setState(() => _dragY += d.delta.dy);
+            }
+          },
+          onVerticalDragEnd: (d) {
+            if (_scrollOffset > 0) return;
+            if (_dragY > 90 || (d.primaryVelocity ?? 0) > 600) {
+              _dismiss();
+            } else {
+              _springBackToZero();
+            }
+          },
+          child: Transform.translate(
+            offset: Offset(
+                0, _dragY.clamp(0.0, screenH * 0.5) + exitOffsetY),
+            child: Transform.scale(
+              scale: scale,
+              alignment: Alignment.topCenter,
+              child: Opacity(
+                opacity: opacity,
+                child: SizedBox(
+                  height: screenH * 0.95,
+                  child: ClipRRect(
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(32)),
+                    // Lightweight glass: sigma 16 instead of 24 — still reads as
+                    // frosted but noticeably cheaper on GPU. RepaintBoundary
+                    // stops it from repainting on every parent rebuild (e.g.
+                    // progress-bar ticks from the player above it).
+                    child: RepaintBoundary(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(32)),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: glassColors,
+                              stops: const [0.0, 0.5, 1.0],
+                            ),
+                            border: Border(
+                              top: BorderSide(color: borderColor, width: 0.5),
                             ),
                           ),
+                          child: Column(children: [
+                            Padding(
+                              padding:
+                                  const EdgeInsets.only(top: 12, bottom: 6),
+                              child: Container(
+                                width: 32,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: handleColor,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: FadeTransition(
+                                opacity: _tabFade,
+                                child: NotificationListener<ScrollNotification>(
+                                  onNotification: (notification) {
+                                    final offset =
+                                        notification.metrics.pixels;
+                                    if (offset != _scrollOffset) {
+                                      _scrollOffset = offset > 0 ? offset : 0;
+                                    }
+                                    return false;
+                                  },
+                                  child: _buildTabContent(),
+                                ),
+                              ),
+                            ),
+                            _buildTabBar(isLight),
+                          ]),
                         ),
-                        Expanded(
-                          child: FadeTransition(
-                            opacity: _tabFade,
-                            child: _buildTabContent(),
-                          ),
-                        ),
-                        _buildTabBar(isLight),
-                      ]),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -2126,11 +2193,11 @@ class _LyricsPageState extends State<_LyricsPage> {
 
     Widget content;
     if (_loading) {
-      content = Center(
-        key: const ValueKey('loading'),
-        child: CircularProgressIndicator(
-          color: loaderColor,
-          strokeWidth: 1.5,
+      content = const Center(
+        key: ValueKey('loading'),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 48),
+          child: AurumM3Loader(),
         ),
       );
     } else if (_notFound) {

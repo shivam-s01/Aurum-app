@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_artwork.dart';
@@ -46,6 +47,11 @@ class _MiniPlayerState extends State<MiniPlayer>
   bool _dismissed = false;
   String? _dismissedSongId; // track which song was dismissed
 
+  // 'Capsule' = original floating glass pill. 'Compact Bar' = new premium
+  // edge-to-edge bar style, selectable from Settings → Appearance.
+  static const String prefsKeyMiniPlayerStyle = 'mini_player_style';
+  String _style = 'Capsule';
+
   late final AnimationController _settleCtrl;
   late Animation<double> _settleAnim;
 
@@ -61,6 +67,19 @@ class _MiniPlayerState extends State<MiniPlayer>
       duration: const Duration(milliseconds: 320),
     );
     _settleAnim = AlwaysStoppedAnimation(0.0);
+    _loadStyle();
+  }
+
+  Future<void> _loadStyle() async {
+    final p = await SharedPreferences.getInstance();
+    final saved = p.getString(prefsKeyMiniPlayerStyle) ?? 'Capsule';
+    if (mounted) setState(() => _style = saved);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadStyle();
   }
 
   @override
@@ -220,6 +239,7 @@ class _MiniPlayerState extends State<MiniPlayer>
               player: player,
               isDragging: _isDragging,
               dragY: _dragY,
+              style: _style,
             ),
           ),
         );
@@ -235,11 +255,13 @@ class _MiniPlayerContent extends StatelessWidget {
   final PlayerProvider player;
   final bool isDragging;
   final double dragY;
+  final String style;
 
   const _MiniPlayerContent({
     required this.player,
     required this.isDragging,
     required this.dragY,
+    this.style = 'Capsule',
   });
 
   @override
@@ -255,6 +277,14 @@ class _MiniPlayerContent extends StatelessWidget {
     // on local/offline playback. Render nothing instead; the parent's
     // hasSong guard will hide this widget on the very next frame anyway.
     if (song == null) return const SizedBox.shrink();
+
+    if (style == 'Compact Bar') {
+      return _buildCompactBar(context, song);
+    }
+    return _buildCapsule(context, song);
+  }
+
+  Widget _buildCapsule(BuildContext context, dynamic song) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Hint: show up/down arrows while dragging
@@ -422,6 +452,164 @@ class _MiniPlayerContent extends StatelessWidget {
       ),
     );
   }
+
+  // ── Compact Bar — premium edge-to-edge style (Settings → Appearance) ──
+  // Same blur/gold language as the capsule, but full-width with no side
+  // margins, a slimmer height, and the progress bar running the entire
+  // width as a thin gold line at the very top edge.
+  Widget _buildCompactBar(BuildContext context, dynamic song) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final showUpHint = dragY < -20;
+    final showDownHint = dragY > 20;
+
+    return Container(
+      height: 64,
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: isDragging
+                ? AurumTheme.gold.withAlpha(70)
+                : AurumTheme.gold.withAlpha(isDark ? 30 : 45),
+            width: 0.6,
+          ),
+        ),
+      ),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.white.withAlpha(isDragging ? 16 : 11)
+                : Colors.black.withAlpha(isDragging ? 14 : 9),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(isDark ? 90 : 26),
+                blurRadius: isDragging ? 22 : 16,
+                offset: const Offset(0, -2),
+              ),
+            ],
+          ),
+          child: Stack(
+            children: [
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Edge-to-edge progress line
+                  LinearProgressIndicator(
+                    value: player.progress,
+                    backgroundColor: Colors.transparent,
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                        AurumTheme.gold),
+                    minHeight: 2,
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 14),
+                      child: Row(
+                        children: [
+                          // Square-ish artwork, slightly smaller than capsule
+                          Hero(
+                            tag: 'aurum_artwork',
+                            flightShuttleBuilder:
+                                (ctx, anim, dir, from, to) =>
+                                    ScaleTransition(
+                                        scale: anim, child: to.widget),
+                            child: AurumArtwork(
+                              url: song.artworkUrl,
+                              size: 40,
+                              borderRadius: 8,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              mainAxisAlignment:
+                                  MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  song.title,
+                                  style: TextStyle(
+                                    color:
+                                        AurumTheme.textPrimaryOf(context),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  song.artist,
+                                  style: TextStyle(
+                                    color: AurumTheme.textSecondaryOf(
+                                        context),
+                                    fontSize: 11,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          _ControlBtn(
+                              icon: Icons.skip_previous_rounded,
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                player.skipPrev();
+                              },
+                              size: 20,
+                              context: context),
+                          const SizedBox(width: 2),
+                          _PlayBtn(player: player),
+                          const SizedBox(width: 2),
+                          _ControlBtn(
+                              icon: Icons.skip_next_rounded,
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                player.skipNext();
+                              },
+                              size: 20,
+                              context: context),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (showUpHint || showDownHint)
+                Positioned.fill(
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 150),
+                    opacity: (dragY.abs() / 60.0).clamp(0.0, 0.85),
+                    child: Container(
+                      color: showDownHint
+                          ? Colors.red.withAlpha(30)
+                          : Colors.white.withAlpha(10),
+                      child: Center(
+                        child: Icon(
+                          showDownHint
+                              ? Icons.stop_circle_outlined
+                              : Icons.keyboard_arrow_up_rounded,
+                          color: showDownHint
+                              ? Colors.red.withAlpha(180)
+                              : Colors.white.withAlpha(150),
+                          size: 26,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -434,10 +622,13 @@ class _PlayBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (player.isLoading) {
-      return const SizedBox(
-          width: 36,
-          height: 36,
-          child: Center(child: AurumLoader(size: 26)));
+      return Opacity(
+        opacity: 0.35,
+        child: SizedBox(
+          width: 36, height: 36,
+          child: Icon(Icons.play_arrow_rounded, color: AurumTheme.gold, size: 26),
+        ),
+      );
     }
     return GestureDetector(
       onTap: () {

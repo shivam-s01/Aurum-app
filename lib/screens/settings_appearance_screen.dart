@@ -26,6 +26,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   bool _showBlurredBg = true;
   // Mini Player
   String _miniPlayerBgStyle = 'Follow Theme';
+  String _miniPlayerStyle = 'Capsule';
   double _swipeSensitivity = 50.0;
   // Lyrics
   String _lyricsTextPosition = 'Centre';
@@ -67,6 +68,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _playerSliderStyle = p.getString('player_slider_style') ?? 'Rounded';
       _showBlurredBg = p.getBool('show_blurred_bg') ?? true;
       _miniPlayerBgStyle = p.getString('mini_player_bg_style') ?? 'Follow Theme';
+      _miniPlayerStyle = p.getString('mini_player_style') ?? 'Capsule';
       _swipeSensitivity = p.getDouble('swipe_sensitivity') ?? 50.0;
       _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';
       _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;
@@ -249,6 +251,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           ),
           // ── Mini Player ──
           _sectionLabel('⬇️ MINI PLAYER'),
+          _buildMiniPlayerStyleSelector(context),
           _dropdownTile(context,
             title: 'Mini Player Background Style',
             subtitle: 'Appearance of collapsed player',
@@ -526,6 +529,94 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   }
 
   // ── Artwork Shape ─────────────────────────────────────────────────────────
+  Widget _buildMiniPlayerStyleSelector(BuildContext context) {
+    const styles = ['Capsule', 'Compact Bar'];
+    const subtitles = {
+      'Capsule': 'Floating glass pill',
+      'Compact Bar': 'Edge-to-edge premium bar',
+    };
+    return _card(context, child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: styles.map((s) {
+          final sel = _miniPlayerStyle == s;
+          final isCapsule = s == 'Capsule';
+          return Expanded(
+            child: GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _miniPlayerStyle = s);
+                _save('mini_player_style', s);
+              },
+              child: Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+                decoration: BoxDecoration(
+                  color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
+                    width: sel ? 1 : 0.5,
+                  ),
+                ),
+                child: Column(children: [
+                  // Mini preview mockup of the mini-player shape
+                  Container(
+                    height: 22,
+                    margin: isCapsule
+                        ? const EdgeInsets.symmetric(horizontal: 6)
+                        : EdgeInsets.zero,
+                    decoration: BoxDecoration(
+                      color: sel ? AurumTheme.gold.withOpacity(0.3) : AurumTheme.dividerOf(context),
+                      borderRadius: isCapsule
+                          ? BorderRadius.circular(11)
+                          : BorderRadius.circular(3),
+                      border: isCapsule
+                          ? Border.all(
+                              color: sel
+                                  ? AurumTheme.gold.withOpacity(0.6)
+                                  : AurumTheme.dividerOf(context),
+                              width: 0.6,
+                            )
+                          : Border(
+                              top: BorderSide(
+                                color: sel
+                                    ? AurumTheme.gold.withOpacity(0.6)
+                                    : AurumTheme.dividerOf(context),
+                                width: 0.6,
+                              ),
+                            ),
+                    ),
+                    child: sel
+                        ? Center(
+                            child: Icon(Icons.music_note_rounded,
+                                color: AurumTheme.gold, size: 12),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(s,
+                      style: TextStyle(
+                        color: sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      )),
+                  const SizedBox(height: 2),
+                  Text(subtitles[s]!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AurumTheme.textMutedOf(context),
+                        fontSize: 9.5,
+                      )),
+                ]),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    ));
+  }
+
   Widget _buildArtworkShapeSelector(BuildContext context) {
     const shapes = ['Square', 'Rounded', 'Circle'];
     final previews = {
