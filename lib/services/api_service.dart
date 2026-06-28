@@ -1089,57 +1089,39 @@ class ApiService {
   //           Only return proxy URL if we get back actual audio bytes (206/200
   //           with audio Content-Type). This catches dead streams at resolve
   //           time, not at ExoPlayer load time.
+  // ── Cloudflare Worker ─────────────────────────────────────────────────────
+  // WHY PROXY (not direct URL):
+  // Worker's /api/yt-stream returns a googlevideo.com URL that is IP-locked
+  // to the Cloudflare edge server that resolved it. Giving that URL directly
+  // to ExoPlayer fails because the phone's IP != Cloudflare's IP — ExoPlayer
+  // gets a 403/stream error and goes idle@0ms.
+  //
+  // /api/yt-proxy resolves the video AND streams the bytes back through
+  // Cloudflare — same IP resolves + serves = no IP mismatch. ExoPlayer
+  // receives a clean audio stream from our worker domain.
   static Future<String?> _workerYtStream(String videoId) async {
-    // ── Step 1: /api/yt-stream — returns direct YT URL as JSON ─────────
-    try {
-      final res = await _client
-          .get(Uri.parse('$_worker/api/yt-stream?id=$videoId'))
-          .timeout(const Duration(seconds: 16));
-      if (res.statusCode == 200) {
-        final body = res.body.trim();
-        if (body.startsWith('{')) {
-          try {
-            final json = jsonDecode(body) as Map<String, dynamic>;
-            final url = (json['url'] ?? json['audioUrl'] ?? json['stream_url'])
-                ?.toString();
-            if (url != null && url.startsWith('http')) {
-              _log('[worker] /api/yt-stream OK for $videoId');
-              return url;
-            }
-          } catch (_) {}
-        }
-        if (body.startsWith('http') && body.length < 2048) {
-          _log('[worker] /api/yt-stream (plain) OK for $videoId');
-          return body;
-        }
-      }
-    } catch (e) {
-      _log('[worker] /api/yt-stream failed for $videoId: $e');
-    }
-
-    // ── Step 2: Proxy URL with validated range request ──────────────────
+    // Use proxy endpoint — worker resolves + pipes bytes (IP-safe)
     final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
     try {
       final rangeRes = await _client.get(
         Uri.parse(proxyUrl),
         headers: {'Range': 'bytes=0-1023'},
-      ).timeout(const Duration(seconds: 12));
+      ).timeout(const Duration(seconds: 20));
       if (rangeRes.statusCode == 206 || rangeRes.statusCode == 200) {
         final ct = (rangeRes.headers['content-type'] ?? '').toLowerCase();
         final isAudio = ct.contains('audio') || ct.contains('octet') ||
             ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
         if (isAudio || rangeRes.bodyBytes.length > 512) {
-          _log('[worker] /api/yt-proxy validated for $videoId');
+          _log('[worker] /api/yt-proxy validated for $videoId ✓');
           return proxyUrl;
         }
-        _log('[worker] /api/yt-proxy returned non-audio for $videoId (ct=$ct)');
+        _log('[worker] /api/yt-proxy non-audio for $videoId (ct=\$ct)');
       } else {
-        _log('[worker] /api/yt-proxy range ${rangeRes.statusCode} for $videoId');
+        _log('[worker] /api/yt-proxy \${rangeRes.statusCode} for $videoId');
       }
     } catch (e) {
-      _log('[worker] /api/yt-proxy validation failed for $videoId: $e');
+      _log('[worker] /api/yt-proxy failed for $videoId: \$e');
     }
-
     return null;
   }
 
