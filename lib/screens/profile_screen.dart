@@ -1,4 +1,4 @@
-import 'package:aurum/widgets/aurum_loader.dart';
+import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';

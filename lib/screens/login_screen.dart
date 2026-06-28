@@ -9,7 +9,7 @@
 //   ✅ On success: syncs cloud data, then pops back to caller
 // =============================================================================
 
-import 'package:aurum/widgets/aurum_loader.dart';
+import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';

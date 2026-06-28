@@ -4,7 +4,7 @@
 // DESCRIPTION: Shows the song list inside an album / single, Spotify-style.
 // =============================================================================
 
-import 'package:aurum/widgets/aurum_loader.dart';
+import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';

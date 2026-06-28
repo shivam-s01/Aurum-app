@@ -1,4 +1,4 @@
-import 'package:aurum/widgets/aurum_loader.dart';
+import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:dio/dio.dart';

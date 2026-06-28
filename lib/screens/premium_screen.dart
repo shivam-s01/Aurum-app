@@ -4,7 +4,7 @@
 // DESCRIPTION: Aurum Plus paywall — cinematic premium experience.
 // =============================================================================
 
-import 'package:aurum/widgets/aurum_loader.dart';
+import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
