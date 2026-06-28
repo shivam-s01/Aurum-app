@@ -4,14 +4,16 @@
 // DESCRIPTION: Razorpay payment integration for Aurum Plus subscriptions.
 //
 //   PLANS:
-//     Monthly → ₹1   (100 paise)   [TEST PRICING]
-//     Yearly  → ₹29  (2900 paise)  [TEST PRICING]
+//     Monthly  → ₹1    (100 paise)    [INTRODUCTORY — 1st month only]
+//     Yearly   → ₹29   (2900 paise)
+//     Lifetime → ₹199  (19900 paise)  [One-time, never expires]
 //
 //   On successful payment:
 //     - Saves `aurum_is_premium_cached` = true to SharedPreferences
 //     - Saves `aurum_premium_granted_at` = now (ISO8601)
-//     - Saves `aurum_premium_plan` = 'monthly' | 'yearly'
+//     - Saves `aurum_premium_plan` = 'monthly' | 'yearly' | 'lifetime'
 //     - Saves `aurum_premium_payment_id` = Razorpay payment id
+//     - Lifetime plan: `aurum_premium_expires_at` is NOT set (never expires)
 //
 //   ⚠️ SECURITY NOTE:
 //   The key below is the Razorpay TEST key (safe to ship in test builds).
@@ -27,23 +29,55 @@ import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-enum AurumPlan { monthly, yearly }
+enum AurumPlan { monthly, yearly, lifetime }
 
 extension AurumPlanX on AurumPlan {
-  String get id => this == AurumPlan.monthly ? 'monthly' : 'yearly';
+  String get id {
+    switch (this) {
+      case AurumPlan.monthly:  return 'monthly';
+      case AurumPlan.yearly:   return 'yearly';
+      case AurumPlan.lifetime: return 'lifetime';
+    }
+  }
 
-  String get label => this == AurumPlan.monthly ? '1 Month' : '1 Year';
+  String get label {
+    switch (this) {
+      case AurumPlan.monthly:  return '1 Month';
+      case AurumPlan.yearly:   return '1 Year';
+      case AurumPlan.lifetime: return 'Lifetime';
+    }
+  }
 
   /// Amount in paise (smallest currency unit) — required by Razorpay.
-  int get amountPaise => this == AurumPlan.monthly ? 100 : 2900;
+  int get amountPaise {
+    switch (this) {
+      case AurumPlan.monthly:  return 100;    // ₹1
+      case AurumPlan.yearly:   return 2900;   // ₹29
+      case AurumPlan.lifetime: return 19900;  // ₹199
+    }
+  }
 
   /// Amount in rupees, for display.
-  int get amountRupees => this == AurumPlan.monthly ? 1 : 29;
+  int get amountRupees {
+    switch (this) {
+      case AurumPlan.monthly:  return 1;
+      case AurumPlan.yearly:   return 29;
+      case AurumPlan.lifetime: return 199;
+    }
+  }
 
   String get priceLabel => '₹$amountRupees';
 
-  Duration get duration =>
-      this == AurumPlan.monthly ? const Duration(days: 30) : const Duration(days: 365);
+  /// Lifetime plan returns null — it never expires.
+  Duration? get duration {
+    switch (this) {
+      case AurumPlan.monthly:  return const Duration(days: 30);
+      case AurumPlan.yearly:   return const Duration(days: 365);
+      case AurumPlan.lifetime: return null;
+    }
+  }
+
+  bool get isLifetime => this == AurumPlan.lifetime;
 }
 
 class PaymentService {
@@ -97,18 +131,21 @@ class PaymentService {
   void startPayment(AurumPlan plan, {String? userEmail, String? userName}) {
     _pendingPlan = plan;
 
+    final description = plan.isLifetime
+        ? 'Aurum Plus — Lifetime Access'
+        : 'Aurum Plus — ${plan.label} Subscription';
+
     final options = {
       'key': _razorpayKeyId,
       'amount': plan.amountPaise,
       'currency': 'INR',
       'name': 'Aurum Music',
-      'description': 'Aurum Plus — ${plan.label} Subscription',
+      'description': description,
       'prefill': {
         if (userEmail != null) 'email': userEmail,
         if (userName != null) 'contact': '',
       },
       'theme': {
-        // Razorpay expects a hex string like '#C9A84C'
         'color': '#C9A84C',
       },
       'notes': {
@@ -145,6 +182,7 @@ class PaymentService {
               'premium_plan': plan.id,
               'premium_payment_id': paymentId,
               'premium_granted_at': DateTime.now().toIso8601String(),
+              if (plan.isLifetime) 'premium_lifetime': true,
             },
           ),
         );
@@ -175,21 +213,33 @@ class PaymentService {
   Future<void> _grantPremiumLocally(AurumPlan plan, String paymentId) async {
     final prefs = await SharedPreferences.getInstance();
     final now = DateTime.now();
-    final expiry = now.add(plan.duration);
 
     await prefs.setBool(_kCachedPremium, true);
     await prefs.setString(_kPremiumGrantedAt, now.toIso8601String());
-    await prefs.setString(_kPremiumExpiresAt, expiry.toIso8601String());
     await prefs.setString(_kPremiumPlan, plan.id);
     await prefs.setString(_kPremiumPaymentId, paymentId);
+
+    // Lifetime plan: don't set expiry — hasValidLocalGrant() handles null
+    if (!plan.isLifetime && plan.duration != null) {
+      final expiry = now.add(plan.duration!);
+      await prefs.setString(_kPremiumExpiresAt, expiry.toIso8601String());
+    } else {
+      // Remove any old expiry key so lifetime is never treated as expired
+      await prefs.remove(_kPremiumExpiresAt);
+    }
   }
 
   /// Reads the locally-cached payment-based premium grant, if any,
   /// and whether it's still within its validity window.
+  /// Lifetime grants (no expiry key) always return true.
   static Future<bool> hasValidLocalGrant() async {
     final prefs = await SharedPreferences.getInstance();
     final isCached = prefs.getBool(_kCachedPremium) ?? false;
     if (!isCached) return false;
+
+    final plan = prefs.getString(_kPremiumPlan);
+    // Lifetime plan — never expires
+    if (plan == 'lifetime') return true;
 
     final expiresAtStr = prefs.getString(_kPremiumExpiresAt);
     if (expiresAtStr == null) return false;

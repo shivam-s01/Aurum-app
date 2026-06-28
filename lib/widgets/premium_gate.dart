@@ -1,31 +1,25 @@
 // =============================================================================
 // FILE: lib/widgets/premium_gate.dart
 // PROJECT: Aurum Music
-// DESCRIPTION: Reusable premium gate — shows a bottom sheet explaining the
-//   feature is premium-only, with a "Sign in & Upgrade" CTA.
+// DESCRIPTION: Reusable premium gate — cinematic bottom sheet that gates
+//   premium features. Shows Google sign-in first if user is not signed in,
+//   then navigates to PremiumScreen for payment.
 //
 //   USAGE:
-//     // Simple one-liner anywhere in the widget tree:
 //     PremiumGate.show(context, feature: 'Follow Artist');
-//
-//     // Or wrap a callback:
-//     PremiumGate.guard(
-//       context,
-//       feature: 'Create Playlist',
-//       onAllowed: () => _showCreateDialog(context),
-//     );
+//     PremiumGate.guard(context, feature: 'Create Playlist',
+//       onAllowed: () => _showCreateDialog(context));
 // =============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/premium_provider.dart';
 import '../providers/auth_provider.dart';
+import '../screens/premium_screen.dart';
 
 class PremiumGate {
-  // ── Static helpers ─────────────────────────────────────────────────────────
-
-  /// Shows the gate dialog unconditionally.
   static void show(
     BuildContext context, {
     required String feature,
@@ -42,7 +36,6 @@ class PremiumGate {
     );
   }
 
-  /// Runs [onAllowed] if user is premium, otherwise shows the gate.
   static void guard(
     BuildContext context, {
     required String feature,
@@ -59,36 +52,118 @@ class PremiumGate {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Internal bottom sheet
-// ─────────────────────────────────────────────────────────────────────────────
 
-class _PremiumGateSheet extends StatelessWidget {
+class _PremiumGateSheet extends StatefulWidget {
   final String feature;
   final String? description;
 
-  const _PremiumGateSheet({
-    required this.feature,
-    this.description,
-  });
+  const _PremiumGateSheet({required this.feature, this.description});
+
+  @override
+  State<_PremiumGateSheet> createState() => _PremiumGateSheetState();
+}
+
+class _PremiumGateSheetState extends State<_PremiumGateSheet>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _crownFade, _contentFade, _ctaFade;
+  late final Animation<Offset> _contentSlide, _ctaSlide;
+  bool _isSigningIn = false;
 
   static const _perks = [
-    (Icons.high_quality_rounded,    'High Bitrate Streaming',   '320kbps — best available quality'),
-    (Icons.all_inclusive_rounded,   'Unlimited Skips',          'Skip as many as you want'),
-    (Icons.favorite_rounded,        'Like & Save Songs',        'Build your personal library'),
-    (Icons.person_add_rounded,      'Follow Artists',           'Stay updated with your favorites'),
-    (Icons.queue_music_rounded,     'Create Playlists',         'Organize music your way'),
-    (Icons.sync_rounded,            'Cloud Sync',               'Access your library anywhere'),
-    (Icons.palette_rounded,         'Exclusive Themes',         'More accent colors & player styles'),
+    (Icons.high_quality_rounded,  'HD Audio',          '320kbps quality'),
+    (Icons.all_inclusive_rounded, 'Unlimited Skips',   'Skip freely'),
+    (Icons.favorite_rounded,      'Like & Save',       'Personal library'),
+    (Icons.person_add_rounded,    'Follow Artists',    'Stay updated'),
+    (Icons.queue_music_rounded,   'Playlists',         'Organize music'),
+    (Icons.sync_rounded,          'Cloud Sync',        'All devices'),
+    (Icons.palette_rounded,       'Themes',            'Premium styles'),
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 680),
+    );
+
+    _crownFade = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
+    );
+    _contentFade = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
+    );
+    _contentSlide = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.2, 0.7, curve: Curves.easeOutCubic),
+    ));
+    _ctaFade = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.45, 1.0, curve: Curves.easeOut),
+    );
+    _ctaSlide = Tween<Offset>(
+      begin: const Offset(0, 0.05),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
+    ));
+
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleCTA(BuildContext context) async {
+    HapticFeedback.mediumImpact();
+    final auth = context.read<AuthProvider>();
+
+    if (!auth.isSignedIn) {
+      // Not signed in — trigger Google login first
+      setState(() => _isSigningIn = true);
+      final success = await auth.signInWithGoogle();
+      if (!mounted) return;
+      setState(() => _isSigningIn = false);
+
+      if (success) {
+        // Signed in — now go to premium screen
+        Navigator.pop(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PremiumScreen()),
+        );
+      }
+      // If cancelled/failed, sheet stays open
+    } else {
+      // Already signed in — go directly to premium screen
+      Navigator.pop(context);
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const PremiumScreen()),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final isSignedIn = context.watch<AuthProvider>().isSignedIn;
+
     return Container(
       decoration: BoxDecoration(
-        color: AurumTheme.bgCardOf(context),
+        color: const Color(0xFF0E0E12),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         border: Border.all(
-          color: AurumTheme.gold.withOpacity(0.2),
+          color: AurumTheme.gold.withOpacity(0.22),
           width: 0.8,
         ),
       ),
@@ -101,194 +176,267 @@ class _PremiumGateSheet extends StatelessWidget {
             width: 36,
             height: 4,
             decoration: BoxDecoration(
-              color: AurumTheme.dividerOf(context),
+              color: Colors.white.withOpacity(0.12),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
 
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-            child: Column(children: [
-              // Gold crown icon
-              Container(
-                width: 64, height: 64,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: AurumTheme.goldGradient,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AurumTheme.gold.withOpacity(0.4),
-                      blurRadius: 20,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.workspace_premium_rounded,
-                  color: Colors.black,
-                  size: 30,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                '$feature is Premium',
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.3,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                description ??
-                    'Upgrade to Aurum Premium to unlock this feature and much more.',
-                style: TextStyle(
-                  color: AurumTheme.textMutedOf(context),
-                  fontSize: 13,
-                  height: 1.4,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ]),
-          ),
-
-          const SizedBox(height: 20),
-
-          // Perks list — horizontal scroll, pill style
-          SizedBox(
-            height: 72,
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              scrollDirection: Axis.horizontal,
-              itemCount: _perks.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (ctx, i) {
-                final perk = _perks[i];
-                return Container(
-                  width: 110,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          // Crown + header
+          FadeTransition(
+            opacity: _crownFade,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+              child: Column(children: [
+                // Glowing crown
+                Container(
+                  width: 68,
+                  height: 68,
                   decoration: BoxDecoration(
-                    color: AurumTheme.gold.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: AurumTheme.gold.withOpacity(0.2),
-                      width: 0.7,
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(perk.$1, color: AurumTheme.gold, size: 18),
-                      const SizedBox(height: 4),
-                      Text(
-                        perk.$2,
-                        style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // CTA buttons
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              20, 0, 20,
-              20 + MediaQuery.of(context).viewInsets.bottom,
-            ),
-            child: Column(children: [
-              // Primary CTA
-              SizedBox(
-                width: double.infinity,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
                     gradient: AurumTheme.goldGradient,
-                    borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: AurumTheme.gold.withOpacity(0.35),
-                        blurRadius: 16,
-                        offset: const Offset(0, 4),
+                        color: AurumTheme.gold.withOpacity(0.5),
+                        blurRadius: 24,
+                        spreadRadius: 2,
                       ),
                     ],
                   ),
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _handleUpgrade(context);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: const Text(
-                      '✦  Get Aurum Premium',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
+                  child: const Icon(
+                    Icons.workspace_premium_rounded,
+                    color: Colors.black,
+                    size: 32,
                   ),
                 ),
-              ),
-
-              const SizedBox(height: 10),
-
-              // Dismiss
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(
-                  'Maybe later',
+                const SizedBox(height: 16),
+                ShaderMask(
+                  shaderCallback: (b) => const LinearGradient(
+                    colors: [AurumTheme.goldDark, AurumTheme.goldLight],
+                  ).createShader(b),
+                  child: Text(
+                    '${widget.feature} is Plus',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 21,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.3,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  widget.description ??
+                      'Unlock this and every premium feature\nwith Aurum Plus.',
                   style: TextStyle(
-                    color: AurumTheme.textMutedOf(context),
+                    color: Colors.white.withOpacity(0.45),
                     fontSize: 13,
+                    height: 1.45,
                   ),
+                  textAlign: TextAlign.center,
+                ),
+              ]),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Perks horizontal scroll
+          FadeTransition(
+            opacity: _contentFade,
+            child: SlideTransition(
+              position: _contentSlide,
+              child: SizedBox(
+                height: 76,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _perks.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (ctx, i) {
+                    final perk = _perks[i];
+                    return Container(
+                      width: 88,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AurumTheme.gold.withOpacity(0.07),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AurumTheme.gold.withOpacity(0.18),
+                          width: 0.7,
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(perk.$1, color: AurumTheme.gold, size: 17),
+                          const SizedBox(height: 5),
+                          Text(
+                            perk.$2,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.85),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            perk.$3,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.3),
+                              fontSize: 8,
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ),
-            ]),
+            ),
+          ),
+
+          const SizedBox(height: 22),
+
+          // CTA
+          FadeTransition(
+            opacity: _ctaFade,
+            child: SlideTransition(
+              position: _ctaSlide,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20, 0, 20,
+                  20 + MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: Column(children: [
+                  // Sign-in note if not signed in
+                  if (!isSignedIn) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.08),
+                          width: 0.7,
+                        ),
+                      ),
+                      child: Row(children: [
+                        Icon(Icons.info_outline_rounded,
+                            color: AurumTheme.gold.withOpacity(0.7), size: 15),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'You\'ll sign in with Google first, then complete your upgrade.',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.45),
+                              fontSize: 11.5,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ]),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Primary CTA button
+                  SizedBox(
+                    width: double.infinity,
+                    child: _isSigningIn
+                        ? Container(
+                            height: 56,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: AurumTheme.gold.withOpacity(0.15),
+                            ),
+                            child: const Center(
+                              child: SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  color: AurumTheme.gold,
+                                  strokeWidth: 2.5,
+                                ),
+                              ),
+                            ),
+                          )
+                        : DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: AurumTheme.goldGradient,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AurumTheme.gold.withOpacity(0.4),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ],
+                            ),
+                            child: ElevatedButton(
+                              onPressed: () => _handleCTA(context),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    isSignedIn
+                                        ? Icons.workspace_premium_rounded
+                                        : Icons.login_rounded,
+                                    color: Colors.black,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    isSignedIn
+                                        ? '✦  Get Aurum Plus'
+                                        : 'Sign in & Get Plus',
+                                    style: const TextStyle(
+                                      color: Colors.black,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.1,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(
+                      'Maybe later',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.3),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
           ),
         ],
       ),
     );
-  }
-
-  void _handleUpgrade(BuildContext context) {
-    final auth = context.read<AuthProvider>();
-    if (!auth.isSignedIn) {
-      // First sign in, then premium is checked from Supabase metadata
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sign in first to activate your premium'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } else {
-      // User is signed in — show info about how to upgrade
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Premium upgrades coming soon — stay tuned!'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
   }
 }
