@@ -36,6 +36,16 @@ import '../screens/full_player_screen.dart';
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
 
+  /// Broadcasts the current mini-player style ('Capsule' / 'Compact Bar') so
+  /// any live MiniPlayer instance updates INSTANTLY when the setting is
+  /// changed in Settings → Appearance, without depending on
+  /// didChangeDependencies (which does NOT fire just from a child route
+  /// popping back to a persistent shell widget like this one — that was the
+  /// root cause of the style not visibly updating after picking it in
+  /// Settings, even though it was being saved to SharedPreferences correctly).
+  static final ValueNotifier<String> styleNotifier =
+      ValueNotifier<String>('Capsule');
+
   @override
   State<MiniPlayer> createState() => _MiniPlayerState();
 }
@@ -68,22 +78,23 @@ class _MiniPlayerState extends State<MiniPlayer>
     );
     _settleAnim = AlwaysStoppedAnimation(0.0);
     _loadStyle();
+    MiniPlayer.styleNotifier.addListener(_onStyleChanged);
+  }
+
+  void _onStyleChanged() {
+    if (mounted) setState(() => _style = MiniPlayer.styleNotifier.value);
   }
 
   Future<void> _loadStyle() async {
     final p = await SharedPreferences.getInstance();
     final saved = p.getString(prefsKeyMiniPlayerStyle) ?? 'Capsule';
+    MiniPlayer.styleNotifier.value = saved;
     if (mounted) setState(() => _style = saved);
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _loadStyle();
-  }
-
-  @override
   void dispose() {
+    MiniPlayer.styleNotifier.removeListener(_onStyleChanged);
     _settleCtrl.dispose();
     super.dispose();
   }

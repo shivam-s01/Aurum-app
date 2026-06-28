@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
+import '../widgets/mini_player.dart';
 import '../providers/theme_provider.dart';
 import '../providers/premium_provider.dart';
 import '../widgets/premium_gate.dart';
@@ -547,6 +548,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                 HapticFeedback.selectionClick();
                 setState(() => _miniPlayerStyle = s);
                 _save('mini_player_style', s);
+                MiniPlayer.styleNotifier.value = s;
               },
               child: Container(
                 margin: const EdgeInsets.only(right: 8),
