@@ -70,6 +70,13 @@ class _MiniPlayerState extends State<MiniPlayer>
   late final AnimationController _settleCtrl;
   late Animation<double> _settleAnim;
 
+  // Entry animation — plays once when mini player first appears or song changes
+  late final AnimationController _entryCtrl;
+  late final Animation<double> _entrySlide;
+  late final Animation<double> _entryOpacity;
+  late final Animation<double> _entryScale;
+  String? _lastSongId;
+
   static const double _dismissThreshold = 80.0;
   static const double _openThreshold = -60.0;
   static const double _velocityThreshold = 400.0;
@@ -82,6 +89,23 @@ class _MiniPlayerState extends State<MiniPlayer>
       duration: const Duration(milliseconds: 320),
     );
     _settleAnim = AlwaysStoppedAnimation(0.0);
+
+    _entryCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
+    _entrySlide = Tween<double>(begin: 1.0, end: 0.0).animate(
+      CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutBack),
+    );
+    _entryOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _entryCtrl,
+        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
+      ),
+    );
+    _entryScale = Tween<double>(begin: 0.88, end: 1.0).animate(
+      CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutBack),
+    );
     _loadStyle();
     MiniPlayer.styleNotifier.addListener(_onStyleChanged);
     MiniPlayer.heroVisibleNotifier.addListener(_onHeroVisibilityChanged);
@@ -107,6 +131,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     MiniPlayer.styleNotifier.removeListener(_onStyleChanged);
     MiniPlayer.heroVisibleNotifier.removeListener(_onHeroVisibilityChanged);
     _settleCtrl.dispose();
+    _entryCtrl.dispose();
     super.dispose();
   }
 
@@ -227,17 +252,37 @@ class _MiniPlayerState extends State<MiniPlayer>
         if (!player.hasSong) return const SizedBox.shrink();
         if (_dismissed) return const SizedBox.shrink();
 
-        // Hide mini player when home hero is visible — animate in/out smoothly
+        // Trigger entry animation when song first appears or changes
+        final songId = player.currentSong?.id;
+        if (songId != _lastSongId) {
+          _lastSongId = songId;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _entryCtrl.forward(from: 0.0);
+            }
+          });
+        }
+
+        // Hide mini player when home hero is visible — no space left behind
         final heroVisible = MiniPlayer.heroVisibleNotifier.value;
-        return AnimatedSlide(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeInOutCubic,
-          offset: heroVisible ? const Offset(0, 1) : Offset.zero,
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 180),
-            opacity: heroVisible ? 0.0 : 1.0,
-            child: _buildInner(context, player),
-          ),
+        if (heroVisible) return const SizedBox.shrink();
+
+        return AnimatedBuilder(
+          animation: _entryCtrl,
+          builder: (_, child) {
+            return Transform.translate(
+              offset: Offset(0, _entrySlide.value * 80),
+              child: Transform.scale(
+                scale: _entryScale.value,
+                alignment: Alignment.bottomCenter,
+                child: Opacity(
+                  opacity: _entryOpacity.value,
+                  child: child,
+                ),
+              ),
+            );
+          },
+          child: _buildInner(context, player),
         );
 
         // Calculate visual transforms
@@ -544,7 +589,8 @@ class _MiniPlayerContent extends StatelessWidget {
     final showUpHint = dragY < -20;
     final showDownHint = dragY > 20;
 
-    return Container(
+    return RepaintBoundary(
+      child: Container(
       height: 64,
       decoration: BoxDecoration(
         border: Border(
@@ -556,12 +602,7 @@ class _MiniPlayerContent extends StatelessWidget {
           ),
         ),
       ),
-      // RepaintBoundary isolates this blur onto its own compositing layer —
-      // same fix as the capsule style, see comment there for why this
-      // matters (prevents the whole screen from appearing blurred the
-      // instant the mini player mounts).
-      child: RepaintBoundary(
-        child: BackdropFilter(
+      child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
