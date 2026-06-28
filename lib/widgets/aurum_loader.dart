@@ -74,23 +74,40 @@ class _AurumM3LoaderState extends State<AurumM3Loader>
 
   @override
   Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: AnimatedBuilder(
-          animation: _ctrl,
-          builder: (_, __) => CustomPaint(
-            painter: _M3Painter(
-              s1s: _s1s.evaluate(_ctrl),
-              s1e: _s1e.evaluate(_ctrl),
-              s2s: _s2s.evaluate(_ctrl),
-              s2e: _s2e.evaluate(_ctrl),
-              h: widget.height,
-              r: widget.borderRadius,
-            ),
-          ),
+    final painter = AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) => CustomPaint(
+        painter: _M3Painter(
+          s1s: _s1s.evaluate(_ctrl),
+          s1e: _s1e.evaluate(_ctrl),
+          s2s: _s2s.evaluate(_ctrl),
+          s2e: _s2e.evaluate(_ctrl),
+          h: widget.height,
+          r: widget.borderRadius,
         ),
+      ),
+    );
+
+    // If a fixed width was given, just size to it directly.
+    if (widget.width != null) {
+      return RepaintBoundary(
+        child: SizedBox(width: widget.width, height: widget.height, child: painter),
+      );
+    }
+
+    // No width given — fill whatever space is available (e.g. inside
+    // Center(), which otherwise hands us unbounded width and collapses
+    // a null-width SizedBox to 0px, making the bar invisible).
+    return RepaintBoundary(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final w = constraints.hasBoundedWidth
+              ? constraints.maxWidth
+              : (constraints.biggest.width.isFinite
+                  ? constraints.biggest.width
+                  : MediaQuery.sizeOf(context).width);
+          return SizedBox(width: w, height: widget.height, child: painter);
+        },
       ),
     );
   }
