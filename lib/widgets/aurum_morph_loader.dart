@@ -209,3 +209,4 @@ class _MorphPainter extends CustomPainter {
       oldDelegate.from != from ||
       oldDelegate.to != to;
 }
+// rebuild trigger
