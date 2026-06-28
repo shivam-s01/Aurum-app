@@ -11,6 +11,11 @@ import '../theme/aurum_theme.dart';
 ///   • Absolute file paths (/storage/emulated/0/...)
 ///   • file:// paths
 ///   • Empty / null  → gold music-note placeholder
+///
+/// PREMIUM POLISH: every path now fades in (220–280ms, easeOut) instead of
+/// popping in abruptly once bytes are ready. CachedNetworkImage's built-in
+/// fadeInDuration handles the network case; local file/content URI cases
+/// are wrapped in AnimatedSwitcher so the same fade applies everywhere.
 class AurumArtwork extends StatelessWidget {
   final String url;
   final double size;
@@ -48,13 +53,16 @@ class AurumArtwork extends StatelessWidget {
           url.startsWith('file://') ? url.replaceFirst('file://', '') : url;
       return ClipRRect(
         borderRadius: BorderRadius.circular(borderRadius),
-        child: Image.file(
-          File(path),
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          cacheWidth: _cacheSize,
-          errorBuilder: (_, __, ___) => _placeholder(context),
+        child: _FadeInImage(
+          child: Image.file(
+            File(path),
+            key: ValueKey(path),
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            cacheWidth: _cacheSize,
+            errorBuilder: (_, __, ___) => _placeholder(context),
+          ),
         ),
       );
     }
@@ -68,6 +76,10 @@ class AurumArtwork extends StatelessWidget {
         height: size,
         fit: BoxFit.cover,
         memCacheWidth: _cacheSize,
+        fadeInDuration: const Duration(milliseconds: 280),
+        fadeInCurve: Curves.easeOut,
+        fadeOutDuration: const Duration(milliseconds: 120),
+        fadeOutCurve: Curves.easeIn,
         placeholder: (_, __) => _shimmer(context),
         errorWidget: (_, __, ___) => _placeholder(context),
       ),
@@ -104,6 +116,36 @@ class AurumArtwork extends StatelessWidget {
         ),
         child: const _ShimmerPulse(),
       );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _FadeInImage — wraps a resolved Image widget so it fades in (220ms,
+// easeOut) on first paint instead of popping in. Used for local file /
+// content URI paths where CachedNetworkImage's built-in fadeIn isn't
+// available. Keyed by the image's own key so AnimatedSwitcher only
+// re-triggers the fade when the underlying image actually changes.
+// ─────────────────────────────────────────────────────────────────────────────
+class _FadeInImage extends StatelessWidget {
+  final Widget child;
+
+  const _FadeInImage({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      layoutBuilder: (currentChild, previousChildren) => Stack(
+        alignment: Alignment.center,
+        children: [
+          ...previousChildren,
+          if (currentChild != null) currentChild,
+        ],
+      ),
+      child: child,
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,15 +238,18 @@ class _ContentUriImageState extends State<_ContentUriImage> {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
-      child: Image.memory(
-        _bytes!,
-        width: widget.size,
-        height: widget.size,
-        fit: BoxFit.cover,
-        cacheWidth: (widget.size.isFinite && widget.size > 0)
-            ? (widget.size * 2).toInt()
-            : null,
-        errorBuilder: (_, __, ___) => widget.placeholder,
+      child: _FadeInImage(
+        child: Image.memory(
+          _bytes!,
+          key: ValueKey(widget.uri),
+          width: widget.size,
+          height: widget.size,
+          fit: BoxFit.cover,
+          cacheWidth: (widget.size.isFinite && widget.size > 0)
+              ? (widget.size * 2).toInt()
+              : null,
+          errorBuilder: (_, __, ___) => widget.placeholder,
+        ),
       ),
     );
   }

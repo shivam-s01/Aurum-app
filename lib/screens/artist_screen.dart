@@ -5,6 +5,7 @@
 // =============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/artist.dart';
 import '../models/song.dart';
@@ -14,6 +15,7 @@ import '../services/api_service.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/song_tile.dart';
+import '../utils/aurum_transitions.dart';
 import 'album_screen.dart';
 
 class ArtistScreen extends StatefulWidget {
@@ -96,7 +98,10 @@ class _ArtistScreenState extends State<ArtistScreen> {
           child: SafeArea(
             child: IconButton(
               icon: const Icon(Icons.arrow_back_rounded),
-              onPressed: () => Navigator.pop(context),
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                Navigator.pop(context);
+              },
             ),
           ),
         ),
@@ -110,7 +115,13 @@ class _ArtistScreenState extends State<ArtistScreen> {
               Text("Couldn't load ${widget.artistName}",
                   style: TextStyle(color: AurumTheme.textSecondaryOf(context))),
               const SizedBox(height: 16),
-              TextButton(onPressed: _load, child: const Text('Retry')),
+              TextButton(
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  _load();
+                },
+                child: const Text('Retry'),
+              ),
             ],
           ),
         ),
@@ -124,6 +135,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
     final isFollowing = followed.isFollowing(artist.id);
 
     return CustomScrollView(
+      physics: const BouncingScrollPhysics(),
       slivers: [
         SliverAppBar(
           expandedHeight: 400,
@@ -136,7 +148,10 @@ class _ArtistScreenState extends State<ArtistScreen> {
               backgroundColor: Colors.black.withOpacity(0.4),
               child: IconButton(
                 icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.pop(context);
+                },
               ),
             ),
           ),
@@ -234,11 +249,14 @@ class _ArtistScreenState extends State<ArtistScreen> {
             child: Row(
               children: [
                 OutlinedButton(
-                  onPressed: () => followed.toggleFollow(
-                    artistId: artist.id,
-                    name: artist.name,
-                    imageUrl: artist.imageUrl,
-                  ),
+                  onPressed: () {
+                    HapticFeedback.mediumImpact();
+                    followed.toggleFollow(
+                      artistId: artist.id,
+                      name: artist.name,
+                      imageUrl: artist.imageUrl,
+                    );
+                  },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: isFollowing
                         ? AurumTheme.gold
@@ -253,10 +271,16 @@ class _ArtistScreenState extends State<ArtistScreen> {
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20)),
                   ),
-                  child: Text(
-                    isFollowing ? 'Saved' : 'Save',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 13.5),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    transitionBuilder: (child, anim) =>
+                        FadeTransition(opacity: anim, child: child),
+                    child: Text(
+                      isFollowing ? 'Saved' : 'Save',
+                      key: ValueKey(isFollowing),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 13.5),
+                    ),
                   ),
                 ),
                 const Spacer(),
@@ -266,6 +290,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                   onPressed: artist.topSongs.isEmpty
                       ? null
                       : () {
+                          HapticFeedback.lightImpact();
                           final shuffled = List<Song>.from(artist.topSongs)
                             ..shuffle();
                           player.playSong(shuffled.first,
@@ -276,8 +301,11 @@ class _ArtistScreenState extends State<ArtistScreen> {
                 GestureDetector(
                   onTap: artist.topSongs.isEmpty
                       ? null
-                      : () => player.playSong(artist.topSongs.first,
-                          queue: artist.topSongs, index: 0),
+                      : () {
+                          HapticFeedback.heavyImpact();
+                          player.playSong(artist.topSongs.first,
+                              queue: artist.topSongs, index: 0);
+                        },
                   child: Container(
                     width: 52,
                     height: 52,
@@ -364,6 +392,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
         height: 190,
         child: ListView.builder(
           scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 16),
           itemCount: albums.length,
           itemBuilder: (context, i) {
@@ -371,16 +400,17 @@ class _ArtistScreenState extends State<ArtistScreen> {
             return Padding(
               padding: const EdgeInsets.only(right: 12),
               child: GestureDetector(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AlbumScreen(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  AurumPageRoute.to(
+                    context,
+                    AlbumScreen(
                       albumId: a.id,
                       albumName: a.name,
                       artworkUrl: a.artworkUrl,
                     ),
-                  ),
-                ),
+                  );
+                },
                 child: SizedBox(
                   width: 130,
                   child: Column(
