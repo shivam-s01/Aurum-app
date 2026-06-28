@@ -92,6 +92,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             Expanded(
               child: ListView(
                 controller: ctrl,
+                physics: const BouncingScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
                 children: [
                   _policySection('Last updated: June 2026'),
@@ -227,6 +228,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, 'About'),
       body: ListView(
+        physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
           // App identity card
@@ -271,13 +273,13 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             icon: Icons.system_update_rounded,
             title: 'Check for Update',
             subtitle: 'See if a new version is available',
-            onTap: () => UpdateService.checkForUpdate(context),
+            onTap: () { HapticFeedback.lightImpact(); UpdateService.checkForUpdate(context); },
           ),
           _actionTile(context,
             icon: Icons.history_rounded,
             title: 'Changelog',
             subtitle: 'What changed in recent versions',
-            onTap: () => ChangelogSheet.show(context),
+            onTap: () { HapticFeedback.lightImpact(); ChangelogSheet.show(context); },
           ),
 
           _sectionLabel('LEGAL'),
@@ -285,7 +287,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             icon: Icons.privacy_tip_rounded,
             title: 'Privacy Policy',
             subtitle: 'How your data is handled',
-            onTap: _showPrivacyPolicy,
+            onTap: () { HapticFeedback.lightImpact(); _showPrivacyPolicy(); },
           ),
 
           _sectionLabel('COMMUNITY'),
@@ -294,13 +296,13 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             title: 'Rate Aurum ⭐',
             subtitle: 'Show your support',
             iconColor: const Color(0xFFFFD700),
-            onTap: _showRateDialog,
+            onTap: () { HapticFeedback.lightImpact(); _showRateDialog(); },
           ),
           _actionTile(context,
             icon: Icons.share_rounded,
             title: 'Share Aurum',
             subtitle: 'Tell your friends about this app',
-            onTap: _shareApp,
+            onTap: () { HapticFeedback.lightImpact(); _shareApp(); },
           ),
 
           _sectionLabel('DEVELOPER'),
@@ -308,13 +310,13 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             customIcon: _instagramIcon(),
             title: 'Instagram',
             subtitle: '@shivam_shrma.01',
-            onTap: () => _launch(AppConstants.instagram),
+            onTap: () { HapticFeedback.lightImpact(); _launch(AppConstants.instagram); },
           ),
           _actionTile(context,
             customIcon: _telegramIcon(),
             title: 'Telegram',
             subtitle: '@mr_s_s01',
-            onTap: () => _launch(AppConstants.telegram),
+            onTap: () { HapticFeedback.lightImpact(); _launch(AppConstants.telegram); },
           ),
         ],
       ),

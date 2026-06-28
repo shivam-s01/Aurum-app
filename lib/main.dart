@@ -25,6 +25,7 @@ import 'providers/favorites_provider.dart';
 import 'providers/recently_played_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/app_lock_screen.dart';
+import 'utils/aurum_transitions.dart';
 
 late AurumAudioHandler _audioHandler;
 
@@ -69,7 +70,7 @@ Future<void> main() async {
     await NotificationService.instance.init();
     NotificationService.instance.onNotificationTapped = () {
       navigatorKey.currentState?.push(
-        MaterialPageRoute(builder: (_) => const DownloadsScreen()),
+        AurumPageRoute(builder: (_) => const DownloadsScreen()),
       );
     };
   } catch (_) {}

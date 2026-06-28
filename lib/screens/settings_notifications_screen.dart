@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 
@@ -44,6 +45,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, 'Notifications'),
       body: ListView(
+        physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
 
@@ -93,7 +95,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
         ),
       ),
       child: ListTile(
-        onTap: () { setState(() => _notifStyle = style); _save('notif_style', style); },
+        onTap: () { HapticFeedback.selectionClick(); setState(() => _notifStyle = style); _save('notif_style', style); },
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
         leading: Container(
           width: 38, height: 38,

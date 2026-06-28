@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../theme/aurum_theme.dart';
 
@@ -119,6 +120,7 @@ class _ChangelogSheetState extends State<ChangelogSheet> {
                       child: const Text('Retry', style: TextStyle(color: AurumTheme.gold))),
                   ]))
                 : ListView.separated(
+                    physics: const BouncingScrollPhysics(),
                     controller: ctrl,
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
                     itemCount: _releases.length,
@@ -167,7 +169,7 @@ class _ReleaseCardState extends State<_ReleaseCard> {
   Widget build(BuildContext context) {
     final r = widget.release;
     return GestureDetector(
-      onTap: () => setState(() => _expanded = !_expanded),
+      onTap: () { HapticFeedback.selectionClick(); setState(() => _expanded = !_expanded); },
       child: Container(
         decoration: BoxDecoration(
           color: AurumTheme.bgOf(context),

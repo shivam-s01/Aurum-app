@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
@@ -72,6 +73,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, 'Privacy'),
       body: ListView(
+        physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
 
@@ -101,7 +103,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
               subtitle: _appLockPin.isEmpty
                   ? 'Required to enable App Lock'
                   : 'Change your 4-digit PIN',
-              onTap: () => _showPinSheet(context),
+              onTap: () { HapticFeedback.lightImpact(); _showPinSheet(context); },
             ),
             _switchTile(context,
               icon: Icons.fingerprint_rounded,
@@ -179,29 +181,29 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
             icon: Icons.history_rounded,
             title: 'Clear Listening History',
             subtitle: 'Remove all recently played songs',
-            onTap: () => _confirmClear(context, 'Listening History', () async {
+            onTap: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Listening History', () async {
               final p = await SharedPreferences.getInstance();
               await p.remove('recently_played');
-            }),
+            }); },
           ),
           _dangerTile(context,
             icon: Icons.recommend_rounded,
             title: 'Reset Recommendations',
             subtitle: 'Clear affinity scores and start fresh',
-            onTap: () => _confirmClear(context, 'Recommendations', () async {
+            onTap: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Recommendations', () async {
               final p = await SharedPreferences.getInstance();
               final keys = p.getKeys().where((k) => k.startsWith('affinity_'));
               for (final k in keys) await p.remove(k);
-            }),
+            }); },
           ),
           _dangerTile(context,
             icon: Icons.delete_sweep_rounded,
             title: 'Clear All App Data',
             subtitle: 'Reset everything — playlists, settings, history',
-            onTap: () => _confirmClear(context, 'All App Data', () async {
+            onTap: () { HapticFeedback.heavyImpact(); _confirmClear(context, 'All App Data', () async {
               final p = await SharedPreferences.getInstance();
               await p.clear();
-            }),
+            }); },
             isDanger: true,
           ),
         ],

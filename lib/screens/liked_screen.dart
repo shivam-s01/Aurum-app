@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
+import '../widgets/aurum_empty_state.dart';
 
 class LikedScreen extends StatelessWidget {
   const LikedScreen({super.key});
@@ -22,7 +24,7 @@ class LikedScreen extends StatelessWidget {
             backgroundColor: AurumTheme.bgOf(context),
             leading: IconButton(
               icon: Icon(Icons.arrow_back_ios_rounded, color: AurumTheme.textSecondaryOf(context), size: 20),
-              onPressed: () => Navigator.pop(context),
+              onPressed: () { HapticFeedback.lightImpact(); Navigator.pop(context); },
             ),
             flexibleSpace: FlexibleSpaceBar(
               titlePadding: const EdgeInsets.fromLTRB(52, 0, 16, 16),
@@ -49,22 +51,10 @@ class LikedScreen extends StatelessWidget {
               if (fav.favorites.isEmpty) {
                 return SliverFillRemaining(
                   child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 80, height: 80,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE1306C).withOpacity(0.1),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.favorite_border_rounded, color: Color(0xFFE1306C), size: 36),
-                        ),
-                        const SizedBox(height: 20),
-                        Text('No liked songs yet', style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 16, fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 8),
-                        Text('Tap ♥ on any song to save it here', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
-                      ],
+                    child: AurumEmptyState(
+                      icon: Icons.favorite_border_rounded,
+                      title: 'No liked songs yet',
+                      subtitle: 'Tap ♥ on any song to save it here',
                     ),
                   ),
                 );
@@ -82,6 +72,7 @@ class LikedScreen extends StatelessWidget {
                         const Spacer(),
                         GestureDetector(
                           onTap: () {
+                            HapticFeedback.mediumImpact();
                             final player = context.read<PlayerProvider>();
                             player.playSong(songs[0], queue: songs, index: 0);
                           },

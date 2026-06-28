@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
+import '../utils/aurum_transitions.dart';
 import '../providers/player_provider.dart';
 import '../providers/premium_provider.dart';
 import 'premium_screen.dart';
@@ -23,6 +25,7 @@ class SettingsScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
         slivers: [
           SliverAppBar(
             expandedHeight: 100,
@@ -58,49 +61,60 @@ class SettingsScreen extends StatelessWidget {
                   icon: Icons.equalizer_rounded,
                   title: 'Player & Audio',
                   subtitle: 'Playback, EQ, crossfade & behavior',
-                  onTap: () => _push(
-                      context,
-                      SettingsPlayerScreen(audioHandler: handler)),
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    AurumPageRoute.to(context, SettingsPlayerScreen(audioHandler: handler));
+                  },
                 ),
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.palette_rounded,
                   title: 'Appearance',
                   subtitle: 'Theme, colors, player style & animations',
-                  onTap: () =>
-                      _push(context, const SettingsAppearanceScreen()),
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    AurumPageRoute.to(context, const SettingsAppearanceScreen());
+                  },
                 ),
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.storage_rounded,
                   title: 'Storage',
                   subtitle: 'Downloads, song cache & image cache',
-                  onTap: () =>
-                      _push(context, const SettingsStorageScreen()),
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    AurumPageRoute.to(context, const SettingsStorageScreen());
+                  },
                 ),
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.notifications_rounded,
                   title: 'Notifications',
                   subtitle: 'Media notification style & artwork',
-                  onTap: () =>
-                      _push(context, const SettingsNotificationsScreen()),
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    AurumPageRoute.to(context, const SettingsNotificationsScreen());
+                  },
                 ),
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.shield_rounded,
                   title: 'Privacy',
                   subtitle: 'App lock, incognito mode & data',
-                  onTap: () =>
-                      _push(context, const SettingsPrivacyScreen()),
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    AurumPageRoute.to(context, const SettingsPrivacyScreen());
+                  },
                 ),
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.info_outline_rounded,
                   title: 'About',
                   subtitle: 'Version, updates, privacy & developer',
-                  onTap: () =>
-                      _push(context, const SettingsAboutScreen()),
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    AurumPageRoute.to(context, const SettingsAboutScreen());
+                  },
                 ),
               ]),
             ),
@@ -110,23 +124,9 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  void _push(BuildContext context, Widget screen) {
-    Navigator.of(context).push(PageRouteBuilder(
-      pageBuilder: (_, animation, __) => screen,
-      transitionsBuilder: (_, animation, __, child) {
-        final tween = Tween(
-                begin: const Offset(1.0, 0.0), end: Offset.zero)
-            .chain(CurveTween(curve: Curves.easeOutCubic));
-        return SlideTransition(
-            position: animation.drive(tween), child: child);
-      },
-      transitionDuration: const Duration(milliseconds: 280),
-      reverseTransitionDuration: const Duration(milliseconds: 250),
-    ));
-  }
 }
 
-class _SettingsTile extends StatelessWidget {
+class _SettingsTile extends StatefulWidget {
   final IconData icon;
   final String title;
   final String subtitle;
@@ -140,12 +140,47 @@ class _SettingsTile extends StatelessWidget {
   });
 
   @override
+  State<_SettingsTile> createState() => _SettingsTileState();
+}
+
+class _SettingsTileState extends State<_SettingsTile>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pressCtrl;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _pressCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 80),
+      reverseDuration: const Duration(milliseconds: 160),
+      lowerBound: 0.0,
+      upperBound: 0.025,
+    );
+    _scale = Tween<double>(begin: 1.0, end: 0.975).animate(
+      CurvedAnimation(parent: _pressCtrl, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pressCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+    return GestureDetector(
+      onTapDown: (_) => _pressCtrl.forward(),
+      onTapUp: (_) {
+        _pressCtrl.reverse();
+        widget.onTap();
+      },
+      onTapCancel: () => _pressCtrl.reverse(),
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -165,20 +200,20 @@ class _SettingsTile extends StatelessWidget {
                   border: Border.all(
                       color: AurumTheme.gold.withOpacity(0.25), width: 0.5),
                 ),
-                child: Icon(icon, color: AurumTheme.gold, size: 22),
+                child: Icon(widget.icon, color: AurumTheme.gold, size: 22),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
+                    Text(widget.title,
                         style: TextStyle(
                             color: AurumTheme.textPrimaryOf(context),
                             fontSize: 15,
                             fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
-                    Text(subtitle,
+                    Text(widget.subtitle,
                         style: TextStyle(
                             color: AurumTheme.textMutedOf(context),
                             fontSize: 12)),
@@ -375,9 +410,8 @@ class _PremiumSettingsTile extends StatelessWidget {
               ),
               child: ElevatedButton(
                 onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => const PremiumScreen(),
-                  ));
+                  HapticFeedback.mediumImpact();
+                  AurumPageRoute.to(context, const PremiumScreen());
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.transparent,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
@@ -97,6 +98,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, 'Appearance'),
       body: ListView(
+        physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
           // ── Theme ──
@@ -157,6 +159,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                     final locked = !isFree && !isPremium;
                     return GestureDetector(
                       onTap: () {
+                        HapticFeedback.selectionClick();
                         if (locked) {
                           PremiumGate.show(context,
                             feature: 'Custom Accent Colors',
@@ -371,6 +374,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
               return Expanded(
                 child: GestureDetector(
                   onTap: () {
+                    HapticFeedback.selectionClick();
                     if (locked) {
                       PremiumGate.show(context,
                         feature: '${e.key} Font',
@@ -457,6 +461,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           return Column(children: [
             ListTile(
               onTap: () {
+                HapticFeedback.selectionClick();
                 if (locked) {
                   PremiumGate.show(context,
                     feature: '${e.key} Player Style',
@@ -536,6 +541,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           return Expanded(
             child: GestureDetector(
               onTap: () {
+                HapticFeedback.selectionClick();
                 setState(() => _artworkShape = s);
                 _save('artwork_shape', s);
               },
@@ -577,7 +583,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   Widget _themeTile(BuildContext context, ThemeProvider tp, IconData icon, String label, String sub, AurumThemeMode mode) {
     final selected = tp.mode == mode;
     return ListTile(
-      onTap: () => tp.setMode(mode),
+      onTap: () { HapticFeedback.selectionClick(); tp.setMode(mode); },
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
       leading: Container(
         width: 38, height: 38,

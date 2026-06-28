@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
@@ -127,6 +128,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
+              physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
               children: [
 
@@ -135,7 +137,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 _storageCard(context,
                   title: 'Downloaded Songs',
                   used: _fmt(_downloadedSize),
-                  onClear: () => _confirmClear(context, 'All Downloads', _clearDownloads),
+                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'All Downloads', _clearDownloads); },
                 ),
 
                 // Download Quality
@@ -180,7 +182,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                     setState(() => _maxSongCache = v);
                     await _save('max_song_cache', v);
                   },
-                  onClear: () => _confirmClear(context, 'Song Cache', () => _clearDir('song_cache')),
+                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Song Cache', () => _clearDir('song_cache')); },
                   clearLabel: 'Clear Song Cache',
                 ),
 
@@ -196,7 +198,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                     setState(() => _maxImageCache = v);
                     await _save('max_image_cache', v);
                   },
-                  onClear: () => _confirmClear(context, 'Image Cache', () => _clearDir('image_cache')),
+                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Image Cache', () => _clearDir('image_cache')); },
                   clearLabel: 'Clear Image Cache',
                 ),
               ],
