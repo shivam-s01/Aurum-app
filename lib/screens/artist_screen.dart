@@ -4,6 +4,7 @@
 // DESCRIPTION: Artist page — profile header, Top Songs list, Albums/Singles grid.
 // =============================================================================
 
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -82,7 +83,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AurumTheme.gold))
+          ? const Center(child: AurumM3Loader())
           : _failed
               ? _buildError(context)
               : _buildContent(context, _artist!),

@@ -4,6 +4,7 @@
 // DESCRIPTION: Shows the song list inside an album / single, Spotify-style.
 // =============================================================================
 
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
@@ -122,7 +123,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
           if (_loading)
             const SliverFillRemaining(
               child: Center(
-                  child: CircularProgressIndicator(color: AurumTheme.gold)),
+                  child: AurumM3Loader()),
             )
           else if (_songs.isEmpty)
             SliverFillRemaining(

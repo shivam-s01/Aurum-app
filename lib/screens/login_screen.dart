@@ -9,6 +9,7 @@
 //   ✅ On success: syncs cloud data, then pops back to caller
 // =============================================================================
 
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -341,7 +342,7 @@ class _GoogleContinueButton extends StatelessWidget {
             child: busy
                 ? const SizedBox(
                     width: 22, height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.black54),
+                    child: Center(child: AurumM3Loader(width: 22, height: 2.5)),
                   )
                 : Row(
                     mainAxisSize: MainAxisSize.min,

@@ -11,6 +11,7 @@
 //       onAllowed: () => _showCreateDialog(context));
 // =============================================================================
 
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -356,10 +357,7 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                               child: SizedBox(
                                 width: 22,
                                 height: 22,
-                                child: CircularProgressIndicator(
-                                  color: AurumTheme.gold,
-                                  strokeWidth: 2.5,
-                                ),
+                                child: Center(child: AurumM3Loader(width: 22, height: 2.5)),
                               ),
                             ),
                           )

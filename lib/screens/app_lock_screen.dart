@@ -1,3 +1,4 @@
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
@@ -146,7 +147,7 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
     if (_checking) {
       return const Scaffold(
         backgroundColor: AurumTheme.darkBg,
-        body: Center(child: CircularProgressIndicator(color: AurumTheme.gold)),
+        body: const Center(child: AurumM3Loader()),
       );
     }
     if (!_locked) return widget.child;

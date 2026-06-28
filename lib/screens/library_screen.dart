@@ -10,6 +10,7 @@
 //   ✅ Zero feature removal — all existing screens intact
 // =============================================================================
 
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -1143,12 +1144,10 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
               borderRadius: BorderRadius.circular(20),
             ),
             child: _creating
-                ? SizedBox(
+                ? const SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AurumTheme.bgOf(context)))
+                    child: Center(child: AurumM3Loader(width: 16, height: 2)))
                 : Text('Create',
                     style: TextStyle(
                         color: AurumTheme.bgOf(context),
@@ -1907,8 +1906,10 @@ class _LocalFilesScreen extends StatelessWidget {
         ],
       ),
       body: lib.status == LibraryStatus.loading
-          ? Center(
-              child: CircularProgressIndicator(color: AurumTheme.gold))
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 48),
+                child: AurumM3Loader()))
           : lib.status == LibraryStatus.noPermission
               ? Center(
                   child: Column(
@@ -2128,10 +2129,11 @@ class _DownloadTile extends StatelessWidget {
               SizedBox(
                 width: 22,
                 height: 22,
-                child: CircularProgressIndicator(
-                  value: item.progress > 0 ? item.progress : null,
-                  strokeWidth: 2.5,
-                  valueColor: const AlwaysStoppedAnimation(AurumTheme.gold),
+                child: Center(
+                  child: AurumM3Loader(
+                    width: 22,
+                    height: item.progress > 0 ? null : 2.5,
+                  ),
                 ),
               ),
           ],

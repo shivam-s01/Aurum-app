@@ -1,69 +1,94 @@
 // aurum_loader.dart
-// Aurum Music — Infinity Loading Experience
-// Pure Flutter · No external packages · 60 FPS · AMOLED Black + Deep Purple
+// Aurum Music — Loading System
+// Material 3 Fluid Morphing Indeterminate Progress Bar
+// Use everywhere: AurumM3Loader() for inline, AurumM3Loader(height:6) for thick bars.
+// Mini player progress bar stays as LinearProgressIndicator — intentional.
 
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
 // DESIGN TOKENS
-// ═══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
 
-abstract final class _AurumColors {
-  static const amoledBlack   = Color(0xFF000000);
-  static const deepPurple    = Color(0xFF6B21A8);
-  static const deepPurpleMid = Color(0xFF7C3AED);
+abstract final class _C {
+  static const gold          = Color(0xFFB89640);
+  static const goldLight     = Color(0xFFD4AF5A);
+  static const goldDark      = Color(0xFF8A6F2A);
   static const deepPurpleLit = Color(0xFF9333EA);
   static const purpleGlow    = Color(0xFFA855F7);
-  static const purpleWhisper = Color(0xFF3B0764);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// PUBLIC WIDGET — AurumLoader
-// ═══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// AurumM3Loader — Material 3 Fluid Morphing Indeterminate Bar
+// ══════════════════════════════════════════════════════════════════
+//
+// Two segments travel across the track with independent easing
+// so they stretch and compress organically — exactly M3 spec motion.
+// Color: gold shimmer → purple glow, with bright head highlight.
+//
+// Usage:
+//   const AurumM3Loader()                      // fill parent width, 3px tall
+//   const AurumM3Loader(height: 6)             // thicker
+//   const AurumM3Loader(width: 120, height: 2) // fixed width
+//   const AurumM3Spinner()                     // icon-sized square slot
+//   const AurumM3Spinner(size: 20)
 
-class AurumLoader extends StatefulWidget {
-  const AurumLoader({
+class AurumM3Loader extends StatefulWidget {
+  const AurumM3Loader({
     super.key,
-    this.size = 200,
+    this.width,
+    this.height = 3.0,
+    this.borderRadius = 99.0,
   });
 
-  final double size;
+  final double? width;
+  final double  height;
+  final double  borderRadius;
 
   @override
-  State<AurumLoader> createState() => _AurumLoaderState();
+  State<AurumM3Loader> createState() => _AurumM3LoaderState();
 }
 
-class _AurumLoaderState extends State<AurumLoader>
+class _AurumM3LoaderState extends State<AurumM3Loader>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
+
+  static final _s1s = CurveTween(curve: const Interval(0.0,  0.70, curve: Curves.easeIn));
+  static final _s1e = CurveTween(curve: const Interval(0.10, 0.90, curve: Curves.fastOutSlowIn));
+  static final _s2s = CurveTween(curve: const Interval(0.40, 0.98, curve: Curves.easeIn));
+  static final _s2e = CurveTween(curve: const Interval(0.50, 1.00, curve: Curves.fastOutSlowIn));
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2400),
+      duration: const Duration(milliseconds: 1600),
     )..repeat();
   }
 
   @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
+  void dispose() { _ctrl.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
       child: SizedBox(
-        width: widget.size,
-        height: widget.size * 0.56,
+        width: widget.width,
+        height: widget.height,
         child: AnimatedBuilder(
           animation: _ctrl,
           builder: (_, __) => CustomPaint(
-            painter: _InfinityPainter(t: _ctrl.value),
+            painter: _M3Painter(
+              s1s: _s1s.evaluate(_ctrl),
+              s1e: _s1e.evaluate(_ctrl),
+              s2s: _s2s.evaluate(_ctrl),
+              s2e: _s2e.evaluate(_ctrl),
+              h: widget.height,
+              r: widget.borderRadius,
+            ),
           ),
         ),
       ),
@@ -71,261 +96,107 @@ class _AurumLoaderState extends State<AurumLoader>
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// INFINITY PAINTER
-// ═══════════════════════════════════════════════════════════════════════════
+class _M3Painter extends CustomPainter {
+  const _M3Painter({
+    required this.s1s, required this.s1e,
+    required this.s2s, required this.s2e,
+    required this.h,   required this.r,
+  });
 
-class _InfinityPainter extends CustomPainter {
-  const _InfinityPainter({required this.t});
-
-  final double t; // 0.0 → 1.0 looping
-
-  // Lemniscate of Bernoulli parametric equations
-  // x = a*cos(θ) / (1 + sin²(θ))
-  // y = a*sin(θ)*cos(θ) / (1 + sin²(θ))
-  Offset _infinityPoint(double theta, double a) {
-    final sinT  = math.sin(theta);
-    final cosT  = math.cos(theta);
-    final denom = 1 + sinT * sinT;
-    return Offset(a * cosT / denom, a * sinT * cosT / denom);
-  }
+  final double s1s, s1e, s2s, s2e, h, r;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final cx = size.width  / 2;
-    final cy = size.height / 2;
-    final a  = size.width  * 0.36; // lemniscate scale
+    final w  = size.width;
+    final br = math.min(r, h / 2);
 
-    // ── 1. Build full path (360°) ─────────────────────────────────────────
-    const steps = 300;
-    final allPts = List<Offset>.generate(steps + 1, (i) {
-      final theta = (i / steps) * math.pi * 2;
-      final p = _infinityPoint(theta, a);
-      return Offset(cx + p.dx, cy + p.dy);
-    });
+    // Track
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), Radius.circular(br)),
+      Paint()..color = _C.gold.withOpacity(0.10),
+    );
 
-    final fullPath = Path()..moveTo(allPts[0].dx, allPts[0].dy);
-    for (int i = 1; i <= steps; i++) {
-      fullPath.lineTo(allPts[i].dx, allPts[i].dy);
-    }
-    fullPath.close();
+    void seg(double normStart, double normEnd) {
+      if (normEnd <= normStart) return;
+      final left  = (normStart * w).clamp(0.0, w);
+      final right = (normEnd   * w).clamp(0.0, w);
+      if (right - left < 0.5) return;
 
-    // ── 2. Outer glow halo ────────────────────────────────────────────────
-    final glowPaint = Paint()
-      ..style       = PaintingStyle.stroke
-      ..strokeWidth = 18
-      ..strokeCap   = StrokeCap.round
-      ..shader      = ui.Gradient.sweep(
-          Offset(cx, cy),
-          [
-            _AurumColors.purpleWhisper.withOpacity(0.0),
-            _AurumColors.deepPurple.withOpacity(0.25),
-            _AurumColors.purpleGlow.withOpacity(0.18),
-            _AurumColors.purpleWhisper.withOpacity(0.0),
-          ],
-          [0.0, 0.35, 0.65, 1.0],
-        )
-      ..maskFilter  = const MaskFilter.blur(BlurStyle.normal, 10);
+      final rect  = Rect.fromLTWH(left, 0, right - left, h);
+      final rrect = RRect.fromRectAndRadius(rect, Radius.circular(br));
 
-    canvas.drawPath(fullPath, glowPaint);
+      // Bloom glow
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect.inflate(h), Radius.circular(br + h)),
+        Paint()
+          ..color      = _C.purpleGlow.withOpacity(0.18)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 2),
+      );
 
-    // ── 3. Mid glow ───────────────────────────────────────────────────────
-    final midGlow = Paint()
-      ..style       = PaintingStyle.stroke
-      ..strokeWidth = 9
-      ..strokeCap   = StrokeCap.round
-      ..shader      = ui.Gradient.sweep(
-          Offset(cx, cy),
-          [
-            _AurumColors.deepPurple.withOpacity(0.0),
-            _AurumColors.deepPurpleMid.withOpacity(0.55),
-            _AurumColors.purpleGlow.withOpacity(0.45),
-            _AurumColors.deepPurple.withOpacity(0.0),
-          ],
-          [0.0, 0.35, 0.65, 1.0],
-        )
-      ..maskFilter  = const MaskFilter.blur(BlurStyle.normal, 4);
+      // Gold → purple bar
+      canvas.drawRRect(rrect, Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(left, 0), Offset(right, 0),
+          [_C.goldDark, _C.gold, _C.goldLight, _C.deepPurpleLit, _C.purpleGlow],
+          [0.0, 0.2, 0.45, 0.72, 1.0],
+        ));
 
-    canvas.drawPath(fullPath, midGlow);
-
-    // ── 4. Base track (faint) ─────────────────────────────────────────────
-    final trackPaint = Paint()
-      ..style       = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap   = StrokeCap.round
-      ..color       = _AurumColors.deepPurple.withOpacity(0.18);
-
-    canvas.drawPath(fullPath, trackPaint);
-
-    // ── 5. Travelling orb (particle riding the curve) ─────────────────────
-    const orbSteps  = 160;   // tail length (# of points)
-    const totalSeg  = steps;
-    final headIdx   = (t * totalSeg).round() % totalSeg;
-
-    // Build tail path
-    final tailPath = Path();
-    bool first = true;
-    for (int i = orbSteps; i >= 0; i--) {
-      final idx = (headIdx - i + totalSeg) % totalSeg;
-      final pt  = allPts[idx];
-      final progress = 1.0 - (i / orbSteps); // 0→1 toward head
-
-      if (first) {
-        tailPath.moveTo(pt.dx, pt.dy);
-        first = false;
-      } else {
-        tailPath.lineTo(pt.dx, pt.dy);
-      }
+      // Bright head highlight
+      final headW = math.min(h * 3, right - left);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(right - headW, 0, headW, h),
+          Radius.circular(br),
+        ),
+        Paint()..shader = ui.Gradient.linear(
+          Offset(right - headW, 0), Offset(right, 0),
+          [Colors.transparent, Colors.white.withOpacity(0.55)],
+        ),
+      );
     }
 
-    // Tail gradient stroke (fade from transparent to bright)
-    final tailPaint = Paint()
-      ..style       = PaintingStyle.stroke
-      ..strokeWidth = 3.5
-      ..strokeCap   = StrokeCap.round
-      ..shader      = ui.Gradient.linear(
-          allPts[(headIdx - orbSteps + totalSeg) % totalSeg],
-          allPts[headIdx],
-          [
-            _AurumColors.deepPurple.withOpacity(0.0),
-            _AurumColors.deepPurpleMid.withOpacity(0.6),
-            _AurumColors.deepPurpleLit.withOpacity(0.9),
-            _AurumColors.purpleGlow,
-          ],
-          [0.0, 0.4, 0.75, 1.0],
-        );
-
-    canvas.drawPath(tailPath, tailPaint);
-
-    // ── 6. Orb head ───────────────────────────────────────────────────────
-    final head = allPts[headIdx];
-
-    // Orb outer glow
-    final orbGlow = Paint()
-      ..shader    = ui.Gradient.radial(
-          head, 14,
-          [
-            _AurumColors.purpleGlow.withOpacity(0.55),
-            _AurumColors.deepPurpleMid.withOpacity(0.18),
-            Colors.transparent,
-          ],
-          [0.0, 0.55, 1.0],
-        )
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-
-    canvas.drawCircle(head, 14, orbGlow);
-
-    // Orb core
-    final orbCore = Paint()
-      ..shader = ui.Gradient.radial(
-          head, 5,
-          [
-            Colors.white.withOpacity(0.95),
-            _AurumColors.purpleGlow.withOpacity(0.9),
-            _AurumColors.deepPurpleLit,
-          ],
-          [0.0, 0.4, 1.0],
-        );
-
-    canvas.drawCircle(head, 5, orbCore);
-
-    // ── 7. Second orb (offset by 180°) for symmetry ───────────────────────
-    final head2Idx = (headIdx + totalSeg ~/ 2) % totalSeg;
-    final head2    = allPts[head2Idx];
-
-    final orb2Glow = Paint()
-      ..shader    = ui.Gradient.radial(
-          head2, 10,
-          [
-            _AurumColors.deepPurpleLit.withOpacity(0.35),
-            Colors.transparent,
-          ],
-        )
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
-
-    canvas.drawCircle(head2, 10, orb2Glow);
-
-    final orb2Core = Paint()
-      ..shader = ui.Gradient.radial(
-          head2, 3.5,
-          [
-            Colors.white.withOpacity(0.80),
-            _AurumColors.deepPurpleMid,
-          ],
-        );
-
-    canvas.drawCircle(head2, 3.5, orb2Core);
+    seg(s1s, s1e);
+    seg(s2s, s2e);
   }
 
   @override
-  bool shouldRepaint(covariant _InfinityPainter old) => old.t != t;
+  bool shouldRepaint(covariant _M3Painter o) =>
+      o.s1s != s1s || o.s1e != s1e || o.s2s != s2s || o.s2e != s2e;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// CONVENIENCE WRAPPERS
-// ═══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// AurumM3Spinner — drop-in for icon-sized loading slots
+// ══════════════════════════════════════════════════════════════════
 
-class AurumLoaderSmall extends StatelessWidget {
-  const AurumLoaderSmall({super.key});
+class AurumM3Spinner extends StatelessWidget {
+  const AurumM3Spinner({super.key, this.size = 28.0});
+  final double size;
 
   @override
-  Widget build(BuildContext context) => const AurumLoader(size: 120);
+  Widget build(BuildContext context) => SizedBox(
+    width: size, height: size,
+    child: Center(child: AurumM3Loader(width: size, height: 2.5)),
+  );
 }
 
-class AurumLoaderLarge extends StatelessWidget {
-  const AurumLoaderLarge({super.key});
+// ══════════════════════════════════════════════════════════════════
+// AurumLoaderScreen — full-page loading screen (uses M3 bar now)
+// ══════════════════════════════════════════════════════════════════
 
-  @override
-  Widget build(BuildContext context) => const AurumLoader(size: 280);
-}
-
-/// Full-screen AMOLED overlay — pure black background, loader centered.
-/// Search screen ke andar bhi isko use karo taaki black flash na aaye.
 class AurumLoaderScreen extends StatelessWidget {
   const AurumLoaderScreen({super.key, this.onCompleted});
-
   final VoidCallback? onCompleted;
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
       color: Theme.of(context).scaffoldBackgroundColor,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const AurumLoader(size: 240),
-            const SizedBox(height: 32),
-            Text(
-              'AURUM',
-              style: TextStyle(
-                color:           _AurumColors.purpleGlow.withOpacity(0.55),
-                fontSize:        11,
-                letterSpacing:   6,
-                fontWeight:      FontWeight.w300,
-              ),
-            ),
-          ],
+      child: const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 48),
+          child: AurumM3Loader(),
         ),
       ),
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// HOW TO USE
-// ─────────────────────────────────────────────────────────────────────────
-// Splash / initial load:
-//   Navigator.push(context, MaterialPageRoute(
-//     builder: (_) => const AurumLoaderScreen(),
-//   ));
-//
-// Search page (inline, replaces black flash):
-//   if (_isSearching)
-//     const AurumLoaderSmall()
-//   else
-//     YourResultsList()
-//
-// Any widget spot:
-//   const AurumLoader(size: 200)
-// ─────────────────────────────────────────────────────────────────────────

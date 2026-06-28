@@ -1,3 +1,4 @@
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -126,7 +127,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, 'Storage'),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: AurumM3Loader())
           : ListView(
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
@@ -285,12 +286,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: fraction,
-              backgroundColor: AurumTheme.bgOf(context),
-              valueColor: const AlwaysStoppedAnimation<Color>(AurumTheme.gold),
-              minHeight: 6,
-            ),
+            child: AurumM3Loader(height: 6, borderRadius: 4),
           ),
           const SizedBox(height: 12),
           GestureDetector(

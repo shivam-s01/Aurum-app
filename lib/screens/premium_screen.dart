@@ -4,6 +4,7 @@
 // DESCRIPTION: Aurum Plus paywall — cinematic premium experience.
 // =============================================================================
 
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -596,8 +597,7 @@ class _PremiumScreenState extends State<PremiumScreen>
           child: SizedBox(
             width: 24,
             height: 24,
-            child: CircularProgressIndicator(
-                color: AurumTheme.gold, strokeWidth: 2.5),
+            child: Center(child: AurumM3Loader(width: 24, height: 2.5)),
           ),
         ),
       );

@@ -1,3 +1,4 @@
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -44,7 +45,7 @@ class LikedScreen extends StatelessWidget {
             builder: (context, fav, _) {
               if (fav.isLoading) {
                 return SliverFillRemaining(
-                  child: Center(child: CircularProgressIndicator(color: AurumTheme.gold)),
+                  child: Center(child: AurumM3Loader()),
                 );
               }
 

@@ -1,3 +1,4 @@
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:dio/dio.dart';
@@ -189,13 +190,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
               const SizedBox(height: 16),
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: LinearProgressIndicator(
-                  value: _progress > 0 ? _progress : null,
-                  backgroundColor: Colors.white12,
-                  valueColor:
-                      const AlwaysStoppedAnimation(Color(0xFFD4AF37)),
-                  minHeight: 6,
-                ),
+                child: const AurumM3Loader(height: 6, borderRadius: 8),
               ),
               const SizedBox(height: 8),
               Text(

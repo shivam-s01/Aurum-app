@@ -1,3 +1,4 @@
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -109,7 +110,7 @@ class _ChangelogSheetState extends State<ChangelogSheet> {
           // Body
           Expanded(
             child: _loading
-              ? Center(child: CircularProgressIndicator(color: AurumTheme.gold, strokeWidth: 2))
+              ? const Center(child: AurumM3Loader())
               : _error != null
                 ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.cloud_off_rounded, color: AurumTheme.textMutedOf(context), size: 40),

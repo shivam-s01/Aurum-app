@@ -1,3 +1,4 @@
+import 'package:aurum/widgets/aurum_loader.dart';
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -565,8 +566,7 @@ class _AccountCardState extends State<_AccountCard> {
                   _syncing
                       ? const SizedBox(
                           width: 18, height: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: AurumTheme.gold),
+                          child: Center(child: AurumM3Loader(width: 18, height: 2)),
                         )
                       : IconButton(
                           icon: Icon(Icons.logout_rounded,
@@ -609,8 +609,7 @@ class _AccountCardState extends State<_AccountCard> {
                   auth.isSigningIn || _syncing
                       ? const SizedBox(
                           width: 20, height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: AurumTheme.gold),
+                          child: Center(child: AurumM3Loader(width: 20, height: 2)),
                         )
                       : OutlinedButton.icon(
                           onPressed: () => _handleSignIn(auth),

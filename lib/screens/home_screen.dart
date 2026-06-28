@@ -1036,7 +1036,7 @@ class _OfflineContent extends StatelessWidget {
     if (lib.status == LibraryStatus.idle || lib.status == LibraryStatus.loading) {
       return const Padding(
         padding: EdgeInsets.only(top: 80),
-        child: Center(child: AurumLoader()),
+        child: const Center(child: Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: AurumM3Loader())),
       );
     }
     if (lib.status == LibraryStatus.noPermission) {
@@ -1824,7 +1824,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
         content: Row(children: [
           const SizedBox(
             width: 16, height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            child: Center(child: AurumM3Loader(width: 16, height: 2)),
           ),
           const SizedBox(width: 10),
           Text('Loading ${widget.playlist.name}...'),

@@ -515,7 +515,7 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _buildBody(BuildContext context) {
-    if (_loading) return const AurumLoaderScreen(key: ValueKey('loading'));
+    if (_loading) return const Center(key: ValueKey('loading'), child: Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: AurumM3Loader()));
     if (_results.isNotEmpty) return _buildResults();
     if (_controller.text.trim().isNotEmpty) return _buildLivePanel(context);
     if (_showHistory && _history.isNotEmpty) return _buildHistory(context);
@@ -664,16 +664,13 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _buildLiveProgressBar(BuildContext context) {
-    return SizedBox(height: 2, child: LinearProgressIndicator(
-      backgroundColor: Colors.transparent,
-      valueColor: AlwaysStoppedAnimation<Color>(AurumTheme.gold.withOpacity(0.7)),
-    ));
+    return const SizedBox(height: 2, child: AurumM3Loader(height: 2));
   }
 
   Widget _buildLiveLoadingState(BuildContext context) {
     return Column(children: [
       _buildLiveProgressBar(context),
-      const Expanded(child: Center(child: AurumLoaderSmall())),
+      const Expanded(child: Center(child: Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: AurumM3Loader()))),
     ]);
   }
 
@@ -814,7 +811,7 @@ class _BrowseTabState extends State<_BrowseTab> {
     if (_openArtistName != null) return _buildTrackList(context, _openArtistName!, _artistLoading, _artistTracks);
 
     if (widget.query.isEmpty) return _buildBrowseEmpty(context);
-    if (widget.loading)       return const Center(child: AurumLoaderSmall());
+    if (widget.loading)       return const Center(child: Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: AurumM3Loader()));
     if (widget.result.isEmpty) return _buildBrowseEmpty(context);
 
     return ListView(
@@ -885,7 +882,7 @@ class _BrowseTabState extends State<_BrowseTab> {
           ]),
         ),
         if (loading)
-          const Expanded(child: Center(child: AurumLoaderSmall()))
+          const Expanded(child: Center(child: Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: AurumM3Loader())))
         else
           Expanded(
             child: ListView.builder(
