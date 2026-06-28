@@ -257,6 +257,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   void _close() {
     if (!mounted) return;
     HapticFeedback.lightImpact();
+    if (_dragY != 0) setState(() => _dragY = 0);
     _entryCtrl.reverse().then((_) {
       if (mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
@@ -363,6 +364,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               onVerticalDragEnd: (d) {
                 setState(() => _isDragging = false);
                 if (_dragY > 110 || (d.primaryVelocity ?? 0) > 750) {
+                  // Reset drag offset BEFORE starting the reverse slide —
+                  // otherwise Transform.translate(_dragY) keeps stacking on
+                  // top of _entryCtrl's reverse animation, causing a visible
+                  // jump/freeze right as it hands off to the mini player.
+                  setState(() => _dragY = 0);
                   _close();
                 } else {
                   setState(() => _dragY = 0);
@@ -1490,9 +1496,6 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   late final Animation<double> _exitTranslate;
   late final Animation<double> _exitFade;
 
-  // Tracks current scroll offset of whichever tab's scrollable is active,
-  // so drag-to-dismiss only engages when that scrollable is at its top.
-  double _scrollOffset = 0;
   bool _isDismissing = false;
 
   @override
@@ -1571,25 +1574,29 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     final opacity = (dragOpacity * _exitFade.value).clamp(0.0, 1.0);
 
     // ── Theme-aware glass tint ──
-    // Light: airy white glass tinted faintly by the palette (Echo Nightly look)
-    // Dark: deep tinted glass (unchanged from before)
+    // Lowered alphas + a thin top highlight = genuine see-through glass
+    // depth (you can sense the artwork/bg colors through it) instead of a
+    // near-opaque tinted panel. Blur sigma is untouched (still 12) so this
+    // stays just as cheap on the GPU — only the paint values changed.
     final List<Color> glassColors = isLight
         ? [
-            Color.lerp(widget.bg1, Colors.white, 0.86)!.withAlpha(238),
-            Color.lerp(widget.bg2, Colors.white, 0.90)!.withAlpha(242),
-            Color.lerp(widget.bg3, Colors.white, 0.94)!.withAlpha(246),
+            Color.lerp(widget.bg1, Colors.white, 0.86)!.withAlpha(196),
+            Color.lerp(widget.bg2, Colors.white, 0.90)!.withAlpha(204),
+            Color.lerp(widget.bg3, Colors.white, 0.94)!.withAlpha(214),
           ]
         : [
             Color.lerp(widget.bg1, const Color(0xFF0A0A16), 0.5)!
-                .withAlpha(247),
+                .withAlpha(168),
             Color.lerp(widget.bg2, const Color(0xFF060610), 0.5)!
-                .withAlpha(248),
+                .withAlpha(180),
             Color.lerp(widget.bg3, const Color(0xFF020206), 0.6)!
-                .withAlpha(250),
+                .withAlpha(198),
           ];
 
     final borderColor =
-        isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(18);
+        isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(28);
+    final highlightColor =
+        isLight ? Colors.white.withAlpha(140) : Colors.white.withAlpha(40);
     final handleColor = isLight
         ? AurumTheme.lightTextMuted.withAlpha(90)
         : Colors.white.withAlpha(40);
@@ -1597,91 +1604,115 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     return AnimatedBuilder(
       animation: _exitCtrl,
       builder: (context, _) {
-        return GestureDetector(
-          onVerticalDragUpdate: (d) {
-            // Block drag-to-dismiss while the active tab's scrollable is
-            // not at its top — avoids hijacking ListView/CustomScrollView
-            // scroll gestures inside the panel.
-            if (_scrollOffset > 0) return;
-            if (d.delta.dy > 0) {
-              _springBackCtrl.stop();
-              setState(() => _dragY += d.delta.dy);
-            }
-          },
-          onVerticalDragEnd: (d) {
-            if (_scrollOffset > 0) return;
-            if (_dragY > 90 || (d.primaryVelocity ?? 0) > 600) {
-              _dismiss();
-            } else {
-              _springBackToZero();
-            }
-          },
-          child: Transform.translate(
-            offset: Offset(
-                0, _dragY.clamp(0.0, screenH * 0.5) + exitOffsetY),
-            child: Transform.scale(
-              scale: scale,
-              alignment: Alignment.topCenter,
-              child: Opacity(
-                opacity: opacity,
-                child: SizedBox(
-                  height: screenH * 0.95,
-                  child: ClipRRect(
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(32)),
-                    // Lightweight glass: sigma 16 instead of 24 — still reads as
-                    // frosted but noticeably cheaper on GPU. RepaintBoundary
-                    // stops it from repainting on every parent rebuild (e.g.
-                    // progress-bar ticks from the player above it).
-                    child: RepaintBoundary(
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(32)),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: glassColors,
-                              stops: const [0.0, 0.5, 1.0],
-                            ),
-                            border: Border(
-                              top: BorderSide(color: borderColor, width: 0.5),
-                            ),
-                          ),
-                          child: Column(children: [
-                            Padding(
-                              padding:
-                                  const EdgeInsets.only(top: 12, bottom: 6),
-                              child: Container(
-                                width: 32,
-                                height: 4,
-                                decoration: BoxDecoration(
-                                  color: handleColor,
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
+        return Transform.translate(
+          offset: Offset(
+              0, _dragY.clamp(0.0, screenH * 0.5) + exitOffsetY),
+          child: Transform.scale(
+            scale: scale,
+            alignment: Alignment.topCenter,
+            child: Opacity(
+              opacity: opacity,
+              child: SizedBox(
+                height: screenH * 0.95,
+                child: ClipRRect(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(32)),
+                  // Lightweight glass: sigma 16 instead of 24 — still reads as
+                  // frosted but noticeably cheaper on GPU. RepaintBoundary
+                  // stops it from repainting on every parent rebuild (e.g.
+                  // progress-bar ticks from the player above it).
+                  child: RepaintBoundary(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                      child: Stack(
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(32)),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: glassColors,
+                                stops: const [0.0, 0.5, 1.0],
+                              ),
+                              border: Border(
+                                top: BorderSide(color: borderColor, width: 0.5),
                               ),
                             ),
-                            Expanded(
-                              child: FadeTransition(
-                                opacity: _tabFade,
-                                child: NotificationListener<ScrollNotification>(
-                                  onNotification: (notification) {
-                                    final offset =
-                                        notification.metrics.pixels;
-                                    if (offset != _scrollOffset) {
-                                      _scrollOffset = offset > 0 ? offset : 0;
-                                    }
-                                    return false;
-                                  },
+                            child: Column(children: [
+                              // Drag-to-dismiss lives ONLY on this handle strip
+                              // now. Previously the whole panel (including the
+                              // list) was one big GestureDetector for vertical
+                              // drag, which raced the CustomScrollView for
+                              // gesture-arena ownership on every drag-from-top —
+                              // that's what made scrolling feel like it needed
+                              // a "second pull" to actually start. Confining it
+                              // to the handle means the scrollable area below
+                              // has zero competing recognizers — native,
+                              // instant, smooth scroll from the very first
+                              // pixel of drag.
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onVerticalDragUpdate: (d) {
+                                  if (d.delta.dy > 0) {
+                                    _springBackCtrl.stop();
+                                    setState(() => _dragY += d.delta.dy);
+                                  }
+                                },
+                                onVerticalDragEnd: (d) {
+                                  if (_dragY > 90 ||
+                                      (d.primaryVelocity ?? 0) > 600) {
+                                    _dismiss();
+                                  } else {
+                                    _springBackToZero();
+                                  }
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                      top: 12, bottom: 6),
+                                  child: Container(
+                                    width: 32,
+                                    height: 4,
+                                    decoration: BoxDecoration(
+                                      color: handleColor,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: FadeTransition(
+                                  opacity: _tabFade,
                                   child: _buildTabContent(),
                                 ),
                               ),
+                              _buildTabBar(isLight),
+                            ]),
+                          ),
+                          // Thin top edge-light — the bit of light a real
+                          // glass pane catches. Pure paint, no extra blur,
+                          // so it's free performance-wise.
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              height: 1,
+                              decoration: BoxDecoration(
+                                borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(32)),
+                                gradient: LinearGradient(
+                                  colors: [
+                                    highlightColor,
+                                    highlightColor.withAlpha(0),
+                                  ],
+                                  stops: const [0.0, 1.0],
+                                ),
+                              ),
                             ),
-                            _buildTabBar(isLight),
-                          ]),
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -1855,17 +1886,36 @@ class _QueuePage extends StatelessWidget {
                   ),
                 ),
               ),
-            // Up next list
+            // Up next list — drag handle reorders, swipe reveals delete,
+            // long-press opens quick actions. SliverReorderableList keeps
+            // this on the same lightweight sliver scroll as everything
+            // else above (no nested scrollables, no extra scroll
+            // controller wiring needed).
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (_, listIdx) {
-                    final queueIdx = upNext[listIdx];
-                    return _QueueTile(
-                      key: ValueKey('${queue[queueIdx].id}_$queueIdx'),
+              sliver: SliverReorderableList(
+                itemCount: upNext.length,
+                onReorder: (oldListIdx, newListIdx) {
+                  HapticFeedback.mediumImpact();
+                  final fromQueueIdx = upNext[oldListIdx];
+                  // ReorderableList gives newIndex assuming the item has
+                  // already been removed from oldIndex — adjust the same
+                  // way ReorderableListView does internally.
+                  var toListIdx = newListIdx;
+                  if (oldListIdx < newListIdx) toListIdx -= 1;
+                  final toQueueIdx = upNext[toListIdx];
+                  context.read<PlayerProvider>().moveQueueItem(fromQueueIdx, toQueueIdx);
+                },
+                itemBuilder: (context, listIdx) {
+                  final queueIdx = upNext[listIdx];
+                  final isNextUp = listIdx == 0;
+                  return ReorderableDelayedDragStartListener(
+                    key: ValueKey('${queue[queueIdx].id}_$queueIdx'),
+                    index: listIdx,
+                    child: _QueueTile(
                       song: queue[queueIdx],
                       isCurrent: false,
+                      isNextUp: isNextUp,
                       index: listIdx + 1,
                       onTap: () {
                         HapticFeedback.selectionClick();
@@ -1875,10 +1925,20 @@ class _QueuePage extends StatelessWidget {
                         HapticFeedback.mediumImpact();
                         player.removeFromQueue(queueIdx);
                       },
-                    );
-                  },
-                  childCount: upNext.length,
-                ),
+                      onPlayNext: () async {
+                        HapticFeedback.selectionClick();
+                        final song = queue[queueIdx];
+                        await player.removeFromQueue(queueIdx);
+                        await player.playNext(song);
+                      },
+                      onMoveToTop: () {
+                        HapticFeedback.selectionClick();
+                        final target = (player.currentIndex ?? 0) + 1;
+                        player.moveQueueItem(queueIdx, target);
+                      },
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -1903,6 +1963,7 @@ class _NowPlayingHeader extends StatelessWidget {
     final cardBg = isLight
         ? AurumTheme.gold.withAlpha(22)
         : AurumTheme.gold.withAlpha(18);
+    final isPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -1927,7 +1988,7 @@ class _NowPlayingHeader extends StatelessWidget {
                   color: AurumTheme.gold,
                   borderRadius: BorderRadius.circular(9),
                 ),
-                child: const Center(child: _MiniEqualizerIcon()),
+                child: Center(child: _MiniEqualizerIcon(isPlaying: isPlaying)),
               ),
             ),
           ]),
@@ -1955,10 +2016,13 @@ class _NowPlayingHeader extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mini Equalizer Icon — for now playing badge
+// Mini Equalizer Icon — for now playing badge. Bars animate only while
+// actually playing; they settle to a calm low state when paused, instead of
+// endlessly bouncing regardless of playback state.
 // ─────────────────────────────────────────────────────────────────────────────
 class _MiniEqualizerIcon extends StatefulWidget {
-  const _MiniEqualizerIcon();
+  final bool isPlaying;
+  const _MiniEqualizerIcon({this.isPlaying = true});
 
   @override
   State<_MiniEqualizerIcon> createState() => _MiniEqualizerIconState();
@@ -1972,8 +2036,18 @@ class _MiniEqualizerIconState extends State<_MiniEqualizerIcon>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 700))
-      ..repeat(reverse: true);
+        vsync: this, duration: const Duration(milliseconds: 700));
+    if (widget.isPlaying) _ctrl.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(_MiniEqualizerIcon old) {
+    super.didUpdateWidget(old);
+    if (widget.isPlaying && !old.isPlaying) {
+      _ctrl.repeat(reverse: true);
+    } else if (!widget.isPlaying && old.isPlaying) {
+      _ctrl.stop();
+    }
   }
 
   @override
@@ -1987,23 +2061,27 @@ class _MiniEqualizerIconState extends State<_MiniEqualizerIcon>
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (_, __) {
-        final v = _ctrl.value;
+        // While paused, bars settle to a low static height instead of
+        // freezing mid-bounce at an arbitrary point.
+        final v = widget.isPlaying ? _ctrl.value : 0.0;
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            _bar(0.4 + 0.6 * v, 7),
+            _bar(widget.isPlaying ? 0.4 + 0.6 * v : 0.3, 7),
             const SizedBox(width: 1),
-            _bar(0.9 - 0.5 * v, 7),
+            _bar(widget.isPlaying ? 0.9 - 0.5 * v : 0.45, 7),
             const SizedBox(width: 1),
-            _bar(0.6 + 0.4 * v, 7),
+            _bar(widget.isPlaying ? 0.6 + 0.4 * v : 0.3, 7),
           ],
         );
       },
     );
   }
 
-  Widget _bar(double f, double maxH) => Container(
+  Widget _bar(double f, double maxH) => AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
         width: 2,
         height: maxH * f,
         decoration: BoxDecoration(
@@ -2014,22 +2092,28 @@ class _MiniEqualizerIconState extends State<_MiniEqualizerIcon>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Queue Tile — Echo Nightly style with swipe-to-remove
+// Queue Tile — Echo Nightly style with swipe-to-reveal delete + long-press
+// quick actions + next-up accent highlight.
 // ─────────────────────────────────────────────────────────────────────────────
 class _QueueTile extends StatefulWidget {
   final Song song;
   final bool isCurrent;
+  final bool isNextUp;
   final int index;
   final VoidCallback onTap;
   final VoidCallback onRemove;
+  final VoidCallback onPlayNext;
+  final VoidCallback onMoveToTop;
 
   const _QueueTile({
-    super.key,
     required this.song,
     required this.isCurrent,
+    this.isNextUp = false,
     required this.index,
     required this.onTap,
     required this.onRemove,
+    required this.onPlayNext,
+    required this.onMoveToTop,
   });
 
   @override
@@ -2042,6 +2126,9 @@ class _QueueTileState extends State<_QueueTile>
   late Animation<double> _settleAnim;
   double _dragOffset = 0;
   bool _swiped = false;
+
+  static const double _deleteRevealWidth = 76.0;
+  static const double _swipeOpenThreshold = 56.0;
 
   @override
   void initState() {
@@ -2058,98 +2145,346 @@ class _QueueTileState extends State<_QueueTile>
   }
 
   void _handleSwipeEnd() {
-    if (_dragOffset.abs() > 60) {
+    // Past the full delete-reveal width + a firm flick → remove outright.
+    if (_dragOffset.abs() > _deleteRevealWidth + 30) {
       HapticFeedback.heavyImpact();
       _swiped = true;
       _swipeCtrl.forward().then((_) {
         if (mounted) widget.onRemove();
       });
-    } else {
+      return;
+    }
+    // Past the open threshold → snap fully open to reveal the delete
+    // button (Spotify/YT Music style), rather than springing back.
+    if (_dragOffset.abs() > _swipeOpenThreshold) {
+      HapticFeedback.lightImpact();
       final fromOffset = _dragOffset;
-      _settleAnim = Tween<double>(begin: fromOffset, end: 0.0).animate(
-        CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
-      );
+      _settleAnim = Tween<double>(begin: fromOffset, end: -_deleteRevealWidth)
+          .animate(CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic));
       _swipeCtrl.forward(from: 0.0).then((_) {
-        if (mounted) setState(() => _dragOffset = 0);
+        if (mounted) setState(() => _dragOffset = -_deleteRevealWidth);
         _swipeCtrl.reset();
       });
+      return;
     }
+    // Otherwise spring back closed.
+    final fromOffset = _dragOffset;
+    _settleAnim = Tween<double>(begin: fromOffset, end: 0.0).animate(
+      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
+    );
+    _swipeCtrl.forward(from: 0.0).then((_) {
+      if (mounted) setState(() => _dragOffset = 0);
+      _swipeCtrl.reset();
+    });
+  }
+
+  void _closeSwipe() {
+    if (_dragOffset == 0) return;
+    final fromOffset = _dragOffset;
+    _settleAnim = Tween<double>(begin: fromOffset, end: 0.0).animate(
+      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
+    );
+    _swipeCtrl.forward(from: 0.0).then((_) {
+      if (mounted) setState(() => _dragOffset = 0);
+      _swipeCtrl.reset();
+    });
+  }
+
+  void _confirmDelete() {
+    HapticFeedback.heavyImpact();
+    setState(() => _swiped = true);
+    widget.onRemove();
+  }
+
+  void _showQuickActions() {
+    HapticFeedback.mediumImpact();
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.45),
+      builder: (sheetCtx) => _QueueQuickActionsSheet(
+        song: widget.song,
+        isLight: isLight,
+        onPlayNext: () {
+          Navigator.pop(sheetCtx);
+          widget.onPlayNext();
+        },
+        onMoveToTop: () {
+          Navigator.pop(sheetCtx);
+          widget.onMoveToTop();
+        },
+        onRemove: () {
+          Navigator.pop(sheetCtx);
+          _confirmDelete();
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_swiped) return const SizedBox.shrink();
+    final isLight = Theme.of(context).brightness == Brightness.light;
 
-    return GestureDetector(
-      onTap: widget.onTap,
-      onHorizontalDragUpdate: (d) {
-        _swipeCtrl.stop();
-        setState(() {
-          _dragOffset += d.delta.dx;
-          _dragOffset = _dragOffset.clamp(-120.0, 0.0);
-        });
-      },
-      onHorizontalDragEnd: (_) => _handleSwipeEnd(),
+    return RepaintBoundary(
       child: AnimatedBuilder(
         animation: _swipeCtrl,
         builder: (_, child) {
           final offset = _swiped
               ? _dragOffset
-              : (_swipeCtrl.isAnimating && _dragOffset == 0)
+              : (_swipeCtrl.isAnimating || _dragOffset == _settleAnim.value)
                   ? _settleAnim.value
                   : _dragOffset;
-          return Transform.translate(
-            offset: Offset(offset, 0),
-            child: child,
+          final revealFrac =
+              (offset.abs() / _deleteRevealWidth).clamp(0.0, 1.0);
+          return Stack(
+            children: [
+              // ── Delete action revealed behind the tile (Spotify/YT
+              // Music style) — fades/scales in as the tile slides away,
+              // never visible at rest.
+              if (revealFrac > 0)
+                Positioned.fill(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: GestureDetector(
+                          onTap: _confirmDelete,
+                          child: Container(
+                            width: _deleteRevealWidth - 8,
+                            height: double.infinity,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: Color.lerp(
+                                  Colors.red.withAlpha(140),
+                                  Colors.red.withAlpha(230),
+                                  revealFrac),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Opacity(
+                              opacity: revealFrac,
+                              child: const Icon(Icons.delete_rounded,
+                                  color: Colors.white, size: 22),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              Transform.translate(
+                offset: Offset(offset, 0),
+                child: child,
+              ),
+            ],
           );
         },
-        child: Builder(builder: (context) {
-          final isLight = Theme.of(context).brightness == Brightness.light;
-          final tileBg = isLight ? AurumTheme.lightBgSurface.withAlpha(180) : Colors.white.withAlpha(7);
-          final tileBorder = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(10);
-          final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white.withAlpha(220);
-          final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(80);
-          final indexColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(45);
-          final dragColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(40);
+        child: GestureDetector(
+          onTap: () {
+            if (_dragOffset != 0) {
+              _closeSwipe();
+              return;
+            }
+            widget.onTap();
+          },
+          onLongPress: _showQuickActions,
+          onHorizontalDragUpdate: (d) {
+            _swipeCtrl.stop();
+            setState(() {
+              _dragOffset += d.delta.dx;
+              _dragOffset = _dragOffset.clamp(-_deleteRevealWidth - 30, 0.0);
+            });
+          },
+          onHorizontalDragEnd: (_) => _handleSwipeEnd(),
+          child: Builder(builder: (context) {
+            final tileBg = widget.isNextUp
+                ? (isLight
+                    ? AurumTheme.gold.withAlpha(20)
+                    : AurumTheme.gold.withAlpha(16))
+                : (isLight
+                    ? AurumTheme.lightBgSurface.withAlpha(180)
+                    : Colors.white.withAlpha(7));
+            final tileBorder = widget.isNextUp
+                ? AurumTheme.gold.withAlpha(isLight ? 70 : 55)
+                : (isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(10));
+            final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white.withAlpha(220);
+            final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(80);
+            final indexColor = widget.isNextUp
+                ? AurumTheme.gold.withAlpha(200)
+                : (isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(45));
+            final dragColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(40);
 
-          return Container(
-            margin: const EdgeInsets.symmetric(vertical: 3),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: tileBg,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: tileBorder, width: 0.5),
+            return Container(
+              margin: const EdgeInsets.symmetric(vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: tileBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: tileBorder,
+                  width: widget.isNextUp ? 1.0 : 0.5,
+                ),
+              ),
+              child: Row(children: [
+                // Subtle next-up accent bar — a quiet gradient sliver,
+                // not a loud badge, so it reads as "this one's coming up"
+                // without competing with the now-playing card above.
+                if (widget.isNextUp)
+                  Container(
+                    width: 3,
+                    height: 36,
+                    margin: const EdgeInsets.only(right: 9),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(2),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          AurumTheme.gold.withAlpha(220),
+                          AurumTheme.gold.withAlpha(90),
+                        ],
+                      ),
+                    ),
+                  ),
+                SizedBox(
+                  width: 22,
+                  child: Text('${widget.index}',
+                    style: TextStyle(color: indexColor, fontSize: 12, fontWeight: FontWeight.w500),
+                    textAlign: TextAlign.center),
+                ),
+                const SizedBox(width: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: AurumArtwork(url: widget.song.artworkUrl, size: 44, borderRadius: 10),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.song.title,
+                      style: TextStyle(color: textPrimary, fontSize: 13, fontWeight: FontWeight.w500),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 3),
+                    Text(widget.song.artist,
+                      style: TextStyle(color: textSecondary, fontSize: 11.5),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                )),
+                const SizedBox(width: 8),
+                Icon(Icons.drag_handle_rounded, color: dragColor, size: 18),
+              ]),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Queue Quick Actions Sheet — Play Next / Move to Top / Remove
+// ─────────────────────────────────────────────────────────────────────────────
+class _QueueQuickActionsSheet extends StatelessWidget {
+  final Song song;
+  final bool isLight;
+  final VoidCallback onPlayNext;
+  final VoidCallback onMoveToTop;
+  final VoidCallback onRemove;
+
+  const _QueueQuickActionsSheet({
+    required this.song,
+    required this.isLight,
+    required this.onPlayNext,
+    required this.onMoveToTop,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isLight ? Colors.white : const Color(0xFF15141C);
+    final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(120);
+    final dividerColor = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14);
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
+              child: Row(children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: AurumArtwork(url: song.artworkUrl, size: 44, borderRadius: 10),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(song.title,
+                      style: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 2),
+                    Text(song.artist,
+                      style: TextStyle(color: textSecondary, fontSize: 12),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                )),
+              ]),
             ),
-            child: Row(children: [
-              SizedBox(
-                width: 22,
-                child: Text('${widget.index}',
-                  style: TextStyle(color: indexColor, fontSize: 12, fontWeight: FontWeight.w500),
-                  textAlign: TextAlign.center),
-              ),
-              const SizedBox(width: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: AurumArtwork(url: widget.song.artworkUrl, size: 44, borderRadius: 10),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(widget.song.title,
-                    style: TextStyle(color: textPrimary, fontSize: 13, fontWeight: FontWeight.w500),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 3),
-                  Text(widget.song.artist,
-                    style: TextStyle(color: textSecondary, fontSize: 11.5),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
-                ],
-              )),
-              const SizedBox(width: 8),
-              Icon(Icons.drag_handle_rounded, color: dragColor, size: 18),
-            ]),
-          );
-        }),
+            Divider(color: dividerColor, height: 1),
+            _actionTile(
+              icon: Icons.skip_next_rounded,
+              label: 'Play Next',
+              textPrimary: textPrimary,
+              onTap: onPlayNext,
+            ),
+            _actionTile(
+              icon: Icons.vertical_align_top_rounded,
+              label: 'Move to Top',
+              textPrimary: textPrimary,
+              onTap: onMoveToTop,
+            ),
+            _actionTile(
+              icon: Icons.delete_outline_rounded,
+              label: 'Remove from Queue',
+              textPrimary: Colors.redAccent,
+              onTap: onRemove,
+            ),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _actionTile({
+    required IconData icon,
+    required String label,
+    required Color textPrimary,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        child: Row(children: [
+          Icon(icon, color: textPrimary, size: 21),
+          const SizedBox(width: 16),
+          Text(label,
+              style: TextStyle(
+                  color: textPrimary, fontSize: 14.5, fontWeight: FontWeight.w500)),
+        ]),
       ),
     );
   }
