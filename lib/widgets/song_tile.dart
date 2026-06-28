@@ -83,12 +83,14 @@ class _SongTileState extends State<SongTile> {
 
   @override
   Widget build(BuildContext context) {
-    // FIX: watch fav live (not read) so heart updates reactively
-    final fav = context.watch<FavoritesProvider>();
+    // FIX: use select instead of watch — only rebuilds THIS tile when ITS
+    // song's liked state changes, not when any favorite changes anywhere.
+    final isLiked = context.select<FavoritesProvider, bool>(
+      (fav) => fav.isFavorite(widget.song.id),
+    );
     final isCurrentSong = context.select<PlayerProvider, bool>(
       (p) => p.currentSong?.id == widget.song.id,
     );
-    final isLiked = fav.isFavorite(widget.song.id);
 
     return InkWell(
       onTap: () => _handleTap(context),
@@ -139,7 +141,7 @@ class _SongTileState extends State<SongTile> {
             ),
             // Heart button
             GestureDetector(
-              onTap: () => fav.toggleFavorite(widget.song),
+              onTap: () => context.read<FavoritesProvider>().toggleFavorite(widget.song),
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 250),
                 transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),

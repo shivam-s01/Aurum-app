@@ -1,5 +1,6 @@
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
+import '../main.dart' show aurumRouteObserver;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -37,7 +38,7 @@ class FullPlayerScreen extends StatefulWidget {
 }
 
 class _FullPlayerScreenState extends State<FullPlayerScreen>
-    with TickerProviderStateMixin, WidgetsBindingObserver {
+    with TickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
 
   // ── Entry animation (420ms, easeOutCubic) ──
   late final AnimationController _entryCtrl;
@@ -119,18 +120,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // Breathing: bg scale pulse, 12s full cycle (spec: 10-15s)
     _breatheCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 12000),
+      duration: const Duration(milliseconds: 20000),
     )..repeat(reverse: true);
 
     // Artwork float: separate faster cycle, 5.5s (spec: 5-6s)
     _artworkFloatCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 5500),
+      duration: const Duration(milliseconds: 9000),
     )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
+    aurumRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _entryCtrl.dispose();
     _artworkCtrl.dispose();
@@ -151,6 +153,26 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     } else {
       _pauseAmbientAnims();
     }
+  }
+
+  // ── RouteAware — pause ambient anims when a route is pushed on top ──
+  // (lyrics screen, queue screen, options sheet, etc.)
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    aurumRouteObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  @override
+  void didPushNext() {
+    // A new route was pushed on top — pause GPU-heavy loops
+    _pauseAmbientAnims();
+  }
+
+  @override
+  void didPopNext() {
+    // The route on top was popped — we're visible again, resume
+    if (!_panelOpen) _resumeAmbientAnims();
   }
 
   bool _panelOpen = false;

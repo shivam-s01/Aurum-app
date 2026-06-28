@@ -284,45 +284,6 @@ class _MiniPlayerState extends State<MiniPlayer>
           },
           child: _buildInner(context, player),
         );
-
-        // Calculate visual transforms
-        final currentY = _settleCtrl.isAnimating ? _settleAnim.value : _dragY;
-        final dragFraction = (currentY.abs() / 160.0).clamp(0.0, 1.0);
-        final opacity = (1.0 - dragFraction * 0.6).clamp(0.0, 1.0);
-        final scale = (1.0 - dragFraction * 0.04).clamp(0.92, 1.0);
-
-        return AnimatedBuilder(
-          animation: _settleCtrl,
-          builder: (_, child) {
-            final y = _settleCtrl.isAnimating ? _settleAnim.value : _dragY;
-            final frac = (y.abs() / 160.0).clamp(0.0, 1.0);
-            final op = (1.0 - frac * 0.6).clamp(0.0, 1.0);
-            final sc = (1.0 - frac * 0.04).clamp(0.92, 1.0);
-
-            return Transform.translate(
-              offset: Offset(0, y.clamp(-60.0, 200.0)),
-              child: Transform.scale(
-                scale: sc,
-                child: Opacity(
-                  opacity: op,
-                  child: child,
-                ),
-              ),
-            );
-          },
-          child: GestureDetector(
-            onTap: _openFullPlayer,
-            onVerticalDragStart: _onDragStart,
-            onVerticalDragUpdate: _onDragUpdate,
-            onVerticalDragEnd: _onDragEnd,
-            child: _MiniPlayerContent(
-              player: player,
-              isDragging: _isDragging,
-              dragY: _dragY,
-              style: _style,
-            ),
-          ),
-        );
       },
     );
   }
@@ -426,7 +387,7 @@ class _MiniPlayerContent extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               decoration: BoxDecoration(
@@ -603,7 +564,7 @@ class _MiniPlayerContent extends StatelessWidget {
         ),
       ),
       child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             decoration: BoxDecoration(

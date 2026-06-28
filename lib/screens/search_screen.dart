@@ -599,6 +599,7 @@ class _SearchScreenState extends State<SearchScreen>
           child: ListView.builder(
             physics: const BouncingScrollPhysics(),
             itemCount: _history.length,
+            itemExtent: 52,
             itemBuilder: (_, i) {
               final item = _history[i];
               return ListTile(
@@ -729,6 +730,7 @@ class _SearchScreenState extends State<SearchScreen>
         key: const ValueKey('results'),
         physics: const BouncingScrollPhysics(),
         itemCount: _results.length,
+        itemExtent: 66,
         padding: const EdgeInsets.only(bottom: 80),
         itemBuilder: (_, i) => _StaggeredItem(
           index: i,

@@ -173,8 +173,8 @@ class _SplashScreenState extends State<SplashScreen>
   static const Duration _settleEnd     = Duration(milliseconds: 1460);
   static const Duration _bloomEnd      = Duration(milliseconds: 1680);
   static const Duration _letterStart   = Duration(milliseconds: 1680);
-  static const Duration _letterStagger = Duration(milliseconds: 140);
-  static const Duration _letterIn      = Duration(milliseconds: 420);
+  static const Duration _letterStagger = Duration(milliseconds: 100);
+  static const Duration _letterIn      = Duration(milliseconds: 280);
 
   late final Duration _barStart    = _legsDraw + _barPause;
   late final Duration _barEnd      = _barStart + _barDraw;
@@ -188,8 +188,8 @@ class _SplashScreenState extends State<SplashScreen>
   late final Duration _zoomStart   = _pulseEnd     + const Duration(milliseconds: 120);
   late final Duration _zoomPeak    = _zoomStart    + const Duration(milliseconds: 250);
   late final Duration _zoomSettle  = _zoomPeak     + const Duration(milliseconds: 240);
-  late final Duration _holdEnd     = _zoomSettle   + const Duration(milliseconds: 300);
-  late final Duration _exitEnd     = _holdEnd      + const Duration(milliseconds: 500);
+  late final Duration _holdEnd     = _zoomSettle   + const Duration(milliseconds: 80);
+  late final Duration _exitEnd     = _holdEnd      + const Duration(milliseconds: 280);
 
   late final Duration _total = _exitEnd;
 

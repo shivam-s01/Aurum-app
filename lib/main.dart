@@ -33,6 +33,11 @@ late AurumAudioHandler _audioHandler;
 /// outside the widget tree) push the Downloads screen.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+/// Global RouteObserver — lets FullPlayerScreen pause ambient animations
+/// whenever a route is pushed on top (lyrics, queue, options sheets).
+final RouteObserver<ModalRoute<void>> aurumRouteObserver =
+    RouteObserver<ModalRoute<void>>();
+
 Future<void> main() async {
   runZonedGuarded(() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -184,6 +189,7 @@ class AurumApp extends StatelessWidget {
             themeMode: themeProvider.themeMode,
             theme: lightTheme,
             darkTheme: darkTheme,
+            navigatorObservers: [aurumRouteObserver],
             home: AppLockScreen(child: _SplashOnEveryEntry(child: const MainShell())),
           );
         },

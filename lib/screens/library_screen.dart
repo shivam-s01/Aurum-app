@@ -1388,6 +1388,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                           controller: scrollCtrl,
                           physics: const BouncingScrollPhysics(),
                           itemCount: pp.playlists.length,
+                          itemExtent: 72,
                           itemBuilder: (_, i) {
                             final pl = pp.playlists[i];
                             final alreadyIn = pp.isSongInPlaylist(pl.id, song.id);
@@ -1966,6 +1967,7 @@ class _LocalFilesScreen extends StatelessWidget {
                       physics: const BouncingScrollPhysics(),
                       padding: const EdgeInsets.only(bottom: 100),
                       itemCount: lib.allSongs.length,
+                      itemExtent: 66,
                       itemBuilder: (_, i) => SongTile(
                           song: lib.allSongs[i],
                           queue: lib.allSongs,

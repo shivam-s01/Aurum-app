@@ -380,7 +380,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     // 13s full cycle — within spec's 12-15s range
     _breatheCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 13000),
+      duration: const Duration(milliseconds: 20000),
     )..repeat(reverse: true);
   }
 
@@ -466,8 +466,8 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                   },
                   child: ImageFiltered(
                     imageFilter: ImageFilter.blur(
-                      sigmaX: isLight ? 6 : 5,
-                      sigmaY: isLight ? 6 : 5,
+                      sigmaX: isLight ? 5 : 4,
+                      sigmaY: isLight ? 5 : 4,
                       tileMode: TileMode.clamp,
                     ),
                     child: AurumArtwork(
@@ -655,7 +655,7 @@ class _TopAmbientGlowState extends State<_TopAmbientGlow>
       // 80x80 is enough for palette — minimal cost
       final pg = await PaletteGenerator.fromImageProvider(
         provider,
-        size: const Size(80, 80),
+        size: const Size(48, 48),
       );
 
       final raw = pg.vibrantColor?.color ??

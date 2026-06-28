@@ -256,44 +256,73 @@ class _ContentUriImageState extends State<_ContentUriImage> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shimmer pulse
+// Shimmer pulse — ONE shared AnimationController for all instances.
+// Previously each _ShimmerPulse had its own controller → 20-30 controllers
+// running simultaneously during list scroll. Now all instances share one
+// ValueNotifier driven by a single app-level ticker.
 // ─────────────────────────────────────────────────────────────────────────────
-class _ShimmerPulse extends StatefulWidget {
+class _ShimmerPulse extends StatelessWidget {
   const _ShimmerPulse();
 
+  // Single shared notifier — value oscillates 0.03↔0.10 at 900ms
+  static final ValueNotifier<double> _opacity = ValueNotifier(0.03);
+  static AnimationController? _ctrl;
+  static int _refCount = 0;
+
+  static void _attach(TickerProvider vsync) {
+    _refCount++;
+    if (_ctrl != null) return;
+    _ctrl = AnimationController(
+      vsync: vsync,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _ctrl!.addListener(() {
+      final t = _ctrl!.value;
+      final curved = Curves.easeInOut.transform(t);
+      _opacity.value = 0.03 + curved * 0.07;
+    });
+  }
+
+  static void _detach() {
+    _refCount--;
+    if (_refCount <= 0) {
+      _ctrl?.dispose();
+      _ctrl = null;
+      _refCount = 0;
+    }
+  }
+
   @override
-  State<_ShimmerPulse> createState() => _ShimmerPulseState();
+  Widget build(BuildContext context) {
+    return _ShimmerPulseInstance();
+  }
 }
 
-class _ShimmerPulseState extends State<_ShimmerPulse>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _anim;
+class _ShimmerPulseInstance extends StatefulWidget {
+  @override
+  State<_ShimmerPulseInstance> createState() => _ShimmerPulseInstanceState();
+}
 
+class _ShimmerPulseInstanceState extends State<_ShimmerPulseInstance>
+    with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-    _anim = Tween(begin: 0.03, end: 0.10).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
+    _ShimmerPulse._attach(this);
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _ShimmerPulse._detach();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _anim,
-      builder: (_, __) =>
-          Container(color: Colors.white.withOpacity(_anim.value)),
+    return ValueListenableBuilder<double>(
+      valueListenable: _ShimmerPulse._opacity,
+      builder: (_, opacity, __) =>
+          Container(color: Colors.white.withOpacity(opacity)),
     );
   }
 }
