@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_empty_state.dart';
 
 class QueueScreen extends StatelessWidget {
   const QueueScreen({super.key});
@@ -27,15 +29,20 @@ class QueueScreen extends StatelessWidget {
         leading: IconButton(
           icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 28),
           color: AurumTheme.textSecondary,
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            Navigator.pop(context);
+          },
         ),
       ),
       body: Consumer<PlayerProvider>(
         builder: (context, player, _) {
           final queue = player.queue;
           if (queue.isEmpty) {
-            return const Center(
-              child: Text('Queue is empty', style: TextStyle(color: AurumTheme.textMuted)),
+            return const AurumEmptyState(
+              icon: Icons.queue_music_rounded,
+              title: 'Queue is empty',
+              subtitle: 'Songs you play next will line up here',
             );
           }
 
@@ -43,6 +50,7 @@ class QueueScreen extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 80),
             itemCount: queue.length,
             onReorder: (from, to) {
+              HapticFeedback.mediumImpact();
               final adjustedTo = to > from ? to - 1 : to;
               player.moveQueueItem(from, adjustedTo);
             },
@@ -88,7 +96,10 @@ class QueueScreen extends StatelessWidget {
                   children: [
                     if (!isCurrent)
                       GestureDetector(
-                        onTap: () => player.removeFromQueue(i),
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          player.removeFromQueue(i);
+                        },
                         child: const Padding(
                           padding: EdgeInsets.all(8),
                           child: Icon(Icons.close_rounded, color: AurumTheme.textMuted, size: 18),
@@ -97,7 +108,10 @@ class QueueScreen extends StatelessWidget {
                     const Icon(Icons.drag_handle_rounded, color: AurumTheme.textMuted, size: 20),
                   ],
                 ),
-                onTap: () => player.skipToIndex(i),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  player.skipToIndex(i);
+                },
               );
             },
           );

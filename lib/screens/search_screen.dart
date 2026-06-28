@@ -12,6 +12,7 @@ import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_loader.dart';
+import '../widgets/aurum_empty_state.dart';
 import 'full_player_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -595,6 +596,7 @@ class _SearchScreenState extends State<SearchScreen>
         ),
         Expanded(
           child: ListView.builder(
+            physics: const BouncingScrollPhysics(),
             itemCount: _history.length,
             itemBuilder: (_, i) {
               final item = _history[i];
@@ -676,16 +678,15 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _buildNoLiveResults(BuildContext context, String query) {
-    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.search_off_rounded, color: AurumTheme.gold.withOpacity(0.2), size: 56),
-      const SizedBox(height: 12),
-      Text('No results for "$query"', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14)),
-      const SizedBox(height: 16),
-      TextButton(
-        onPressed: () => _search(query),
-        child: Text('Search everywhere', style: TextStyle(color: AurumTheme.gold, fontWeight: FontWeight.w600, fontSize: 13)),
-      ),
-    ]));
+    return AurumEmptyState(
+      icon: Icons.search_off_rounded,
+      title: 'No results for "$query"',
+      actionLabel: 'Search everywhere',
+      onAction: () {
+        HapticFeedback.lightImpact();
+        _search(query);
+      },
+    );
   }
 
   Widget _sectionLabel(BuildContext context, String label) {
@@ -728,6 +729,7 @@ class _SearchScreenState extends State<SearchScreen>
       color: AurumTheme.bgOf(context),
       child: ListView.builder(
         key: const ValueKey('results'),
+        physics: const BouncingScrollPhysics(),
         itemCount: _results.length,
         padding: const EdgeInsets.only(bottom: 80),
         itemBuilder: (_, i) => _StaggeredItem(
@@ -825,6 +827,7 @@ class _BrowseTabState extends State<_BrowseTab> {
             height: 100,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: widget.result.artists.length,
               itemBuilder: (_, i) => _StaggeredItem(
@@ -844,6 +847,7 @@ class _BrowseTabState extends State<_BrowseTab> {
             height: 180,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: widget.result.albums.length,
               itemBuilder: (_, i) => _StaggeredItem(
@@ -885,6 +889,7 @@ class _BrowseTabState extends State<_BrowseTab> {
         else
           Expanded(
             child: ListView.builder(
+              physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.only(bottom: 100),
               itemCount: tracks.length,
               itemBuilder: (_, i) => _StaggeredItem(
@@ -898,12 +903,10 @@ class _BrowseTabState extends State<_BrowseTab> {
   }
 
   Widget _buildBrowseEmpty(BuildContext context) {
-    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.library_music_outlined, color: AurumTheme.gold.withOpacity(0.2), size: 56),
-      const SizedBox(height: 12),
-      Text(widget.query.isEmpty ? 'Type to browse artists & albums' : 'No results',
-          style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14)),
-    ]));
+    return AurumEmptyState(
+      icon: Icons.library_music_outlined,
+      title: widget.query.isEmpty ? 'Type to browse artists & albums' : 'No results',
+    );
   }
 
   Widget _sectionLabel(BuildContext context, String label) {

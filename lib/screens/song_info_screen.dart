@@ -1,7 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
+import '../widgets/aurum_artwork.dart';
 
 class SongInfoScreen extends StatelessWidget {
   final Song song;
@@ -23,7 +25,11 @@ class SongInfoScreen extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 8, 16, 0),
             child: Row(children: [
-              IconButton(onPressed: () => Navigator.pop(context),
+              IconButton(
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    Navigator.pop(context);
+                  },
                   icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white)),
               Expanded(child: Column(children: [
                 Text('Song Info', style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 11, letterSpacing: 0.5)),
@@ -35,21 +41,31 @@ class SongInfoScreen extends StatelessWidget {
             ]),
           ),
           const SizedBox(height: 8),
-          // Artwork
+          // Artwork — uses AurumArtwork for consistent premium fadeIn instead
+          // of a raw Image.network that pops in abruptly.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 80),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: AspectRatio(aspectRatio: 1,
+              child: AspectRatio(
+                aspectRatio: 1,
                 child: song.artworkUrl.isNotEmpty
-                    ? Image.network(song.artworkUrl, fit: BoxFit.cover)
-                    : Container(color: bgColor,
-                        child: const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 48))),
+                    ? AurumArtwork(
+                        url: song.artworkUrl,
+                        size: double.infinity,
+                        borderRadius: 16,
+                      )
+                    : Container(
+                        color: bgColor,
+                        child: const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 48),
+                      ),
+              ),
             ),
           ),
           const SizedBox(height: 20),
           Expanded(
             child: ListView(
+              physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
               children: [
                 _infoCard([

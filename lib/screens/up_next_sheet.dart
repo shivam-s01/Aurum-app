@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/services.dart';
 import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
+import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_empty_state.dart';
 import 'dart:ui';
 
 class UpNextSheet extends StatelessWidget {
@@ -42,10 +44,14 @@ class UpNextSheet extends StatelessWidget {
               const SizedBox(height: 12),
               Expanded(
                 child: queue.isEmpty
-                    ? Center(child: Text('Queue is empty',
-                        style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 14)))
+                    ? const AurumEmptyState(
+                        icon: Icons.queue_music_rounded,
+                        title: 'Queue is empty',
+                        subtitle: 'Songs you play next will line up here',
+                      )
                     : ListView.builder(
                         controller: controller,
+                        physics: const BouncingScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
                         itemCount: queue.length,
                         itemBuilder: (_, i) {
@@ -61,12 +67,10 @@ class UpNextSheet extends StatelessWidget {
                             ),
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                              leading: ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: s.artworkUrl.isNotEmpty
-                                    ? Image.network(s.artworkUrl, width: 48, height: 48, fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => _placeholder())
-                                    : _placeholder(),
+                              leading: AurumArtwork(
+                                url: s.artworkUrl,
+                                size: 48,
+                                borderRadius: 10,
                               ),
                               title: Text(s.title,
                                   style: TextStyle(color: isCurrent ? AurumTheme.gold : Colors.white,
@@ -78,7 +82,11 @@ class UpNextSheet extends StatelessWidget {
                               trailing: isCurrent
                                   ? const Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 20)
                                   : Icon(Icons.drag_handle_rounded, color: Colors.white.withOpacity(0.2), size: 20),
-                              onTap: () { Navigator.pop(context); player.skipToIndex(i); },
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                Navigator.pop(context);
+                                player.skipToIndex(i);
+                              },
                             ),
                           );
                         },
@@ -90,10 +98,4 @@ class UpNextSheet extends StatelessWidget {
       ),
     );
   }
-
-  Widget _placeholder() => Container(
-    width: 48, height: 48,
-    decoration: BoxDecoration(color: Colors.white.withOpacity(0.06), borderRadius: BorderRadius.circular(10)),
-    child: const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 20),
-  );
 }
