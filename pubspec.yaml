@@ -67,11 +67,6 @@ dependencies:
   connectivity_plus: ^6.0.5
   google_sign_in: ^6.2.1
 
-  # Expressive loading indicator (M3)
-  expressive_loading_indicator:
-    path: packages/expressive_loading_indicator
-  material_new_shapes: ^1.0.0
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
