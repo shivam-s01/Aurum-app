@@ -744,6 +744,32 @@ class ApiService {
   // ===========================================================================
   static int _anonymousResolveCounter = 0;
 
+  // ─── URL LIVENESS CHECK ─────────────────────────────────────────────────
+  // Mirrors the same fix applied on the Cloudflare Worker side: a resolved
+  // stream URL can come back "successfully" from Saavn/YT mirrors but still
+  // be dead (expired signature, IP-locked, 403, etc), which only surfaces
+  // later as a silent ExoPlayer idle@0ms failure. A quick HEAD (with ranged
+  // GET fallback for CDNs that reject HEAD) catches this before we ever
+  // hand the URL to setAudioSource.
+  static Future<bool> _isUrlAlive(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      final head = await _client
+          .head(uri)
+          .timeout(const Duration(seconds: 3));
+      if (head.statusCode >= 200 && head.statusCode < 400) return true;
+      if (head.statusCode == 405 || head.statusCode == 403) {
+        final ranged = await _client
+            .get(uri, headers: {'Range': 'bytes=0-1023'})
+            .timeout(const Duration(seconds: 3));
+        return ranged.statusCode == 200 || ranged.statusCode == 206;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<String?> resolveStreamUrl(Song song, {bool forceRefresh = false}) async {
     if (song.isLocal) return song.localPath;
 
@@ -808,6 +834,10 @@ class ApiService {
       case SongSource.saavn:
         if (song.id.isNotEmpty) {
           url = await _retry(() => _saavnStreamById(song.id), attempts: 2);
+          if (url != null && !await _isUrlAlive(url)) {
+            _log('[resolve] Saavn URL for "${song.title}" failed liveness check — discarding');
+            url = null;
+          }
           _log('[resolve] Saavn by ID "${song.title}": ${url != null ? "OK" : "FAILED"}');
         }
         if (url == null) {
@@ -819,6 +849,10 @@ class ApiService {
       case SongSource.youtube:
         if (song.id.isNotEmpty) {
           url = await _ytStreamById(song.id);
+          if (url != null && !await _isUrlAlive(url)) {
+            _log('[resolve] YT URL for "${song.title}" failed liveness check — discarding');
+            url = null;
+          }
           _log('[resolve] YT "${song.id}": ${url != null ? "OK" : "FAILED"}');
         }
         if (url == null) {

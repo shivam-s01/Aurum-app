@@ -208,10 +208,33 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     final songTitle = songNow.title;
     debugPrint('[AurumHandler] FRESH-START FAILURE: processingState=idle '
-        'at pos=${_player.position.inMilliseconds}ms, song=$songTitle');
-    onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
-        'setAudioSource appeared to succeed but processingState went '
-        'idle at position 0ms.');
+        'at pos=${_player.position.inMilliseconds}ms, song=$songTitle — retrying with forced-refresh URL');
+
+    ApiService.invalidateStream(songNow);
+    _LookaheadCache.remove(songNow.id);
+
+    try {
+      final freshUrl = await ApiService.resolveStreamUrl(songNow, forceRefresh: true)
+          .timeout(const Duration(seconds: 15), onTimeout: () => null);
+
+      if (freshUrl == null || sessionAtIdle != _playSessionId) {
+        onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
+            'retry also failed to resolve a playable URL.');
+        return;
+      }
+      if (_queue.isEmpty || _currentIndex >= _queue.length) return;
+      if (_queue[_currentIndex].id != songAtIdle!.id) return;
+
+      final freshSource = AudioSource.uri(Uri.parse(freshUrl), tag: _songToMediaItem(songNow));
+      await _player.setAudioSource(freshSource, initialIndex: 0, preload: false);
+      await _player.play();
+      debugPrint('[AurumHandler] Fresh-start retry succeeded for "$songTitle" ✓');
+    } catch (e) {
+      debugPrint('[AurumHandler] Fresh-start retry failed: $e');
+      onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
+          'setAudioSource appeared to succeed but processingState went '
+          'idle at position 0ms, and retry failed.');
+    }
   }
 
   Future<void> _handleMidStreamIdle(Duration pos) async {
