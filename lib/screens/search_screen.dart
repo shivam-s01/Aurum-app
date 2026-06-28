@@ -12,6 +12,7 @@ import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_loader.dart';
+import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_empty_state.dart';
 import 'full_player_screen.dart';
 
@@ -515,7 +516,7 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _buildBody(BuildContext context) {
-    if (_loading) return const Center(key: ValueKey('loading'), child: Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: AurumM3Loader()));
+    if (_loading) return const Center(key: ValueKey('loading'), child: AurumMorphLoader());
     if (_results.isNotEmpty) return _buildResults();
     if (_controller.text.trim().isNotEmpty) return _buildLivePanel(context);
     if (_showHistory && _history.isNotEmpty) return _buildHistory(context);
@@ -670,7 +671,7 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildLiveLoadingState(BuildContext context) {
     return Column(children: [
       _buildLiveProgressBar(context),
-      const Expanded(child: Center(child: Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: AurumM3Loader()))),
+      const Expanded(child: Center(child: AurumMorphLoader())),
     ]);
   }
 
@@ -811,7 +812,7 @@ class _BrowseTabState extends State<_BrowseTab> {
     if (_openArtistName != null) return _buildTrackList(context, _openArtistName!, _artistLoading, _artistTracks);
 
     if (widget.query.isEmpty) return _buildBrowseEmpty(context);
-    if (widget.loading)       return const Center(child: Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: AurumM3Loader()));
+    if (widget.loading)       return const Center(child: AurumMorphLoader());
     if (widget.result.isEmpty) return _buildBrowseEmpty(context);
 
     return ListView(
@@ -882,7 +883,7 @@ class _BrowseTabState extends State<_BrowseTab> {
           ]),
         ),
         if (loading)
-          const Expanded(child: Center(child: Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: AurumM3Loader())))
+          const Expanded(child: Center(child: AurumMorphLoader()))
         else
           Expanded(
             child: ListView.builder(
