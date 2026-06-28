@@ -32,6 +32,9 @@ dependencies:
   shimmer: ^3.0.0
   palette_generator: ^0.3.3+3
   google_fonts: ^6.2.1
+  material_new_shapes: ^1.0.0
+  expressive_loading_indicator:
+    path: packages/expressive_loading_indicator
 
   # Persistence
   shared_preferences: ^2.2.2
