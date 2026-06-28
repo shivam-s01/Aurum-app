@@ -252,7 +252,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               title: 'Equalizer',
               subtitle: '10-band EQ with presets',
               onTap: () => Navigator.of(context)
-                  .push(_slideRoute(const _EqualizerScreen()))),
+                  .push(_slideRoute(_EqualizerScreen(audioHandler: widget.audioHandler)))),
 
           // ── BEHAVIOR ──────────────────────────────────────────────────────
           const SizedBox(height: 16),
@@ -698,7 +698,8 @@ class _SleepTimerSheetState extends State<_SleepTimerSheet> {
 // Equalizer Screen
 // =============================================================================
 class _EqualizerScreen extends StatefulWidget {
-  const _EqualizerScreen();
+  final AurumAudioHandler? audioHandler;
+  const _EqualizerScreen({this.audioHandler});
   @override
   State<_EqualizerScreen> createState() => _EqualizerScreenState();
 }
@@ -738,6 +739,7 @@ class _EqualizerScreenState extends State<_EqualizerScreen> {
     for (int i = 0; i < 10; i++) {
       await p.setDouble('eq_band_$i', _values[i]);
     }
+    await widget.audioHandler?.customAction('reloadSettings');
   }
 
   void _applyPreset(String name) {
