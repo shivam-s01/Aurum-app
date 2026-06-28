@@ -2132,7 +2132,7 @@ class _DownloadTile extends StatelessWidget {
                 child: Center(
                   child: AurumM3Loader(
                     width: 22,
-                    height: item.progress > 0 ? null : 2.5,
+                    height: 2.5,
                   ),
                 ),
               ),
