@@ -46,6 +46,11 @@ class MiniPlayer extends StatefulWidget {
   static final ValueNotifier<String> styleNotifier =
       ValueNotifier<String>('Capsule');
 
+  /// When home screen's hero card is visible, mini player hides.
+  /// Home screen updates this via scroll; other screens leave it true.
+  static final ValueNotifier<bool> heroVisibleNotifier =
+      ValueNotifier<bool>(false);
+
   @override
   State<MiniPlayer> createState() => _MiniPlayerState();
 }
@@ -79,6 +84,11 @@ class _MiniPlayerState extends State<MiniPlayer>
     _settleAnim = AlwaysStoppedAnimation(0.0);
     _loadStyle();
     MiniPlayer.styleNotifier.addListener(_onStyleChanged);
+    MiniPlayer.heroVisibleNotifier.addListener(_onHeroVisibilityChanged);
+  }
+
+  void _onHeroVisibilityChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onStyleChanged() {
@@ -95,6 +105,7 @@ class _MiniPlayerState extends State<MiniPlayer>
   @override
   void dispose() {
     MiniPlayer.styleNotifier.removeListener(_onStyleChanged);
+    MiniPlayer.heroVisibleNotifier.removeListener(_onHeroVisibilityChanged);
     _settleCtrl.dispose();
     super.dispose();
   }
@@ -216,6 +227,19 @@ class _MiniPlayerState extends State<MiniPlayer>
         if (!player.hasSong) return const SizedBox.shrink();
         if (_dismissed) return const SizedBox.shrink();
 
+        // Hide mini player when home hero is visible — animate in/out smoothly
+        final heroVisible = MiniPlayer.heroVisibleNotifier.value;
+        return AnimatedSlide(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOutCubic,
+          offset: heroVisible ? const Offset(0, 1) : Offset.zero,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 180),
+            opacity: heroVisible ? 0.0 : 1.0,
+            child: _buildInner(context, player),
+          ),
+        );
+
         // Calculate visual transforms
         final currentY = _settleCtrl.isAnimating ? _settleAnim.value : _dragY;
         final dragFraction = (currentY.abs() / 160.0).clamp(0.0, 1.0);
@@ -255,6 +279,45 @@ class _MiniPlayerState extends State<MiniPlayer>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildInner(BuildContext context, PlayerProvider player) {
+    // Calculate visual transforms
+    final currentY = _settleCtrl.isAnimating ? _settleAnim.value : _dragY;
+    final dragFraction = (currentY.abs() / 160.0).clamp(0.0, 1.0);
+
+    return AnimatedBuilder(
+      animation: _settleCtrl,
+      builder: (_, child) {
+        final y = _settleCtrl.isAnimating ? _settleAnim.value : _dragY;
+        final frac = (y.abs() / 160.0).clamp(0.0, 1.0);
+        final op = (1.0 - frac * 0.6).clamp(0.0, 1.0);
+        final sc = (1.0 - frac * 0.04).clamp(0.92, 1.0);
+
+        return Transform.translate(
+          offset: Offset(0, y.clamp(-60.0, 200.0)),
+          child: Transform.scale(
+            scale: sc,
+            child: Opacity(
+              opacity: op,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: GestureDetector(
+        onTap: _openFullPlayer,
+        onVerticalDragStart: _onDragStart,
+        onVerticalDragUpdate: _onDragUpdate,
+        onVerticalDragEnd: _onDragEnd,
+        child: _MiniPlayerContent(
+          player: player,
+          isDragging: _isDragging,
+          dragY: _dragY,
+          style: _style,
+        ),
+      ),
     );
   }
 }

@@ -147,7 +147,7 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
     if (_checking) {
       return const Scaffold(
         backgroundColor: AurumTheme.darkBg,
-        body: const Center(child: AurumM3Loader()),
+        body: const Center(child: AurumMorphLoader()),
       );
     }
     if (!_locked) return widget.child;

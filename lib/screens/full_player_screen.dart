@@ -1,4 +1,5 @@
 import '../widgets/aurum_loader.dart';
+import '../widgets/aurum_morph_loader.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -2197,7 +2198,7 @@ class _LyricsPageState extends State<_LyricsPage> {
         key: ValueKey('loading'),
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 48),
-          child: AurumM3Loader(),
+          child: AurumMorphLoader(),
         ),
       );
     } else if (_notFound) {

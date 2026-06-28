@@ -123,7 +123,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
           if (_loading)
             const SliverFillRemaining(
               child: Center(
-                  child: AurumM3Loader()),
+                  child: AurumMorphLoader()),
             )
           else if (_songs.isEmpty)
             SliverFillRemaining(

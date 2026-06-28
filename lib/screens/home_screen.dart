@@ -16,6 +16,8 @@ import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_loader.dart';
+import '../widgets/aurum_morph_loader.dart';
+import '../widgets/mini_player.dart';
 import '../utils/aurum_transitions.dart';
 import 'package:shimmer/shimmer.dart';
 import 'settings_screen.dart';
@@ -72,9 +74,20 @@ class _HomeScreenState extends State<HomeScreen> {
   List<ArtistSimple> _homeArtists = [];
   bool _artistsLoading = true;
 
+  final ScrollController _scrollCtrl = ScrollController();
+  // Hero card is ~190px tall (168 height + 22 vertical padding).
+  // Once user scrolls past this, mini player should appear.
+  static const double _heroHeight = 190.0;
+
+  void _onScroll() {
+    final heroGone = _scrollCtrl.offset >= _heroHeight;
+    MiniPlayer.heroVisibleNotifier.value = !heroGone;
+  }
+
   @override
   void initState() {
     super.initState();
+    _scrollCtrl.addListener(_onScroll);
     _loadOnline();
     _loadArtists();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -105,6 +118,14 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       };
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.removeListener(_onScroll);
+    _scrollCtrl.dispose();
+    MiniPlayer.heroVisibleNotifier.value = true; // reset when leaving home
+    super.dispose();
   }
 
   Future<void> _loadArtists() async {
@@ -148,6 +169,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? _loadOnline()
                 : context.read<LibraryProvider>().refresh(),
             child: CustomScrollView(
+              controller: _scrollCtrl,
               physics: const BouncingScrollPhysics(
                 parent: AlwaysScrollableScrollPhysics(),
               ),
@@ -1036,7 +1058,7 @@ class _OfflineContent extends StatelessWidget {
     if (lib.status == LibraryStatus.idle || lib.status == LibraryStatus.loading) {
       return const Padding(
         padding: EdgeInsets.only(top: 80),
-        child: const Center(child: Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: AurumM3Loader())),
+        child: const Center(child: AurumMorphLoader()),
       );
     }
     if (lib.status == LibraryStatus.noPermission) {

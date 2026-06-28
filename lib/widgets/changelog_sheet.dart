@@ -110,7 +110,7 @@ class _ChangelogSheetState extends State<ChangelogSheet> {
           // Body
           Expanded(
             child: _loading
-              ? const Center(child: AurumM3Loader())
+              ? const Center(child: AurumMorphLoader())
               : _error != null
                 ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.cloud_off_rounded, color: AurumTheme.textMutedOf(context), size: 40),

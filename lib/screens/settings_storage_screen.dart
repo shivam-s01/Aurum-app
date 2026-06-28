@@ -127,7 +127,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, 'Storage'),
       body: _loading
-          ? const Center(child: AurumM3Loader())
+          ? const Center(child: AurumMorphLoader())
           : ListView(
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),

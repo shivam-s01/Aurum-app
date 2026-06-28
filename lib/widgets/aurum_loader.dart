@@ -7,6 +7,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:aurum_music/widgets/aurum_morph_loader.dart';
 
 // ══════════════════════════════════════════════════════════════════
 // DESIGN TOKENS
@@ -209,10 +210,7 @@ class AurumLoaderScreen extends StatelessWidget {
     return ColoredBox(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 48),
-          child: AurumM3Loader(),
-        ),
+        child: AurumMorphLoader(size: 56),
       ),
     );
   }
