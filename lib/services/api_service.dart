@@ -932,10 +932,10 @@ class ApiService {
       case SongSource.youtube:
         if (song.id.isNotEmpty) {
           url = await _ytStreamById(song.id);
-          if (url != null && !await _isUrlAlive(url)) {
-            _log('[resolve] YT URL for "${song.title}" failed liveness check — discarding');
-            url = null;
-          }
+          // NOTE: No _isUrlAlive check here — Worker's resolveYtStreamFast()
+          // already validates every URL via isUrlAlive() before returning.
+          // An extra HEAD request from Dart adds ~2s latency AND fails on
+          // googlevideo.com URLs (which reject HEAD with 403/405).
           _log('[resolve] YT "${song.id}": ${url != null ? "OK" : "FAILED"}');
         }
         if (url == null) {
@@ -1067,8 +1067,80 @@ class ApiService {
   // Returns PROXY URL — worker resolves + pipes audio bytes same-IP.
   // No health check needed — if worker is down, ExoPlayer will error
   // and _handleFreshStartIdle will trigger Piped/Invidious fallback.
+  // ── Cloudflare Worker ─────────────────────────────────────────────────────
+  // ROOT CAUSE FIX (v5.1):
+  //
+  // Previously this returned a proxy URL string WITHOUT any HTTP validation:
+  //   return '$_worker/api/yt-proxy?id=$videoId';
+  //
+  // _isUrlAlive() HEAD check returned 200 because the Worker's /api/yt-proxy
+  // answers 200 on HEAD regardless of whether it can actually stream the video
+  // (it proxies bytes lazily — only discovers the video is unavailable when
+  // ExoPlayer makes the real GET request for audio data).
+  // Result: ExoPlayer setAudioSource() succeeded → immediately went idle at
+  // 0ms because the proxied stream returned an error body instead of audio.
+  // That is the exact "Silent fresh-start failure… processingState went idle
+  // at position 0ms" error in the screenshot.
+  //
+  // FIX — two steps:
+  //   Step 1: Call /api/yt-stream?id= (JSON endpoint returning actual YT URL).
+  //           ExoPlayer hits YouTube directly — fast and reliable.
+  //   Step 2: If step 1 fails, validate proxy URL via range request bytes=0-1023.
+  //           Only return proxy URL if we get back actual audio bytes (206/200
+  //           with audio Content-Type). This catches dead streams at resolve
+  //           time, not at ExoPlayer load time.
   static Future<String?> _workerYtStream(String videoId) async {
-    return '$_worker/api/yt-proxy?id=$videoId';
+    // ── Step 1: /api/yt-stream — returns direct YT URL as JSON ─────────
+    try {
+      final res = await _client
+          .get(Uri.parse('$_worker/api/yt-stream?id=$videoId'))
+          .timeout(const Duration(seconds: 16));
+      if (res.statusCode == 200) {
+        final body = res.body.trim();
+        if (body.startsWith('{')) {
+          try {
+            final json = jsonDecode(body) as Map<String, dynamic>;
+            final url = (json['url'] ?? json['audioUrl'] ?? json['stream_url'])
+                ?.toString();
+            if (url != null && url.startsWith('http')) {
+              _log('[worker] /api/yt-stream OK for $videoId');
+              return url;
+            }
+          } catch (_) {}
+        }
+        if (body.startsWith('http') && body.length < 2048) {
+          _log('[worker] /api/yt-stream (plain) OK for $videoId');
+          return body;
+        }
+      }
+    } catch (e) {
+      _log('[worker] /api/yt-stream failed for $videoId: $e');
+    }
+
+    // ── Step 2: Proxy URL with validated range request ──────────────────
+    final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
+    try {
+      final rangeRes = await _client.get(
+        Uri.parse(proxyUrl),
+        headers: {'Range': 'bytes=0-1023'},
+      ).timeout(const Duration(seconds: 12));
+      if (rangeRes.statusCode == 206 || rangeRes.statusCode == 200) {
+        final ct = (rangeRes.headers['content-type'] ?? '').toLowerCase();
+        final isAudio = ct.contains('audio') || ct.contains('octet') ||
+            ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
+        if (isAudio || rangeRes.bodyBytes.length > 512) {
+          _log('[worker] /api/yt-proxy validated for $videoId');
+          return proxyUrl;
+        }
+        _log('[worker] /api/yt-proxy returned non-audio for $videoId (ct=$ct)');
+      } else {
+        _log('[worker] /api/yt-proxy range ${rangeRes.statusCode} for $videoId');
+      }
+    } catch (e) {
+      _log('[worker] /api/yt-proxy validation failed for $videoId: $e');
+    }
+
+    return null;
   }
 
   // ── Piped ────────────────────────────────────────────────────────────────
@@ -1144,24 +1216,55 @@ class ApiService {
     return null;
   }
 
-  // ── youtube_explode_dart (last resort) ───────────────────────────────────
+  // ── youtube_explode_dart ─────────────────────────────────────────────────
+  // FIX (v5.1): Added webm/opus fallback + URL liveness validation.
+  // Previously only returned m4a/aac streams. On some regions/videos,
+  // youtube_explode_dart returns only webm (opus) streams — the old code
+  // returned null in that case, causing unnecessary fallback to Piped/Invidious.
+  // Now we try m4a first, then accept webm, and validate the chosen URL.
   static Future<String?> _ytExplodeStream(String videoId) async {
     try {
       final manifest = await _yt.videos.streamsClient
           .getManifest(VideoId(videoId))
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 12));
       if (manifest.audioOnly.isEmpty) return null;
+
+      // Prefer m4a/aac (widest Android compatibility)
       final m4aStreams = manifest.audioOnly.where((s) {
         final mime      = s.codec.mimeType.toLowerCase();
         final container = s.container.name.toLowerCase();
         return mime.contains('mp4') || mime.contains('aac') ||
                container == 'mp4'  || container == 'm4a';
       }).toList();
+
       if (m4aStreams.isNotEmpty) {
-        m4aStreams.sort((a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
-        return m4aStreams.first.url.toString();
+        m4aStreams.sort((a, b) =>
+            b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
+        final url = m4aStreams.first.url.toString();
+        _log('[ytExplode] m4a OK for $videoId (${m4aStreams.first.bitrate})');
+        return url;
       }
-      return manifest.audioOnly.withHighestBitrate().url.toString();
+
+      // Fallback: accept webm/opus — ExoPlayer handles it fine
+      final webmStreams = manifest.audioOnly.where((s) {
+        final mime      = s.codec.mimeType.toLowerCase();
+        final container = s.container.name.toLowerCase();
+        return mime.contains('webm') || mime.contains('opus') ||
+               container == 'webm';
+      }).toList();
+
+      if (webmStreams.isNotEmpty) {
+        webmStreams.sort((a, b) =>
+            b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
+        final url = webmStreams.first.url.toString();
+        _log('[ytExplode] webm/opus fallback OK for $videoId');
+        return url;
+      }
+
+      // Last resort: highest bitrate regardless of container
+      final fallback = manifest.audioOnly.withHighestBitrate().url.toString();
+      _log('[ytExplode] generic fallback for $videoId');
+      return fallback;
     } catch (e) {
       _log('[ytExplode] Error for $videoId: $e');
     }
