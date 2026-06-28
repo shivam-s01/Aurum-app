@@ -220,7 +220,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                   CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
           child: child,
         ),
-        transitionDuration: const Duration(milliseconds: 380),
+        transitionDuration: const Duration(milliseconds: 280),
       ),
     );
   }
@@ -551,20 +551,21 @@ class _MiniPlayerContent extends StatelessWidget {
     final showDownHint = dragY > 20;
 
     return RepaintBoundary(
-      child: Container(
-      height: 64,
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: isDragging
-                ? AurumTheme.gold.withAlpha(70)
-                : AurumTheme.gold.withAlpha(isDark ? 30 : 45),
-            width: 0.6,
+      child: ClipRect(
+        child: Container(
+        height: 64,
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(
+              color: isDragging
+                  ? AurumTheme.gold.withAlpha(70)
+                  : AurumTheme.gold.withAlpha(isDark ? 30 : 45),
+              width: 0.6,
+            ),
           ),
         ),
-      ),
-      child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             decoration: BoxDecoration(
@@ -696,6 +697,7 @@ class _MiniPlayerContent extends StatelessWidget {
             ],
           ),
         ),
+      ),
       ),
       ),
     );
