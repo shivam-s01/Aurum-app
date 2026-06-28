@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import '../providers/premium_provider.dart';
 import '../services/payment_service.dart';
 import '../theme/aurum_theme.dart';
+import '../providers/auth_provider.dart';
 
 class PremiumScreen extends StatefulWidget {
   const PremiumScreen({super.key});
@@ -43,7 +44,7 @@ class _PremiumScreenState extends State<PremiumScreen>
   // Countdown timer for urgency (fake scarcity)
   late final AnimationController _countdownCtrl;
 
-  AurumPlan _selectedPlan = AurumPlan.yearly;
+  AurumPlan _selectedPlan = AurumPlan.lifetime;
   bool _isProcessing = false;
   bool _justPaid = false;
 
@@ -183,10 +184,28 @@ class _PremiumScreenState extends State<PremiumScreen>
     setState(() => _selectedPlan = plan);
   }
 
-  void _startCheckout() {
+  Future<void> _startCheckout() async {
     HapticFeedback.mediumImpact();
-    setState(() => _isProcessing = true);
-    PaymentService.instance.startPayment(_selectedPlan);
+    final auth = context.read<AuthProvider>();
+
+    if (!auth.isSignedIn) {
+      setState(() => _isProcessing = true);
+      final success = await auth.signInWithGoogle();
+      if (!mounted) return;
+      if (!success) {
+        setState(() => _isProcessing = false);
+        return;
+      }
+    } else {
+      setState(() => _isProcessing = true);
+    }
+
+    final auth2 = context.read<AuthProvider>();
+    PaymentService.instance.startPayment(
+      _selectedPlan,
+      userEmail: auth2.email,
+      userName: auth2.displayName,
+    );
   }
 
   @override
@@ -442,6 +461,7 @@ class _PremiumScreenState extends State<PremiumScreen>
               child: _PlanCard(
                 plan: AurumPlan.monthly,
                 isSelected: _selectedPlan == AurumPlan.monthly,
+                badge: 'TRY IT',
                 onTap: () => _selectPlan(AurumPlan.monthly),
               ),
             ),
@@ -455,6 +475,14 @@ class _PremiumScreenState extends State<PremiumScreen>
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 12),
+        _PlanCard(
+          plan: AurumPlan.lifetime,
+          isSelected: _selectedPlan == AurumPlan.lifetime,
+          badge: 'BEST DEAL',
+          isFullWidth: true,
+          onTap: () => _selectPlan(AurumPlan.lifetime),
         ),
       ],
     );
@@ -550,9 +578,12 @@ class _PremiumScreenState extends State<PremiumScreen>
   }
 
   Widget _buildCTA() {
-    final priceLabel = _selectedPlan == AurumPlan.monthly
-        ? '${_selectedPlan.priceLabel}/month'
-        : '${_selectedPlan.priceLabel}/year';
+    final priceLabel = switch (_selectedPlan) {
+      AurumPlan.monthly  => '${_selectedPlan.priceLabel}/month',
+      AurumPlan.yearly   => '${_selectedPlan.priceLabel}/year',
+      AurumPlan.lifetime => '${_selectedPlan.priceLabel} one-time',
+    };
+    final isSignedIn = context.watch<AuthProvider>().isSignedIn;
 
     if (_isProcessing) {
       return Container(
@@ -621,7 +652,9 @@ class _PremiumScreenState extends State<PremiumScreen>
                         color: Colors.black, size: 20),
                     const SizedBox(width: 8),
                     Text(
-                      'Get Plus — $priceLabel',
+                      isSignedIn
+                          ? 'Get Plus — $priceLabel'
+                          : 'Sign in & Get Plus',
                       style: const TextStyle(
                         color: Colors.black,
                         fontSize: 16,
@@ -754,6 +787,7 @@ class _PlanCard extends StatelessWidget {
   final AurumPlan plan;
   final bool isSelected;
   final String? badge;
+  final bool isFullWidth;
   final VoidCallback onTap;
 
   const _PlanCard({
@@ -761,16 +795,27 @@ class _PlanCard extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     this.badge,
+    this.isFullWidth = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final subLabel = switch (plan) {
+      AurumPlan.monthly  => 'per month',
+      AurumPlan.yearly   => 'per year',
+      AurumPlan.lifetime => 'pay once, own forever',
+    };
+
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 280),
         curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 14),
+        width: isFullWidth ? double.infinity : null,
+        padding: EdgeInsets.symmetric(
+          vertical: isFullWidth ? 14 : 18,
+          horizontal: 14,
+        ),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
           gradient: isSelected
@@ -778,7 +823,7 @@ class _PlanCard extends StatelessWidget {
                   colors: [
                     AurumTheme.goldDark,
                     AurumTheme.gold,
-                    AurumTheme.goldLight
+                    AurumTheme.goldLight,
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -804,54 +849,110 @@ class _PlanCard extends StatelessWidget {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 220),
-                  style: TextStyle(
-                    color: isSelected ? Colors.black87 : Colors.white60,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
+            isFullWidth
+                ? Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 220),
+                            style: TextStyle(
+                              color:
+                                  isSelected ? Colors.black87 : Colors.white60,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.5,
+                            ),
+                            child: Text(plan.label.toUpperCase()),
+                          ),
+                          const SizedBox(height: 2),
+                          AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 220),
+                            style: TextStyle(
+                              color:
+                                  isSelected ? Colors.black54 : Colors.white38,
+                              fontSize: 11,
+                            ),
+                            child: Text(subLabel),
+                          ),
+                        ],
+                      ),
+                      Row(children: [
+                        AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 220),
+                          style: TextStyle(
+                            color: isSelected ? Colors.black : Colors.white,
+                            fontSize: 32,
+                            fontWeight: FontWeight.w900,
+                          ),
+                          child: Text(plan.priceLabel),
+                        ),
+                        const SizedBox(width: 12),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 220),
+                          child: Icon(
+                            isSelected
+                                ? Icons.check_circle_rounded
+                                : Icons.circle_outlined,
+                            key: ValueKey(isSelected),
+                            color: isSelected
+                                ? Colors.black
+                                : Colors.white.withOpacity(0.3),
+                            size: 20,
+                          ),
+                        ),
+                      ]),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 220),
+                        style: TextStyle(
+                          color: isSelected ? Colors.black87 : Colors.white60,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
+                        child: Text(plan.label.toUpperCase()),
+                      ),
+                      const SizedBox(height: 6),
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 220),
+                        style: TextStyle(
+                          color: isSelected ? Colors.black : Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                        ),
+                        child: Text(plan.priceLabel),
+                      ),
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 220),
+                        style: TextStyle(
+                          color: isSelected ? Colors.black54 : Colors.white38,
+                          fontSize: 11,
+                        ),
+                        child: Text(subLabel),
+                      ),
+                      const SizedBox(height: 10),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        child: Icon(
+                          isSelected
+                              ? Icons.check_circle_rounded
+                              : Icons.circle_outlined,
+                          key: ValueKey(isSelected),
+                          color: isSelected
+                              ? Colors.black
+                              : Colors.white.withOpacity(0.3),
+                          size: 18,
+                        ),
+                      ),
+                    ],
                   ),
-                  child: Text(plan.label.toUpperCase()),
-                ),
-                const SizedBox(height: 6),
-                AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 220),
-                  style: TextStyle(
-                    color: isSelected ? Colors.black : Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
-                  ),
-                  child: Text(plan.priceLabel),
-                ),
-                AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 220),
-                  style: TextStyle(
-                    color: isSelected ? Colors.black54 : Colors.white38,
-                    fontSize: 11,
-                  ),
-                  child: Text(
-                      plan == AurumPlan.monthly ? 'per month' : 'per year'),
-                ),
-                const SizedBox(height: 10),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 220),
-                  child: Icon(
-                    isSelected
-                        ? Icons.check_circle_rounded
-                        : Icons.circle_outlined,
-                    key: ValueKey(isSelected),
-                    color: isSelected
-                        ? Colors.black
-                        : Colors.white.withOpacity(0.3),
-                    size: 18,
-                  ),
-                ),
-              ],
-            ),
             if (badge != null)
               Positioned(
                 top: -12,
