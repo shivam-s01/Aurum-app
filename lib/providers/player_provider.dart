@@ -280,7 +280,7 @@ class PlayerProvider extends ChangeNotifier {
     if (q.isEmpty) return;
 
     final remaining = q.length - 1 - index;
-    if (q.length < 2 || remaining > 5 || _isExtendingQueue) return;
+    if (q.length < 2 || remaining > 8 || _isExtendingQueue) return;
 
     _isExtendingQueue = true;
     try {
@@ -362,13 +362,49 @@ class PlayerProvider extends ChangeNotifier {
   // PLAYBACK CONTROL
   // ---------------------------------------------------------------------------
   Future<void> playSong(Song song, {List<Song>? queue, int? index}) async {
-    _lastHandledIndex = null; // reset so same-index replays are detected
+    _lastHandledIndex = null;
     if (queue != null && index != null) {
       await _handler.playQueue(queue, index);
+      if (queue.length < 10 && !song.isLocal) {
+        _buildInitialSmartQueue(song, alreadyInQueue: queue.map((s) => s.id).toSet());
+      }
     } else {
       await _handler.playSong(song);
+      if (!song.isLocal) {
+        _buildInitialSmartQueue(song, alreadyInQueue: {song.id});
+      }
     }
     notifyListeners();
+  }
+
+  Future<void> _buildInitialSmartQueue(Song song, {required Set<String> alreadyInQueue}) async {
+    if (_isExtendingQueue) return;
+    _isExtendingQueue = true;
+    try {
+      await RecommendationEngine.load();
+      // Phase 1: 20 songs fast
+      final phase1 = await ApiService.getAutoQueue(song, limit: 20, existingQueueIds: alreadyInQueue);
+      if (phase1.isNotEmpty) {
+        final currentIds = _handler.currentQueue.map((s) => s.id).toSet();
+        final toAdd = phase1.where((s) => !currentIds.contains(s.id)).toList();
+        for (final s in toAdd) await _handler.addToQueue(s);
+        alreadyInQueue.addAll(toAdd.map((s) => s.id));
+        notifyListeners();
+      }
+      // Phase 2: 30 more songs
+      final phase2 = await ApiService.getAutoQueue(song, limit: 30, existingQueueIds: {
+        ...alreadyInQueue, ...RecommendationEngine.sessionRecentIds,
+      });
+      if (phase2.isNotEmpty) {
+        final currentIds = _handler.currentQueue.map((s) => s.id).toSet();
+        final toAdd = phase2.where((s) => !currentIds.contains(s.id)).toList();
+        for (final s in toAdd) await _handler.addToQueue(s);
+        notifyListeners();
+      }
+    } catch (_) {
+    } finally {
+      _isExtendingQueue = false;
+    }
   }
 
   // Restores the last queue into the UI/notification on app reopen WITHOUT

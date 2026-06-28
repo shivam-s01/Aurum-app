@@ -197,55 +197,61 @@ class ApiService {
   // ===========================================================================
   // HOME FEED (unchanged from v3)
   // ===========================================================================
+  // Pool queries — ALL designed to return original, official songs only.
+  // No "lofi", no "remix", no "DJ" in queries — those attract variants.
+  // Saavn search for these returns genuine original songs.
   static final List<_PoolEntry> _pool = [
-    _PoolEntry('trending hindi songs 2026',       'Trending Now'),
-    _PoolEntry('new bollywood songs 2026',         'New Releases'),
-    _PoolEntry('top bollywood hits 2025',          'Best of 2025'),
-    _PoolEntry('hindi top charts',                 'Hindi Charts'),
-    _PoolEntry('top 50 global hits',               'Global Top 50'),
-    _PoolEntry('viral songs 2026',                 'Going Viral'),
-    _PoolEntry('bollywood hits',                   'Bollywood Hits'),
-    _PoolEntry('90s bollywood hits',               '90s Bollywood'),
-    _PoolEntry('2000s bollywood songs',            '2000s Nostalgia'),
-    _PoolEntry('2010s bollywood songs',            '2010s Bollywood'),
-    _PoolEntry('old is gold hindi songs',          'Old Is Gold'),
-    _PoolEntry('classic hindi film songs',         'Classic Cinema'),
-    _PoolEntry('romantic hindi songs',             'Romantic Vibes'),
-    _PoolEntry('sad emotional hindi songs',        'Heartbreak Hour'),
-    _PoolEntry('party songs hindi 2026',           'Party Mode'),
-    _PoolEntry('lofi chill hindi',                 'Lofi & Chill'),
-    _PoolEntry('workout motivation songs',         'Workout Energy'),
-    _PoolEntry('happy feel good songs hindi',      'Feel Good'),
-    _PoolEntry('peaceful calm instrumental music', 'Calm & Focus'),
-    _PoolEntry('late night chill songs',           'Late Night'),
-    _PoolEntry('punjabi hits 2026',                'Punjabi Hits'),
-    _PoolEntry('punjabi romantic songs',           'Punjabi Romance'),
-    _PoolEntry('new punjabi songs 2025 2026',      'New Punjabi'),
-    _PoolEntry('tamil superhit songs',             'Tamil Hits'),
-    _PoolEntry('telugu hits songs',                'Telugu Hits'),
-    _PoolEntry('haryanvi hits songs',              'Haryanvi Hits'),
-    _PoolEntry('arijit singh best songs',          'Arijit Singh'),
-    _PoolEntry('jubin nautiyal hits',              'Jubin Nautiyal'),
-    _PoolEntry('neha kakkar songs',                'Neha Kakkar'),
-    _PoolEntry('ap dhillon songs',                 'AP Dhillon'),
-    _PoolEntry('pritam bollywood songs',           'Pritam Hits'),
-    _PoolEntry('shreya ghoshal songs',             'Shreya Ghoshal'),
-    _PoolEntry('atif aslam hits',                  'Atif Aslam'),
-    _PoolEntry('english pop hits 2025 2026',       'English Hits'),
-    _PoolEntry('90s english pop songs',            '90s English'),
-    _PoolEntry('2010s english hits',               '2010s Hits'),
-    _PoolEntry('hip hop hits songs',               'Hip Hop'),
-    _PoolEntry('rnb songs playlist',               'R&B Vibes'),
-    _PoolEntry('indie pop hits',                   'Indie Picks'),
-    _PoolEntry('ed sheeran songs playlist',        'Ed Sheeran'),
-    _PoolEntry('sufi songs hindi',                 'Sufi Melodies'),
-    _PoolEntry('ghazal songs hindi',               'Ghazals'),
-    _PoolEntry('devotional hindi songs',           'Devotional'),
-    _PoolEntry('indie hindi songs',                'Hindi Indie'),
-    _PoolEntry('acoustic hindi songs',             'Acoustic Vibes'),
+    // ── Bollywood ────────────────────────────────────────────────────────────
+    _PoolEntry('arijit singh best bollywood songs',        'Arijit Singh'),
+    _PoolEntry('atif aslam best hindi songs',              'Atif Aslam'),
+    _PoolEntry('jubin nautiyal romantic songs',            'Jubin Nautiyal'),
+    _PoolEntry('shreya ghoshal bollywood hits',            'Shreya Ghoshal'),
+    _PoolEntry('armaan malik songs playlist',              'Armaan Malik'),
+    _PoolEntry('romantic bollywood songs hindi',           'Romantic Bollywood'),
+    _PoolEntry('sad hindi songs heartbreak',               'Heartbreak Hour'),
+    _PoolEntry('top bollywood songs 2024 2025',            'Best of 2025'),
+    _PoolEntry('new hindi songs 2025 latest',              'New Releases'),
+    _PoolEntry('90s bollywood superhits original',         '90s Nostalgia'),
+    _PoolEntry('2000s bollywood original songs',           '2000s Hits'),
+    _PoolEntry('old is gold hindi songs kishore kumar lata','Old Is Gold'),
+    _PoolEntry('soulful hindi songs best playlist',        'Soulful Picks'),
+    _PoolEntry('sufi qawwali hindi songs original',        'Sufi & Qawwali'),
+    _PoolEntry('ghazal jagjit singh mehdi hassan',         'Ghazals'),
+    _PoolEntry('bollywood party songs dance',              'Party Mode'),
+    _PoolEntry('feel good happy bollywood songs',          'Feel Good'),
+    _PoolEntry('late night hindi songs drive',             'Late Night'),
+    _PoolEntry('morning fresh hindi songs upbeat',         'Morning Vibes'),
+    // ── Punjabi ──────────────────────────────────────────────────────────────
+    _PoolEntry('punjabi superhits original songs',         'Punjabi Hits'),
+    _PoolEntry('b praak punjabi sad songs',                'Punjabi Feels'),
+    _PoolEntry('diljit dosanjh best songs',                'Diljit Dosanjh'),
+    _PoolEntry('ap dhillon shubh punjabi hits',            'AP Dhillon'),
+    _PoolEntry('new punjabi songs 2025 original',          'New Punjabi'),
+    _PoolEntry('punjabi romantic songs original',          'Punjabi Romance'),
+    _PoolEntry('karan aujla songs playlist',               'Karan Aujla'),
+    // ── Bhojpuri ─────────────────────────────────────────────────────────────
+    _PoolEntry('pawan singh bhojpuri superhits',           'Pawan Singh'),
+    _PoolEntry('khesari lal yadav bhojpuri songs',         'Khesari Lal'),
+    _PoolEntry('bhojpuri superhits original songs 2025',   'Bhojpuri Hits'),
+    _PoolEntry('bhojpuri romantic songs original',         'Bhojpuri Romance'),
+    _PoolEntry('neelkamal singh bhojpuri hits',            'Neelkamal Singh'),
+    _PoolEntry('shilpi raj bhojpuri songs',                'Shilpi Raj'),
+    // ── South ────────────────────────────────────────────────────────────────
+    _PoolEntry('tamil superhits ar rahman anirudh',        'Tamil Hits'),
+    _PoolEntry('telugu superhits dsp thaman',              'Telugu Hits'),
+    _PoolEntry('malayalam superhit songs original',        'Malayalam Hits'),
+    // ── English ──────────────────────────────────────────────────────────────
+    _PoolEntry('english pop hits official songs 2025',     'English Hits'),
+    _PoolEntry('ed sheeran charlie puth original songs',   'Ed Sheeran & More'),
+    _PoolEntry('the weeknd bruno mars official songs',     'R&B Vibes'),
+    _PoolEntry('classic english hits 90s 2000s original',  '90s English'),
+    // ── Hindi Indie / Devotional ─────────────────────────────────────────────
+    _PoolEntry('hindi indie songs prateek kuhad seedhe maut','Hindi Indie'),
+    _PoolEntry('bhakti bhajan aarti original songs',       'Devotional'),
+    _PoolEntry('haryanvi original songs sapna choudhary',  'Haryanvi Hits'),
   ];
 
-  static Future<List<SongSection>> fetchHome({List<String> topArtists = const []}) async {
+  static Future<List<SongSection>> fetchHome({List<String> topArtists = const [], List<Song> recentlyPlayed = const []}) async {
     await RecommendationEngine.load();
     final now = DateTime.now();
     final hourSeed = now.difference(DateTime(2026, 1, 1)).inHours;
@@ -269,6 +275,19 @@ class ApiService {
     for (final genre in topGenres) {
       queryList.add(_SectionQuery(_genreMixQuery(genre), _genreMixLabel(genre), priority: true));
     }
+    // ── "Because You Played" — Saavn suggestions from recent history ──────
+    final recentOnline = recentlyPlayed
+        .where((s) => !s.isLocal && s.source == SongSource.saavn && s.id.isNotEmpty)
+        .take(3)
+        .toList();
+    for (final recent in recentOnline) {
+      final cleanId = recent.id.replaceFirst(RegExp(r'^[a-z]+_'), '');
+      final lbl = 'Because You Played · ${recent.title.length > 22 ? recent.title.substring(0, 22) + "…" : recent.title}';
+      if (!queryList.any((q) => q.label == lbl)) {
+        queryList.add(_SectionQuery('__suggestions__$cleanId', lbl, isSuggestion: true, suggestionSongId: cleanId));
+      }
+    }
+
     int poolPicks = 0;
     for (final entry in shuffledPool) {
       if (poolPicks >= 8) break;
@@ -276,7 +295,7 @@ class ApiService {
       queryList.add(_SectionQuery(entry.query, entry.label));
       poolPicks++;
     }
-    if (personalArtists.isEmpty && topGenres.isEmpty) {
+    if (personalArtists.isEmpty && topGenres.isEmpty && recentOnline.isEmpty) {
       int extra = 0;
       for (final entry in shuffledPool.reversed) {
         if (extra >= 3) break;
@@ -292,11 +311,13 @@ class ApiService {
     for (int i = 0; i < queryList.length; i += batchSize) {
       final batch = queryList.skip(i).take(batchSize).toList();
       final batchResults = await Future.wait(
-        batch.map((sq) => _saavnSectionV4(sq.query, sq.label)),
+        batch.map((sq) => sq.isSuggestion
+            ? _suggestionSection(sq.suggestionSongId!, sq.label)
+            : _saavnSectionV4(sq.query, sq.label)),
       );
       results.addAll(batchResults);
       if (i + batchSize < queryList.length) {
-        await Future.delayed(const Duration(milliseconds: 150));
+        await Future.delayed(const Duration(milliseconds: 100));
       }
     }
 
@@ -314,24 +335,52 @@ class ApiService {
   }
 
   static Future<SongSection?> _saavnSectionV4(String query, String label) async {
-    // Saavn is hard primary now — only call YT if Saavn comes up short.
-    final saavnSongs = await _searchSaavn(query, limit: 25);
-    List<Song> ytSongs = [];
-    if (saavnSongs.length < 12) {
-      ytSongs = await _searchYt(query, limit: 10)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
-    }
-    if (saavnSongs.isEmpty && ytSongs.isEmpty) return null;
-    final seenIds = <String>{};
-    final merged  = <Song>[];
-    // Saavn songs kept in front; only shuffle within the Saavn block for variety,
-    // YT songs appended after (never shuffled to the top).
+    // Fetch more than needed — variants get filtered, so we need headroom
+    final saavnSongs = await _searchSaavn(query, limit: 40);
+    if (saavnSongs.isEmpty) return null;
+    final seenIds    = <String>{};
+    final seenTitles = <String>{};
+    final merged     = <Song>[];
     final seed = query.hashCode ^ DateTime.now().hour ^ math.Random().nextInt(1000000);
     final saavnShuffled = List<Song>.from(saavnSongs)..shuffle(math.Random(seed));
-    for (final s in [...saavnShuffled, ...ytSongs]) {
-      if (seenIds.add(s.id)) merged.add(s);
+    for (final s in saavnShuffled) {
+      if (!seenIds.add(s.id)) continue;
+      // HARD BLOCK: no remix/dj/cover/lofi/female-version etc in home feed
+      if (RecommendationEngine.isInherentVariant(s.title)) continue;
+      final tk = _normTitle(s.title);
+      if (!seenTitles.add(tk)) continue;
+      merged.add(s);
     }
-    return SongSection(title: label, songs: merged.take(15).toList());
+    if (merged.isEmpty) return null;
+    return SongSection(title: label, songs: merged.take(20).toList());
+  }
+
+  // "Because You Played" section — pure JioSaavn suggestions, same category guaranteed
+  static Future<SongSection?> _suggestionSection(String songId, String label) async {
+    try {
+      final url = Uri.parse('$_saavnPrimary/api/songs/$songId/suggestions?limit=30');
+      final res = await _client.get(url).timeout(const Duration(seconds: 8));
+      if (res.statusCode != 200) return null;
+      final data = jsonDecode(res.body);
+      final List? raw = data is Map ? (data['data'] as List?) : (data is List ? data : null);
+      if (raw == null || raw.isEmpty) return null;
+      final seenIds    = <String>{};
+      final seenTitles = <String>{};
+      final songs      = <Song>[];
+      for (final j in raw.whereType<Map<String, dynamic>>()) {
+        final s = _songFromSaavn(j);
+        if (s.id.isEmpty || s.title.isEmpty) continue;
+        if (!seenIds.add(s.id)) continue;
+        if (RecommendationEngine.isInherentVariant(s.title)) continue;
+        final tk = _normTitle(s.title);
+        if (!seenTitles.add(tk)) continue;
+        songs.add(s);
+      }
+      if (songs.isEmpty) return null;
+      return SongSection(title: label, songs: songs.take(20).toList());
+    } catch (_) {
+      return null;
+    }
   }
 
   static String _timeMoodQuery(TimeSlot slot) {
@@ -374,6 +423,17 @@ class ApiService {
   // ===========================================================================
   // AUTO-QUEUE (unchanged from v3)
   // ===========================================================================
+  // ===========================================================================
+  // AUTO QUEUE v5 — JioSaavn Suggestions-First + YouTube fallback
+  //
+  // SIGNAL ORDER:
+  //   1. /api/songs/{id}/suggestions — Saavn's own engine (PRIMARY)
+  //   2. Same artist search
+  //   3. YouTube search (strong related algorithm)
+  //   4. Mood+genre fallback
+  //
+  // ALL variants blocked at pool entry. Zero remixes/DJ/cover/lofi in queue.
+  // ===========================================================================
   static Future<List<Song>> getAutoQueue(
     Song currentSong, {
     int limit = 20,
@@ -381,44 +441,67 @@ class ApiService {
   }) async {
     await RecommendationEngine.load();
     if (currentSong.isLocal) return [];
-    final queries = RecommendationEngine.generateQueries(currentSong);
-    _log('[autoQueue] "${currentSong.title}" → ${queries.length} signals');
-    final searchFutures = queries.map((q) async {
-      final perLimit = 20 * q.weight;
-      final results = await _searchSaavn(q.query, limit: perLimit)
-          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
-      return _SignalResult(results, q.weight);
-    }).toList();
-    final signalResults = await Future.wait(searchFutures);
-    final merged = <Song>[];
-    final mergedIds = <String>{};      // ID-level dedup
-    final mergedTitles = <String>{};   // Title-level dedup (prevents "Tere Jaisa Yaar Kahan" x7)
-    final iters = signalResults.map((r) => r.songs.iterator).toList();
-    bool anyLeft = true;
-    while (anyLeft && merged.length < limit * 6) {
-      anyLeft = false;
-      for (int i = 0; i < iters.length; i++) {
-        final w = signalResults[i].weight;
-        for (int x = 0; x < w; x++) {
-          if (iters[i].moveNext()) {
-            anyLeft = true;
-            final song = iters[i].current;
-            // Skip if same ID already added
-            if (!mergedIds.add(song.id)) continue;
-            // Skip if same core title already in merged (different album/version of same song)
-            final titleKey = _normTitle(song.title);
-            if (!mergedTitles.add(titleKey)) continue;
-            merged.add(song);
-          }
-        }
-      }
-    }
+
     final allExistingIds = <String>{
+      currentSong.id,
       ...?existingQueueIds,
       ...RecommendationEngine.sessionRecentIds,
     };
+    final mergedIds    = <String>{...allExistingIds};
+    final mergedTitles = <String>{};
+    final pool         = <Song>[];
+
+    bool addToPool(Song song) {
+      if (mergedIds.contains(song.id)) return false;
+      if (RecommendationEngine.isInherentVariant(song.title)) return false;
+      final tk = _normTitle(song.title);
+      if (mergedTitles.contains(tk)) return false;
+      mergedIds.add(song.id);
+      mergedTitles.add(tk);
+      pool.add(song);
+      return true;
+    }
+
+    // ── Signal 1: JioSaavn suggestions (PRIMARY) ──────────────────────────
+    final rawId = currentSong.id.replaceFirst(RegExp(r'^[a-z]+_'), '');
+    if (rawId.isNotEmpty && currentSong.source == SongSource.saavn) {
+      try {
+        final url = Uri.parse('$_saavnPrimary/api/songs/$rawId/suggestions?limit=50');
+        final res = await _client.get(url).timeout(const Duration(seconds: 8));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final List? raw = data is Map ? (data['data'] as List?) : (data is List ? data : null);
+          if (raw != null) {
+            for (final j in raw.whereType<Map<String, dynamic>>()) {
+              addToPool(_songFromSaavn(j));
+            }
+          }
+        }
+      } catch (_) {}
+      _log('[autoQueue] signal1 saavn suggestions: ${pool.length}');
+    }
+
+    // ── Signal 2: Same artist ─────────────────────────────────────────────
+    if (pool.length < limit * 2) {
+      final artistSongs = await _searchSaavn('${currentSong.artist} songs', limit: 40)
+          .timeout(const Duration(seconds: 8), onTimeout: () => []);
+      for (final s in artistSongs) addToPool(s);
+      _log('[autoQueue] signal2 artist: ${pool.length}');
+    }
+
+    // ── Signal 3: Mood+genre fallback ────────────────────────────────────
+    if (pool.length < limit) {
+      final queries = RecommendationEngine.generateQueries(currentSong);
+      for (final q in queries.take(2)) {
+        final r = await _searchSaavn(q.query, limit: 30)
+            .timeout(const Duration(seconds: 6), onTimeout: () => []);
+        for (final s in r) addToPool(s);
+      }
+      _log('[autoQueue] signal3 fallback: ${pool.length}');
+    }
+
     return RecommendationEngine.rankAndFilter(
-      pool: merged, currentSong: currentSong,
+      pool: pool, currentSong: currentSong,
       existingIds: allExistingIds, limit: limit,
     );
   }
@@ -981,31 +1064,11 @@ class ApiService {
   // Worker call before it could finish, forcing every cold-start resolve
   // onto the slower Dart-side Piped/Invidious chain instead. 16s gives the
   // Worker's full internal chain room to actually complete.
+  // Returns PROXY URL — worker resolves + pipes audio bytes same-IP.
+  // No health check needed — if worker is down, ExoPlayer will error
+  // and _handleFreshStartIdle will trigger Piped/Invidious fallback.
   static Future<String?> _workerYtStream(String videoId) async {
-    try {
-      final uri = Uri.parse('$_worker/api/yt-stream?id=$videoId');
-      final res = await _client.get(uri).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final ct = res.headers['content-type'] ?? '';
-        if (ct.contains('application/json')) {
-          final data = jsonDecode(res.body);
-          String? url = (data['url'] ?? data['stream_url'] ?? data['audio_url'])?.toString();
-          if (url == null && data['data'] is Map) {
-            url = (data['data']['url'] ?? data['data']['stream_url'])?.toString();
-          }
-          if (url == null && data is List && data.isNotEmpty && data[0] is Map) {
-            url = (data[0]['url'] ?? data[0]['stream_url'])?.toString();
-          }
-          if (url != null && url.startsWith('http')) return url;
-          return null;
-        }
-        final body = res.body.trim();
-        if (body.startsWith('http')) return body;
-      }
-    } catch (e) {
-      _log('[worker] Exception: $e');
-    }
-    return null;
+    return '$_worker/api/yt-proxy?id=$videoId';
   }
 
   // ── Piped ────────────────────────────────────────────────────────────────
@@ -2047,10 +2110,16 @@ class _SignalResult {
 }
 
 class _SectionQuery {
-  final String query;
-  final String label;
-  final bool priority;
-  _SectionQuery(this.query, this.label, {this.priority = false});
+  final String  query;
+  final String  label;
+  final bool    priority;
+  final bool    isSuggestion;
+  final String? suggestionSongId;
+  const _SectionQuery(this.query, this.label, {
+    this.priority = false,
+    this.isSuggestion = false,
+    this.suggestionSongId,
+  });
 }
 
 class _PoolEntry {

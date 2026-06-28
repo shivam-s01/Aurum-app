@@ -101,18 +101,21 @@ class _HomeScreenState extends State<HomeScreen> {
       final player = context.read<PlayerProvider>();
       player.onPlaybackError = (error) {
         if (!mounted) return;
+        // Silent fresh-start failures auto-skip — no need to show error to user
+        if (error.toLowerCase().contains('fresh-start') ||
+            error.toLowerCase().contains('silent') ||
+            error.toLowerCase().contains('resolve')) {
+          debugPrint('[Aurum] Playback error (silent): $error');
+          return;
+        }
+        // Only show snackbar for genuine user-facing errors
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.red.shade900,
-            duration: const Duration(seconds: 10),
-            content: SelectableText(
-              error,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-            ),
-            action: SnackBarAction(
-              label: 'OK',
-              textColor: Colors.white,
-              onPressed: () {},
+            duration: const Duration(seconds: 4),
+            content: Text(
+              'Could not play this song. Skipping...',
+              style: const TextStyle(color: Colors.white, fontSize: 13),
             ),
           ),
         );
@@ -140,8 +143,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadOnline() async {
     setState(() { _onlineLoading = true; _onlineError = null; });
     try {
-      final topArtists = context.read<RecentlyPlayedProvider>().topArtists(count: 3);
-      final sections = await ApiService.fetchHome(topArtists: topArtists);
+      final topArtists  = context.read<RecentlyPlayedProvider>().topArtists(count: 3);
+      final recentSongs = context.read<RecentlyPlayedProvider>().history.take(10).toList();
+      final sections    = await ApiService.fetchHome(topArtists: topArtists, recentlyPlayed: recentSongs)
+          .timeout(const Duration(seconds: 25));
       if (mounted) setState(() { _onlineSections = sections; _onlineLoading = false; });
     } catch (e) {
       if (mounted) setState(() { _onlineError = 'Failed to load. Check connection.'; _onlineLoading = false; });
@@ -1831,11 +1836,13 @@ class _PlaylistCardState extends State<_PlaylistCard> {
       return;
     }
     try {
-      final songs = await ApiService.search(q);
-      final url = songs.isNotEmpty ? songs.first.artworkUrl : null;
+      final songs = await ApiService.search(q).timeout(const Duration(seconds: 6));
+      final url = songs.where((s) => s.artworkUrl.isNotEmpty).map((s) => s.artworkUrl).firstOrNull;
       _kPlaylistArtCache[q] = url;
       if (mounted) setState(() => _artUrl = url);
-    } catch (_) {}
+    } catch (_) {
+      _kPlaylistArtCache[q] = null;
+    }
   }
 
   Future<void> _openPlaylist() async {

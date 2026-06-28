@@ -362,7 +362,7 @@ class _SearchScreenState extends State<SearchScreen>
     _dismissKeyboard();
     // Convert to Song using the resolve query, then play via PlayerProvider
     final song = Song(
-      id:         'browse_${track.trackId}',
+      id:         track.trackId,  // clean Saavn ID — no prefix
       title:      track.title,
       artist:     track.artist,
       album:      track.album,

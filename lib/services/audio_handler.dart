@@ -191,6 +191,15 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     await _handleMidStreamIdle(pos);
   }
 
+  // Fresh-start idle is recovered by trying THIS song again (with a forced
+  // fresh URL, twice — different instances/sources can yield a different
+  // result each time) before ever moving on. Skipping straight to "next"
+  // without first really trying to make audio come out of the speaker just
+  // turns a flaky resolve into silence, one song at a time. Only after this
+  // song has had two genuine fresh attempts do we advance — and the song we
+  // advance to gets the exact same two-attempt treatment, recursively, so
+  // playback keeps trying every song in the queue until one actually plays
+  // instead of draining the whole queue silently.
   Future<void> _handleFreshStartIdle() async {
     final songAtIdle = _queue.isNotEmpty && _currentIndex < _queue.length
         ? _queue[_currentIndex] : null;
@@ -206,34 +215,132 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (_player.processingState != ProcessingState.idle) return;
     if (_player.position.inMilliseconds >= 500) return;
 
-    final songTitle = songNow.title;
-    debugPrint('[AurumHandler] FRESH-START FAILURE: processingState=idle '
-        'at pos=${_player.position.inMilliseconds}ms, song=$songTitle — retrying with forced-refresh URL');
+    await _retryThenAdvance(songNow, sessionAtIdle, attempt: 1);
+  }
 
-    ApiService.invalidateStream(songNow);
-    _LookaheadCache.remove(songNow.id);
+  // Tries `song` again with a forced-fresh URL. Recurses up to 2 attempts
+  // total for this exact song. Only once both attempts genuinely fail does
+  // it move to the next song in queue — and that next song goes through
+  // this same 2-attempt logic, so the queue keeps trying to actually PLAY
+  // something rather than silently skipping past every track.
+  Future<void> _retryThenAdvance(Song song, int sessionAtFailure, {required int attempt}) async {
+    const maxAttemptsPerSong = 2;
+    final songTitle = song.title;
+
+    debugPrint('[AurumHandler] Fresh-start recovery attempt $attempt/$maxAttemptsPerSong '
+        'for "$songTitle"');
+
+    ApiService.invalidateStream(song);
+    _LookaheadCache.remove(song.id);
+
+    String? freshUrl;
+    try {
+      freshUrl = await ApiService.resolveStreamUrl(song, forceRefresh: true)
+          .timeout(const Duration(seconds: 15), onTimeout: () => null);
+    } catch (e) {
+      debugPrint('[AurumHandler] Fresh-start attempt $attempt resolve threw for "$songTitle": $e');
+      freshUrl = null;
+    }
+
+    // A newer playQueue/playSong call has already taken over — abandon.
+    if (sessionAtFailure != _playSessionId) return;
+
+    if (freshUrl != null) {
+      // Make sure the song we're about to play is still the one the user is on.
+      if (_queue.isEmpty || _currentIndex >= _queue.length) return;
+      if (_queue[_currentIndex].id != song.id) return;
+
+      try {
+        final freshSource = AudioSource.uri(Uri.parse(freshUrl), tag: _songToMediaItem(song));
+        await _player.setAudioSource(freshSource, initialIndex: 0, preload: false);
+        await _player.play();
+        debugPrint('[AurumHandler] Fresh-start recovery succeeded for "$songTitle" '
+            '(attempt $attempt) ✓');
+        return;
+      } catch (e) {
+        debugPrint('[AurumHandler] setAudioSource failed on recovery attempt $attempt '
+            'for "$songTitle": $e');
+        // Fall through to retry/advance logic below.
+      }
+    }
+
+    if (sessionAtFailure != _playSessionId) return;
+
+    if (attempt < maxAttemptsPerSong) {
+      // Short backoff, then genuinely try this same song again — a second
+      // resolve can land on a different Piped/Invidious/worker instance.
+      await Future.delayed(const Duration(milliseconds: 700));
+      if (sessionAtFailure != _playSessionId) return;
+      await _retryThenAdvance(song, sessionAtFailure, attempt: attempt + 1);
+      return;
+    }
+
+    // Both attempts genuinely failed for this song. Move to the next song
+    // in queue and give IT the same two-attempt treatment — never just
+    // stop silently with nothing playing.
+    debugPrint('[AurumHandler] "$songTitle" failed after $maxAttemptsPerSong attempts — '
+        'trying next song in queue');
+    await _advanceAndRetry(song, sessionAtFailure);
+  }
+
+  // Moves to the next song after `failedSong` and gives it the same
+  // fresh-start retry treatment, recursively, until something plays or the
+  // queue is exhausted. This is what replaces "skip" — skip alone leaves
+  // nothing playing if the underlying issue (worker/instance down) repeats
+  // across multiple songs; this keeps actually trying to produce audio.
+  Future<void> _advanceAndRetry(Song failedSong, int sessionAtFailure) async {
+    if (sessionAtFailure != _playSessionId) return;
+    if (_isLoadingNewSong) return;
+    if (_queue.isEmpty || _currentIndex >= _queue.length) return;
+    if (_queue[_currentIndex].id != failedSong.id) return;
+
+    final nextIndex = _currentIndex + 1;
+    if (nextIndex >= _queue.length) {
+      // Genuinely nothing left to try.
+      debugPrint('[AurumHandler] No more songs left to try after "${failedSong.title}"');
+      onPlaybackError?.call('Could not play "${failedSong.title}" or any remaining '
+          'song in the queue — all resolve attempts failed.');
+      return;
+    }
+
+    final nextSong = _queue[nextIndex];
+    _currentIndex = nextIndex;
+    _updateMediaItem(nextSong);
+
+    final source = await _sourceForSong(nextSong, sessionId: sessionAtFailure);
+    if (sessionAtFailure != _playSessionId) return;
+
+    if (source == null) {
+      // Resolve for the next song failed outright (not even a fresh-start
+      // idle event — _sourceForSong already tried twice internally via
+      // _resolveFast). Give it the same dedicated retry chain rather than
+      // moving straight past it.
+      await _retryThenAdvance(nextSong, sessionAtFailure, attempt: 1);
+      return;
+    }
 
     try {
-      final freshUrl = await ApiService.resolveStreamUrl(songNow, forceRefresh: true)
-          .timeout(const Duration(seconds: 15), onTimeout: () => null);
-
-      if (freshUrl == null || sessionAtIdle != _playSessionId) {
-        onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
-            'retry also failed to resolve a playable URL.');
-        return;
+      final seq = _player.audioSource;
+      if (seq is ConcatenatingAudioSource) {
+        final playerIdx = _player.currentIndex ?? 0;
+        if (playerIdx < seq.length) {
+          await seq.removeAt(playerIdx);
+          await seq.insert(playerIdx, source);
+          await _player.seek(Duration.zero, index: playerIdx);
+        } else {
+          await seq.add(source);
+          await _player.seek(Duration.zero, index: seq.length - 1);
+        }
+      } else {
+        final fresh = ConcatenatingAudioSource(children: [source]);
+        await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
       }
-      if (_queue.isEmpty || _currentIndex >= _queue.length) return;
-      if (_queue[_currentIndex].id != songAtIdle!.id) return;
-
-      final freshSource = AudioSource.uri(Uri.parse(freshUrl), tag: _songToMediaItem(songNow));
-      await _player.setAudioSource(freshSource, initialIndex: 0, preload: false);
       await _player.play();
-      debugPrint('[AurumHandler] Fresh-start retry succeeded for "$songTitle" ✓');
+      debugPrint('[AurumHandler] Advanced to "${nextSong.title}" and playing ✓');
     } catch (e) {
-      debugPrint('[AurumHandler] Fresh-start retry failed: $e');
-      onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
-          'setAudioSource appeared to succeed but processingState went '
-          'idle at position 0ms, and retry failed.');
+      debugPrint('[AurumHandler] setAudioSource failed while advancing to '
+          '"${nextSong.title}": $e — retrying this song');
+      await _retryThenAdvance(nextSong, sessionAtFailure, attempt: 1);
     }
   }
 
@@ -247,26 +354,45 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _LookaheadCache.remove(song.id);
 
     final sessionAtError = _playSessionId;
+    String? freshUrl;
     try {
-      final freshUrl = await ApiService.resolveStreamUrl(song, forceRefresh: true)
+      freshUrl = await ApiService.resolveStreamUrl(song, forceRefresh: true)
           .timeout(const Duration(seconds: 12), onTimeout: () => null);
-      if (freshUrl == null || sessionAtError != _playSessionId) return;
-
-      final freshSource = AudioSource.uri(Uri.parse(freshUrl), tag: _songToMediaItem(song));
-      final seq = _player.audioSource;
-      if (seq is ConcatenatingAudioSource) {
-        final playerIdx = _player.currentIndex ?? 0;
-        if (playerIdx < seq.length) {
-          await seq.removeAt(playerIdx);
-          await seq.insert(playerIdx, freshSource);
-          await _player.seek(pos, index: playerIdx);
-          await _player.play();
-          debugPrint('[AurumHandler] Recovered "${song.title}" at ${pos.inSeconds}s ✓');
-        }
-      }
     } catch (e) {
-      debugPrint('[AurumHandler] Recovery failed: $e');
+      debugPrint('[AurumHandler] Mid-stream recovery resolve threw: $e');
+      freshUrl = null;
     }
+
+    if (sessionAtError != _playSessionId) return;
+
+    if (freshUrl != null) {
+      try {
+        final freshSource = AudioSource.uri(Uri.parse(freshUrl), tag: _songToMediaItem(song));
+        final seq = _player.audioSource;
+        if (seq is ConcatenatingAudioSource) {
+          final playerIdx = _player.currentIndex ?? 0;
+          if (playerIdx < seq.length) {
+            await seq.removeAt(playerIdx);
+            await seq.insert(playerIdx, freshSource);
+            await _player.seek(pos, index: playerIdx);
+            await _player.play();
+            debugPrint('[AurumHandler] Recovered "${song.title}" at ${pos.inSeconds}s ✓');
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint('[AurumHandler] Mid-stream setAudioSource failed: $e — falling back '
+            'to fresh-start-style retry from 0:00');
+      }
+    }
+
+    // Resuming at the exact position failed — rather than leaving the
+    // player stuck, fall back to the same retry-then-advance chain used
+    // for fresh-start failures (restart this song from 0:00, retry once
+    // more, then try the next song if it truly cannot play).
+    debugPrint('[AurumHandler] Mid-stream recovery for "${song.title}" failed — '
+        'restarting via retry chain instead of leaving playback idle');
+    await _retryThenAdvance(song, sessionAtError, attempt: 1);
   }
 
   // ─── CURRENT INDEX STREAM HANDLING ─────────────────────────────────────────
@@ -520,6 +646,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _restoredSilently = false;
 
     final safeIndex = songs.isEmpty ? 0 : startIndex.clamp(0, songs.length - 1);
+    var safeIndex2 = safeIndex;
 
     _queue        = List<Song>.from(songs);
     _currentIndex = safeIndex;
@@ -537,27 +664,41 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (mySession != _playSessionId) return;
 
       if (startSource == null) {
-        _failPlayback(songs[safeIndex], 'stream URL could not be resolved after retries');
-        return;
+        // The tapped song itself wouldn't resolve even after _sourceForSong's
+        // own internal retries. Don't give up on the whole queue — walk
+        // forward through the rest of the songs until one actually
+        // resolves, same principle as the idle-recovery chain: keep trying
+        // to produce real audio instead of just failing out.
+        final found = await _findFirstPlayableFrom(songs, safeIndex + 1, mySession);
+        if (mySession != _playSessionId) return;
+        if (found == null) {
+          _failPlayback(songs[safeIndex], 'stream URL could not be resolved for this '
+              'song or any other song in the queue');
+          return;
+        }
+        safeIndex2 = found.index;
+        startSource = found.source;
+        _currentIndex = safeIndex2;
+        onQueueChanged?.call();
       }
 
       final fresh = ConcatenatingAudioSource(children: [startSource]);
       try {
         await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
       } catch (e) {
-        _failPlayback(songs[safeIndex], _exceptionDetail(e), prefix: 'setAudioSource failed');
+        _failPlayback(songs[safeIndex2], _exceptionDetail(e), prefix: 'setAudioSource failed');
         return;
       }
       if (mySession != _playSessionId) return;
 
       await _reapplySpeed();
-      _updateMediaItem(songs[safeIndex]);
+      _updateMediaItem(songs[safeIndex2]);
       await _restoreVolume();
       await _player.play();
       started = true;
     } catch (e) {
       debugPrint('[AurumHandler] playQueue unexpected error: $e');
-      onPlaybackError?.call('playQueue failed for "${songs[safeIndex].title}": $e');
+      onPlaybackError?.call('playQueue failed for "${songs[safeIndex2].title}": $e');
     } finally {
       await _restoreVolume();
       if (mySession == _playSessionId) {
@@ -570,8 +711,29 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
 
     if (started && mySession == _playSessionId) {
-      _resolveQueueInBackground(songs, safeIndex, mySession);
+      _resolveQueueInBackground(songs, safeIndex2, mySession);
     }
+  }
+
+  // Walks forward from `fromIndex` trying to resolve each song in turn,
+  // returning the first one that actually yields a playable AudioSource.
+  // Used when the originally-tapped song can't be resolved at all, so we
+  // don't just fail the whole queue — we keep trying until something can
+  // genuinely play, or we run out of songs.
+  Future<({int index, AudioSource source})?> _findFirstPlayableFrom(
+    List<Song> songs,
+    int fromIndex,
+    int sessionId,
+  ) async {
+    for (int i = fromIndex; i < songs.length; i++) {
+      if (sessionId != _playSessionId) return null;
+      debugPrint('[AurumHandler] Original song unplayable — trying "${songs[i].title}" '
+          '(index $i) instead');
+      final source = await _sourceForSong(songs[i], sessionId: sessionId);
+      if (sessionId != _playSessionId) return null;
+      if (source != null) return (index: i, source: source);
+    }
+    return null;
   }
 
   void _failPlayback(Song song, String detail, {String prefix = 'Resolve failed'}) {
@@ -667,6 +829,19 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
       var source = await _sourceForSong(song, sessionId: mySession);
       if (mySession != _playSessionId) return;
+
+      if (source == null) {
+        // No "next song" to fall back to here — but don't give up after
+        // just one resolve pass. One more genuine fresh attempt before
+        // surfacing an error to the user.
+        debugPrint('[AurumHandler] playSong initial resolve failed for '
+            '"${song.title}" — one more fresh attempt before giving up');
+        await Future.delayed(const Duration(milliseconds: 700));
+        if (mySession != _playSessionId) return;
+        ApiService.invalidateStream(song);
+        source = await _sourceForSong(song, sessionId: mySession);
+        if (mySession != _playSessionId) return;
+      }
 
       if (source == null) {
         _failPlayback(song, 'stream URL could not be resolved after retries, '
