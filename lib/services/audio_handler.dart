@@ -1194,8 +1194,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _idleSub?.cancel();
     _durationSub?.cancel();
     _currentIndexSub?.cancel();
-    try { await _equalizer?.release(); } catch (_) {}
-    try { await _loudnessEnhancer?.release(); } catch (_) {}
+    _equalizer = null;
+    _loudnessEnhancer = null;
     await _player.dispose();
   }
 }
