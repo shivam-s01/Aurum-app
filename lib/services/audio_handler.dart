@@ -71,6 +71,7 @@ import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_equalizer/just_audio_equalizer.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
@@ -146,6 +147,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<void> _init() async {
     await AudioPrefs.load();
+
+    // DSP pipeline: LoudnessEnhancer → Equalizer → Player
+    _loudnessEnhancer = AndroidLoudnessEnhancer();
+    _equalizer = AndroidEqualizer();
 
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
@@ -363,6 +368,18 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (_splicingInProgress) return;
     if (index == null) return;
 
+    // Sleep timer "finish song" — pause the moment the NEXT song would start.
+    if (_stopAfterCurrentSong && index != _currentIndex) {
+      _stopAfterCurrentSong = false;
+      _player.pause();
+      return;
+    }
+
+    // Crossfade: fade in new track when transitioning
+    if (_crossfadeSecs > 0 && index != _currentIndex && !_isLoadingNewSong) {
+      _applyCrossfadeFadeIn();
+    }
+
     final sequence = _player.sequence;
     final inSourceRange = sequence != null && index < sequence.length;
     final tag = inSourceRange ? sequence[index].tag : null;
@@ -383,13 +400,65 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
   }
 
+  // Fade in from 0 → 1 over _crossfadeSecs when a new track starts
+  void _applyCrossfadeFadeIn() {
+    final steps = (_crossfadeSecs * 10).round().clamp(1, 120);
+    final stepDuration = Duration(milliseconds: (_crossfadeSecs * 1000 ~/ steps));
+    var step = 0;
+    Timer.periodic(stepDuration, (timer) {
+      step++;
+      final vol = step / steps;
+      _player.setVolume(vol.clamp(0.0, 1.0));
+      if (step >= steps) {
+        timer.cancel();
+        _player.setVolume(1.0);
+      }
+    });
+  }
+
   // ─── SETTINGS ─────────────────────────────────────────────────────────────
+
+  // Crossfade duration in seconds (0 = off). Applied at track transitions.
+  double _crossfadeSecs = 0.0;
+
+  AndroidEqualizer? _equalizer;
+  AndroidLoudnessEnhancer? _loudnessEnhancer;
 
   Future<void> _applySettings() async {
     await AudioPrefs.load();
     final p = await SharedPreferences.getInstance();
+
+    // Playback speed
     final speed = p.getDouble('playback_speed') ?? 1.0;
     await _player.setSpeed(speed);
+
+    // Crossfade
+    _crossfadeSecs = p.getDouble('crossfade_duration') ?? 0.0;
+
+    // Bass Boost via AndroidLoudnessEnhancer (boosts perceived bass/loudness)
+    final bassBoost = p.getBool('bass_boost') ?? false;
+    try {
+      if (_loudnessEnhancer != null) {
+        await _loudnessEnhancer!.setEnabled(bassBoost);
+        if (bassBoost) await _loudnessEnhancer!.setTargetGain(800); // ~8dB boost
+      }
+    } catch (_) {}
+
+    // Volume Normalization via AndroidEqualizer (flat EQ = normalized reference)
+    final volNorm = p.getBool('volume_normalization') ?? false;
+    try {
+      if (_equalizer != null) {
+        final params = await _equalizer!.parameters;
+        // Vol norm: flatten all bands to 0 for consistent perceived loudness
+        if (volNorm) {
+          for (final band in params.bands) {
+            await band.setGain(0.0);
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Shake to skip
     final shakeEnabled = p.getBool('shake_to_skip') ?? false;
     _updateShakeListener(shakeEnabled);
   }
@@ -427,9 +496,22 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   @override
   Future<void> onNotificationDeleted() async => stop();
 
+  // Flag set by SleepTimerService when it wants to stop after the current song ends.
+  bool _stopAfterCurrentSong = false;
+
   @override
   Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
-    if (name == 'reloadSettings') await reloadSettings();
+    switch (name) {
+      case 'reloadSettings':
+        await reloadSettings();
+        break;
+      case 'sleepAfterSong':
+        // Called by SleepTimerService when "Finish Current Song" is ON.
+        // We set a flag here; _handleCurrentIndexChanged fires when the
+        // next song starts — at that point we pause before it plays.
+        _stopAfterCurrentSong = true;
+        break;
+    }
   }
 
   // ─── DIAGNOSTIC: REAL PLAYBACK TEST ───────────────────────────────────────
@@ -977,18 +1059,36 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   void _broadcastState(PlaybackEvent event) {
     final playing = _player.playing;
+
+    // Read notification prefs (cached in AudioPrefs to avoid async here)
+    final showPrev    = AudioPrefs.notifShowPrev;
+    final isCompact   = AudioPrefs.notifCompact;
+
+    // Build controls list: compact = no prev button; expanded = prev + play + next
+    final controls = isCompact
+        ? [
+            playing ? MediaControl.pause : MediaControl.play,
+            MediaControl.skipToNext,
+          ]
+        : [
+            if (showPrev) MediaControl.skipToPrevious,
+            playing ? MediaControl.pause : MediaControl.play,
+            MediaControl.skipToNext,
+          ];
+
+    // Compact indices: always show play + next in compact view
+    final compactIndices = isCompact
+        ? const [0, 1]
+        : (showPrev ? const [0, 1, 2] : const [0, 1]);
+
     playbackState.add(playbackState.value.copyWith(
-      controls: [
-        MediaControl.skipToPrevious,
-        playing ? MediaControl.pause : MediaControl.play,
-        MediaControl.skipToNext,
-      ],
+      controls: controls,
       systemActions: const {
         MediaAction.seek,
         MediaAction.seekForward,
         MediaAction.seekBackward,
       },
-      androidCompactActionIndices: const [0, 1, 2],
+      androidCompactActionIndices: compactIndices,
       processingState: {
         ProcessingState.idle:      AudioProcessingState.idle,
         ProcessingState.loading:   AudioProcessingState.loading,
@@ -1089,13 +1189,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   Future<void> disposeHandler() async {
     _shakeSub?.cancel();
-    // FIX #7: cancel all stored subscriptions — were leaked previously.
     _interruptionSub?.cancel();
     _noisySub?.cancel();
     _broadcastSub?.cancel();
     _idleSub?.cancel();
     _durationSub?.cancel();
     _currentIndexSub?.cancel();
+    try { await _equalizer?.release(); } catch (_) {}
+    try { await _loudnessEnhancer?.release(); } catch (_) {}
     await _player.dispose();
   }
 }

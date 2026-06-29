@@ -29,8 +29,12 @@ class AudioPrefs {
   /// lower or stop song playback.
   static bool duckOnNotifications = false;
 
-  /// If true, the current session's plays are not added to history and
-  /// don't feed the recommendation engine. Set from Settings → Privacy.
+  /// If true (default), show previous track button in notification.
+  static bool notifShowPrev = true;
+
+  /// If true, use compact notification style (fewer buttons).
+  static bool notifCompact = false;
+
   static bool incognito = false;
 
   /// If true, play counts / time-listened are not tracked. Set from
@@ -48,6 +52,8 @@ class AudioPrefs {
   static const _kDuckNotif     = 'duck_on_notifications';
   static const _kIncognito     = 'incognito_mode';
   static const _kHideStats     = 'hide_listen_stats';
+  static const _kNotifShowPrev = 'notif_show_prev';
+  static const _kNotifStyle    = 'notif_style';
 
   /// Restore all values from disk. Call once at startup (from the audio
   /// handler's _init()).
@@ -59,6 +65,8 @@ class AudioPrefs {
     duckOnNotifications = p.getBool(_kDuckNotif) ?? duckOnNotifications;
     incognito           = p.getBool(_kIncognito) ?? incognito;
     hideListenStats     = p.getBool(_kHideStats) ?? hideListenStats;
+    notifShowPrev       = p.getBool(_kNotifShowPrev) ?? notifShowPrev;
+    notifCompact        = (p.getString(_kNotifStyle) ?? 'Expanded') == 'Compact';
   }
 
   static Future<void> setStreamQuality(String v) async {

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
+import '../services/audio_prefs.dart';
+import '../providers/player_provider.dart';
 
 class SettingsNotificationsScreen extends StatefulWidget {
   const SettingsNotificationsScreen({super.key});
@@ -37,6 +40,12 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
     final p = await SharedPreferences.getInstance();
     if (value is bool)   await p.setBool(key, value);
     if (value is String) await p.setString(key, value);
+    // Reload live so notification updates immediately
+    await AudioPrefs.load();
+    try {
+      final handler = context.read<PlayerProvider>().handler;
+      await handler.customAction('reloadSettings');
+    } catch (_) {}
   }
 
   @override
