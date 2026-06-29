@@ -1,3 +1,6 @@
+import '../widgets/aurum_loader.dart';
+import '../widgets/aurum_morph_loader.dart';
+import '../main.dart' show aurumRouteObserver;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,13 +8,17 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
+import 'package:share_plus/share_plus.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/download_provider.dart';
+import '../providers/premium_provider.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/premium_gate.dart';
 import 'library_screen.dart' show showAddToPlaylistSheet;
+import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FullPlayerScreen v5.0 — Echo Nightly Premium
@@ -33,7 +40,7 @@ class FullPlayerScreen extends StatefulWidget {
 }
 
 class _FullPlayerScreenState extends State<FullPlayerScreen>
-    with TickerProviderStateMixin, WidgetsBindingObserver {
+    with TickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
 
   // ── Entry animation (420ms, easeOutCubic) ──
   late final AnimationController _entryCtrl;
@@ -115,18 +122,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // Breathing: bg scale pulse, 12s full cycle (spec: 10-15s)
     _breatheCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 12000),
+      duration: const Duration(milliseconds: 20000),
     )..repeat(reverse: true);
 
     // Artwork float: separate faster cycle, 5.5s (spec: 5-6s)
     _artworkFloatCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 5500),
+      duration: const Duration(milliseconds: 9000),
     )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
+    aurumRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _entryCtrl.dispose();
     _artworkCtrl.dispose();
@@ -147,6 +155,26 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     } else {
       _pauseAmbientAnims();
     }
+  }
+
+  // ── RouteAware — pause ambient anims when a route is pushed on top ──
+  // (lyrics screen, queue screen, options sheet, etc.)
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    aurumRouteObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  @override
+  void didPushNext() {
+    // A new route was pushed on top — pause GPU-heavy loops
+    _pauseAmbientAnims();
+  }
+
+  @override
+  void didPopNext() {
+    // The route on top was popped — we're visible again, resume
+    if (!_panelOpen) _resumeAmbientAnims();
   }
 
   bool _panelOpen = false;
@@ -231,6 +259,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   void _close() {
     if (!mounted) return;
     HapticFeedback.lightImpact();
+    if (_dragY != 0) setState(() => _dragY = 0);
     _entryCtrl.reverse().then((_) {
       if (mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
@@ -290,6 +319,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     );
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Consumer<PlayerProvider>(
@@ -337,6 +367,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               onVerticalDragEnd: (d) {
                 setState(() => _isDragging = false);
                 if (_dragY > 110 || (d.primaryVelocity ?? 0) > 750) {
+                  // Reset drag offset BEFORE starting the reverse slide —
+                  // otherwise Transform.translate(_dragY) keeps stacking on
+                  // top of _entryCtrl's reverse animation, causing a visible
+                  // jump/freeze right as it hands off to the mini player.
+                  setState(() => _dragY = 0);
                   _close();
                 } else {
                   setState(() => _dragY = 0);
@@ -422,8 +457,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               isTablet: isTablet,
               isFav: _isFav,
               onFavTap: () {
-                HapticFeedback.lightImpact();
-                setState(() => _isFav = !_isFav);
+                PremiumGate.guard(
+                  context,
+                  feature: 'Like Songs',
+                  description: 'Like songs to save them to your library with Aurum Premium.',
+                  onAllowed: () {
+                    HapticFeedback.lightImpact();
+                    setState(() => _isFav = !_isFav);
+                  },
+                );
               },
             ),
             SizedBox(height: vGapSm),
@@ -850,7 +892,15 @@ class _Controls extends StatelessWidget {
             semanticLabel: 'Next',
             onTap: () {
               HapticFeedback.mediumImpact();
-              player.skipNext();
+              player.skipNext().then((allowed) {
+                if (!allowed && context.mounted) {
+                  PremiumGate.show(
+                    context,
+                    feature: 'Unlimited Skips',
+                    description: 'Free users get 6 skips per hour. Upgrade for unlimited.',
+                  );
+                }
+              });
             },
           ),
           _CtrlBtn(
@@ -1005,10 +1055,7 @@ class _PremiumPlayButton extends StatelessWidget {
                     key: ValueKey('loading'),
                     width: 26,
                     height: 26,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.black38,
-                    ),
+                    child: Center(child: AurumM3Loader(width: 26, height: 2.5)),
                   )
                 : Icon(
                     isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
@@ -1084,8 +1131,159 @@ class _QualityPill extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Premium Options Sheet — theme adaptive, Download included
+// Shared action helpers — used by both the Full Player options sheet and the
+// SongTile quick-actions sheet, so the behaviour (and its fixes) live once.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Opens the platform share sheet with a clean "Artist — Title" message.
+void shareSong(Song song) {
+  final text = '${song.artist} — ${song.title}\n\nShared from Aurum 🎵';
+  Share.share(text, subject: song.title);
+}
+
+/// Opens the existing premium Sleep Timer sheet (built for Settings → Player)
+/// from anywhere a [PlayerProvider] is available, e.g. the Full Player screen.
+void showSleepTimerForSong(BuildContext context, PlayerProvider player) {
+  final handler = player.handler;
+  bool finishSong = false;
+  HapticFeedback.lightImpact();
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    barrierColor: Colors.black.withAlpha(150),
+    builder: (_) => SleepTimerSheet(
+      handler: handler,
+      finishSong: finishSong,
+      onFinishSongChanged: (v) => finishSong = v,
+    ),
+  );
+}
+
+/// Premium song-details sheet: title, artist, album, duration, year, source.
+void showSongInfoDialog(BuildContext context, Song song) {
+  final isLight = Theme.of(context).brightness == Brightness.light;
+  final bgColor = isLight ? AurumTheme.lightBgCard : const Color(0xFF15131C);
+  final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
+  final textMuted = isLight ? AurumTheme.lightTextSecondary : Colors.white60;
+  final divider = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14);
+
+  String sourceLabel() {
+    switch (song.source) {
+      case SongSource.local:
+        return 'Local file';
+      case SongSource.youtube:
+        return 'YouTube';
+      case SongSource.saavn:
+        return 'JioSaavn';
+    }
+  }
+
+  final rows = <MapEntry<String, String>>[
+    MapEntry('Title', song.title),
+    MapEntry('Artist', song.artist),
+    if (song.album.isNotEmpty) MapEntry('Album', song.album),
+    if (song.durationString.isNotEmpty) MapEntry('Duration', song.durationString),
+    if (song.year != null && song.year!.isNotEmpty) MapEntry('Year', song.year!),
+    if (song.language != null && song.language!.isNotEmpty) MapEntry('Language', song.language!),
+    MapEntry('Source', sourceLabel()),
+  ];
+
+  HapticFeedback.lightImpact();
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    barrierColor: Colors.black.withAlpha(150),
+    builder: (_) => ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          decoration: BoxDecoration(
+            color: bgColor.withAlpha(245),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border(top: BorderSide(color: divider, width: 0.5)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36, height: 4,
+                      margin: const EdgeInsets.only(bottom: 18),
+                      decoration: BoxDecoration(
+                        color: textMuted.withAlpha(80),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, color: AurumTheme.gold, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Song Info',
+                        style: TextStyle(
+                          color: textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  for (final row in rows) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: 92,
+                            child: Text(
+                              row.key,
+                              style: TextStyle(
+                                color: textMuted,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              row.value,
+                              style: TextStyle(
+                                color: textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (row.key != rows.last.key)
+                      Divider(height: 1, color: divider),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+
 class _PremiumOptionsSheet extends StatefulWidget {
   final Song song;
   final PlayerProvider player;
@@ -1104,6 +1302,22 @@ class _PremiumOptionsSheet extends StatefulWidget {
 }
 
 class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
+  @override
+  void initState() {
+    super.initState();
+    SleepTimerService.instance.addListener(_onSleepTimerTick);
+  }
+
+  @override
+  void dispose() {
+    SleepTimerService.instance.removeListener(_onSleepTimerTick);
+    super.dispose();
+  }
+
+  void _onSleepTimerTick() {
+    if (mounted) setState(() {});
+  }
+
   void _snack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
@@ -1166,6 +1380,11 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
         ? AurumTheme.lightDivider
         : Colors.white.withAlpha(18);
 
+    final sleepActive = SleepTimerService.instance.isActive;
+    final sleepRemainingLabel = sleepActive
+        ? '${(SleepTimerService.instance.remaining.inSeconds / 60).ceil()}m'
+        : '';
+
     final actions = [
       _SheetAction(Icons.skip_next_rounded, 'Play Next', AurumTheme.gold, () {
         Navigator.pop(context);
@@ -1181,27 +1400,41 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
         isLiked ? 'Liked' : 'Like',
         const Color(0xFFE1306C),
         () {
-          fav.toggleFavorite(song);
-          final nowLiked = fav.isFavorite(song.id);
-          _snack(nowLiked ? 'Added to Liked' : 'Removed from Liked');
+          PremiumGate.guard(
+            context,
+            feature: 'Like Songs',
+            description: 'Like songs to build your personal library with Aurum Premium.',
+            onAllowed: () {
+              fav.toggleFavorite(song);
+              final nowLiked = fav.isFavorite(song.id);
+              _snack(nowLiked ? 'Added to Liked' : 'Removed from Liked');
+            },
+          );
         },
       ),
       _SheetAction(Icons.share_rounded, 'Share', Colors.greenAccent, () {
         Navigator.pop(context);
+        shareSong(song);
       }),
       _SheetAction(Icons.playlist_add_rounded, 'Save to Playlist', Colors.blueAccent, () {
         Navigator.pop(context);
         showAddToPlaylistSheet(widget.rootContext, song);
       }),
-      _SheetAction(Icons.bookmark_border_rounded, 'Save to Library', Colors.teal, () {
-        Navigator.pop(context);
-      }),
       _SheetAction(Icons.equalizer_rounded, 'Audio Effects', Colors.orangeAccent, () {
         Navigator.pop(context);
+        Navigator.of(widget.rootContext).push(MaterialPageRoute(
+          builder: (_) => EqualizerScreen(audioHandler: widget.player.handler),
+        ));
       }),
-      _SheetAction(Icons.timer_outlined, 'Sleep Timer', Colors.cyan, () {
-        Navigator.pop(context);
-      }),
+      _SheetAction(
+        sleepActive ? Icons.bedtime_rounded : Icons.timer_outlined,
+        sleepActive ? 'Sleep • $sleepRemainingLabel' : 'Sleep Timer',
+        Colors.cyan,
+        () {
+          Navigator.pop(context);
+          showSleepTimerForSong(widget.rootContext, widget.player);
+        },
+      ),
       _SheetAction(
         isDownloaded
             ? Icons.download_done_rounded
@@ -1226,6 +1459,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       ),
       _SheetAction(Icons.info_outline_rounded, 'Song Info', textMuted, () {
         Navigator.pop(context);
+        showSongInfoDialog(widget.rootContext, song);
       }),
     ];
 
@@ -1306,14 +1540,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
                           style: TextStyle(color: textMuted, fontSize: 12)),
                       ]),
                       const SizedBox(height: 6),
-                      LinearProgressIndicator(
-                        value: dlItem?.progress,
-                        backgroundColor: isLight
-                            ? AurumTheme.lightBgSurface
-                            : Colors.white.withAlpha(20),
-                        valueColor: const AlwaysStoppedAnimation(AurumTheme.gold),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+                      const AurumM3Loader(height: 3, borderRadius: 2),
                     ]),
                   ),
                 // Action grid
@@ -1443,6 +1670,17 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   late final AnimationController _tabCtrl;
   late final Animation<double> _tabFade;
 
+  // Spring-back-to-zero controller for an aborted drag-to-dismiss.
+  late final AnimationController _springBackCtrl;
+  Animation<double>? _springBackAnim;
+
+  // Reverse exit animation (translate down + fade out) played before pop.
+  late final AnimationController _exitCtrl;
+  late final Animation<double> _exitTranslate;
+  late final Animation<double> _exitFade;
+
+  bool _isDismissing = false;
+
   @override
   void initState() {
     super.initState();
@@ -1450,11 +1688,28 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
         vsync: this, duration: const Duration(milliseconds: 220));
     _tabFade = CurvedAnimation(parent: _tabCtrl, curve: Curves.easeOut);
     _tabCtrl.forward();
+
+    _springBackCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 420));
+    _springBackCtrl.addListener(() {
+      if (_springBackAnim != null) {
+        setState(() => _dragY = _springBackAnim!.value);
+      }
+    });
+
+    _exitCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 280));
+    _exitTranslate = Tween<double>(begin: 0, end: 1).animate(
+        CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInCubic));
+    _exitFade = Tween<double>(begin: 1, end: 0).animate(
+        CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInCubic));
   }
 
   @override
   void dispose() {
     _tabCtrl.dispose();
+    _springBackCtrl.dispose();
+    _exitCtrl.dispose();
     super.dispose();
   }
 
@@ -1468,9 +1723,24 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     });
   }
 
+  void _springBackToZero() {
+    _springBackAnim = Tween<double>(begin: _dragY, end: 0).animate(
+      CurvedAnimation(parent: _springBackCtrl, curve: Curves.elasticOut),
+    );
+    _springBackCtrl
+      ..reset()
+      ..forward();
+  }
+
   void _dismiss() {
+    if (_isDismissing) return;
+    _isDismissing = true;
     HapticFeedback.lightImpact();
-    Navigator.of(context).pop();
+    _exitCtrl.forward().then((_) {
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+    });
   }
 
   @override
@@ -1478,105 +1748,163 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     final isLight = Theme.of(context).brightness == Brightness.light;
     final screenH = MediaQuery.of(context).size.height;
     final dragFraction = (_dragY / screenH).clamp(0.0, 1.0);
-    final opacity = (1.0 - dragFraction * 2.5).clamp(0.0, 1.0);
+    final dragOpacity = (1.0 - dragFraction * 2.5).clamp(0.0, 1.0);
     final scale = (1.0 - dragFraction * 0.06).clamp(0.88, 1.0);
 
+    // Exit animation (translate down + fade) layers on top of any
+    // drag-driven offset/opacity when the panel is being dismissed.
+    final exitOffsetY = _exitTranslate.value * screenH * 0.4;
+    final opacity = (dragOpacity * _exitFade.value).clamp(0.0, 1.0);
+
     // ── Theme-aware glass tint ──
-    // Light: airy white glass tinted faintly by the palette (Echo Nightly look)
-    // Dark: deep tinted glass (unchanged from before)
+    // Lowered alphas + a thin top highlight = genuine see-through glass
+    // depth (you can sense the artwork/bg colors through it) instead of a
+    // near-opaque tinted panel. Blur sigma is untouched (still 12) so this
+    // stays just as cheap on the GPU — only the paint values changed.
     final List<Color> glassColors = isLight
         ? [
-            Color.lerp(widget.bg1, Colors.white, 0.86)!.withAlpha(238),
-            Color.lerp(widget.bg2, Colors.white, 0.90)!.withAlpha(242),
-            Color.lerp(widget.bg3, Colors.white, 0.94)!.withAlpha(246),
+            Color.lerp(widget.bg1, Colors.white, 0.86)!.withAlpha(196),
+            Color.lerp(widget.bg2, Colors.white, 0.90)!.withAlpha(204),
+            Color.lerp(widget.bg3, Colors.white, 0.94)!.withAlpha(214),
           ]
         : [
             Color.lerp(widget.bg1, const Color(0xFF0A0A16), 0.5)!
-                .withAlpha(247),
+                .withAlpha(168),
             Color.lerp(widget.bg2, const Color(0xFF060610), 0.5)!
-                .withAlpha(248),
+                .withAlpha(180),
             Color.lerp(widget.bg3, const Color(0xFF020206), 0.6)!
-                .withAlpha(250),
+                .withAlpha(198),
           ];
 
     final borderColor =
-        isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(18);
+        isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(28);
+    final highlightColor =
+        isLight ? Colors.white.withAlpha(140) : Colors.white.withAlpha(40);
     final handleColor = isLight
         ? AurumTheme.lightTextMuted.withAlpha(90)
         : Colors.white.withAlpha(40);
 
-    return GestureDetector(
-      onVerticalDragUpdate: (d) {
-        if (d.delta.dy > 0) setState(() => _dragY += d.delta.dy);
-      },
-      onVerticalDragEnd: (d) {
-        if (_dragY > 90 || (d.primaryVelocity ?? 0) > 600) {
-          _dismiss();
-        } else {
-          setState(() => _dragY = 0);
-        }
-      },
-      child: Transform.translate(
-        offset: Offset(0, _dragY.clamp(0.0, screenH * 0.5)),
-        child: Transform.scale(
-          scale: scale,
-          alignment: Alignment.topCenter,
-          child: Opacity(
-            opacity: opacity,
-            child: SizedBox(
-              height: screenH * 0.95,
-              child: ClipRRect(
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(32)),
-                // Lightweight glass: sigma 16 instead of 24 — still reads as
-                // frosted but noticeably cheaper on GPU. RepaintBoundary
-                // stops it from repainting on every parent rebuild (e.g.
-                // progress-bar ticks from the player above it).
-                child: RepaintBoundary(
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(32)),
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: glassColors,
-                          stops: const [0.0, 0.5, 1.0],
-                        ),
-                        border: Border(
-                          top: BorderSide(color: borderColor, width: 0.5),
-                        ),
-                      ),
-                      child: Column(children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12, bottom: 6),
-                          child: Container(
-                            width: 32,
-                            height: 4,
+    return AnimatedBuilder(
+      animation: _exitCtrl,
+      builder: (context, _) {
+        return Transform.translate(
+          offset: Offset(
+              0, _dragY.clamp(0.0, screenH * 0.5) + exitOffsetY),
+          child: Transform.scale(
+            scale: scale,
+            alignment: Alignment.topCenter,
+            child: Opacity(
+              opacity: opacity,
+              child: SizedBox(
+                height: screenH * 0.95,
+                child: ClipRRect(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(32)),
+                  // Lightweight glass: sigma 16 instead of 24 — still reads as
+                  // frosted but noticeably cheaper on GPU. RepaintBoundary
+                  // stops it from repainting on every parent rebuild (e.g.
+                  // progress-bar ticks from the player above it).
+                  child: RepaintBoundary(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                      child: Stack(
+                        children: [
+                          Container(
                             decoration: BoxDecoration(
-                              color: handleColor,
-                              borderRadius: BorderRadius.circular(2),
+                              borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(32)),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: glassColors,
+                                stops: const [0.0, 0.5, 1.0],
+                              ),
+                              border: Border(
+                                top: BorderSide(color: borderColor, width: 0.5),
+                              ),
+                            ),
+                            child: Column(children: [
+                              // Drag-to-dismiss lives ONLY on this handle strip
+                              // now. Previously the whole panel (including the
+                              // list) was one big GestureDetector for vertical
+                              // drag, which raced the CustomScrollView for
+                              // gesture-arena ownership on every drag-from-top —
+                              // that's what made scrolling feel like it needed
+                              // a "second pull" to actually start. Confining it
+                              // to the handle means the scrollable area below
+                              // has zero competing recognizers — native,
+                              // instant, smooth scroll from the very first
+                              // pixel of drag.
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onVerticalDragUpdate: (d) {
+                                  if (d.delta.dy > 0) {
+                                    _springBackCtrl.stop();
+                                    setState(() => _dragY += d.delta.dy);
+                                  }
+                                },
+                                onVerticalDragEnd: (d) {
+                                  if (_dragY > 90 ||
+                                      (d.primaryVelocity ?? 0) > 600) {
+                                    _dismiss();
+                                  } else {
+                                    _springBackToZero();
+                                  }
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                      top: 12, bottom: 6),
+                                  child: Container(
+                                    width: 32,
+                                    height: 4,
+                                    decoration: BoxDecoration(
+                                      color: handleColor,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: FadeTransition(
+                                  opacity: _tabFade,
+                                  child: _buildTabContent(),
+                                ),
+                              ),
+                              _buildTabBar(isLight),
+                            ]),
+                          ),
+                          // Thin top edge-light — the bit of light a real
+                          // glass pane catches. Pure paint, no extra blur,
+                          // so it's free performance-wise.
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              height: 1,
+                              decoration: BoxDecoration(
+                                borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(32)),
+                                gradient: LinearGradient(
+                                  colors: [
+                                    highlightColor,
+                                    highlightColor.withAlpha(0),
+                                  ],
+                                  stops: const [0.0, 1.0],
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                        Expanded(
-                          child: FadeTransition(
-                            opacity: _tabFade,
-                            child: _buildTabContent(),
-                          ),
-                        ),
-                        _buildTabBar(isLight),
-                      ]),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -1741,17 +2069,36 @@ class _QueuePage extends StatelessWidget {
                   ),
                 ),
               ),
-            // Up next list
+            // Up next list — drag handle reorders, swipe reveals delete,
+            // long-press opens quick actions. SliverReorderableList keeps
+            // this on the same lightweight sliver scroll as everything
+            // else above (no nested scrollables, no extra scroll
+            // controller wiring needed).
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (_, listIdx) {
-                    final queueIdx = upNext[listIdx];
-                    return _QueueTile(
-                      key: ValueKey('${queue[queueIdx].id}_$queueIdx'),
+              sliver: SliverReorderableList(
+                itemCount: upNext.length,
+                onReorder: (oldListIdx, newListIdx) {
+                  HapticFeedback.mediumImpact();
+                  final fromQueueIdx = upNext[oldListIdx];
+                  // ReorderableList gives newIndex assuming the item has
+                  // already been removed from oldIndex — adjust the same
+                  // way ReorderableListView does internally.
+                  var toListIdx = newListIdx;
+                  if (oldListIdx < newListIdx) toListIdx -= 1;
+                  final toQueueIdx = upNext[toListIdx];
+                  context.read<PlayerProvider>().moveQueueItem(fromQueueIdx, toQueueIdx);
+                },
+                itemBuilder: (context, listIdx) {
+                  final queueIdx = upNext[listIdx];
+                  final isNextUp = listIdx == 0;
+                  return ReorderableDelayedDragStartListener(
+                    key: ValueKey('${queue[queueIdx].id}_$queueIdx'),
+                    index: listIdx,
+                    child: _QueueTile(
                       song: queue[queueIdx],
                       isCurrent: false,
+                      isNextUp: isNextUp,
                       index: listIdx + 1,
                       onTap: () {
                         HapticFeedback.selectionClick();
@@ -1761,10 +2108,20 @@ class _QueuePage extends StatelessWidget {
                         HapticFeedback.mediumImpact();
                         player.removeFromQueue(queueIdx);
                       },
-                    );
-                  },
-                  childCount: upNext.length,
-                ),
+                      onPlayNext: () async {
+                        HapticFeedback.selectionClick();
+                        final song = queue[queueIdx];
+                        await player.removeFromQueue(queueIdx);
+                        await player.playNext(song);
+                      },
+                      onMoveToTop: () {
+                        HapticFeedback.selectionClick();
+                        final target = (player.currentIndex ?? 0) + 1;
+                        player.moveQueueItem(queueIdx, target);
+                      },
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -1789,6 +2146,7 @@ class _NowPlayingHeader extends StatelessWidget {
     final cardBg = isLight
         ? AurumTheme.gold.withAlpha(22)
         : AurumTheme.gold.withAlpha(18);
+    final isPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -1813,7 +2171,7 @@ class _NowPlayingHeader extends StatelessWidget {
                   color: AurumTheme.gold,
                   borderRadius: BorderRadius.circular(9),
                 ),
-                child: const Center(child: _MiniEqualizerIcon()),
+                child: Center(child: _MiniEqualizerIcon(isPlaying: isPlaying)),
               ),
             ),
           ]),
@@ -1841,10 +2199,13 @@ class _NowPlayingHeader extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mini Equalizer Icon — for now playing badge
+// Mini Equalizer Icon — for now playing badge. Bars animate only while
+// actually playing; they settle to a calm low state when paused, instead of
+// endlessly bouncing regardless of playback state.
 // ─────────────────────────────────────────────────────────────────────────────
 class _MiniEqualizerIcon extends StatefulWidget {
-  const _MiniEqualizerIcon();
+  final bool isPlaying;
+  const _MiniEqualizerIcon({this.isPlaying = true});
 
   @override
   State<_MiniEqualizerIcon> createState() => _MiniEqualizerIconState();
@@ -1858,8 +2219,18 @@ class _MiniEqualizerIconState extends State<_MiniEqualizerIcon>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 700))
-      ..repeat(reverse: true);
+        vsync: this, duration: const Duration(milliseconds: 700));
+    if (widget.isPlaying) _ctrl.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(_MiniEqualizerIcon old) {
+    super.didUpdateWidget(old);
+    if (widget.isPlaying && !old.isPlaying) {
+      _ctrl.repeat(reverse: true);
+    } else if (!widget.isPlaying && old.isPlaying) {
+      _ctrl.stop();
+    }
   }
 
   @override
@@ -1873,23 +2244,27 @@ class _MiniEqualizerIconState extends State<_MiniEqualizerIcon>
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (_, __) {
-        final v = _ctrl.value;
+        // While paused, bars settle to a low static height instead of
+        // freezing mid-bounce at an arbitrary point.
+        final v = widget.isPlaying ? _ctrl.value : 0.0;
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            _bar(0.4 + 0.6 * v, 7),
+            _bar(widget.isPlaying ? 0.4 + 0.6 * v : 0.3, 7),
             const SizedBox(width: 1),
-            _bar(0.9 - 0.5 * v, 7),
+            _bar(widget.isPlaying ? 0.9 - 0.5 * v : 0.45, 7),
             const SizedBox(width: 1),
-            _bar(0.6 + 0.4 * v, 7),
+            _bar(widget.isPlaying ? 0.6 + 0.4 * v : 0.3, 7),
           ],
         );
       },
     );
   }
 
-  Widget _bar(double f, double maxH) => Container(
+  Widget _bar(double f, double maxH) => AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
         width: 2,
         height: maxH * f,
         decoration: BoxDecoration(
@@ -1900,22 +2275,28 @@ class _MiniEqualizerIconState extends State<_MiniEqualizerIcon>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Queue Tile — Echo Nightly style with swipe-to-remove
+// Queue Tile — Echo Nightly style with swipe-to-reveal delete + long-press
+// quick actions + next-up accent highlight.
 // ─────────────────────────────────────────────────────────────────────────────
 class _QueueTile extends StatefulWidget {
   final Song song;
   final bool isCurrent;
+  final bool isNextUp;
   final int index;
   final VoidCallback onTap;
   final VoidCallback onRemove;
+  final VoidCallback onPlayNext;
+  final VoidCallback onMoveToTop;
 
   const _QueueTile({
-    super.key,
     required this.song,
     required this.isCurrent,
+    this.isNextUp = false,
     required this.index,
     required this.onTap,
     required this.onRemove,
+    required this.onPlayNext,
+    required this.onMoveToTop,
   });
 
   @override
@@ -1928,6 +2309,9 @@ class _QueueTileState extends State<_QueueTile>
   late Animation<double> _settleAnim;
   double _dragOffset = 0;
   bool _swiped = false;
+
+  static const double _deleteRevealWidth = 76.0;
+  static const double _swipeOpenThreshold = 56.0;
 
   @override
   void initState() {
@@ -1944,98 +2328,346 @@ class _QueueTileState extends State<_QueueTile>
   }
 
   void _handleSwipeEnd() {
-    if (_dragOffset.abs() > 60) {
+    // Past the full delete-reveal width + a firm flick → remove outright.
+    if (_dragOffset.abs() > _deleteRevealWidth + 30) {
       HapticFeedback.heavyImpact();
       _swiped = true;
       _swipeCtrl.forward().then((_) {
         if (mounted) widget.onRemove();
       });
-    } else {
+      return;
+    }
+    // Past the open threshold → snap fully open to reveal the delete
+    // button (Spotify/YT Music style), rather than springing back.
+    if (_dragOffset.abs() > _swipeOpenThreshold) {
+      HapticFeedback.lightImpact();
       final fromOffset = _dragOffset;
-      _settleAnim = Tween<double>(begin: fromOffset, end: 0.0).animate(
-        CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
-      );
+      _settleAnim = Tween<double>(begin: fromOffset, end: -_deleteRevealWidth)
+          .animate(CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic));
       _swipeCtrl.forward(from: 0.0).then((_) {
-        if (mounted) setState(() => _dragOffset = 0);
+        if (mounted) setState(() => _dragOffset = -_deleteRevealWidth);
         _swipeCtrl.reset();
       });
+      return;
     }
+    // Otherwise spring back closed.
+    final fromOffset = _dragOffset;
+    _settleAnim = Tween<double>(begin: fromOffset, end: 0.0).animate(
+      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
+    );
+    _swipeCtrl.forward(from: 0.0).then((_) {
+      if (mounted) setState(() => _dragOffset = 0);
+      _swipeCtrl.reset();
+    });
+  }
+
+  void _closeSwipe() {
+    if (_dragOffset == 0) return;
+    final fromOffset = _dragOffset;
+    _settleAnim = Tween<double>(begin: fromOffset, end: 0.0).animate(
+      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
+    );
+    _swipeCtrl.forward(from: 0.0).then((_) {
+      if (mounted) setState(() => _dragOffset = 0);
+      _swipeCtrl.reset();
+    });
+  }
+
+  void _confirmDelete() {
+    HapticFeedback.heavyImpact();
+    setState(() => _swiped = true);
+    widget.onRemove();
+  }
+
+  void _showQuickActions() {
+    HapticFeedback.mediumImpact();
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.45),
+      builder: (sheetCtx) => _QueueQuickActionsSheet(
+        song: widget.song,
+        isLight: isLight,
+        onPlayNext: () {
+          Navigator.pop(sheetCtx);
+          widget.onPlayNext();
+        },
+        onMoveToTop: () {
+          Navigator.pop(sheetCtx);
+          widget.onMoveToTop();
+        },
+        onRemove: () {
+          Navigator.pop(sheetCtx);
+          _confirmDelete();
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_swiped) return const SizedBox.shrink();
+    final isLight = Theme.of(context).brightness == Brightness.light;
 
-    return GestureDetector(
-      onTap: widget.onTap,
-      onHorizontalDragUpdate: (d) {
-        _swipeCtrl.stop();
-        setState(() {
-          _dragOffset += d.delta.dx;
-          _dragOffset = _dragOffset.clamp(-120.0, 0.0);
-        });
-      },
-      onHorizontalDragEnd: (_) => _handleSwipeEnd(),
+    return RepaintBoundary(
       child: AnimatedBuilder(
         animation: _swipeCtrl,
         builder: (_, child) {
           final offset = _swiped
               ? _dragOffset
-              : (_swipeCtrl.isAnimating && _dragOffset == 0)
+              : (_swipeCtrl.isAnimating || _dragOffset == _settleAnim.value)
                   ? _settleAnim.value
                   : _dragOffset;
-          return Transform.translate(
-            offset: Offset(offset, 0),
-            child: child,
+          final revealFrac =
+              (offset.abs() / _deleteRevealWidth).clamp(0.0, 1.0);
+          return Stack(
+            children: [
+              // ── Delete action revealed behind the tile (Spotify/YT
+              // Music style) — fades/scales in as the tile slides away,
+              // never visible at rest.
+              if (revealFrac > 0)
+                Positioned.fill(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: GestureDetector(
+                          onTap: _confirmDelete,
+                          child: Container(
+                            width: _deleteRevealWidth - 8,
+                            height: double.infinity,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: Color.lerp(
+                                  Colors.red.withAlpha(140),
+                                  Colors.red.withAlpha(230),
+                                  revealFrac),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Opacity(
+                              opacity: revealFrac,
+                              child: const Icon(Icons.delete_rounded,
+                                  color: Colors.white, size: 22),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              Transform.translate(
+                offset: Offset(offset, 0),
+                child: child,
+              ),
+            ],
           );
         },
-        child: Builder(builder: (context) {
-          final isLight = Theme.of(context).brightness == Brightness.light;
-          final tileBg = isLight ? AurumTheme.lightBgSurface.withAlpha(180) : Colors.white.withAlpha(7);
-          final tileBorder = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(10);
-          final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white.withAlpha(220);
-          final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(80);
-          final indexColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(45);
-          final dragColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(40);
+        child: GestureDetector(
+          onTap: () {
+            if (_dragOffset != 0) {
+              _closeSwipe();
+              return;
+            }
+            widget.onTap();
+          },
+          onLongPress: _showQuickActions,
+          onHorizontalDragUpdate: (d) {
+            _swipeCtrl.stop();
+            setState(() {
+              _dragOffset += d.delta.dx;
+              _dragOffset = _dragOffset.clamp(-_deleteRevealWidth - 30, 0.0);
+            });
+          },
+          onHorizontalDragEnd: (_) => _handleSwipeEnd(),
+          child: Builder(builder: (context) {
+            final tileBg = widget.isNextUp
+                ? (isLight
+                    ? AurumTheme.gold.withAlpha(20)
+                    : AurumTheme.gold.withAlpha(16))
+                : (isLight
+                    ? AurumTheme.lightBgSurface.withAlpha(180)
+                    : Colors.white.withAlpha(7));
+            final tileBorder = widget.isNextUp
+                ? AurumTheme.gold.withAlpha(isLight ? 70 : 55)
+                : (isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(10));
+            final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white.withAlpha(220);
+            final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(80);
+            final indexColor = widget.isNextUp
+                ? AurumTheme.gold.withAlpha(200)
+                : (isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(45));
+            final dragColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(40);
 
-          return Container(
-            margin: const EdgeInsets.symmetric(vertical: 3),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: tileBg,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: tileBorder, width: 0.5),
+            return Container(
+              margin: const EdgeInsets.symmetric(vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: tileBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: tileBorder,
+                  width: widget.isNextUp ? 1.0 : 0.5,
+                ),
+              ),
+              child: Row(children: [
+                // Subtle next-up accent bar — a quiet gradient sliver,
+                // not a loud badge, so it reads as "this one's coming up"
+                // without competing with the now-playing card above.
+                if (widget.isNextUp)
+                  Container(
+                    width: 3,
+                    height: 36,
+                    margin: const EdgeInsets.only(right: 9),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(2),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          AurumTheme.gold.withAlpha(220),
+                          AurumTheme.gold.withAlpha(90),
+                        ],
+                      ),
+                    ),
+                  ),
+                SizedBox(
+                  width: 22,
+                  child: Text('${widget.index}',
+                    style: TextStyle(color: indexColor, fontSize: 12, fontWeight: FontWeight.w500),
+                    textAlign: TextAlign.center),
+                ),
+                const SizedBox(width: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: AurumArtwork(url: widget.song.artworkUrl, size: 44, borderRadius: 10),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.song.title,
+                      style: TextStyle(color: textPrimary, fontSize: 13, fontWeight: FontWeight.w500),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 3),
+                    Text(widget.song.artist,
+                      style: TextStyle(color: textSecondary, fontSize: 11.5),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                )),
+                const SizedBox(width: 8),
+                Icon(Icons.drag_handle_rounded, color: dragColor, size: 18),
+              ]),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Queue Quick Actions Sheet — Play Next / Move to Top / Remove
+// ─────────────────────────────────────────────────────────────────────────────
+class _QueueQuickActionsSheet extends StatelessWidget {
+  final Song song;
+  final bool isLight;
+  final VoidCallback onPlayNext;
+  final VoidCallback onMoveToTop;
+  final VoidCallback onRemove;
+
+  const _QueueQuickActionsSheet({
+    required this.song,
+    required this.isLight,
+    required this.onPlayNext,
+    required this.onMoveToTop,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isLight ? Colors.white : const Color(0xFF15141C);
+    final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(120);
+    final dividerColor = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14);
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
+              child: Row(children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: AurumArtwork(url: song.artworkUrl, size: 44, borderRadius: 10),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(song.title,
+                      style: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 2),
+                    Text(song.artist,
+                      style: TextStyle(color: textSecondary, fontSize: 12),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                )),
+              ]),
             ),
-            child: Row(children: [
-              SizedBox(
-                width: 22,
-                child: Text('${widget.index}',
-                  style: TextStyle(color: indexColor, fontSize: 12, fontWeight: FontWeight.w500),
-                  textAlign: TextAlign.center),
-              ),
-              const SizedBox(width: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: AurumArtwork(url: widget.song.artworkUrl, size: 44, borderRadius: 10),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(widget.song.title,
-                    style: TextStyle(color: textPrimary, fontSize: 13, fontWeight: FontWeight.w500),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 3),
-                  Text(widget.song.artist,
-                    style: TextStyle(color: textSecondary, fontSize: 11.5),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
-                ],
-              )),
-              const SizedBox(width: 8),
-              Icon(Icons.drag_handle_rounded, color: dragColor, size: 18),
-            ]),
-          );
-        }),
+            Divider(color: dividerColor, height: 1),
+            _actionTile(
+              icon: Icons.skip_next_rounded,
+              label: 'Play Next',
+              textPrimary: textPrimary,
+              onTap: onPlayNext,
+            ),
+            _actionTile(
+              icon: Icons.vertical_align_top_rounded,
+              label: 'Move to Top',
+              textPrimary: textPrimary,
+              onTap: onMoveToTop,
+            ),
+            _actionTile(
+              icon: Icons.delete_outline_rounded,
+              label: 'Remove from Queue',
+              textPrimary: Colors.redAccent,
+              onTap: onRemove,
+            ),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _actionTile({
+    required IconData icon,
+    required String label,
+    required Color textPrimary,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        child: Row(children: [
+          Icon(icon, color: textPrimary, size: 21),
+          const SizedBox(width: 16),
+          Text(label,
+              style: TextStyle(
+                  color: textPrimary, fontSize: 14.5, fontWeight: FontWeight.w500)),
+        ]),
       ),
     );
   }
@@ -2102,11 +2734,11 @@ class _LyricsPageState extends State<_LyricsPage> {
 
     Widget content;
     if (_loading) {
-      content = Center(
-        key: const ValueKey('loading'),
-        child: CircularProgressIndicator(
-          color: loaderColor,
-          strokeWidth: 1.5,
+      content = const Center(
+        key: ValueKey('loading'),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 48),
+          child: AurumMorphLoader(),
         ),
       );
     } else if (_notFound) {
@@ -2396,20 +3028,24 @@ class _BgLayer extends StatelessWidget {
       Container(color: const Color(0xFFF2EDE4)),
 
       // L1: Blurred artwork — ImageFiltered does blur once per frame, GPU-cheap
-      //     because the source image is already decoded/cached
+      //     because the source image is already decoded/cached.
+      // NOTE: previously wrapped in Transform.scale(scale: 1.0 + b*0.03) tied
+      // to the breathe value — that forced a full re-layout + re-blur of this
+      // subtree on every animation tick (continuous GPU blur recompute for
+      // as long as the screen stays open), which was the main driver behind
+      // reports of the phone heating up while the full player was visible.
+      // The visual gain from that subtle 3% scale breathing was minimal —
+      // dropping it removes the costliest recurring operation on this screen.
       if (song.artworkUrl.isNotEmpty)
-        Transform.scale(
-          scale: 1.0 + (b * 0.03),
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(
-              sigmaX: 12, sigmaY: 12,
-              tileMode: TileMode.clamp,
-            ),
-            child: AurumArtwork(
-              url: song.artworkUrl,
-              size: double.infinity,
-              borderRadius: 0,
-            ),
+        ImageFiltered(
+          imageFilter: ImageFilter.blur(
+            sigmaX: 12, sigmaY: 12,
+            tileMode: TileMode.clamp,
+          ),
+          child: AurumArtwork(
+            url: song.artworkUrl,
+            size: double.infinity,
+            borderRadius: 0,
           ),
         ),
 
@@ -2550,7 +3186,12 @@ class _AmbientGlowPainter extends CustomPainter {
     final h = size.height;
     final b = breathe;
 
-    // Base alpha: light mode glows are more visible, dark mode subtle
+    // Base alpha: light mode glows are more visible, dark mode subtle.
+    // Swing amplitudes reduced (18→8, 14→6, 10→4) — the original swing was
+    // large enough that, combined with discrete repaint steps (see
+    // shouldRepaint threshold below), the orbs near the screen edges read
+    // as a visible "blink" rather than a smooth ambient breathe. Smaller
+    // swing keeps the effect ambient without being perceptible as flicker.
     final baseAlpha = isLight ? 55 : 38;
 
     // ── Orb 1: Top-left area, drifts right and down slowly ──
@@ -2562,7 +3203,7 @@ class _AmbientGlowPainter extends CustomPainter {
       ),
       radiusX: w * 0.55,
       radiusY: h * 0.38,
-      color: color1.withAlpha(baseAlpha + (b * 18).toInt()),
+      color: color1.withAlpha(baseAlpha + (b * 8).toInt()),
     );
 
     // ── Orb 2: Bottom-right, drifts left and up ──
@@ -2574,7 +3215,7 @@ class _AmbientGlowPainter extends CustomPainter {
       ),
       radiusX: w * 0.52,
       radiusY: h * 0.40,
-      color: color2.withAlpha(baseAlpha - 8 + (b * 14).toInt()),
+      color: color2.withAlpha(baseAlpha - 8 + (b * 6).toInt()),
     );
 
     // ── Orb 3: Center-ish, very slow pulse in size ──
@@ -2586,7 +3227,7 @@ class _AmbientGlowPainter extends CustomPainter {
       ),
       radiusX: w * (0.38 + b * 0.06),
       radiusY: h * (0.28 + b * 0.05),
-      color: color3.withAlpha(baseAlpha - 16 + (b * 10).toInt()),
+      color: color3.withAlpha(baseAlpha - 16 + (b * 4).toInt()),
     );
   }
 
@@ -2610,7 +3251,7 @@ class _AmbientGlowPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_AmbientGlowPainter old) =>
-      (breathe - old.breathe).abs() > 0.004 ||
+      (breathe - old.breathe).abs() > 0.008 ||
       color1 != old.color1 ||
       color2 != old.color2 ||
       color3 != old.color3;
