@@ -1126,30 +1126,37 @@ class ApiService {
   // /api/yt-proxy resolves the video AND streams the bytes back through
   // Cloudflare — same IP resolves + serves = no IP mismatch. ExoPlayer
   // receives a clean audio stream from our worker domain.
+  // ── Cloudflare Worker: /api/yt-stream (JSON) ─────────────────────────────────────────
+  // Worker v6 uses android_sdkless + ios_downgraded whose googlevideo URLs
+  // are NOT IP-locked — direct Innertube API, not proxied through CF edge.
+  // /api/yt-stream returns tiny JSON with direct URL in ~1-3s (KV-cached).
+  // /api/yt-proxy is intentionally NOT used — it proxies all audio bytes
+  // through CF (slow 25s validation round-trip, unnecessary for v6 clients).
   static Future<String?> _workerYtStream(String videoId) async {
-    // Use proxy endpoint — worker resolves + pipes bytes (IP-safe)
-    final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
     try {
-      final rangeRes = await _client.get(
-        Uri.parse(proxyUrl),
-        headers: {'Range': 'bytes=0-1023'},
-      ).timeout(const Duration(seconds: 25));
-      if (rangeRes.statusCode == 206 || rangeRes.statusCode == 200) {
-        final ct = (rangeRes.headers['content-type'] ?? '').toLowerCase();
-        final isAudio = ct.contains('audio') || ct.contains('octet') ||
-            ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
-        if (isAudio || rangeRes.bodyBytes.length > 512) {
-          _log('[worker] /api/yt-proxy validated for $videoId ✓');
-          return proxyUrl;
-        }
-        _log('[worker] /api/yt-proxy non-audio for $videoId (ct=\$ct)');
-      } else {
-        _log('[worker] /api/yt-proxy \${rangeRes.statusCode} for $videoId');
+      final res = await _client
+          .get(Uri.parse('$_worker/api/yt-stream?id=$videoId'))
+          .timeout(const Duration(seconds: 16));
+      if (res.statusCode != 200) {
+        _log('[worker] /api/yt-stream \${res.statusCode} for $videoId');
+        return null;
       }
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      if (data['success'] != true) {
+        _log('[worker] /api/yt-stream success=false for $videoId');
+        return null;
+      }
+      final url = data['url']?.toString();
+      if (url == null || url.isEmpty) {
+        _log('[worker] /api/yt-stream empty URL for $videoId');
+        return null;
+      }
+      _log('[worker] /api/yt-stream OK for $videoId (\${data["source"]} \${data["quality"]}) ✓');
+      return url;
     } catch (e) {
-      _log('[worker] /api/yt-proxy failed for $videoId: \$e');
+      _log('[worker] /api/yt-stream failed for $videoId: \$e');
+      return null;
     }
-    return null;
   }
 
   // ── Piped ────────────────────────────────────────────────────────────────
