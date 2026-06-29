@@ -216,7 +216,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (_player.position.inMilliseconds >= 500) return;
 
     final songTitle = songNow.title;
-    debugPrint('[AurumHandler] FRESH-START FAILURE for "$songTitle" — retrying with fresh URL');
+    final srcLabel = songNow.source.name; // saavn / youtube / local
+    final t0 = DateTime.now();
+    debugPrint('[AurumHandler] FRESH-START FAILURE for "$songTitle" '
+        '(source=$srcLabel id=${songNow.id}) — retrying with fresh URL');
 
     ApiService.invalidateStream(songNow);
     _LookaheadCache.remove(songNow.id);
@@ -224,21 +227,66 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     try {
       final freshUrl = await ApiService.resolveStreamUrl(songNow, forceRefresh: true)
           .timeout(const Duration(seconds: 15), onTimeout: () => null);
+      final resolveMs = DateTime.now().difference(t0).inMilliseconds;
 
       if (freshUrl == null || sessionAtIdle != _playSessionId) {
-        onPlaybackError?.call('Could not play "$songTitle" — stream URL could not be resolved.');
+        debugPrint('[AurumHandler] [ERROR] resolveStreamUrl returned null for '
+            '"$songTitle" (source=$srcLabel id=${songNow.id}) after ${resolveMs}ms — '
+            'all fallback stages (Worker/Piped/Invidious/explode) failed or timed out');
+        onPlaybackError?.call(
+          'Resolve failed for "$songTitle" [$srcLabel] — '
+          'no fallback source returned a URL within 15s (${resolveMs}ms elapsed).',
+        );
         return;
       }
       if (_queue.isEmpty || _currentIndex >= _queue.length) return;
       if (_queue[_currentIndex].id != songAtIdle!.id) return;
 
-      final freshSource = AudioSource.uri(Uri.parse(freshUrl), tag: _songToMediaItem(songNow));
+      debugPrint('[AurumHandler] Fresh URL resolved for "$songTitle" in ${resolveMs}ms: '
+          '${_shortenUrl(freshUrl)}');
+
+      final freshSource = LockCachingAudioSource(Uri.parse(freshUrl), tag: _songToMediaItem(songNow));
       await _player.setAudioSource(freshSource, initialIndex: 0, preload: false);
+
+      // Verify the retry actually produced a non-idle state before declaring
+      // success — setAudioSource() completing without throwing does NOT mean
+      // ExoPlayer actually opened the URL (this is the exact bug being fixed).
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (_player.processingState == ProcessingState.idle) {
+        debugPrint('[AurumHandler] [ERROR] Fresh-start retry for "$songTitle" '
+            '(source=$srcLabel) went idle AGAIN at position '
+            '${_player.position.inMilliseconds}ms — URL was: ${_shortenUrl(freshUrl)}. '
+            'setAudioSource succeeded but ExoPlayer silently failed to open the stream '
+            '(likely dead/expired CDN URL or blocked domain — check '
+            'network_security_config.xml whitelist and Worker response).');
+        onPlaybackError?.call(
+          'Playback failed for "$songTitle" [$srcLabel] — stream URL was returned '
+          'but ExoPlayer could not open it (silent idle@0ms after retry).',
+        );
+        return;
+      }
+
       await _player.play();
-      debugPrint('[AurumHandler] Fresh-start retry succeeded for "$songTitle" ✓');
+      debugPrint('[AurumHandler] Fresh-start retry succeeded for "$songTitle" ✓ '
+          '(total recovery time: ${DateTime.now().difference(t0).inMilliseconds}ms)');
     } catch (e) {
-      debugPrint('[AurumHandler] Fresh-start retry failed: $e');
-      onPlaybackError?.call('Could not play "$songTitle" — playback failed after retry.');
+      final detail = _exceptionDetail(e);
+      debugPrint('[AurumHandler] [ERROR] Fresh-start retry threw for "$songTitle" '
+          '(source=$srcLabel): $detail');
+      onPlaybackError?.call(
+        'Playback failed for "$songTitle" [$srcLabel] after retry — $detail',
+      );
+    }
+  }
+
+  // Trims a resolved stream URL down to host + path for log/error readability
+  // (full URLs often carry long signed-token query strings).
+  String _shortenUrl(String url) {
+    try {
+      final uri = Uri.parse(url);
+      return '${uri.host}${uri.path}';
+    } catch (_) {
+      return url.length > 60 ? '${url.substring(0, 60)}...' : url;
     }
   }
 
@@ -247,8 +295,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (_queue.isEmpty || _isLoadingNewSong) return;
     final song = _queue[_currentIndex];
     if (song.isLocal) return;
+    final srcLabel = song.source.name;
 
-    debugPrint('[AurumHandler] Stream expired for "${song.title}" at ${pos.inSeconds}s — recovering');
+    debugPrint('[AurumHandler] Stream expired for "${song.title}" '
+        '(source=$srcLabel id=${song.id}) at ${pos.inSeconds}s — recovering');
     ApiService.invalidateStream(song);
     _LookaheadCache.remove(song.id);
 
@@ -258,7 +308,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       freshUrl = await ApiService.resolveStreamUrl(song, forceRefresh: true)
           .timeout(const Duration(seconds: 12), onTimeout: () => null);
     } catch (e) {
-      debugPrint('[AurumHandler] Mid-stream recovery resolve threw: $e');
+      debugPrint('[AurumHandler] [ERROR] Mid-stream recovery resolve threw for '
+          '"${song.title}" (source=$srcLabel): ${_exceptionDetail(e)}');
       freshUrl = null;
     }
 
@@ -266,7 +317,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     if (freshUrl != null) {
       try {
-        final freshSource = AudioSource.uri(Uri.parse(freshUrl), tag: _songToMediaItem(song));
+        debugPrint('[AurumHandler] Mid-stream fresh URL for "${song.title}": '
+            '${_shortenUrl(freshUrl)}');
+        final freshSource = LockCachingAudioSource(Uri.parse(freshUrl), tag: _songToMediaItem(song));
         final seq = _player.audioSource;
         if (seq is ConcatenatingAudioSource) {
           final playerIdx = _player.currentIndex ?? 0;
@@ -277,16 +330,31 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
             await _player.play();
             debugPrint('[AurumHandler] Recovered "${song.title}" at ${pos.inSeconds}s ✓');
             return;
+          } else {
+            debugPrint('[AurumHandler] [ERROR] Mid-stream recovery for "${song.title}" — '
+                'playerIdx ($playerIdx) out of range for sequence length (${seq.length})');
           }
+        } else {
+          debugPrint('[AurumHandler] [ERROR] Mid-stream recovery for "${song.title}" — '
+              'player.audioSource is not a ConcatenatingAudioSource (was: ${seq.runtimeType})');
         }
       } catch (e) {
-        debugPrint('[AurumHandler] Mid-stream setAudioSource failed: $e — falling back '
+        debugPrint('[AurumHandler] [ERROR] Mid-stream setAudioSource failed for '
+            '"${song.title}" (source=$srcLabel): ${_exceptionDetail(e)} — falling back '
             'to fresh-start-style retry from 0:00');
       }
+    } else {
+      debugPrint('[AurumHandler] [ERROR] Mid-stream recovery for "${song.title}" '
+          '(source=$srcLabel) — resolveStreamUrl returned null, all fallback '
+          'stages failed or timed out within 12s');
     }
 
-    debugPrint('[AurumHandler] Mid-stream recovery for "${song.title}" failed completely');
-    onPlaybackError?.call('Stream expired for "${song.title}" and could not be recovered.');
+    debugPrint('[AurumHandler] [ERROR] Mid-stream recovery for "${song.title}" '
+        '(source=$srcLabel) failed completely');
+    onPlaybackError?.call(
+      'Stream expired for "${song.title}" [$srcLabel] at ${pos.inSeconds}s '
+      'and could not be recovered (resolve failed or source swap failed).',
+    );
   }
 
   // ─── CURRENT INDEX STREAM HANDLING ─────────────────────────────────────────
@@ -421,6 +489,21 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   // ─── SOURCE RESOLUTION ──────────────────────────────────────────────────────
 
+  // ─── _sourceForSong ─────────────────────────────────────────────────────────
+  // FIX: Use LockCachingAudioSource instead of AudioSource.uri for network URLs.
+  //
+  // AudioSource.uri() on Android routes through just_audio's internal loopback
+  // HTTP proxy (127.0.0.1). For workers.dev proxy URLs, this loopback proxy
+  // silently fails — ExoPlayer reports setAudioSource() succeeded but then
+  // immediately goes idle at 0ms ("processingState went idle at position 0ms").
+  //
+  // LockCachingAudioSource bypasses the loopback proxy entirely — it opens
+  // the URL directly via ExoPlayer's own HTTP stack, with the User-Agent set
+  // on the AudioPlayer constructor. No loopback, no silent failure.
+  // Also caches the audio to disk so repeated plays are instant.
+  //
+  // Local files still use AudioSource.uri (content:// / file://) — those
+  // never go through the loopback proxy regardless.
   Future<AudioSource?> _sourceForSong(Song song, {bool fromLookahead = false, int? sessionId}) async {
     if (song.isLocal) {
       final path = song.localPath!;
@@ -434,13 +517,13 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (cachedUrl != null && !fromLookahead) {
       debugPrint('[AurumHandler] Lookahead HIT: "${song.title}"');
       _LookaheadCache.remove(song.id);
-      return AudioSource.uri(Uri.parse(cachedUrl), tag: _songToMediaItem(song));
+      return LockCachingAudioSource(Uri.parse(cachedUrl), tag: _songToMediaItem(song));
     }
 
     final url = await _resolveFast(song, sessionId: sessionId);
     if (url == null) return null;
     if (sessionId != null && sessionId != _playSessionId) return null;
-    return AudioSource.uri(Uri.parse(url), tag: _songToMediaItem(song));
+    return LockCachingAudioSource(Uri.parse(url), tag: _songToMediaItem(song));
   }
 
   // ── FAST RESOLVE — capped attempts, short backoff ──────────────────────────
@@ -563,11 +646,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         // forward through the rest of the songs until one actually
         // resolves, same principle as the idle-recovery chain: keep trying
         // to produce real audio instead of just failing out.
+        debugPrint('[AurumHandler] [ERROR] playQueue — initial resolve failed for '
+            '"${songs[safeIndex].title}" (source=${songs[safeIndex].source.name} '
+            'id=${songs[safeIndex].id}) — trying next songs in queue');
         final found = await _findFirstPlayableFrom(songs, safeIndex + 1, mySession);
         if (mySession != _playSessionId) return;
         if (found == null) {
-          _failPlayback(songs[safeIndex], 'stream URL could not be resolved for this '
-              'song or any other song in the queue');
+          _failPlayback(songs[safeIndex],
+              'stream URL could not be resolved for this song '
+              '[${songs[safeIndex].source.name}] or any other song in the queue '
+              '(all resolve stages failed/timed out)');
           return;
         }
         safeIndex2 = found.index;
@@ -580,10 +668,22 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       try {
         await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
       } catch (e) {
-        _failPlayback(songs[safeIndex2], _exceptionDetail(e), prefix: 'setAudioSource failed');
+        _failPlayback(songs[safeIndex2], _exceptionDetail(e),
+            prefix: 'setAudioSource failed [${songs[safeIndex2].source.name}]');
         return;
       }
       if (mySession != _playSessionId) return;
+
+      // Verify ExoPlayer actually opened the source — setAudioSource()
+      // resolving without throwing does NOT guarantee playback started.
+      // This is the exact "succeeded but went idle@0ms" failure mode.
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mySession == _playSessionId && _player.processingState == ProcessingState.idle) {
+        debugPrint('[AurumHandler] [ERROR] playQueue — setAudioSource succeeded but '
+            'ExoPlayer went idle@${_player.position.inMilliseconds}ms for '
+            '"${songs[safeIndex2].title}" (source=${songs[safeIndex2].source.name}) — '
+            'the idle-recovery watchdog (_handleFreshStartIdle) should pick this up next.');
+      }
 
       await _reapplySpeed();
       _updateMediaItem(songs[safeIndex2]);
@@ -591,8 +691,13 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       await _player.play();
       started = true;
     } catch (e) {
-      debugPrint('[AurumHandler] playQueue unexpected error: $e');
-      onPlaybackError?.call('playQueue failed for "${songs[safeIndex2].title}": $e');
+      final detail = _exceptionDetail(e);
+      debugPrint('[AurumHandler] [ERROR] playQueue unexpected error for '
+          '"${songs[safeIndex2].title}" (source=${songs[safeIndex2].source.name}): $detail');
+      onPlaybackError?.call(
+        'playQueue failed for "${songs[safeIndex2].title}" '
+        '[${songs[safeIndex2].source.name}] — $detail',
+      );
     } finally {
       await _restoreVolume();
       if (mySession == _playSessionId) {
@@ -728,17 +833,24 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         // No "next song" to fall back to here — but don't give up after
         // just one resolve pass. One more genuine fresh attempt before
         // surfacing an error to the user.
-        debugPrint('[AurumHandler] playSong initial resolve failed for '
-            '"${song.title}" — one more fresh attempt before giving up');
+        debugPrint('[AurumHandler] [ERROR] playSong initial resolve failed for '
+            '"${song.title}" (source=${song.source.name} id=${song.id}) — '
+            'one more fresh attempt before giving up');
         await Future.delayed(const Duration(milliseconds: 700));
         if (mySession != _playSessionId) return;
         ApiService.invalidateStream(song);
         source = await _sourceForSong(song, sessionId: mySession);
         if (mySession != _playSessionId) return;
+        if (source == null) {
+          debugPrint('[AurumHandler] [ERROR] playSong retry also failed for '
+              '"${song.title}" (source=${song.source.name}) — all fallback '
+              'stages exhausted');
+        }
       }
 
       if (source == null) {
-        _failPlayback(song, 'stream URL could not be resolved after retries, '
+        _failPlayback(song,
+            'stream URL could not be resolved after retries [${song.source.name}], '
             'or the local file is missing');
         return;
       }
@@ -747,18 +859,33 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       try {
         await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
       } catch (e) {
-        _failPlayback(song, _exceptionDetail(e), prefix: 'setAudioSource failed');
+        _failPlayback(song, _exceptionDetail(e),
+            prefix: 'setAudioSource failed [${song.source.name}]');
         return;
       }
       if (mySession != _playSessionId) return;
+
+      // Verify ExoPlayer actually opened the source, not just that
+      // setAudioSource() returned without throwing.
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mySession == _playSessionId && _player.processingState == ProcessingState.idle) {
+        debugPrint('[AurumHandler] [ERROR] playSong — setAudioSource succeeded but '
+            'ExoPlayer went idle@${_player.position.inMilliseconds}ms for '
+            '"${song.title}" (source=${song.source.name}) — '
+            'the idle-recovery watchdog (_handleFreshStartIdle) should pick this up next.');
+      }
 
       await _reapplySpeed();
       _updateMediaItem(song);
       await _restoreVolume();
       await _player.play();
     } catch (e) {
-      debugPrint('[AurumHandler] playSong unexpected error: $e');
-      onPlaybackError?.call('playSong failed for "${song.title}": $e');
+      final detail = _exceptionDetail(e);
+      debugPrint('[AurumHandler] [ERROR] playSong unexpected error for '
+          '"${song.title}" (source=${song.source.name}): $detail');
+      onPlaybackError?.call(
+        'playSong failed for "${song.title}" [${song.source.name}] — $detail',
+      );
     } finally {
       await _restoreVolume();
       // FIX #29: always clear flag regardless of path taken.
