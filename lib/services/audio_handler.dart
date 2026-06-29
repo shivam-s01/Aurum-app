@@ -974,14 +974,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       );
 
   // ─── PLAYBACK STATE BROADCAST ─────────────────────────────────────────────
-  DateTime _lastStateUpdate = DateTime.now();
 
   void _broadcastState(PlaybackEvent event) {
-    // HEATING FIX: Throttle state updates to 100ms intervals
-    final now = DateTime.now();
-    if (now.difference(_lastStateUpdate).inMilliseconds < 100) return;
-    _lastStateUpdate = now;
-    
     final playing = _player.playing;
     playbackState.add(playbackState.value.copyWith(
       controls: [
