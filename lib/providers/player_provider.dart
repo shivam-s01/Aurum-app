@@ -33,6 +33,11 @@ class PlayerProvider extends ChangeNotifier {
   final AurumAudioHandler       _handler;
   final RecentlyPlayedProvider? _recentlyPlayed;
 
+  // Exposes the underlying handler for screens that need it directly
+  // (Sleep Timer, Equalizer) rather than re-routing every handler method
+  // through PlayerProvider just to avoid a single getter.
+  AurumAudioHandler get handler => _handler;
+
   bool     _isPlaying      = false;
   bool     _isLoading      = false;
   Duration _position       = Duration.zero;

@@ -212,8 +212,6 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
     ));
   }
 
-  void _comingSoon(String feature) => _snack('$feature coming soon!');
-
   @override
   Widget build(BuildContext context) {
     final song = widget.song;
@@ -373,22 +371,13 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                   },
                 ),
                 _GridOption(
-                  icon: Icons.bookmark_border_rounded,
-                  label: 'Save to Library',
-                  color: Colors.teal,
-                  onTap: () => _comingSoon('Save to Library'),
-                ),
-                _GridOption(
-                  icon: Icons.radio_rounded,
-                  label: 'Radio',
-                  color: Colors.orange,
-                  onTap: () => _comingSoon('Radio'),
-                ),
-                _GridOption(
                   icon: Icons.share_rounded,
                   label: 'Share',
                   color: Colors.greenAccent,
-                  onTap: () => _comingSoon('Share'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    shareSong(song);
+                  },
                 ),
               ],
             ),
@@ -431,7 +420,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                     _ArtistChip(
                       name: song.album,
                       icon: Icons.album_rounded,
-                      onTap: () => _comingSoon('Album: ${song.album}'),
+                      onTap: null,
                     ),
                 ],
               ),
@@ -498,11 +487,11 @@ class _GridOption extends StatelessWidget {
 class _ArtistChip extends StatelessWidget {
   final String name;
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _ArtistChip({
     required this.name,
-    required this.onTap,
+    this.onTap,
     this.icon = Icons.person_rounded,
   });
 

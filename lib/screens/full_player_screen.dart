@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
+import 'package:share_plus/share_plus.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/download_provider.dart';
@@ -17,6 +18,7 @@ import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/premium_gate.dart';
 import 'library_screen.dart' show showAddToPlaylistSheet;
+import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FullPlayerScreen v5.0 — Echo Nightly Premium
@@ -316,6 +318,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       ),
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -1128,8 +1131,165 @@ class _QualityPill extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Premium Options Sheet — theme adaptive, Download included
+// Shared action helpers — used by both the Full Player options sheet and the
+// SongTile quick-actions sheet, so the behaviour (and its fixes) live once.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Opens the platform share sheet with a clean "Artist — Title" message.
+void shareSong(Song song) {
+  final text = '${song.artist} — ${song.title}\n\nShared from Aurum 🎵';
+  SharePlus.instance.share(
+    ShareParams(
+      text: text,
+      subject: song.title,
+      sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1),
+    ),
+  );
+}
+
+/// Opens the existing premium Sleep Timer sheet (built for Settings → Player)
+/// from anywhere a [PlayerProvider] is available, e.g. the Full Player screen.
+void showSleepTimerForSong(BuildContext context, PlayerProvider player) {
+  final handler = player.handler;
+  bool finishSong = false;
+  HapticFeedback.lightImpact();
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    barrierColor: Colors.black.withAlpha(150),
+    builder: (_) => SleepTimerSheet(
+      handler: handler,
+      finishSong: finishSong,
+      onFinishSongChanged: (v) => finishSong = v,
+    ),
+  );
+}
+
+/// Premium song-details sheet: title, artist, album, duration, year, source.
+void showSongInfoDialog(BuildContext context, Song song) {
+  final isLight = Theme.of(context).brightness == Brightness.light;
+  final bgColor = isLight ? AurumTheme.lightBgCard : const Color(0xFF15131C);
+  final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
+  final textMuted = isLight ? AurumTheme.lightTextSecondary : Colors.white60;
+  final divider = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14);
+
+  String sourceLabel() {
+    switch (song.source) {
+      case SongSource.local:
+        return 'Local file';
+      case SongSource.youtube:
+        return 'YouTube';
+      case SongSource.saavn:
+        return 'JioSaavn';
+    }
+  }
+
+  final rows = <MapEntry<String, String>>[
+    MapEntry('Title', song.title),
+    MapEntry('Artist', song.artist),
+    if (song.album.isNotEmpty) MapEntry('Album', song.album),
+    if (song.durationString.isNotEmpty) MapEntry('Duration', song.durationString),
+    if (song.year != null && song.year!.isNotEmpty) MapEntry('Year', song.year!),
+    if (song.language != null && song.language!.isNotEmpty) MapEntry('Language', song.language!),
+    MapEntry('Source', sourceLabel()),
+  ];
+
+  HapticFeedback.lightImpact();
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    barrierColor: Colors.black.withAlpha(150),
+    builder: (_) => ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          decoration: BoxDecoration(
+            color: bgColor.withAlpha(245),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border(top: BorderSide(color: divider, width: 0.5)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36, height: 4,
+                      margin: const EdgeInsets.only(bottom: 18),
+                      decoration: BoxDecoration(
+                        color: textMuted.withAlpha(80),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, color: AurumTheme.gold, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Song Info',
+                        style: TextStyle(
+                          color: textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  for (final row in rows) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: 92,
+                            child: Text(
+                              row.key,
+                              style: TextStyle(
+                                color: textMuted,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              row.value,
+                              style: TextStyle(
+                                color: textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (row.key != rows.last.key)
+                      Divider(height: 1, color: divider),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+
 class _PremiumOptionsSheet extends StatefulWidget {
   final Song song;
   final PlayerProvider player;
@@ -1148,6 +1308,22 @@ class _PremiumOptionsSheet extends StatefulWidget {
 }
 
 class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
+  @override
+  void initState() {
+    super.initState();
+    SleepTimerService.instance.addListener(_onSleepTimerTick);
+  }
+
+  @override
+  void dispose() {
+    SleepTimerService.instance.removeListener(_onSleepTimerTick);
+    super.dispose();
+  }
+
+  void _onSleepTimerTick() {
+    if (mounted) setState(() {});
+  }
+
   void _snack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
@@ -1210,6 +1386,11 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
         ? AurumTheme.lightDivider
         : Colors.white.withAlpha(18);
 
+    final sleepActive = SleepTimerService.instance.isActive;
+    final sleepRemainingLabel = sleepActive
+        ? '${(SleepTimerService.instance.remaining.inSeconds / 60).ceil()}m'
+        : '';
+
     final actions = [
       _SheetAction(Icons.skip_next_rounded, 'Play Next', AurumTheme.gold, () {
         Navigator.pop(context);
@@ -1239,20 +1420,27 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       ),
       _SheetAction(Icons.share_rounded, 'Share', Colors.greenAccent, () {
         Navigator.pop(context);
+        shareSong(song);
       }),
       _SheetAction(Icons.playlist_add_rounded, 'Save to Playlist', Colors.blueAccent, () {
         Navigator.pop(context);
         showAddToPlaylistSheet(widget.rootContext, song);
       }),
-      _SheetAction(Icons.bookmark_border_rounded, 'Save to Library', Colors.teal, () {
-        Navigator.pop(context);
-      }),
       _SheetAction(Icons.equalizer_rounded, 'Audio Effects', Colors.orangeAccent, () {
         Navigator.pop(context);
+        Navigator.of(widget.rootContext).push(MaterialPageRoute(
+          builder: (_) => EqualizerScreen(audioHandler: widget.player.handler),
+        ));
       }),
-      _SheetAction(Icons.timer_outlined, 'Sleep Timer', Colors.cyan, () {
-        Navigator.pop(context);
-      }),
+      _SheetAction(
+        sleepActive ? Icons.bedtime_rounded : Icons.timer_outlined,
+        sleepActive ? 'Sleep • $sleepRemainingLabel' : 'Sleep Timer',
+        Colors.cyan,
+        () {
+          Navigator.pop(context);
+          showSleepTimerForSong(widget.rootContext, widget.player);
+        },
+      ),
       _SheetAction(
         isDownloaded
             ? Icons.download_done_rounded
@@ -1277,6 +1465,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       ),
       _SheetAction(Icons.info_outline_rounded, 'Song Info', textMuted, () {
         Navigator.pop(context);
+        showSongInfoDialog(widget.rootContext, song);
       }),
     ];
 

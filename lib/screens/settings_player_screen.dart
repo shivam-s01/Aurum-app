@@ -154,7 +154,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => _SleepTimerSheet(
+      builder: (_) => SleepTimerSheet(
         handler: widget.audioHandler,
         finishSong: _sleepTimerFinishSong,
         onFinishSongChanged: (v) {
@@ -252,7 +252,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               title: 'Equalizer',
               subtitle: '10-band EQ with presets',
               onTap: () => Navigator.of(context)
-                  .push(_slideRoute(_EqualizerScreen(audioHandler: widget.audioHandler)))),
+                  .push(_slideRoute(EqualizerScreen(audioHandler: widget.audioHandler)))),
 
           // ── BEHAVIOR ──────────────────────────────────────────────────────
           const SizedBox(height: 16),
@@ -547,22 +547,22 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 // =============================================================================
 // Sleep Timer Bottom Sheet
 // =============================================================================
-class _SleepTimerSheet extends StatefulWidget {
+class SleepTimerSheet extends StatefulWidget {
   final AurumAudioHandler? handler;
   final bool finishSong;
   final ValueChanged<bool> onFinishSongChanged;
 
-  const _SleepTimerSheet({
+  const SleepTimerSheet({
     required this.handler,
     required this.finishSong,
     required this.onFinishSongChanged,
   });
 
   @override
-  State<_SleepTimerSheet> createState() => _SleepTimerSheetState();
+  State<SleepTimerSheet> createState() => SleepTimerSheetState();
 }
 
-class _SleepTimerSheetState extends State<_SleepTimerSheet> {
+class SleepTimerSheetState extends State<SleepTimerSheet> {
   int _selectedMinutes = 30;
   late bool _finishSong;
 
@@ -688,6 +688,26 @@ class _SleepTimerSheetState extends State<_SleepTimerSheet> {
               ),
             ),
           ),
+          if (SleepTimerService.instance.isActive) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () {
+                  SleepTimerService.instance.cancel();
+                  Navigator.pop(context);
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.redAccent,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: const Text(
+                  'Cancel Active Timer',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -697,14 +717,14 @@ class _SleepTimerSheetState extends State<_SleepTimerSheet> {
 // =============================================================================
 // Equalizer Screen
 // =============================================================================
-class _EqualizerScreen extends StatefulWidget {
+class EqualizerScreen extends StatefulWidget {
   final AurumAudioHandler? audioHandler;
-  const _EqualizerScreen({this.audioHandler});
+  const EqualizerScreen({this.audioHandler});
   @override
-  State<_EqualizerScreen> createState() => _EqualizerScreenState();
+  State<EqualizerScreen> createState() => EqualizerScreenState();
 }
 
-class _EqualizerScreenState extends State<_EqualizerScreen> {
+class EqualizerScreenState extends State<EqualizerScreen> {
   static const _bands = ['32Hz','64Hz','125Hz','250Hz','500Hz','1kHz','2kHz','4kHz','8kHz','16kHz'];
   static const _presets = {
     'Flat':       [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],
