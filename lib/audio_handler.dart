@@ -1,7 +1,7 @@
 // =============================================================================
 // FILE: lib/services/audio_handler.dart
 // PROJECT: Aurum Music
-// VERSION: 6.0.0 — Complete rewrite, based on the ACTUAL deployed file
+// VERSION: 6.1.0 — idle@0ms race condition fix + YT single-attempt resolve
 //
 // =============================================================================
 // THE BUG THIS REWRITE TARGETS — "purana YT song hi bajta rehta hai"
@@ -213,6 +213,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     if (sessionAtIdle != _playSessionId) return;
     if (_isLoadingNewSong) return;
+    // Guard: playQueue/playSong sets _hardStopAndMute → empty source → idle event.
+    // Without this check, _handleFreshStartIdle races against the ongoing load
+    // and double-resolves the same song, wasting bandwidth and causing race conditions.
+    if (_splicingInProgress) return;
     if (_queue.isEmpty || _currentIndex >= _queue.length) return;
     final songNow = _queue[_currentIndex];
     if (songAtIdle == null || songNow.id != songAtIdle.id) return;
@@ -228,7 +232,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     try {
       final freshUrl = await ApiService.resolveStreamUrl(songNow, forceRefresh: true)
-          .timeout(const Duration(seconds: 15), onTimeout: () => null);
+          .timeout(const Duration(seconds: 28), onTimeout: () => null);
 
       if (freshUrl == null || sessionAtIdle != _playSessionId) {
         onPlaybackError?.call('Silent fresh-start failure for "$songTitle" — '
@@ -489,8 +493,13 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final perAttemptTimeout = song.source == SongSource.youtube
         ? const Duration(seconds: 28)
         : const Duration(seconds: 12);
+    // YouTube: single attempt only — Worker chain can take up to 25s on cold
+    // CF isolate. 2 attempts = 56s max wait which is unacceptable UX.
+    // If Worker fails, Piped/Invidious blast in api_service handles fallback
+    // within the same single attempt. One clean attempt is enough.
+    final effectiveMax = song.source == SongSource.youtube ? 1 : maxAttempts;
 
-    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (int attempt = 1; attempt <= effectiveMax; attempt++) {
       if (sessionId != null && sessionId != _playSessionId) return null;
 
       String? url;
@@ -498,15 +507,15 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         url = await ApiService.resolveStreamUrl(song)
             .timeout(perAttemptTimeout, onTimeout: () => null);
       } catch (e) {
-        debugPrint('[AurumHandler] resolve attempt $attempt/$maxAttempts threw for "${song.title}": $e');
+        debugPrint('[AurumHandler] resolve attempt $attempt/$effectiveMax threw for "${song.title}": $e');
         url = null;
       }
 
       if (sessionId != null && sessionId != _playSessionId) return null;
       if (url != null && url.isNotEmpty) return url;
 
-      if (attempt < maxAttempts) {
-        debugPrint('[AurumHandler] resolve attempt $attempt/$maxAttempts failed for '
+      if (attempt < effectiveMax) {
+        debugPrint('[AurumHandler] resolve attempt $attempt/$effectiveMax failed for '
             '"${song.title}", retrying shortly');
         await Future.delayed(const Duration(milliseconds: 500));
       }

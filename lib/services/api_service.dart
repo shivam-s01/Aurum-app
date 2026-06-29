@@ -1,7 +1,7 @@
 // =============================================================================
 // FILE: lib/services/api_service.dart
 // PROJECT: Aurum Music
-// VERSION: 5.0.0 — Bugatti Engine: Explode-First + Blast Race + Aggressive Prefetch
+// VERSION: 5.1.0 — IP-Lock Fix: Explode removed from playback chain
 //
 // CHANGES vs v4:
 //   ✅ EXPLODE FIRST   — youtube_explode_dart is now STAGE 1 of YT resolution,
@@ -976,14 +976,18 @@ class ApiService {
   // Result: 8 sec → 1-3 sec on warm, 3-5 sec cold start.
   // ===========================================================================
   static Future<String?> _ytStreamById(String videoId) async {
-    // ── STAGE 1: Race explode vs Worker (fastest pair) ────────────────────
-    final stage1 = await _raceFirstValid([
-      () => _ytExplodeStream(videoId),   // in-process, 1-3s
-      () => _workerYtStream(videoId),    // our CF worker
-    ]);
+    // ── STAGE 1: Worker proxy ONLY ────────────────────────────────────────
+    // NOTE: _ytExplodeStream is intentionally NOT raced here.
+    // youtube_explode_dart returns raw googlevideo.com URLs that are
+    // IP-locked to the Cloudflare edge server that resolved them.
+    // Giving that URL to ExoPlayer fails with 403 → idle@0ms because
+    // phone IP != Cloudflare IP. Worker proxy resolves + pipes bytes
+    // through same CF IP → no mismatch. Explode only used in Stage 3
+    // as last-resort, routed through Worker proxy to avoid IP-lock.
+    final stage1 = await _workerYtStream(videoId);
     if (stage1 != null) return stage1;
 
-    _log('[ytStreamById] Stage 1 failed for $videoId — blast racing fallbacks');
+    _log('[ytStreamById] Stage 1 (Worker) failed for $videoId — blast racing fallbacks');
 
     // ── STAGE 2: Blast race all Piped + Invidious simultaneously ─────────
     final aliveInstances = [
@@ -1008,10 +1012,33 @@ class ApiService {
       if (stage2 != null) return stage2;
     }
 
-    _log('[ytStreamById] Stage 2 failed for $videoId — final explode retry');
+    _log('[ytStreamById] Stage 2 failed for $videoId — Worker proxy last resort');
 
-    // ── STAGE 3: Final explode retry (handles transient PoToken issues) ───
-    return _ytExplodeStream(videoId);
+    // ── STAGE 3: Last resort — Worker proxy with extended timeout ────────
+    // Do NOT use _ytExplodeStream directly — googlevideo.com URLs are
+    // IP-locked to the CF edge that resolved them. Phone IP != CF IP = 403.
+    // Worker proxy gets one more chance with a longer 30s timeout.
+    _log('[ytStreamById] Stage 3: Worker extended-timeout retry for $videoId');
+    try {
+      final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
+      final rangeRes = await _client.get(
+        Uri.parse(proxyUrl),
+        headers: {'Range': 'bytes=0-1023'},
+      ).timeout(const Duration(seconds: 30));
+      if (rangeRes.statusCode == 206 || rangeRes.statusCode == 200) {
+        final ct = (rangeRes.headers['content-type'] ?? '').toLowerCase();
+        final isAudio = ct.contains('audio') || ct.contains('octet') ||
+            ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
+        if (isAudio || rangeRes.bodyBytes.length > 512) {
+          _log('[ytStreamById] Stage 3 Worker proxy OK for $videoId ✓');
+          return proxyUrl;
+        }
+      }
+    } catch (e) {
+      _log('[ytStreamById] Stage 3 Worker retry failed: $e');
+    }
+    _log('[ytStreamById] ALL stages failed for $videoId');
+    return null;
   }
 
   // Blast race: fire ALL futures simultaneously, return first valid result.
@@ -1106,7 +1133,7 @@ class ApiService {
       final rangeRes = await _client.get(
         Uri.parse(proxyUrl),
         headers: {'Range': 'bytes=0-1023'},
-      ).timeout(const Duration(seconds: 20));
+      ).timeout(const Duration(seconds: 25));
       if (rangeRes.statusCode == 206 || rangeRes.statusCode == 200) {
         final ct = (rangeRes.headers['content-type'] ?? '').toLowerCase();
         final isAudio = ct.contains('audio') || ct.contains('octet') ||
