@@ -168,3 +168,20 @@ class PlayerProvider extends ChangeNotifier {
 }
 
 // Note: append above the closing brace manually, or use the method below
+
+  AurumAudioHandler get handler => _handler;
+
+  Future<void> pause() => _handler.pause();
+
+  set onPlaybackError(void Function(String)? fn) {
+    _handler.onPlaybackError = fn;
+  }
+
+  Future<RealPlaybackResult> runRealPlaybackTest(Song song) =>
+      _handler.runRealPlaybackTest(song);
+
+  Future<void> restoreQueueSilently(List<Song> songs, int index) async {
+    if (songs.isEmpty) return;
+    await _handler.playQueue(songs, index);
+  }
+}
