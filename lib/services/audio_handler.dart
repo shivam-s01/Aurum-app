@@ -149,16 +149,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
-    
-    // HEATING FIX: Set Android audio attributes for efficiency
-    _player = AudioPlayer(
-      handleInterruptions: true,
-      androidAudioAttributes: const AndroidAudioAttributes(
-        contentType: AndroidAudioContentType.music,
-        flags: AndroidAudioFlags.audibilityEnforced,
-        usage: AndroidAudioUsage.media,
-      ),
-    );
 
     _interruptionSub = session.interruptionEventStream.listen((event) {
       final isDuck = event.type == AudioInterruptionType.duck;
