@@ -63,13 +63,19 @@ class _PlaylistMeta {
   const _PlaylistMeta(this.name, this.query, this.emoji, this.color);
 }
 
-// Cache: query → first song artwork URL (fetched once, reused)
-final Map<String, String?> _kPlaylistArtCache = {};
+// Note: previously cached query→artwork permanently across the whole app
+// session (_kPlaylistArtCache). Removed so art genuinely refreshes each
+// pull-to-refresh along with the songs — a stale thumbnail next to a fresh
+// random tracklist looked broken/cheap, not premium.
 
 class _HomeScreenState extends State<HomeScreen> {
   List<SongSection> _onlineSections = [];
   bool _onlineLoading = true;
   String? _onlineError;
+  // Bumped on every pull-to-refresh so the "Playlists for You" cards (which
+  // cache their own art/songs in initState) get fresh widget identities and
+  // refetch a brand-new random Saavn-first set instead of showing stale data.
+  int _playlistRefreshKey = 0;
 
   List<ArtistSimple> _homeArtists = [];
   bool _artistsLoading = true;
@@ -141,15 +147,42 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadOnline() async {
-    setState(() { _onlineLoading = true; _onlineError = null; });
+    setState(() {
+      _onlineLoading = true;
+      _onlineError = null;
+      _playlistRefreshKey++;
+      _onlineSections = []; // clear stale sections so new ones stream in fresh
+    });
     try {
       final topArtists  = context.read<RecentlyPlayedProvider>().topArtists(count: 3);
       final recentSongs = context.read<RecentlyPlayedProvider>().history.take(10).toList();
-      final sections    = await ApiService.fetchHome(topArtists: topArtists, recentlyPlayed: recentSongs)
-          .timeout(const Duration(seconds: 25));
-      if (mounted) setState(() { _onlineSections = sections; _onlineLoading = false; });
+      bool firstSectionIn = false;
+      await ApiService.fetchHomeStreaming(
+        topArtists: topArtists,
+        recentlyPlayed: recentSongs,
+        onSection: (section) {
+          if (!mounted) return;
+          setState(() {
+            _onlineSections = [..._onlineSections, section];
+            // Turn off the full-screen loader the instant the first
+            // section lands — usually ~1-2s — so the user sees real
+            // content fast instead of a spinner for the full ~10-15s
+            // it'd otherwise take for every section to finish.
+            if (!firstSectionIn) {
+              firstSectionIn = true;
+              _onlineLoading = false;
+            }
+          });
+        },
+      ).timeout(const Duration(seconds: 25));
+      if (mounted) setState(() => _onlineLoading = false);
     } catch (e) {
-      if (mounted) setState(() { _onlineError = 'Failed to load. Check connection.'; _onlineLoading = false; });
+      if (mounted) {
+        setState(() {
+          _onlineLoading = false;
+          if (_onlineSections.isEmpty) _onlineError = 'Failed to load. Check connection.';
+        });
+      }
     }
   }
 
@@ -204,7 +237,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               // ── Curated Playlists ──
-                              const _CuratedPlaylistsSection(),
+                              _CuratedPlaylistsSection(refreshKey: _playlistRefreshKey),
                               // ── Premium upsell banner (free users only) ──
                               const _HomePremiumBanner(),
                               // ── Song sections ──
@@ -1776,7 +1809,8 @@ class _ArtistChip extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _CuratedPlaylistsSection extends StatelessWidget {
-  const _CuratedPlaylistsSection();
+  final int refreshKey;
+  const _CuratedPlaylistsSection({this.refreshKey = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -1801,8 +1835,12 @@ class _CuratedPlaylistsSection extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               itemCount: _kCuratedPlaylists.length,
-              itemBuilder: (_, i) =>
-                  _PlaylistCard(playlist: _kCuratedPlaylists[i]),
+              itemBuilder: (_, i) => _PlaylistCard(
+                // New key per refresh forces a fresh State → fresh fetch,
+                // so art + songs genuinely rotate on pull-to-refresh.
+                key: ValueKey('${_kCuratedPlaylists[i].name}_$refreshKey'),
+                playlist: _kCuratedPlaylists[i],
+              ),
             ),
           ),
         ],
@@ -1822,6 +1860,7 @@ class _PlaylistCard extends StatefulWidget {
 class _PlaylistCardState extends State<_PlaylistCard> {
   bool _pressed = false;
   String? _artUrl;
+  List<Song>? _cachedSongs;
 
   @override
   void initState() {
@@ -1830,18 +1869,20 @@ class _PlaylistCardState extends State<_PlaylistCard> {
   }
 
   Future<void> _loadArt() async {
-    final q = widget.playlist.query;
-    if (_kPlaylistArtCache.containsKey(q)) {
-      if (mounted) setState(() => _artUrl = _kPlaylistArtCache[q]);
-      return;
-    }
     try {
-      final songs = await ApiService.search(q).timeout(const Duration(seconds: 6));
+      final songs = await ApiService
+          .fetchPlaylistSongs(widget.playlist.query, limit: 30)
+          .timeout(const Duration(seconds: 6));
+      if (!mounted) return;
+      // Cache the fetched songs on the card itself (not globally) so
+      // tapping the card doesn't trigger a second, possibly different,
+      // network fetch right after the thumbnail's fetch — art and the
+      // opened tracklist always match for this card instance.
+      _cachedSongs = songs;
       final url = songs.where((s) => s.artworkUrl.isNotEmpty).map((s) => s.artworkUrl).firstOrNull;
-      _kPlaylistArtCache[q] = url;
-      if (mounted) setState(() => _artUrl = url);
+      setState(() => _artUrl = url);
     } catch (_) {
-      _kPlaylistArtCache[q] = null;
+      // leave _artUrl null → gradient fallback shown
     }
   }
 
@@ -1864,7 +1905,10 @@ class _PlaylistCardState extends State<_PlaylistCard> {
     );
 
     try {
-      final songs = await ApiService.search(widget.playlist.query);
+      // Reuse the songs already fetched for the thumbnail when available —
+      // same Saavn-first, variant-filtered set the user is about to see
+      // art for. Only re-fetch if that hasn't resolved yet.
+      final songs = _cachedSongs ?? await ApiService.fetchPlaylistSongs(widget.playlist.query, limit: 30);
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       if (songs.isEmpty) return;

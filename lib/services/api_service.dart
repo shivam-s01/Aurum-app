@@ -251,7 +251,16 @@ class ApiService {
     _PoolEntry('haryanvi original songs sapna choudhary',  'Haryanvi Hits'),
   ];
 
-  static Future<List<SongSection>> fetchHome({List<String> topArtists = const [], List<Song> recentlyPlayed = const []}) async {
+  // ── Progressive version — calls onSection(section) as soon as each batch
+  // resolves, instead of making the UI wait for all ~15-20 queries to finish.
+  // First batch (time-mood + personal picks) typically lands in ~1-2s, so
+  // the home screen can paint real content almost immediately while the
+  // rest streams in behind it — same total data, much faster perceived load.
+  static Future<void> fetchHomeStreaming({
+    List<String> topArtists = const [],
+    List<Song> recentlyPlayed = const [],
+    required void Function(SongSection section) onSection,
+  }) async {
     await RecommendationEngine.load();
     final now = DateTime.now();
     final hourSeed = now.difference(DateTime(2026, 1, 1)).inHours;
@@ -306,31 +315,44 @@ class ApiService {
       }
     }
 
-    final results = <SongSection?>[];
-    const batchSize = 3;
-    for (int i = 0; i < queryList.length; i += batchSize) {
-      final batch = queryList.skip(i).take(batchSize).toList();
+    // Priority sections (time-mood + personal artists + genres) go out as
+    // their own first wave — these are the most relevant, so they're what
+    // the user should see land first. Bigger batch + no artificial delay
+    // between waves (the old 100ms sleep was pure wasted latency; the
+    // network round-trip itself is already the real bottleneck).
+    final priorityQueries = queryList.where((q) => q.priority).toList();
+    final restQueries     = queryList.where((q) => !q.priority).toList();
+    final orderedQueries  = [...priorityQueries, ...restQueries];
+
+    final globalSeenIds = <String>{};
+    final seenTitles = <String>{};
+    const batchSize = 5;
+    for (int i = 0; i < orderedQueries.length; i += batchSize) {
+      final batch = orderedQueries.skip(i).take(batchSize).toList();
       final batchResults = await Future.wait(
         batch.map((sq) => sq.isSuggestion
             ? _suggestionSection(sq.suggestionSongId!, sq.label)
             : _saavnSectionV4(sq.query, sq.label)),
       );
-      results.addAll(batchResults);
-      if (i + batchSize < queryList.length) {
-        await Future.delayed(const Duration(milliseconds: 100));
+      for (final s in batchResults.whereType<SongSection>()) {
+        if (!seenTitles.add(s.title)) continue;
+        final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
+        if (uniqueSongs.isNotEmpty) {
+          onSection(SongSection(title: s.title, songs: uniqueSongs));
+        }
       }
     }
+  }
 
-    final globalSeenIds = <String>{};
-    final seen = <String>{};
+  // Non-streaming wrapper kept for any call sites that still want the
+  // "wait for everything, get one List back" shape.
+  static Future<List<SongSection>> fetchHome({List<String> topArtists = const [], List<Song> recentlyPlayed = const []}) async {
     final sections = <SongSection>[];
-    for (final s in results.whereType<SongSection>()) {
-      if (!seen.add(s.title)) continue;
-      final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
-      if (uniqueSongs.isNotEmpty) {
-        sections.add(SongSection(title: s.title, songs: uniqueSongs));
-      }
-    }
+    await fetchHomeStreaming(
+      topArtists: topArtists,
+      recentlyPlayed: recentlyPlayed,
+      onSection: sections.add,
+    );
     return sections;
   }
 
@@ -353,6 +375,110 @@ class ApiService {
     }
     if (merged.isEmpty) return null;
     return SongSection(title: label, songs: merged.take(20).toList());
+  }
+
+  // ── Curated "Playlists for You" cards — premium, Saavn-first, fresh every
+  // pull-to-refresh ───────────────────────────────────────────────────────
+  // Unlike search() (relevance-ranked, cached, Saavn+YT mixed for the Search
+  // tab) this is the same pro-grade pipeline as the home sections: Saavn
+  // gets priority and near-exclusive weight, remix/cover/lofi variants are
+  // hard-blocked, results are deduped by id AND normalized title, then
+  // shuffled with a refresh-salted seed so re-opening or pulling to refresh
+  // serves a genuinely different set within the same category — exactly
+  // like Spotify/YT Music rotate "Made For You" style shelves.
+  static Future<List<Song>> fetchPlaylistSongs(String query, {int limit = 30}) async {
+    // 1. Saavn-only pass first — fetch generously since variants get filtered.
+    final saavnSongs = await _searchSaavn(query, limit: 50);
+
+    // 2. Only fall back to YT if Saavn genuinely came up short — keeps the
+    //    "max Saavn" guarantee while still avoiding a thin/empty playlist.
+    List<Song> ytSongs = const [];
+    if (saavnSongs.length < limit) {
+      ytSongs = await _searchYt(query, limit: 15)
+          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
+    }
+
+    final seenIds    = <String>{};
+    final seenTitles = <String>{};
+    final merged     = <Song>[];
+
+    // Saavn songs always placed first in the candidate pool, so they
+    // dominate the shuffled output before any YT filler is considered.
+    for (final s in [...saavnSongs, ...ytSongs]) {
+      if (s.id.isEmpty || s.title.isEmpty) continue;
+      if (!seenIds.add(s.id)) continue;
+      if (RecommendationEngine.isInherentVariant(s.title)) continue;
+      final tk = _normTitle(s.title);
+      if (!seenTitles.add(tk)) continue;
+      merged.add(s);
+    }
+    if (merged.isEmpty) return [];
+
+    // Fresh shuffle every call — refresh salt guarantees a different order
+    // (and effectively a different "top N" slice) on every pull-to-refresh,
+    // while still being weighted toward Saavn since YT only fills gaps.
+    final refreshSalt = math.Random().nextInt(1000000);
+    final seed = query.hashCode ^ DateTime.now().millisecondsSinceEpoch ^ refreshSalt;
+    merged.shuffle(math.Random(seed));
+
+    return merged.take(limit).toList();
+  }
+
+  // ── Auto-continue queue — "Up Next" never goes silent ──────────────────
+  // Used by the audio handler when playback nears the end of the current
+  // queue. Tries Saavn's native "similar songs" endpoint first (true
+  // recommendation quality, same as the real JioSaavn app's autoplay), and
+  // falls back to an artist-based Saavn search if the song has no native
+  // suggestions (e.g. an unusual/regional track). Same variant-blocking and
+  // dedup rules as every other home-feed pipeline, so autoplay quality
+  // never drops below what the rest of the app already guarantees.
+  static Future<List<Song>> fetchSimilarSongs({
+    required String songId,
+    required String artist,
+    required String title,
+    List<String> excludeIds = const [],
+  }) async {
+    final exclude = excludeIds.toSet();
+    final seenTitles = <String>{};
+    final out = <Song>[];
+
+    void addAll(List<Song> songs) {
+      for (final s in songs) {
+        if (s.id.isEmpty || s.title.isEmpty) continue;
+        if (exclude.contains(s.id)) continue;
+        if (RecommendationEngine.isInherentVariant(s.title)) continue;
+        final tk = _normTitle(s.title);
+        if (!seenTitles.add(tk)) continue;
+        out.add(s);
+      }
+    }
+
+    // 1. Native Saavn "similar songs" — best quality, mirrors what the
+    //    real JioSaavn app autoplays next.
+    try {
+      final cleanId = songId.replaceFirst(RegExp(r'^[a-z]+_'), '');
+      final url = Uri.parse('$_saavnPrimary/api/songs/$cleanId/suggestions?limit=20');
+      final res = await _client.get(url).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final List? raw = data is Map ? (data['data'] as List?) : (data is List ? data : null);
+        if (raw != null) {
+          addAll(raw.whereType<Map<String, dynamic>>().map(_songFromSaavn).toList());
+        }
+      }
+    } catch (_) {
+      // fall through to artist-based fallback below
+    }
+
+    // 2. Fallback: same-artist Saavn search, if suggestions came up short.
+    if (out.length < 10 && artist.isNotEmpty) {
+      try {
+        final artistSongs = await _searchSaavn('$artist songs', limit: 25);
+        addAll(artistSongs);
+      } catch (_) {}
+    }
+
+    return out;
   }
 
   // "Because You Played" section — pure JioSaavn suggestions, same category guaranteed
@@ -530,10 +656,12 @@ class ApiService {
 
     final wantsVariant = _wantsVariantQuery(q);
 
-    // Saavn gets 8s, YT gets 6s — Saavn is priority
+    // Saavn gets 10s and a much higher limit so results feel as complete as
+    // the real JioSaavn app — YT only fills genuine gaps, never competes
+    // for the same slots Saavn already covers.
     final both = await Future.wait([
-      _searchSaavn(q, limit: 40)
-          .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]),
+      _searchSaavn(q, limit: 50)
+          .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[]),
       _searchYt(q, limit: 20)
           .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]),
     ]);
@@ -709,26 +837,37 @@ class ApiService {
   // returns full song objects incl. downloadUrl) tried FIRST, legacy /result/
   // route kept as secondary in case the backend version differs, CF worker
   // is last-resort fallback only.
+  //
+  // COVERAGE FIX: a single page from JioSaavn's backend tops out around
+  // 20-30 results even when `limit` asks for more, because the upstream
+  // JioSaavn API itself paginates internally. To show "as many Saavn songs
+  // as the real app shows", this now fetches a SECOND page (page=2) and
+  // merges it in whenever the first page comes back short of what was
+  // asked for — same principle as scrolling further in the real JioSaavn
+  // app instead of stopping at the first screenful.
   // ===========================================================================
   static Future<List<Song>> _searchSaavn(String query, {int limit = 20}) async {
-    // 1a. Confirmed-working onrender route
+    // 1a. Confirmed-working onrender route (page 1)
     try {
-      final url = Uri.parse(
+      final songs = await _fetchSaavnPage(
         '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+        limit,
       );
-      final res = await _client.get(url).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final results = (data is Map ? (data['data']?['results']) : null) ?? [];
-        if (results is List && results.isNotEmpty) {
-          final songs = results
-              .whereType<Map<String, dynamic>>()
-              .take(limit)
-              .map(_songFromSaavn)
-              .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
-              .toList();
-          if (songs.isNotEmpty) return songs;
+      if (songs.isNotEmpty) {
+        if (songs.length >= limit) return songs;
+        // Short page — try page 2 and merge, deduping by id.
+        final page2 = await _fetchSaavnPage(
+          '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=2',
+          limit,
+        );
+        if (page2.isNotEmpty) {
+          final seen = songs.map((s) => s.id).toSet();
+          final merged = [...songs, ...page2.where((s) => !seen.contains(s.id))];
+          _log('[_searchSaavn] merged page1(${songs.length}) + page2(${page2.length}) '
+              '= ${merged.length} for "$query"');
+          return merged;
         }
+        return songs;
       }
     } catch (e) {
       _log('[_searchSaavn] onrender /api/search/songs error: $e');
@@ -781,6 +920,25 @@ class ApiService {
       _log('[_searchSaavn] Error: $e');
     }
     return [];
+  }
+
+  // Shared single-page fetch helper used by _searchSaavn's pagination logic.
+  static Future<List<Song>> _fetchSaavnPage(String urlStr, int limit) async {
+    try {
+      final res = await _client.get(Uri.parse(urlStr)).timeout(const Duration(seconds: 8));
+      if (res.statusCode != 200) return [];
+      final data = jsonDecode(res.body);
+      final results = (data is Map ? (data['data']?['results']) : null) ?? [];
+      if (results is! List || results.isEmpty) return [];
+      return results
+          .whereType<Map<String, dynamic>>()
+          .take(limit)
+          .map(_songFromSaavn)
+          .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   // ===========================================================================
@@ -1081,64 +1239,64 @@ class ApiService {
     return null;
   }
 
-  // ── Cloudflare Worker ────────────────────────────────────────────────────
-  // FIX: the Worker's own resolveYtStreamFast() runs up to 3 internal stages
-  // (Innertube+Piped race → 5-way blast → remaining instances with a 5s
-  // deadline), which can take ~13-15s end-to-end on a cold Worker isolate
-  // (Cloudflare recycles isolates, so the in-memory instanceHealth Map —
-  // used to rank/skip bad instances — starts empty and gives no speed
-  // advantage on the first request). The old 8s timeout was killing the
-  // Worker call before it could finish, forcing every cold-start resolve
-  // onto the slower Dart-side Piped/Invidious chain instead. 16s gives the
-  // Worker's full internal chain room to actually complete.
-  // Returns PROXY URL — worker resolves + pipes audio bytes same-IP.
-  // No health check needed — if worker is down, ExoPlayer will error
-  // and _handleFreshStartIdle will trigger Piped/Invidious fallback.
   // ── Cloudflare Worker ─────────────────────────────────────────────────────
-  // ROOT CAUSE FIX (v5.1):
+  // ROOT CAUSE FIX (v5.2) — THE REAL IP-LOCK BUG:
   //
-  // Previously this returned a proxy URL string WITHOUT any HTTP validation:
-  //   return '$_worker/api/yt-proxy?id=$videoId';
+  // /api/yt-stream returns a raw googlevideo.com URL with an `ip=` query
+  // param baked into its signature (e.g. ip=172.70.142.141 — a CLOUDFLARE
+  // edge IP, confirmed via live debug call). YouTube's CDN validates the
+  // requesting IP against that signed `ip=` value. The phone's real
+  // mobile/LTE IP is never the Cloudflare IP that resolved the URL, so
+  // ExoPlayer's request gets rejected and playback goes idle@0ms — even
+  // though the Worker call itself returned success:true with a real,
+  // well-formed URL. This is invisible from the Worker's own /api/debug-yt
+  // and /api/yt-stream responses, because both only check "did we get a
+  // URL back", never "can THIS device actually play it."
   //
-  // _isUrlAlive() HEAD check returned 200 because the Worker's /api/yt-proxy
-  // answers 200 on HEAD regardless of whether it can actually stream the video
-  // (it proxies bytes lazily — only discovers the video is unavailable when
-  // ExoPlayer makes the real GET request for audio data).
-  // Result: ExoPlayer setAudioSource() succeeded → immediately went idle at
-  // 0ms because the proxied stream returned an error body instead of audio.
-  // That is the exact "Silent fresh-start failure… processingState went idle
-  // at position 0ms" error in the screenshot.
+  // Every comment block previously written in this function described this
+  // exact failure mode and said the fix was to use /api/yt-proxy instead —
+  // but the code never actually did that; it kept returning the direct
+  // /api/yt-stream URL as Stage 1, and /api/yt-proxy was only ever reached
+  // as a last-resort Stage 3 that Stage 1's false "success" prevented from
+  // ever running.
   //
-  // FIX — two steps:
-  //   Step 1: Call /api/yt-stream?id= (JSON endpoint returning actual YT URL).
-  //           ExoPlayer hits YouTube directly — fast and reliable.
-  //   Step 2: If step 1 fails, validate proxy URL via range request bytes=0-1023.
-  //           Only return proxy URL if we get back actual audio bytes (206/200
-  //           with audio Content-Type). This catches dead streams at resolve
-  //           time, not at ExoPlayer load time.
-  // ── Cloudflare Worker ─────────────────────────────────────────────────────
-  // WHY PROXY (not direct URL):
-  // Worker's /api/yt-stream returns a googlevideo.com URL that is IP-locked
-  // to the Cloudflare edge server that resolved it. Giving that URL directly
-  // to ExoPlayer fails because the phone's IP != Cloudflare's IP — ExoPlayer
-  // gets a 403/stream error and goes idle@0ms.
-  //
-  // /api/yt-proxy resolves the video AND streams the bytes back through
-  // Cloudflare — same IP resolves + serves = no IP mismatch. ExoPlayer
-  // receives a clean audio stream from our worker domain.
-  // ── Cloudflare Worker: /api/yt-stream (JSON) ─────────────────────────────────────────
-  // Worker v6 uses android_sdkless + ios_downgraded whose googlevideo URLs
-  // are NOT IP-locked — direct Innertube API, not proxied through CF edge.
-  // /api/yt-stream returns tiny JSON with direct URL in ~1-3s (KV-cached).
-  // /api/yt-proxy is intentionally NOT used — it proxies all audio bytes
-  // through CF (slow 25s validation round-trip, unnecessary for v6 clients).
+  // ACTUAL FIX: make /api/yt-proxy (the IP-safe, byte-piping endpoint) the
+  // PRIMARY path. It costs a small latency premium (Worker streams bytes
+  // through itself instead of handing back a direct CDN link) but it is
+  // the only path that reliably plays on a real phone network. A direct
+  // /api/yt-stream URL is still tried second, purely as a fast bonus path,
+  // but ONLY after confirming with a real ranged GET (not a HEAD — HEAD is
+  // unreliable against googlevideo.com) that the phone can actually open it.
   static Future<String?> _workerYtStream(String videoId) async {
+    // ── PRIMARY: /api/yt-proxy — IP-safe, always playable from any network ──
+    try {
+      final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
+      final probe = await _client
+          .get(Uri.parse(proxyUrl), headers: {'Range': 'bytes=0-1023'})
+          .timeout(const Duration(seconds: 16));
+      if (probe.statusCode == 200 || probe.statusCode == 206) {
+        final ct = (probe.headers['content-type'] ?? '').toLowerCase();
+        final looksAudio = ct.contains('audio') || ct.contains('octet') ||
+            ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
+        if (looksAudio || probe.bodyBytes.length > 512) {
+          _log('[worker] /api/yt-proxy OK for $videoId (IP-safe path)');
+          return proxyUrl;
+        }
+      }
+      _log('[worker] /api/yt-proxy probe failed for $videoId '
+          '(status=${probe.statusCode}) - trying direct /api/yt-stream');
+    } catch (e) {
+      _log('[worker] /api/yt-proxy failed for $videoId: $e - trying direct /api/yt-stream');
+    }
+
+    // ── SECONDARY: /api/yt-stream direct URL — only if it survives a real
+    //    ranged GET from THIS device (not just a Worker-side HEAD check) ──
     try {
       final res = await _client
           .get(Uri.parse('$_worker/api/yt-stream?id=$videoId'))
-          .timeout(const Duration(seconds: 16));
+          .timeout(const Duration(seconds: 12));
       if (res.statusCode != 200) {
-        _log('[worker] /api/yt-stream \${res.statusCode} for $videoId');
+        _log('[worker] /api/yt-stream ${res.statusCode} for $videoId');
         return null;
       }
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -1151,10 +1309,19 @@ class ApiService {
         _log('[worker] /api/yt-stream empty URL for $videoId');
         return null;
       }
-      _log('[worker] /api/yt-stream OK for $videoId (\${data["source"]} \${data["quality"]}) ✓');
+      // Real device-side check — same IP this device will actually stream
+      // from, unlike the Worker's own internal isUrlAlive() HEAD check.
+      final directOk = await _isUrlAlive(url);
+      if (!directOk) {
+        _log('[worker] /api/yt-stream URL for $videoId failed device-side '
+            'liveness check (IP-lock mismatch) - discarding direct URL');
+        return null;
+      }
+      _log('[worker] /api/yt-stream OK for $videoId '
+          '(${data["source"]} ${data["quality"]}) - direct path, verified');
       return url;
     } catch (e) {
-      _log('[worker] /api/yt-stream failed for $videoId: \$e');
+      _log('[worker] /api/yt-stream failed for $videoId: $e');
       return null;
     }
   }

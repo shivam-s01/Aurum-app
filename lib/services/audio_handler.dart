@@ -390,6 +390,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (index != _currentIndex && index < _queue.length) {
         _currentIndex = index;
       }
+      _maybeAutoExtendQueue();
       return;
     }
 
@@ -397,6 +398,51 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       _currentIndex = index;
       _updateMediaItem(_queue[index]);
     }
+
+    _maybeAutoExtendQueue();
+  }
+
+  // ── Auto-continue Up Next ───────────────────────────────────────────────
+  // When the user is within 2 songs of the end of the queue, silently fetch
+  // similar Saavn songs (based on the currently playing track) and append
+  // them live — so "Up Next" never just stops. Mirrors how Spotify/YT Music
+  // autoplay keeps a session going instead of dead-ending at a fixed
+  // playlist's last track.
+  bool _autoExtending = false;
+
+  void _maybeAutoExtendQueue() {
+    if (_autoExtending) return;
+    if (_splicingInProgress) return;
+    if (_queue.isEmpty || _currentIndex >= _queue.length) return;
+
+    final remaining = _queue.length - 1 - _currentIndex;
+    if (remaining > 1) return; // only kick in near the actual end
+
+    final current = _queue[_currentIndex];
+    // Local files have no Saavn catalog match — nothing sensible to extend
+    // with, so leave the queue as-is rather than injecting unrelated songs.
+    if (current.isLocal) return;
+
+    _autoExtending = true;
+    final mySession = _playSessionId;
+    ApiService.fetchSimilarSongs(
+      songId: current.id,
+      artist: current.artist,
+      title: current.title,
+      excludeIds: _queue.map((s) => s.id).toList(),
+    ).then((similar) async {
+      _autoExtending = false;
+      if (mySession != _playSessionId) return; // a new queue started meanwhile
+      if (similar.isEmpty) return;
+      // Cap how much we add per trigger — keeps memory/source list sane,
+      // and we'll naturally re-trigger again as the user keeps listening.
+      for (final song in similar.take(10)) {
+        if (mySession != _playSessionId) return;
+        await addToQueue(song);
+      }
+    }).catchError((_) {
+      _autoExtending = false;
+    });
   }
 
   // Fade in from 0 → 1 over _crossfadeSecs when a new track starts
@@ -864,7 +910,13 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         } catch (_) {}
       }
     } finally {
-      if (sessionId == _playSessionId) _splicingInProgress = false;
+      if (sessionId == _playSessionId) {
+        _splicingInProgress = false;
+        // Covers the edge case where the queue started with only 1-2 songs
+        // and _handleCurrentIndexChanged never re-fires (no index change
+        // happens until the user reaches the end) — check right away.
+        _maybeAutoExtendQueue();
+      }
     }
   }
 
@@ -970,7 +1022,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     } finally {
       await _restoreVolume();
       // FIX #29: always clear flag regardless of path taken.
-      if (mySession == _playSessionId) _isLoadingNewSong = false;
+      if (mySession == _playSessionId) {
+        _isLoadingNewSong = false;
+        // playSong() always starts a 1-song queue — _handleCurrentIndexChanged
+        // won't fire again until the user reaches the end, so check now.
+        _maybeAutoExtendQueue();
+      }
     }
   }
 
