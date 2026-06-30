@@ -289,6 +289,12 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             subtitle: 'How your data is handled',
             onTap: () { HapticFeedback.lightImpact(); _showPrivacyPolicy(); },
           ),
+          _actionTile(context,
+            icon: Icons.description_rounded,
+            title: 'Terms of Use',
+            subtitle: 'The agreement between you and Aurum',
+            onTap: () { HapticFeedback.lightImpact(); _launch(AppConstants.termsOfUse); },
+          ),
 
           _sectionLabel('COMMUNITY'),
           _actionTile(context,
