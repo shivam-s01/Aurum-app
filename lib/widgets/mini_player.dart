@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/audio_prefs.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_artwork.dart';
 import 'aurum_loader.dart';
