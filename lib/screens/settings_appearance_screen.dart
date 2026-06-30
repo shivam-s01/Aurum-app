@@ -7,6 +7,7 @@ import '../widgets/mini_player.dart';
 import '../providers/theme_provider.dart';
 import '../providers/premium_provider.dart';
 import '../widgets/premium_gate.dart';
+import '../services/audio_prefs.dart';
 
 class SettingsAppearanceScreen extends StatefulWidget {
   const SettingsAppearanceScreen({super.key});
@@ -33,8 +34,6 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   String _lyricsTextPosition = 'Centre';
   double _lyricsTextSize = 16.0;
   double _lyricsLineSpacing = 1.5;
-  String _wordAnimationStyle = 'Fade';
-  bool _glowingLyrics = true;
   // New
   String _fontStyle = 'Default';
   String _nowPlayingCardStyle = 'Card';
@@ -74,8 +73,6 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';
       _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;
       _lyricsLineSpacing = p.getDouble('lyrics_line_spacing') ?? 1.5;
-      _wordAnimationStyle = p.getString('word_animation_style') ?? 'Fade';
-      _glowingLyrics = p.getBool('glowing_lyrics') ?? true;
       _enableAnimations = p.getBool('enable_animations') ?? true;
       _backAnimations = p.getBool('back_animations') ?? true;
       _scrollAnimations = p.getBool('scroll_animations') ?? true;
@@ -172,6 +169,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                         }
                         setState(() => _accentColor = c);
                         _save('accent_color', c.value);
+                        context.read<ThemeProvider>().setAccentColor(c);
                       },
                       child: Stack(children: [
                         Container(
@@ -222,33 +220,33 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             subtitle: 'How the player background looks',
             value: _playerBgStyle,
             options: ['Gradient', 'Blur', 'Solid'],
-            onChanged: (v) { setState(() => _playerBgStyle = v!); _save('player_bg_style', v!); },
+            onChanged: (v) { setState(() => _playerBgStyle = v!); _save('player_bg_style', v!); AudioPrefs.setPlayerBgStyle(v); },
           ),
           _inlineSwitch(context,
             title: 'Dynamic Player Color',
             subtitle: 'Change player color from artwork',
             value: _dynamicPlayerColor,
-            onChanged: (v) { setState(() => _dynamicPlayerColor = v); _save('dynamic_player_color', v); },
+            onChanged: (v) { setState(() => _dynamicPlayerColor = v); _save('dynamic_player_color', v); AudioPrefs.setDynamicPlayerColor(v); },
           ),
           _dropdownTile(context,
             title: 'Player Button Colors',
             subtitle: 'Color of play/skip buttons',
             value: _playerButtonColors,
             options: ['Primary', 'White', 'Accent'],
-            onChanged: (v) { setState(() => _playerButtonColors = v!); _save('player_button_colors', v!); },
+            onChanged: (v) { setState(() => _playerButtonColors = v!); _save('player_button_colors', v!); context.read<ThemeProvider>().setPlayerButtonColorMode(v); },
           ),
           _dropdownTile(context,
             title: 'Player Slider Style',
             subtitle: 'Seek bar appearance',
             value: _playerSliderStyle,
             options: ['Slim', 'Thick', 'Rounded'],
-            onChanged: (v) { setState(() => _playerSliderStyle = v!); _save('player_slider_style', v!); },
+            onChanged: (v) { setState(() => _playerSliderStyle = v!); _save('player_slider_style', v!); context.read<ThemeProvider>().setPlayerSliderStyle(v); },
           ),
           _inlineSwitch(context,
             title: 'Show Blurred Background',
             subtitle: 'Artwork blur behind player',
             value: _showBlurredBg,
-            onChanged: (v) { setState(() => _showBlurredBg = v); _save('show_blurred_bg', v); },
+            onChanged: (v) { setState(() => _showBlurredBg = v); _save('show_blurred_bg', v); AudioPrefs.setShowBlurredBg(v); },
           ),
           // ── Mini Player ──
           _sectionLabel('⬇️ MINI PLAYER'),
@@ -258,14 +256,14 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             subtitle: 'Appearance of collapsed player',
             value: _miniPlayerBgStyle,
             options: ['Follow Theme', 'Blur', 'Solid'],
-            onChanged: (v) { setState(() => _miniPlayerBgStyle = v!); _save('mini_player_bg_style', v!); },
+            onChanged: (v) { setState(() => _miniPlayerBgStyle = v!); _save('mini_player_bg_style', v!); AudioPrefs.setMiniPlayerBgStyle(v); },
           ),
           _sliderTile(context,
             title: 'Swipe Sensitivity',
             value: _swipeSensitivity,
             min: 0, max: 100, divisions: 10,
             displayValue: '${_swipeSensitivity.toInt()}%',
-            onChanged: (v) { setState(() => _swipeSensitivity = v); _save('swipe_sensitivity', v); },
+            onChanged: (v) { setState(() => _swipeSensitivity = v); _save('swipe_sensitivity', v); AudioPrefs.setSwipeSensitivity(v); },
           ),
           // ── Lyrics ──
           _sectionLabel('🎤 LYRICS'),
@@ -274,48 +272,40 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             subtitle: 'Alignment of lyrics on screen',
             value: _lyricsTextPosition,
             options: ['Left', 'Centre'],
-            onChanged: (v) { setState(() => _lyricsTextPosition = v!); _save('lyrics_text_position', v!); },
+            onChanged: (v) { setState(() => _lyricsTextPosition = v!); _save('lyrics_text_position', v!); AudioPrefs.setLyricsPosition(v); },
           ),
           _sliderTile(context,
             title: 'Lyrics Text Size',
             value: _lyricsTextSize,
             min: 10, max: 28, divisions: 9,
             displayValue: '${_lyricsTextSize.toInt()}sp',
-            onChanged: (v) { setState(() => _lyricsTextSize = v); _save('lyrics_text_size', v); },
+            onChanged: (v) { setState(() => _lyricsTextSize = v); _save('lyrics_text_size', v); AudioPrefs.setLyricsTextSize(v); },
           ),
           _sliderTile(context,
             title: 'Lyrics Line Spacing',
             value: _lyricsLineSpacing,
             min: 1.0, max: 3.0, divisions: 8,
             displayValue: _lyricsLineSpacing.toStringAsFixed(1),
-            onChanged: (v) { setState(() => _lyricsLineSpacing = v); _save('lyrics_line_spacing', v); },
+            onChanged: (v) { setState(() => _lyricsLineSpacing = v); _save('lyrics_line_spacing', v); AudioPrefs.setLyricsLineSpacing(v); },
           ),
-          _dropdownTile(context,
-            title: 'Word Animation Style',
-            subtitle: 'How lyrics highlight word by word',
-            value: _wordAnimationStyle,
-            options: ['None', 'Fade', 'Bounce', 'Slide'],
-            onChanged: (v) { setState(() => _wordAnimationStyle = v!); _save('word_animation_style', v!); },
-          ),
-          _inlineSwitch(context,
-            title: 'Glowing Lyrics Effect',
-            subtitle: 'Glow on active lyric line',
-            value: _glowingLyrics,
-            onChanged: (v) { setState(() => _glowingLyrics = v); _save('glowing_lyrics', v); },
-          ),
+          // NOTE: "Word Animation Style" and "Glowing Lyrics Effect" were
+          // removed — Aurum's lyrics are a single static text block (no
+          // LRC timestamps / word-level sync), so a per-word highlight or
+          // active-line glow has nothing to attach to. Re-add these once
+          // synced lyrics are implemented.
           // ── Animations ──
           _sectionLabel('✨ ANIMATIONS'),
           _inlineSwitch(context,
             title: 'Enable Animations',
             subtitle: 'Master toggle for all animations',
             value: _enableAnimations,
-            onChanged: (v) { setState(() => _enableAnimations = v); _save('enable_animations', v); },
+            onChanged: (v) { setState(() => _enableAnimations = v); _save('enable_animations', v); AudioPrefs.setEnableAnimations(v); },
           ),
           _inlineSwitch(context,
             title: 'Back Animations',
             subtitle: 'Animate navigation back gesture',
             value: _backAnimations,
-            onChanged: (v) { setState(() => _backAnimations = v); _save('back_animations', v); },
+            onChanged: (v) { setState(() => _backAnimations = v); _save('back_animations', v); AudioPrefs.setBackAnimations(v); },
           ),
           _inlineSwitch(context,
             title: 'Scroll Animations',
@@ -327,7 +317,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             title: 'Background Gradient Animation',
             subtitle: 'Animated color shift in player',
             value: _bgGradientAnimation,
-            onChanged: (v) { setState(() => _bgGradientAnimation = v); _save('bg_gradient_animation', v); },
+            onChanged: (v) { setState(() => _bgGradientAnimation = v); _save('bg_gradient_animation', v); AudioPrefs.setBgGradientAnimation(v); },
           ),
         ],
       ),
@@ -637,6 +627,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                 HapticFeedback.selectionClick();
                 setState(() => _artworkShape = s);
                 _save('artwork_shape', s);
+                AudioPrefs.setArtworkShape(s);
               },
               child: Container(
                 margin: const EdgeInsets.only(right: 8),

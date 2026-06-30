@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
+import '../services/recommendation_engine.dart';
+import '../providers/recently_played_provider.dart';
 
 class SettingsPrivacyScreen extends StatefulWidget {
   const SettingsPrivacyScreen({super.key});
@@ -182,8 +185,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
             title: 'Clear Listening History',
             subtitle: 'Remove all recently played songs',
             onTap: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Listening History', () async {
-              final p = await SharedPreferences.getInstance();
-              await p.remove('recently_played');
+              await context.read<RecentlyPlayedProvider>().clearHistory();
             }); },
           ),
           _dangerTile(context,
@@ -191,9 +193,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
             title: 'Reset Recommendations',
             subtitle: 'Clear affinity scores and start fresh',
             onTap: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Recommendations', () async {
-              final p = await SharedPreferences.getInstance();
-              final keys = p.getKeys().where((k) => k.startsWith('affinity_'));
-              for (final k in keys) await p.remove(k);
+              await RecommendationEngine.resetAll();
             }); },
           ),
           _dangerTile(context,

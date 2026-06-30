@@ -165,6 +165,29 @@ class RecommendationEngine {
     _loaded = true;
   }
 
+  /// Wipes all learned affinity/recommendation data, both in-memory and in
+  /// SharedPreferences. Used by Settings → Privacy → "Reset Recommendations".
+  static Future<void> resetAll() async {
+    _plays.clear();
+    _completes.clear();
+    _skips.clear();
+    _replays.clear();
+    _artistW.clear();
+    _genreW.clear();
+    _langW.clear();
+    _session = null;
+
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_kPlays);
+    await p.remove(_kCompletes);
+    await p.remove(_kSkips);
+    await p.remove(_kReplays);
+    await p.remove(_kArtistW);
+    await p.remove(_kGenreW);
+    await p.remove(_kLangW);
+    await p.remove(_kSession);
+  }
+
   static Map<String, int> _loadIntMap(SharedPreferences p, String key) {
     try {
       final raw = p.getString(key);

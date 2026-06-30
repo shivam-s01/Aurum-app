@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/player_provider.dart';
+import '../providers/theme_provider.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_artwork.dart';
 import 'aurum_loader.dart';
@@ -371,50 +372,77 @@ class _MiniPlayerContent extends StatelessWidget {
     final showUpHint = dragY < -20;
     final showDownHint = dragY > 20;
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-      height: 68,
-      // RepaintBoundary forces this blur onto its OWN compositing layer.
-      // FIX: without this, having multiple BackdropFilters active at once
-      // (mini player + anything else mounted underneath, e.g. right as a
-      // song starts and the mini player appears) can make some Android
-      // GPU/Skia configs blur the entire shared backdrop layer instead of
-      // just this clipped capsule — which is what was making the WHOLE
-      // Home screen appear blurred the instant the mini player showed up,
-      // and fixing itself the moment the mini player (and its filter) was
-      // removed via swipe-down dismiss.
-      child: RepaintBoundary(
-        child: ClipRRect(
+    return ValueListenableBuilder<String>(
+      valueListenable: AudioPrefs.miniPlayerBgStyleNotifier,
+      builder: (context, bgStyle, _) {
+        final isSolid = bgStyle == 'Solid';
+        final capsuleDecoration = BoxDecoration(
+          color: isSolid
+              ? (isDark ? const Color(0xFF1A1A22) : const Color(0xFFF5F2EA))
+              : (isDark
+                  ? Colors.white.withAlpha(isDragging ? 14 : 9)
+                  : Colors.black.withAlpha(isDragging ? 12 : 7)),
           borderRadius: BorderRadius.circular(20),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.white.withAlpha(isDragging ? 14 : 9)
-                    : Colors.black.withAlpha(isDragging ? 12 : 7),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isDragging
-                    ? AurumTheme.gold.withAlpha(60)
-                    : AurumTheme.gold.withAlpha(isDark ? 35 : 50),
-                width: 0.8,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(isDark ? 100 : 30),
-                  blurRadius: isDragging ? 28 : 20,
-                  offset: const Offset(0, 4),
-                ),
-                BoxShadow(
-                  color: AurumTheme.gold.withAlpha(isDragging ? 20 : 10),
-                  blurRadius: 12,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+          border: Border.all(
+            color: isDragging
+              ? AurumTheme.gold.withAlpha(60)
+              : AurumTheme.gold.withAlpha(isDark ? 35 : 50),
+            width: 0.8,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(isDark ? 100 : 30),
+              blurRadius: isDragging ? 28 : 20,
+              offset: const Offset(0, 4),
             ),
-            child: Stack(
+            BoxShadow(
+              color: AurumTheme.gold.withAlpha(isDragging ? 20 : 10),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        );
+
+        Widget capsuleBody = AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: capsuleDecoration,
+          child: _miniPlayerCapsuleContent(context, song, showUpHint, showDownHint),
+        );
+
+        // "Solid" skips the BackdropFilter blur entirely — cheaper to
+        // render and gives a flat, opaque card look.
+        if (!isSolid) {
+          capsuleBody = BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: capsuleBody,
+          );
+        }
+
+        return Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          height: 68,
+          // RepaintBoundary forces this blur onto its OWN compositing layer.
+          // FIX: without this, having multiple BackdropFilters active at once
+          // (mini player + anything else mounted underneath, e.g. right as a
+          // song starts and the mini player appears) can make some Android
+          // GPU/Skia configs blur the entire shared backdrop layer instead of
+          // just this clipped capsule — which is what was making the WHOLE
+          // Home screen appear blurred the instant the mini player showed up,
+          // and fixing itself the moment the mini player (and its filter) was
+          // removed via swipe-down dismiss.
+          child: RepaintBoundary(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: capsuleBody,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _miniPlayerCapsuleContent(BuildContext context, dynamic song, bool showUpHint, bool showDownHint) {
+    return Stack(
               children: [
                 // Main row
                 Column(
@@ -536,11 +564,6 @@ class _MiniPlayerContent extends StatelessWidget {
                     ),
                   ),
               ],
-            ),
-          ),
-        ),
-      ),
-      ),
     );
   }
 
@@ -713,12 +736,13 @@ class _PlayBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = context.watch<ThemeProvider>().accentColor;
     if (player.isLoading) {
       return Opacity(
         opacity: 0.35,
         child: SizedBox(
           width: 36, height: 36,
-          child: Icon(Icons.play_arrow_rounded, color: AurumTheme.gold, size: 26),
+          child: Icon(Icons.play_arrow_rounded, color: accent, size: 26),
         ),
       );
     }
@@ -732,11 +756,11 @@ class _PlayBtn extends StatelessWidget {
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: AurumTheme.gold,
+          color: accent,
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: AurumTheme.gold.withAlpha(100),
+              color: accent.withAlpha(100),
               blurRadius: player.isPlaying ? 14 : 8,
               offset: const Offset(0, 2),
             ),

@@ -313,6 +313,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) {
                 setState(() => _swipeToChange = v);
                 _save('swipe_to_change', v);
+                AudioPrefs.setSwipeToChange(v);
               }),
 
           // History Duration

@@ -27,6 +27,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../utils/constants.dart';
 import '../services/recommendation_engine.dart';
+import '../services/audio_prefs.dart';
 
 class RecentlyPlayedProvider extends ChangeNotifier {
   static const _boxName         = AppConstants.boxRecentlyPlayed;
@@ -70,6 +71,10 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // v2 addition:  also call RecommendationEngine.onSongStarted().
   // ---------------------------------------------------------------------------
   Future<void> addPlay(Song song) async {
+    // Incognito Mode: don't record history, don't feed the recommendation
+    // engine. This is the single gate that makes the Privacy toggle real.
+    if (AudioPrefs.incognito) return;
+
     // FIX: previously this returned early for local songs, so playing
     // anything from "Local Files" never showed up in History/Recently
     // Played. Local songs should still be recorded — they just don't
@@ -122,6 +127,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // Call from PlayerProvider when position crosses 80%.
   // ---------------------------------------------------------------------------
   void notifyCompletion(Song song) {
+    if (AudioPrefs.incognito) return;
     if (song.source == SongSource.local) return;
     RecommendationEngine.onSongCompleted(song);
   }
@@ -131,6 +137,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // Call from PlayerProvider when user skips early.
   // ---------------------------------------------------------------------------
   void notifySkip(Song song) {
+    if (AudioPrefs.incognito) return;
     if (song.source == SongSource.local) return;
     RecommendationEngine.onEarlySkip(song);
   }
@@ -140,6 +147,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // Call from PlayerProvider when user replays current song.
   // ---------------------------------------------------------------------------
   void notifyReplay(Song song) {
+    if (AudioPrefs.incognito) return;
     if (song.source == SongSource.local) return;
     RecommendationEngine.onReplay(song);
   }
@@ -149,11 +157,13 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // Call from FavoritesProvider.toggleFavorite().
   // ---------------------------------------------------------------------------
   void notifyFavorited(Song song) {
+    if (AudioPrefs.incognito) return;
     if (song.source == SongSource.local) return;
     RecommendationEngine.onFavorited(song);
   }
 
   void notifyUnfavorited(Song song) {
+    if (AudioPrefs.incognito) return;
     if (song.source == SongSource.local) return;
     RecommendationEngine.onUnfavorited(song);
   }

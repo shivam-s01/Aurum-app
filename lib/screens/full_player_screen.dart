@@ -13,8 +13,10 @@ import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/premium_provider.dart';
+import '../providers/theme_provider.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
+import '../services/audio_prefs.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/premium_gate.dart';
 import 'library_screen.dart' show showAddToPlaylistSheet;
@@ -593,7 +595,7 @@ class _TopBar extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Artwork
 // ─────────────────────────────────────────────────────────────────────────────
-class _Artwork extends StatelessWidget {
+class _Artwork extends StatefulWidget {
   final Song song;
   final PlayerProvider player;
   final double hPad, h, w;
@@ -611,73 +613,149 @@ class _Artwork extends StatelessWidget {
   });
 
   @override
+  State<_Artwork> createState() => _ArtworkState();
+}
+
+class _ArtworkState extends State<_Artwork> {
+  double _dragDx = 0;
+  bool _dragging = false;
+
+  // Higher sensitivity (closer to 100) means a shorter swipe triggers a
+  // skip. We map the 0–100 setting onto a 220px (least sensitive) down to
+  // 70px (most sensitive) drag-distance threshold.
+  double _thresholdFor(double sensitivity) {
+    final t = sensitivity.clamp(0.0, 100.0) / 100.0;
+    return 220.0 - (150.0 * t);
+  }
+
+  void _handleDragEnd() {
+    final sensitivity = AudioPrefs.swipeSensitivity;
+    final threshold = _thresholdFor(sensitivity);
+    if (_dragDx <= -threshold) {
+      HapticFeedback.mediumImpact();
+      widget.player.skipNext().then((allowed) {
+        if (!allowed && mounted) {
+          PremiumGate.show(
+            context,
+            feature: 'Unlimited Skips',
+            description: 'Free users get 6 skips per hour. Upgrade for unlimited.',
+          );
+        }
+      });
+    } else if (_dragDx >= threshold) {
+      HapticFeedback.mediumImpact();
+      widget.player.skipPrev();
+    }
+    setState(() {
+      _dragDx = 0;
+      _dragging = false;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final maxArtSize = (w - hPad * 2).clamp(0.0, h * 0.42);
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: hPad),
-      child: Center(
-        child: SizedBox(
-          width: maxArtSize,
-          height: maxArtSize + 8, // headroom for float offset
-          child: AnimatedBuilder(
-            animation: breatheCtrl,
-            builder: (_, child) {
-              // Float: 0 → -4 → 0 px, eased, same 16s breathe cycle
-              final floatY = -4.0 * Curves.easeInOut.transform(breatheCtrl.value);
-              return Transform.translate(
-                offset: Offset(0, floatY),
-                child: child,
-              );
-            },
-            child: AnimatedBuilder(
-            animation: artworkAnim,
-            builder: (_, child) => Transform.scale(
-              scale: artworkAnim.value,
-              child: child,
-            ),
-            child: Hero(
-              tag: 'aurum_artwork',
-              flightShuttleBuilder: (context, animation, direction, from, to) {
-                return Material(
-                  color: Colors.transparent,
-                  child: ScaleTransition(scale: animation, child: to.widget),
-                );
-              },
-              child: RepaintBoundary(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeOutCubic,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withAlpha(player.isPlaying ? 180 : 110),
-                        blurRadius: player.isPlaying ? 64 : 40,
-                        offset: const Offset(0, 24),
-                        spreadRadius: player.isPlaying ? 4 : 0,
-                      ),
-                      BoxShadow(
-                        color: Colors.black.withAlpha(90),
-                        blurRadius: 18,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
+    final maxArtSize = (widget.w - widget.hPad * 2).clamp(0.0, widget.h * 0.42);
+    return ValueListenableBuilder<bool>(
+      valueListenable: AudioPrefs.swipeToChangeNotifier,
+      builder: (context, swipeEnabled, _) {
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragStart: swipeEnabled
+              ? (_) => setState(() => _dragging = true)
+              : null,
+          onHorizontalDragUpdate: swipeEnabled
+              ? (d) => setState(() => _dragDx += d.delta.dx)
+              : null,
+          onHorizontalDragEnd: swipeEnabled ? (_) => _handleDragEnd() : null,
+          onHorizontalDragCancel: swipeEnabled
+              ? () => setState(() {
+                    _dragDx = 0;
+                    _dragging = false;
+                  })
+              : null,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: widget.hPad),
+            child: Center(
+              child: SizedBox(
+                width: maxArtSize,
+                height: maxArtSize + 8, // headroom for float offset
+                child: AnimatedBuilder(
+                  animation: widget.breatheCtrl,
+                  builder: (_, child) {
+                    // Float: 0 → -4 → 0 px, eased, same 16s breathe cycle
+                    final floatY = -4.0 * Curves.easeInOut.transform(widget.breatheCtrl.value);
+                    // Drag follows the finger horizontally; scales down
+                    // slightly the further it travels, like a card peeling.
+                    final dragScale = _dragging
+                        ? (1.0 - (_dragDx.abs() / 800).clamp(0.0, 0.08))
+                        : 1.0;
+                    return Transform.translate(
+                      offset: Offset(_dragDx * 0.3, floatY),
+                      child: Transform.scale(scale: dragScale, child: child),
+                    );
+                  },
+                  child: AnimatedBuilder(
+                  animation: widget.artworkAnim,
+                  builder: (_, child) => Transform.scale(
+                    scale: widget.artworkAnim.value,
+                    child: child,
                   ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: AurumArtwork(
-                      url: song.artworkUrl,
-                      size: double.infinity,
-                      borderRadius: 20,
+                  child: Hero(
+                    tag: 'aurum_artwork',
+                    flightShuttleBuilder: (context, animation, direction, from, to) {
+                      return Material(
+                        color: Colors.transparent,
+                        child: ScaleTransition(scale: animation, child: to.widget),
+                      );
+                    },
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: AudioPrefs.artworkShapeNotifier,
+                      builder: (context, shape, _) {
+                        final radius = shape == 'Circle'
+                            ? maxArtSize / 2
+                            : shape == 'Square'
+                                ? 4.0
+                                : 20.0;
+                        return RepaintBoundary(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 500),
+                            curve: Curves.easeOutCubic,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(radius),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withAlpha(widget.player.isPlaying ? 180 : 110),
+                                  blurRadius: widget.player.isPlaying ? 64 : 40,
+                                  offset: const Offset(0, 24),
+                                  spreadRadius: widget.player.isPlaying ? 4 : 0,
+                                ),
+                                BoxShadow(
+                                  color: Colors.black.withAlpha(90),
+                                  blurRadius: 18,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(radius),
+                              child: AurumArtwork(
+                                url: widget.song.artworkUrl,
+                                size: double.infinity,
+                                borderRadius: radius,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
+                  ),
                   ),
                 ),
               ),
             ),
-            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -769,6 +847,25 @@ class _SeekBarState extends State<_SeekBar> {
     final trackInactive = isLight ? AurumTheme.lightBgSurface : Colors.white.withAlpha(28);
     final timeColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(92);
 
+    // Settings → Appearance → "Player Slider Style"
+    final sliderStyle = context.watch<ThemeProvider>().playerSliderStyle;
+    final double baseTrackHeight;
+    final double thumbRadius;
+    switch (sliderStyle) {
+      case 'Slim':
+        baseTrackHeight = 1.5;
+        thumbRadius = 4.5;
+        break;
+      case 'Thick':
+        baseTrackHeight = 6.0;
+        thumbRadius = 7.0;
+        break;
+      case 'Rounded':
+      default:
+        baseTrackHeight = 3.0;
+        thumbRadius = 5.5;
+    }
+
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: widget.hPad - 4),
       child: Column(children: [
@@ -776,9 +873,9 @@ class _SeekBarState extends State<_SeekBar> {
           height: 32,
           child: SliderTheme(
             data: SliderThemeData(
-              trackHeight: _dragging ? 4.0 : 3.0,
+              trackHeight: _dragging ? baseTrackHeight + 1 : baseTrackHeight,
               thumbShape: RoundSliderThumbShape(
-                  enabledThumbRadius: _dragging ? 7.5 : 5.5,
+                  enabledThumbRadius: _dragging ? thumbRadius + 2 : thumbRadius,
                   elevation: _dragging ? 4 : 1,
                   pressedElevation: 6),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
@@ -1019,6 +1116,18 @@ class _PremiumPlayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Settings → Appearance → "Player Button Colors": 'Primary' (default,
+    // white circle / black icon — current design), 'White' (explicit, same
+    // as Primary), 'Accent' (uses the user's chosen accent color).
+    final buttonColorMode = context.watch<ThemeProvider>().playerButtonColorMode;
+    final accent = context.watch<ThemeProvider>().accentColor;
+    final circleColor = buttonColorMode == 'Accent' ? accent : Colors.white;
+    final iconColor = buttonColorMode == 'Accent'
+        ? (ThemeData.estimateBrightnessForColor(accent) == Brightness.dark
+            ? Colors.white
+            : Colors.black)
+        : Colors.black;
+
     return Semantics(
       label: isPlaying ? 'Pause' : 'Play',
       button: true,
@@ -1029,11 +1138,11 @@ class _PremiumPlayButton extends StatelessWidget {
           width: 68,
           height: 68,
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: circleColor,
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: Colors.white.withAlpha(38),
+                color: circleColor.withAlpha(38),
                 blurRadius: 32,
                 spreadRadius: 2,
               ),
@@ -1060,7 +1169,7 @@ class _PremiumPlayButton extends StatelessWidget {
                 : Icon(
                     isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
                     key: ValueKey(isPlaying),
-                    color: Colors.black,
+                    color: iconColor,
                     size: 36,
                   ),
           ),
@@ -1080,6 +1189,7 @@ class _FavButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = context.watch<ThemeProvider>().accentColor;
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -1092,7 +1202,7 @@ class _FavButton extends StatelessWidget {
           child: Icon(
             isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
             key: ValueKey(isFav),
-            color: isFav ? AurumTheme.gold : Colors.white.withAlpha(128),
+            color: isFav ? accent : Colors.white.withAlpha(128),
             size: 24,
           ),
         ),
@@ -1930,6 +2040,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
 
     final dividerColor =
         isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14);
+    final accent = context.watch<ThemeProvider>().accentColor;
     final inactiveColor =
         isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(80);
     final inactiveTextColor =
@@ -1958,14 +2069,14 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                           Icon(
                             tabs[i].$1,
                             size: 20,
-                            color: isActive ? AurumTheme.gold : inactiveColor,
+                            color: isActive ? accent : inactiveColor,
                           ),
                           const SizedBox(height: 4),
                           Text(
                             tabs[i].$2,
                             style: TextStyle(
                               color: isActive
-                                  ? AurumTheme.gold
+                                  ? accent
                                   : inactiveTextColor,
                               fontSize: 11,
                               fontWeight: isActive
@@ -1981,7 +2092,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                             width: isActive ? 18 : 0,
                             height: 2,
                             decoration: BoxDecoration(
-                              color: AurumTheme.gold,
+                              color: accent,
                               borderRadius: BorderRadius.circular(1),
                             ),
                           ),
@@ -2770,32 +2881,38 @@ class _LyricsPageState extends State<_LyricsPage> {
         ),
       );
     } else {
-      content = TweenAnimationBuilder<double>(
-        key: const ValueKey('lyrics'),
-        tween: Tween(begin: 0.0, end: 1.0),
-        duration: const Duration(milliseconds: 500),
-        curve: Curves.easeOut,
-        builder: (_, v, child) => Opacity(
-          opacity: v,
-          child: Transform.translate(
-            offset: Offset(0, (1 - v) * 12),
-            child: child,
-          ),
-        ),
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
-          child: Text(
-            _lyrics ?? '',
-            style: TextStyle(
-              color: lyricsColor,
-              fontSize: 16,
-              height: 2.0,
-              fontWeight: FontWeight.w400,
-              letterSpacing: 0.1,
+      content = ValueListenableBuilder<LyricsStyle>(
+        valueListenable: AudioPrefs.lyricsStyleNotifier,
+        builder: (context, style, _) {
+          return TweenAnimationBuilder<double>(
+            key: const ValueKey('lyrics'),
+            tween: Tween(begin: 0.0, end: 1.0),
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOut,
+            builder: (_, v, child) => Opacity(
+              opacity: v,
+              child: Transform.translate(
+                offset: Offset(0, (1 - v) * 12),
+                child: child,
+              ),
             ),
-          ),
-        ),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
+              child: Text(
+                _lyrics ?? '',
+                textAlign: style.position == 'Left' ? TextAlign.left : TextAlign.center,
+                style: TextStyle(
+                  color: lyricsColor,
+                  fontSize: style.textSize,
+                  height: style.lineSpacing,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 0.1,
+                ),
+              ),
+            ),
+          );
+        },
       );
     }
 
@@ -3002,8 +3119,15 @@ class _BgLayer extends StatelessWidget {
       animation: Listenable.merge([bgCtrl, breatheCtrl]),
       builder: (context, _) {
         final t = bgCtrl.value; // 0→1: song change morph
-        // Ease the breathe curve once here, reuse everywhere
-        final bRaw = breatheCtrl.value;
+        // Ease the breathe curve once here, reuse everywhere.
+        // Settings → Appearance → "Background Gradient Animation": when
+        // off, freeze the breathe value instead of stopping the controller
+        // outright (stopping it here would also freeze the artwork float,
+        // which shares this same controller and isn't part of this toggle).
+        final bRaw = (AudioPrefs.enableAnimationsNotifier.value &&
+                AudioPrefs.bgGradientAnimationNotifier.value)
+            ? breatheCtrl.value
+            : 0.5;
         final b = Curves.easeInOut.transform(bRaw); // 0→1→0
 
         // ── Lerped palette colors ──
@@ -3023,6 +3147,24 @@ class _BgLayer extends StatelessWidget {
 
   // ── LIGHT MODE ── Echo Nightly style: blurred artwork + warm overlay + glows
   Widget _buildLight(Color bg1, Color bg2, Color bg3, Color bg4, double b) {
+    // Settings → Appearance: "Dynamic Player Color" off → fall back to a
+    // static gold-tinted palette instead of artwork-extracted colors.
+    final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
+    final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
+    final showBlur = AudioPrefs.showBlurredBgNotifier.value && bgStyle != 'Solid';
+    if (!dynamicColor) {
+      bg1 = Color.lerp(AurumTheme.gold, Colors.white, 0.55)!;
+      bg2 = Color.lerp(AurumTheme.goldDark, Colors.white, 0.48)!;
+      bg3 = Color.lerp(AurumTheme.goldDark, Colors.white, 0.38)!;
+      bg4 = Color.lerp(AurumTheme.goldLight, Colors.white, 0.60)!;
+    }
+
+    // "Solid": a single flat palette color, nothing else — cheapest render,
+    // most minimal look.
+    if (bgStyle == 'Solid') {
+      return ColoredBox(color: bg1);
+    }
+
     return Stack(fit: StackFit.expand, children: [
       // L0: Warm base fallback
       Container(color: const Color(0xFFF2EDE4)),
@@ -3036,7 +3178,9 @@ class _BgLayer extends StatelessWidget {
       // reports of the phone heating up while the full player was visible.
       // The visual gain from that subtle 3% scale breathing was minimal —
       // dropping it removes the costliest recurring operation on this screen.
-      if (song.artworkUrl.isNotEmpty)
+      // Gated by Settings → Appearance → "Show Blurred Background" and
+      // "Player Background Style" ('Gradient'/'Solid' both skip the blur).
+      if (showBlur && bgStyle != 'Gradient' && song.artworkUrl.isNotEmpty)
         ImageFiltered(
           imageFilter: ImageFilter.blur(
             sigmaX: 12, sigmaY: 12,
@@ -3084,6 +3228,20 @@ class _BgLayer extends StatelessWidget {
 
   // ── DARK MODE ── AMOLED-friendly: deep base + blurred artwork tint + glows
   Widget _buildDark(Color bg1, Color bg2, Color bg3, Color bg4, double b) {
+    final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
+    final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
+    final showBlur = AudioPrefs.showBlurredBgNotifier.value && bgStyle != 'Solid';
+    if (!dynamicColor) {
+      bg1 = Color.lerp(AurumTheme.gold, Colors.black, 0.35)!;
+      bg2 = Color.lerp(AurumTheme.goldDark, Colors.black, 0.58)!;
+      bg3 = Color.lerp(AurumTheme.goldDark, Colors.black, 0.78)!;
+      bg4 = Color.lerp(AurumTheme.goldLight, Colors.black, 0.42)!;
+    }
+
+    if (bgStyle == 'Solid') {
+      return ColoredBox(color: Color.lerp(bg1, Colors.black, 0.35)!);
+    }
+
     // Artwork opacity subtly breathes: 0.18 → 0.26
     final artOpacity = 0.18 + b * 0.08;
 
@@ -3110,7 +3268,9 @@ class _BgLayer extends StatelessWidget {
 
       // L2: Artwork tint layer — ImageFiltered for cached blur
       // Dark mode: minimal motion (spec) — opacity breathe only, no scale
-      if (song.artworkUrl.isNotEmpty)
+      // Gated by Settings → Appearance → "Show Blurred Background" and
+      // "Player Background Style" ('Gradient'/'Solid' both skip the blur).
+      if (showBlur && bgStyle != 'Gradient' && song.artworkUrl.isNotEmpty)
         Opacity(
           opacity: artOpacity,
           child: ImageFiltered(

@@ -1,18 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../theme/aurum_theme.dart';
 
 enum AurumThemeMode { dark, light, amoled, system }
 
 class ThemeProvider extends ChangeNotifier {
-  static const _key     = 'aurum_theme_mode';
-  static const _fontKey = 'font_style';
+  static const _key       = 'aurum_theme_mode';
+  static const _fontKey   = 'font_style';
+  static const _accentKey = 'accent_color';
+  static const _btnColorKey = 'player_button_colors';
+  static const _sliderStyleKey = 'player_slider_style';
 
   AurumThemeMode _mode      = AurumThemeMode.dark;
   String         _fontStyle = 'Default';
+  Color          _accentColor = AurumTheme.gold;
+  String         _playerButtonColorMode = 'Primary';
+  String         _playerSliderStyle = 'Rounded';
 
   AurumThemeMode get mode      => _mode;
   String         get fontStyle => _fontStyle;
+
+  /// Premium accent color override. Used by the player screen, player
+  /// buttons, and sliders. Defaults to AurumTheme.gold so the rest of
+  /// the app (which references AurumTheme.gold as a const) is unaffected.
+  Color get accentColor => _accentColor;
+
+  /// 'Primary' (default, white) | 'White' | 'Accent' — drives the color
+  /// of the main play/pause button on the full player screen.
+  String get playerButtonColorMode => _playerButtonColorMode;
+
+  /// 'Slim' | 'Thick' | 'Rounded' (default) — seek bar track/thumb size.
+  String get playerSliderStyle => _playerSliderStyle;
 
   ThemeMode get themeMode {
     switch (_mode) {
@@ -36,7 +55,32 @@ class ThemeProvider extends ChangeNotifier {
       );
     }
     _fontStyle = p.getString(_fontKey) ?? 'Default';
+    final accentInt = p.getInt(_accentKey);
+    if (accentInt != null) _accentColor = Color(accentInt);
+    _playerButtonColorMode = p.getString(_btnColorKey) ?? _playerButtonColorMode;
+    _playerSliderStyle = p.getString(_sliderStyleKey) ?? _playerSliderStyle;
     notifyListeners();
+  }
+
+  Future<void> setPlayerButtonColorMode(String mode) async {
+    _playerButtonColorMode = mode;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_btnColorKey, mode);
+  }
+
+  Future<void> setPlayerSliderStyle(String style) async {
+    _playerSliderStyle = style;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_sliderStyleKey, style);
+  }
+
+  Future<void> setAccentColor(Color color) async {
+    _accentColor = color;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setInt(_accentKey, color.value);
   }
 
   Future<void> setMode(AurumThemeMode mode) async {

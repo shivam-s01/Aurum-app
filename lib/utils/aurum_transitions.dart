@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/audio_prefs.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AurumPageRoute — Premium page transition
@@ -15,6 +16,9 @@ import 'package:flutter/material.dart';
 //
 // • Reverse transition (on pop) automatically mirrors the same curve, so
 //   back-navigation feels just as deliberate as forward navigation.
+// • Respects Settings → Appearance → "Back Animations": when disabled,
+//   collapses to an instant cut (no slide/fade) instead of skipping the
+//   route entirely, so behavior stays correct even mid-toggle.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class AurumPageRoute<T> extends PageRouteBuilder<T> {
@@ -26,11 +30,17 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
           settings: settings,
           fullscreenDialog: fullscreenDialog,
           opaque: true,
-          transitionDuration: const Duration(milliseconds: 400),
-          reverseTransitionDuration: const Duration(milliseconds: 320),
+          transitionDuration: _animsOn()
+              ? const Duration(milliseconds: 400)
+              : Duration.zero,
+          reverseTransitionDuration: _animsOn()
+              ? const Duration(milliseconds: 320)
+              : Duration.zero,
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            if (!_animsOn()) return child;
+
             final curved = CurvedAnimation(
               parent: animation,
               curve: Curves.easeOutCubic,
@@ -62,6 +72,10 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
             );
           },
         );
+
+  // "Enable Animations" (master) AND "Back Animations" must both be on.
+  static bool _animsOn() =>
+      AudioPrefs.enableAnimationsNotifier.value && AudioPrefs.backAnimations;
 
   /// Shortest path: AurumPageRoute.to(context, const SomeScreen());
   static Future<T?> to<T extends Object?>(
