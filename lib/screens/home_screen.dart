@@ -1851,7 +1851,7 @@ class _CuratedPlaylistsSection extends StatelessWidget {
 
 class _PlaylistCard extends StatefulWidget {
   final _PlaylistMeta playlist;
-  const _PlaylistCard({required this.playlist});
+  const _PlaylistCard({super.key, required this.playlist});
 
   @override
   State<_PlaylistCard> createState() => _PlaylistCardState();
