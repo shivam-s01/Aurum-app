@@ -10,8 +10,8 @@ class AppConstants {
   static const String linkedin  = 'https://linkedin.com/in/shivam-s01';
   static const String github    = 'https://github.com/shivam-s01/Aurum-app';
 
-  // Standalone Terms page (no link back to the download/landing page)
-  static const String termsOfUse = 'https://aurumusic.netlify.app/terms.html';
+  // Terms overlay on the main landing page (uses #terms hash)
+  static const String termsOfUse = 'https://aurumusic.netlify.app/#terms';
 
   // API
   static const String apiBase = 'https://aurum-worker.shivamsharma962122.workers.dev';
