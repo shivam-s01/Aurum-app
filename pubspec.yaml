@@ -14,7 +14,7 @@ dependencies:
   just_audio: ^0.9.40
   audio_service: ^0.18.13
   audio_session: ^0.1.18
-  just_waveform: ^0.0.11
+  just_waveform: ^0.0.7
 
   # State Management
   provider: ^6.1.1
