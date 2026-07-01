@@ -134,14 +134,35 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
           _pullDistance = _maxReveal * (1 - math.exp(-raw / _maxReveal));
         });
       }
-    } else if (n is ScrollEndNotification || n is UserScrollNotification) {
-      if (_dragging && !_refreshing) {
+    } else if (n is ScrollEndNotification) {
+      // BUGFIX (2026-07-02): "pull-to-refresh kabhi kaam karta hai kabhi
+      // nahi" — this used to also treat ANY UserScrollNotification as
+      // gesture-end. UserScrollNotification fires the moment the scroll
+      // DIRECTION changes (including right at the start of a drag, with
+      // direction=forward) — not only when the user actually lets go.
+      // That meant _dragging could flip back to false while the finger
+      // was still down, mid-pull, well before the real release. The next
+      // genuine release then saw _dragging already false and silently did
+      // nothing — explaining why it felt random/inconsistent rather than
+      // reliably broken. ScrollEndNotification is the actual, unambiguous
+      // "the user let go / the gesture ended" signal, so it's now the
+      // only thing that finalizes a pull.
+      if (_dragging) {
         _dragging = false;
         if (_pullDistance >= _triggerDistance * 0.72) {
           _startRefresh();
         } else if (_pullDistance > 0) {
           _animateTo(0.0);
         }
+      }
+    } else if (n is UserScrollNotification && n.direction == ScrollDirection.idle) {
+      // Genuine "scrolling has fully stopped" signal (e.g. a fling that
+      // settles without a distinct ScrollEndNotification reaching here).
+      // Kept as a safety net so a pull never gets stuck mid-air, but no
+      // longer treated as equivalent to release on every direction change.
+      if (_dragging && _pullDistance > 0 && _pullDistance < _triggerDistance * 0.72) {
+        _dragging = false;
+        _animateTo(0.0);
       }
     }
     return false;
@@ -1573,7 +1594,7 @@ class _SourceSheet extends StatelessWidget {
                     _SourceOption(
                       icon: Icons.cloud_outlined,
                       label: 'Online Streaming',
-                      subtitle: 'Stream from JioSaavn & sources',
+                      subtitle: 'Stream music online',
                       selected: src.isOnline,
                       onTap: () {
                         if (!src.isOnline) src.toggle();

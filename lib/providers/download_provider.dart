@@ -166,10 +166,17 @@ class DownloadProvider extends ChangeNotifier {
     final cancelToken = CancelToken();
     _cancelTokens[song.id] = cancelToken;
 
+    // FIX (2026-07-02): declared outside the try block so the catch clause
+    // below can reach it too — needed to clean up the orphaned `.part` file
+    // on cancel/failure (see catch block). Previously this leaked a
+    // half-downloaded file on disk every time a download was cancelled or
+    // failed mid-transfer, since nothing ever deleted it afterward.
+    String? tempPath;
+
     try {
       final dir = await _downloadsDir();
       final filePath = '${dir.path}/${_safeFileName(song)}';
-      final tempPath = '$filePath.part';
+      tempPath = '$filePath.part';
 
       await _persist(
         _items[song.id]!.copyWith(status: DownloadStatus.downloading),
@@ -223,6 +230,17 @@ class DownloadProvider extends ChangeNotifier {
       );
       return true;
     } catch (e) {
+      // FIX (2026-07-02): clean up the orphaned partial file left behind on
+      // cancel/failure — previously nothing deleted this, so every
+      // cancelled or failed download quietly left a `.part` file on disk
+      // forever, wasting storage over time.
+      if (tempPath != null) {
+        try {
+          final leftover = File(tempPath);
+          if (await leftover.exists()) await leftover.delete();
+        } catch (_) {}
+      }
+
       if (cancelToken.isCancelled) {
         await _persist(_items[song.id]!.copyWith(status: DownloadStatus.cancelled));
         await NotificationService.instance.cancelProgress(song.id);
