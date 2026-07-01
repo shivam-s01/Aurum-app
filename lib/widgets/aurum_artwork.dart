@@ -29,7 +29,13 @@ class AurumArtwork extends StatelessWidget {
   });
 
   int? get _cacheSize {
-    if (!size.isFinite || size <= 0) return null;
+    // When size is non-finite (e.g. blurred full-screen background layers
+    // that pass size: double.infinity), decoding at full original
+    // resolution is pure waste — a heavy blur (40σ+) destroys all detail
+    // anyway. Cap to a small fixed decode width; visually identical after
+    // blur, but far cheaper to decode and blur.
+    if (!size.isFinite) return 220;
+    if (size <= 0) return null;
     return (size * 2).toInt();
   }
 

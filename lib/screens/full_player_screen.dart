@@ -215,13 +215,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       CurvedAnimation(parent: _springBackCtrl, curve: Curves.easeOutCubic),
     );
     void listener() {
-      _dragY = anim.value;
+      if (!mounted) return;
+      // setState is required here — without it _dragY changes but the
+      // Transform.translate never rebuilds mid-animation, so the sheet
+      // appears to jump/snap back instead of smoothly sliding down.
+      setState(() => _dragY = anim.value);
     }
 
     anim.addListener(listener);
     _springBackCtrl.forward().whenCompleteOrCancel(() {
       anim.removeListener(listener);
-      _dragY = 0;
+      if (mounted) setState(() => _dragY = 0);
     });
   }
 
@@ -470,29 +474,33 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               },
               onVerticalDragUpdate: (d) {
                 if (_panelOpen) return;
-                if (d.delta.dy > 0) {
+                if (d.delta.dy > 0 && !_dragIsUpward) {
                   // Downward: drag-to-dismiss follows the finger.
-                  _dragIsUpward = false;
                   setState(() => _dragY += d.delta.dy);
-                } else if (d.delta.dy < 0 && _dragY == 0) {
-                  // Upward from rest: just mark intent, panel opens on
-                  // release so it isn't half-dragged behind this screen.
+                } else if (d.delta.dy < 0 || _dragIsUpward) {
+                  // Upward: mark intent and let the finger drag the sheet
+                  // up slightly too, so the gesture gives visual feedback
+                  // immediately instead of only reacting on release.
                   _dragIsUpward = true;
+                  setState(() {
+                    _dragY = (_dragY + d.delta.dy).clamp(-60.0, 0.0);
+                  });
                 }
               },
               onVerticalDragEnd: (d) {
                 setState(() => _isDragging = false);
                 final velocity = d.primaryVelocity ?? 0;
 
-                if (_dragY > 110 || velocity > 750) {
+                if (!_dragIsUpward && (_dragY > 110 || velocity > 750)) {
                   // Reset drag offset BEFORE starting the reverse slide —
                   // otherwise Transform.translate(_dragY) keeps stacking on
                   // top of _entryCtrl's reverse animation, causing a visible
                   // jump/freeze right as it hands off to the mini player.
                   setState(() => _dragY = 0);
                   _close();
-                } else if (_dragY == 0 &&
-                    (_dragIsUpward || velocity < -400)) {
+                } else if (_dragIsUpward &&
+                    (_dragY < -20 || velocity < -400)) {
+                  setState(() => _dragY = 0);
                   _openPanel();
                 } else {
                   _springBackDrag();
@@ -500,7 +508,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 _dragIsUpward = false;
               },
               child: Transform.translate(
-                offset: Offset(0, _dragY.clamp(0.0, 280.0)),
+                offset: Offset(0, _dragY.clamp(-60.0, 280.0)),
                 child: Transform.scale(
                   scale: dragScale,
                   child: Opacity(
@@ -3344,20 +3352,26 @@ class _BgLayer extends StatelessWidget {
 
       // L1: Artwork fills screen — blurred into color atmosphere, but
       // kept vivid enough to actually read as the artwork's palette.
+      // RepaintBoundary isolates the expensive blur layer so sibling
+      // layers (gradient/orbs, which redraw every breathe tick) don't
+      // force this to repaint too — the blur is composited once and
+      // just re-used each frame.
       if (song.artworkUrl.isNotEmpty)
-        Opacity(
-          opacity: 0.86 + b * 0.08,
-          child: Transform.scale(
-            scale: 1.55,
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(
-                sigmaX: 46, sigmaY: 46,
-                tileMode: TileMode.clamp,
-              ),
-              child: AurumArtwork(
-                url: song.artworkUrl,
-                size: double.infinity,
-                borderRadius: 0,
+        RepaintBoundary(
+          child: Opacity(
+            opacity: 0.86 + b * 0.08,
+            child: Transform.scale(
+              scale: 1.55,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(
+                  sigmaX: 40, sigmaY: 40,
+                  tileMode: TileMode.clamp,
+                ),
+                child: AurumArtwork(
+                  url: song.artworkUrl,
+                  size: double.infinity,
+                  borderRadius: 0,
+                ),
               ),
             ),
           ),
@@ -3421,41 +3435,49 @@ class _BgLayer extends StatelessWidget {
 
       // L1: Artwork fills entire background — the Echo Nightly way.
       //     Scale > 1 so edges bleed out (no letterboxing).
-      //     Blur at 55σ: artwork is fully unrecognisable as an image,
-      //     it reads as pure color atmosphere.
+      //     Blur at 42σ: artwork is fully unrecognisable as an image,
+      //     it reads as pure color atmosphere. RepaintBoundary isolates
+      //     this expensive layer from the orb/gradient layers, which
+      //     redraw every breathe tick — the blur itself is composited
+      //     once per opacity change, not re-run every frame.
       if (song.artworkUrl.isNotEmpty)
-        Opacity(
-          opacity: artOpacity,
-          child: Transform.scale(
-            scale: 1.55,
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(
-                sigmaX: 55, sigmaY: 55,
-                tileMode: TileMode.clamp,
-              ),
-              child: AurumArtwork(
-                url: song.artworkUrl,
-                size: double.infinity,
-                borderRadius: 0,
+        RepaintBoundary(
+          child: Opacity(
+            opacity: artOpacity,
+            child: Transform.scale(
+              scale: 1.55,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(
+                  sigmaX: 42, sigmaY: 42,
+                  tileMode: TileMode.clamp,
+                ),
+                child: AurumArtwork(
+                  url: song.artworkUrl,
+                  size: double.infinity,
+                  borderRadius: 0,
+                ),
               ),
             ),
           ),
         ),
 
       // L2: Color palette gradient tint — deepens the artwork colors
-      //     so they stay saturated even on AMOLED
+      //     so they stay saturated even on AMOLED. Isolated in its own
+      //     RepaintBoundary since its center drifts every breathe tick.
       if (bgStyle != 'Gradient')
-        Container(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment(-0.25 + b * 0.08, -0.55),
-              radius: 1.35,
-              colors: [
-                bg1.withAlpha(130),
-                bg2.withAlpha(90),
-                Colors.transparent,
-              ],
-              stops: const [0.0, 0.45, 1.0],
+        RepaintBoundary(
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(-0.25 + b * 0.08, -0.55),
+                radius: 1.35,
+                colors: [
+                  bg1.withAlpha(130),
+                  bg2.withAlpha(90),
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.45, 1.0],
+              ),
             ),
           ),
         ),
@@ -3598,6 +3620,28 @@ class _MarqueeTextState extends State<_MarqueeText>
   late final AnimationController _ctrl;
   bool _overflowing = false;
 
+  // Cached TextPainter + the (text, style) it was built for. Rebuilding
+  // and re-laying-out a TextPainter on every animation tick (60/sec while
+  // scrolling) was a real perf hit — measurable jank that made drag
+  // gestures on this screen feel like they were dropping frames /
+  // "auto-snapping". Now layout only runs when the text or style
+  // actually changes.
+  TextPainter? _tp;
+  String? _tpText;
+  TextStyle? _tpStyle;
+
+  TextPainter _painterFor(String text, TextStyle style) {
+    if (_tp != null && _tpText == text && _tpStyle == style) return _tp!;
+    _tpText = text;
+    _tpStyle = style;
+    _tp = TextPainter(
+      text: TextSpan(text: text, style: style),
+      maxLines: 1,
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: double.infinity);
+    return _tp!;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3614,11 +3658,7 @@ class _MarqueeTextState extends State<_MarqueeText>
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      final tp = TextPainter(
-        text: TextSpan(text: widget.text, style: widget.style),
-        maxLines: 1,
-        textDirection: TextDirection.ltr,
-      )..layout(maxWidth: double.infinity);
+      final tp = _painterFor(widget.text, widget.style);
 
       final overflow = tp.width > constraints.maxWidth;
 
