@@ -416,9 +416,25 @@ class _SearchScreenState extends State<SearchScreen>
       // land on an interactive child first.
       behavior: HitTestBehavior.opaque,
       child: Scaffold(
+        // Was left at the default (true), so THIS Scaffold resized its own
+        // body to avoid the keyboard — but SearchScreen actually lives
+        // inside MainShell's IndexedStack, sitting under an OUTER Scaffold
+        // whose bottomNavigationBar (MiniPlayer + nav bar, ~140-160px) does
+        // NOT resize for the keyboard. Two Scaffolds independently deciding
+        // how much space the keyboard eats produced a squeezed/broken
+        // layout the instant the live-results panel appeared and needed
+        // more vertical room — looking like the screen "went blank" behind
+        // the keyboard. A single Scaffold that doesn't fight the keyboard,
+        // with the scrollable content given explicit bottom padding for
+        // the keyboard height instead, keeps one consistent layout.
+        resizeToAvoidBottomInset: false,
         backgroundColor: AurumTheme.bgOf(context),
         body: SafeArea(
-          child: Column(
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Column(
             children: [
               _buildHeader(context),
               _buildSearchBar(context),
@@ -472,6 +488,7 @@ class _SearchScreenState extends State<SearchScreen>
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),
