@@ -1589,11 +1589,11 @@ class ApiService {
     if (song.source == SongSource.youtube) return resolveStreamUrl(song);
 
     try {
-      final resp = await _dio.get(
-        '$_onrenderBase/api/songs',
-        queryParameters: {'ids': song.id},
+      final resp = await _client.get(
+        Uri.parse('$_saavnPrimary/api/songs?ids=${song.id}'),
       );
-      final data = resp.data;
+      if (resp.statusCode != 200) throw Exception('HTTP ${resp.statusCode}');
+      final data = jsonDecode(resp.body);
       List? songs;
       if (data is Map) {
         final d = data['data'];
