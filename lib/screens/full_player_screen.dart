@@ -49,6 +49,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   late final Animation<Offset> _slideAnim;
   late final Animation<double> _fadeAnim;
 
+  // ── Staggered entry: info, seekbar, controls fade in after artwork ──
+  late final AnimationController _staggerCtrl;
+  late final Animation<double> _infoStagger;
+  late final Animation<double> _seekStagger;
+  late final Animation<double> _ctrlStagger;
+
+  // ── Song change: title cross-fade ──
+  late final AnimationController _titleChangeCtrl;
+  late final Animation<double> _titleFadeAnim;
+  late final Animation<Offset> _titleSlideAnim;
+
   // ── Artwork scale on play/pause/song change ──
   late final AnimationController _artworkCtrl;
   late final Animation<double> _artworkAnim;
@@ -74,9 +85,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // ── Artwork float (5.5s loop, reverse) ──
   late final AnimationController _artworkFloatCtrl;
 
-  // ── Swipe-down to dismiss ──
+  // ── Swipe-down to dismiss / swipe-up to open panel ──
   double _dragY = 0;
   bool _isDragging = false;
+  bool _dragIsUpward = false;
 
   // ── Palette / song cache ──
   String? _lastArtUrl;
@@ -92,15 +104,44 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
     _entryCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 420),
+      duration: const Duration(milliseconds: 480),
     );
     _slideAnim = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
         .animate(CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic));
     _fadeAnim = Tween<double>(begin: 0.0, end: 1.0)
         .animate(CurvedAnimation(
             parent: _entryCtrl,
-            curve: const Interval(0.0, 0.6, curve: Curves.easeOut)));
+            curve: const Interval(0.0, 0.55, curve: Curves.easeOut)));
     _entryCtrl.forward();
+
+    // Stagger: artwork appears with entry, info/seekbar/controls follow
+    _staggerCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
+    _infoStagger = Tween<double>(begin: 0.0, end: 1.0).animate(
+        CurvedAnimation(parent: _staggerCtrl,
+            curve: const Interval(0.18, 0.75, curve: Curves.easeOutCubic)));
+    _seekStagger = Tween<double>(begin: 0.0, end: 1.0).animate(
+        CurvedAnimation(parent: _staggerCtrl,
+            curve: const Interval(0.30, 0.85, curve: Curves.easeOutCubic)));
+    _ctrlStagger = Tween<double>(begin: 0.0, end: 1.0).animate(
+        CurvedAnimation(parent: _staggerCtrl,
+            curve: const Interval(0.42, 1.0, curve: Curves.easeOutCubic)));
+    _staggerCtrl.forward();
+
+    // Song title cross-fade on track change
+    _titleChangeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 340),
+    );
+    _titleFadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+        CurvedAnimation(parent: _titleChangeCtrl, curve: Curves.easeOut));
+    _titleSlideAnim = Tween<Offset>(
+            begin: const Offset(0, 0.08), end: Offset.zero)
+        .animate(CurvedAnimation(
+            parent: _titleChangeCtrl, curve: Curves.easeOutCubic));
+    _titleChangeCtrl.value = 1.0; // starts fully visible
 
     _artworkCtrl = AnimationController(
       vsync: this,
@@ -118,19 +159,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
     _bgColorCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 900),
     );
 
-    // Breathing: bg scale pulse, 12s full cycle (spec: 10-15s)
+    // Breathing: slow 18s cycle — very subtle ambient drift
     _breatheCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 20000),
+      duration: const Duration(milliseconds: 18000),
     )..repeat(reverse: true);
 
-    // Artwork float: separate faster cycle, 5.5s (spec: 5-6s)
+    // Artwork float: 6s pure vertical — Echo Nightly spec
     _artworkFloatCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 9000),
+      duration: const Duration(milliseconds: 6000),
     )..repeat(reverse: true);
   }
 
@@ -139,6 +180,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     aurumRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _entryCtrl.dispose();
+    _staggerCtrl.dispose();
+    _titleChangeCtrl.dispose();
     _artworkCtrl.dispose();
     _artworkFloatCtrl.dispose();
     _playBtnCtrl.dispose();
@@ -237,15 +280,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       _currentBg4 = Color.lerp(_currentBg4, _targetBg4, t) ?? _currentBg4;
 
       if (isLight) {
-        _targetBg1 = Color.lerp(c1, Colors.white, 0.55)!;
-        _targetBg2 = Color.lerp(c2, Colors.white, 0.48)!;
-        _targetBg3 = Color.lerp(c3, Colors.white, 0.38)!;
-        _targetBg4 = Color.lerp(c4, Colors.white, 0.60)!;
+        _targetBg1 = Color.lerp(c1, Colors.white, 0.52)!;
+        _targetBg2 = Color.lerp(c2, Colors.white, 0.44)!;
+        _targetBg3 = Color.lerp(c3, Colors.white, 0.35)!;
+        _targetBg4 = Color.lerp(c4, Colors.white, 0.58)!;
       } else {
-        _targetBg1 = Color.lerp(c1, Colors.black, 0.35)!;
-        _targetBg2 = Color.lerp(c2, Colors.black, 0.58)!;
-        _targetBg3 = Color.lerp(c3, Colors.black, 0.78)!;
-        _targetBg4 = Color.lerp(c4, Colors.black, 0.42)!;
+        // Less black = more saturated, more cinematic — Echo Nightly style
+        _targetBg1 = Color.lerp(c1, Colors.black, 0.22)!;
+        _targetBg2 = Color.lerp(c2, Colors.black, 0.48)!;
+        _targetBg3 = Color.lerp(c3, Colors.black, 0.70)!;
+        _targetBg4 = Color.lerp(c4, Colors.black, 0.30)!;
       }
 
       _bgColorCtrl.forward(from: 0.0);
@@ -255,6 +299,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   void _triggerArtworkAnimation() {
     if (mounted && !_artworkCtrl.isAnimating) {
       _artworkCtrl.forward(from: 0.0);
+    }
+    // Title cross-fade: fade out → snap new title → fade in
+    if (mounted) {
+      _titleChangeCtrl.reverse(from: 1.0).then((_) {
+        if (mounted) _titleChangeCtrl.forward();
+      });
     }
   }
 
@@ -362,22 +412,50 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           child: FadeTransition(
             opacity: _fadeAnim,
             child: GestureDetector(
-              onVerticalDragStart: (_) => setState(() => _isDragging = true),
+              // Single gesture owner for the whole screen — swipe down
+              // dismisses, swipe up opens the queue/lyrics panel. Having
+              // this logic split across two nested GestureDetectors (one
+              // wrapping the whole screen, one wrapping just the body)
+              // put both in the same Flutter gesture arena on the same
+              // axis, so the arena's win/lose resolution was effectively
+              // arbitrary — sometimes swallowing the swipe-up-to-open
+              // gesture, sometimes double-firing, sometimes leaving
+              // _dragY in a stuck state. One detector removes the
+              // ambiguity entirely.
+              onVerticalDragStart: (_) {
+                _dragIsUpward = false;
+                setState(() => _isDragging = true);
+              },
               onVerticalDragUpdate: (d) {
-                if (d.delta.dy > 0) setState(() => _dragY += d.delta.dy);
+                if (_panelOpen) return;
+                if (d.delta.dy > 0) {
+                  // Downward: drag-to-dismiss follows the finger.
+                  _dragIsUpward = false;
+                  setState(() => _dragY += d.delta.dy);
+                } else if (d.delta.dy < 0 && _dragY == 0) {
+                  // Upward from rest: just mark intent, panel opens on
+                  // release so it isn't half-dragged behind this screen.
+                  _dragIsUpward = true;
+                }
               },
               onVerticalDragEnd: (d) {
                 setState(() => _isDragging = false);
-                if (_dragY > 110 || (d.primaryVelocity ?? 0) > 750) {
+                final velocity = d.primaryVelocity ?? 0;
+
+                if (_dragY > 110 || velocity > 750) {
                   // Reset drag offset BEFORE starting the reverse slide —
                   // otherwise Transform.translate(_dragY) keeps stacking on
                   // top of _entryCtrl's reverse animation, causing a visible
                   // jump/freeze right as it hands off to the mini player.
                   setState(() => _dragY = 0);
                   _close();
+                } else if (_dragY == 0 &&
+                    (_dragIsUpward || velocity < -400)) {
+                  _openPanel();
                 } else {
                   setState(() => _dragY = 0);
                 }
+                _dragIsUpward = false;
               },
               child: Transform.translate(
                 offset: Offset(0, _dragY.clamp(0.0, 280.0)),
@@ -433,16 +511,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       final vGapMd = isCompact ? 12.0 : 20.0;
       final hPad = isTablet ? w * 0.16 : 28.0;
 
-      return GestureDetector(
-        onVerticalDragEnd: (d) {
-          if ((d.primaryVelocity ?? 0) < -400) _openPanel();
-        },
-        child: Column(
+      return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _DragHandle(isDragging: _isDragging),
             _TopBar(song: song, onMore: () => _showOptions(context)),
             SizedBox(height: vGapMd),
+            // Artwork — enters with the screen slide (no extra delay)
             _Artwork(
               song: song,
               player: player,
@@ -453,32 +528,71 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               breatheCtrl: _artworkFloatCtrl,
             ),
             SizedBox(height: vGapMd),
-            _SongInfo(
-              song: song,
-              hPad: hPad,
-              isTablet: isTablet,
-              isFav: _isFav,
-              onFavTap: () {
-                PremiumGate.guard(
-                  context,
-                  feature: 'Like Songs',
-                  description: 'Like songs to save them to your library with Aurum Premium.',
-                  onAllowed: () {
-                    HapticFeedback.lightImpact();
-                    setState(() => _isFav = !_isFav);
-                  },
-                );
-              },
+            // Song info — staggered fade+slide up (delay ~90ms)
+            FadeTransition(
+              opacity: _infoStagger,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.06), end: Offset.zero)
+                    .animate(CurvedAnimation(
+                        parent: _staggerCtrl,
+                        curve: const Interval(0.18, 0.75, curve: Curves.easeOutCubic))),
+                child: FadeTransition(
+                  opacity: _titleFadeAnim,
+                  child: SlideTransition(
+                    position: _titleSlideAnim,
+                    child: _SongInfo(
+                      song: song,
+                      hPad: hPad,
+                      isTablet: isTablet,
+                      isFav: _isFav,
+                      onFavTap: () {
+                        PremiumGate.guard(
+                          context,
+                          feature: 'Like Songs',
+                          description: 'Like songs to save them to your library with Aurum Premium.',
+                          onAllowed: () {
+                            HapticFeedback.lightImpact();
+                            setState(() => _isFav = !_isFav);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
             ),
             SizedBox(height: vGapSm),
-            _SeekBar(player: player, hPad: hPad),
+            // Seek bar — delay ~150ms
+            FadeTransition(
+              opacity: _seekStagger,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.05), end: Offset.zero)
+                    .animate(CurvedAnimation(
+                        parent: _staggerCtrl,
+                        curve: const Interval(0.30, 0.85, curve: Curves.easeOutCubic))),
+                child: _SeekBar(player: player, hPad: hPad),
+              ),
+            ),
             SizedBox(height: vGapSm),
-            _Controls(
-              player: player,
-              hPad: hPad,
-              playBtnAnim: _playBtnAnim,
-              bg1: _currentBg1,
-              onPlayTap: () => _onPlayTap(player),
+            // Controls — delay ~220ms
+            FadeTransition(
+              opacity: _ctrlStagger,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.05), end: Offset.zero)
+                    .animate(CurvedAnimation(
+                        parent: _staggerCtrl,
+                        curve: const Interval(0.42, 1.0, curve: Curves.easeOutCubic))),
+                child: _Controls(
+                  player: player,
+                  hPad: hPad,
+                  playBtnAnim: _playBtnAnim,
+                  bg1: _currentBg1,
+                  onPlayTap: () => _onPlayTap(player),
+                ),
+              ),
             ),
             SizedBox(height: isCompact ? 8.0 : 12.0),
             _QualityPills(song: song, hPad: hPad),
@@ -682,10 +796,10 @@ class _ArtworkState extends State<_Artwork> {
                 child: AnimatedBuilder(
                   animation: widget.breatheCtrl,
                   builder: (_, child) {
-                    // Float: 0 → -4 → 0 px, eased, same 16s breathe cycle
-                    final floatY = -4.0 * Curves.easeInOut.transform(widget.breatheCtrl.value);
-                    // Drag follows the finger horizontally; scales down
-                    // slightly the further it travels, like a card peeling.
+                    // Pure vertical float: 0 → -7px → 0, easeInOut — Echo Nightly spec.
+                    // No horizontal drift, no scale — just a clean gentle rise and fall.
+                    final t = Curves.easeInOut.transform(widget.breatheCtrl.value);
+                    final floatY = -7.0 * t;
                     final dragScale = _dragging
                         ? (1.0 - (_dragDx.abs() / 800).clamp(0.0, 0.08))
                         : 1.0;
@@ -783,6 +897,18 @@ class _SongInfo extends StatelessWidget {
     final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
     final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(128);
     final titleSize = isTablet ? 26.0 : 22.0;
+    // Text sits on top of dynamic, artwork-derived background (_BgLayer),
+    // whose color varies per song. A single static text color can't
+    // guarantee contrast against every possible artwork — a soft shadow
+    // (opposite tone from the text) keeps title/artist legible no matter
+    // how light or dark the underlying art is, in both themes.
+    final shadowColor = isLight
+        ? Colors.white.withAlpha(200)
+        : Colors.black.withAlpha(160);
+    final textShadows = [
+      Shadow(color: shadowColor, blurRadius: 16),
+      Shadow(color: shadowColor, blurRadius: 6),
+    ];
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad),
       child: Row(
@@ -800,6 +926,7 @@ class _SongInfo extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     height: 1.15,
                     letterSpacing: -0.5,
+                    shadows: textShadows,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -810,6 +937,7 @@ class _SongInfo extends StatelessWidget {
                     fontSize: 14,
                     fontWeight: FontWeight.w400,
                     letterSpacing: 0.1,
+                    shadows: textShadows,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1278,17 +1406,6 @@ void showSongInfoDialog(BuildContext context, Song song) {
   final textMuted = isLight ? AurumTheme.lightTextSecondary : Colors.white60;
   final divider = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14);
 
-  String sourceLabel() {
-    switch (song.source) {
-      case SongSource.local:
-        return 'Local file';
-      case SongSource.youtube:
-        return 'YouTube';
-      case SongSource.saavn:
-        return 'JioSaavn';
-    }
-  }
-
   final rows = <MapEntry<String, String>>[
     MapEntry('Title', song.title),
     MapEntry('Artist', song.artist),
@@ -1296,7 +1413,9 @@ void showSongInfoDialog(BuildContext context, Song song) {
     if (song.durationString.isNotEmpty) MapEntry('Duration', song.durationString),
     if (song.year != null && song.year!.isNotEmpty) MapEntry('Year', song.year!),
     if (song.language != null && song.language!.isNotEmpty) MapEntry('Language', song.language!),
-    MapEntry('Source', sourceLabel()),
+    // Source row intentionally omitted — backend origin (YouTube/JioSaavn/
+    // Local) is an internal implementation detail and should never surface
+    // in user-facing UI.
   ];
 
   HapticFeedback.lightImpact();
@@ -3145,92 +3264,80 @@ class _BgLayer extends StatelessWidget {
     );
   }
 
-  // ── LIGHT MODE ── Echo Nightly style: blurred artwork + warm overlay + glows
+  // ── LIGHT MODE ── Echo Nightly light: blurred artwork + warm white veil
   Widget _buildLight(Color bg1, Color bg2, Color bg3, Color bg4, double b) {
-    // Settings → Appearance: "Dynamic Player Color" off → fall back to a
-    // static gold-tinted palette instead of artwork-extracted colors.
     final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
     final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
-    final showBlur = AudioPrefs.showBlurredBgNotifier.value && bgStyle != 'Solid';
     if (!dynamicColor) {
-      bg1 = Color.lerp(AurumTheme.gold, Colors.white, 0.55)!;
-      bg2 = Color.lerp(AurumTheme.goldDark, Colors.white, 0.48)!;
-      bg3 = Color.lerp(AurumTheme.goldDark, Colors.white, 0.38)!;
-      bg4 = Color.lerp(AurumTheme.goldLight, Colors.white, 0.60)!;
+      bg1 = Color.lerp(AurumTheme.gold, Colors.white, 0.52)!;
+      bg2 = Color.lerp(AurumTheme.goldDark, Colors.white, 0.44)!;
+      bg3 = Color.lerp(AurumTheme.goldDark, Colors.white, 0.35)!;
+      bg4 = Color.lerp(AurumTheme.goldLight, Colors.white, 0.58)!;
     }
 
-    // "Solid": a single flat palette color, nothing else — cheapest render,
-    // most minimal look.
-    if (bgStyle == 'Solid') {
-      return ColoredBox(color: bg1);
-    }
+    if (bgStyle == 'Solid') return ColoredBox(color: bg1);
 
     return Stack(fit: StackFit.expand, children: [
-      // L0: Warm base fallback
-      Container(color: const Color(0xFFF2EDE4)),
+      // L0: Warm white base
+      const ColoredBox(color: Color(0xFFF5F0EA)),
 
-      // L1: Blurred artwork — ImageFiltered does blur once per frame, GPU-cheap
-      //     because the source image is already decoded/cached.
-      // NOTE: previously wrapped in Transform.scale(scale: 1.0 + b*0.03) tied
-      // to the breathe value — that forced a full re-layout + re-blur of this
-      // subtree on every animation tick (continuous GPU blur recompute for
-      // as long as the screen stays open), which was the main driver behind
-      // reports of the phone heating up while the full player was visible.
-      // The visual gain from that subtle 3% scale breathing was minimal —
-      // dropping it removes the costliest recurring operation on this screen.
-      // Gated by Settings → Appearance → "Show Blurred Background" and
-      // "Player Background Style" ('Gradient'/'Solid' both skip the blur).
-      if (showBlur && bgStyle != 'Gradient' && song.artworkUrl.isNotEmpty)
-        ImageFiltered(
-          imageFilter: ImageFilter.blur(
-            sigmaX: 12, sigmaY: 12,
-            tileMode: TileMode.clamp,
-          ),
-          child: AurumArtwork(
-            url: song.artworkUrl,
-            size: double.infinity,
-            borderRadius: 0,
+      // L1: Artwork fills screen — heavily blurred into pure color atmosphere
+      if (song.artworkUrl.isNotEmpty)
+        Opacity(
+          opacity: 0.68 + b * 0.08,
+          child: Transform.scale(
+            scale: 1.55,
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(
+                sigmaX: 50, sigmaY: 50,
+                tileMode: TileMode.clamp,
+              ),
+              child: AurumArtwork(
+                url: song.artworkUrl,
+                size: double.infinity,
+                borderRadius: 0,
+              ),
+            ),
           ),
         ),
 
-      // L2: Ambient glow orbs — drift slowly, no blur, just soft radial paints
+      // L2: White translucent veil — keeps light mode feel
+      Container(color: Colors.white.withAlpha(115)),
+
+      // L3: Ambient glow orbs
       RepaintBoundary(
         child: CustomPaint(
           painter: _AmbientGlowPainter(
-            color1: bg1,
-            color2: bg4,
-            color3: bg2,
-            breathe: b,
-            isLight: true,
+            color1: bg1, color2: bg4, color3: bg2,
+            breathe: b, isLight: true,
           ),
           size: Size.infinite,
         ),
       ),
 
-      // L3: Gradient scrim for readability — top & bottom darkening
+      // L4: Vignette for text readability
       Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.white.withAlpha(155 - (b * 15).toInt()),
-              Colors.white.withAlpha(60),
-              bg2.withAlpha(55),
-              bg3.withAlpha(120 + (b * 25).toInt()),
+              Colors.white.withAlpha(130),
+              Colors.transparent,
+              Colors.transparent,
+              Colors.white.withAlpha(170),
             ],
-            stops: const [0.0, 0.25, 0.62, 1.0],
+            stops: const [0.0, 0.18, 0.62, 1.0],
           ),
         ),
       ),
     ]);
   }
 
-  // ── DARK MODE ── AMOLED-friendly: deep base + blurred artwork tint + glows
+  // ── DARK MODE ── Echo Nightly spec: artwork IS the background
   Widget _buildDark(Color bg1, Color bg2, Color bg3, Color bg4, double b) {
     final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
     final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
-    final showBlur = AudioPrefs.showBlurredBgNotifier.value && bgStyle != 'Solid';
     if (!dynamicColor) {
       bg1 = Color.lerp(AurumTheme.gold, Colors.black, 0.35)!;
       bg2 = Color.lerp(AurumTheme.goldDark, Colors.black, 0.58)!;
@@ -3242,51 +3349,55 @@ class _BgLayer extends StatelessWidget {
       return ColoredBox(color: Color.lerp(bg1, Colors.black, 0.35)!);
     }
 
-    // Artwork opacity subtly breathes: 0.18 → 0.26
-    final artOpacity = 0.18 + b * 0.08;
+    // Artwork opacity breathes slightly: 0.82 → 0.92
+    final artOpacity = 0.82 + b * 0.10;
 
     return Stack(fit: StackFit.expand, children: [
-      // L0: Pure black base — AMOLED pixels off
+      // L0: Pure black base
       const ColoredBox(color: Color(0xFF000000)),
 
-      // L1: Deep gradient base from palette
-      Container(
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment(-0.3 + b * 0.15, -0.6),
-            radius: 1.4,
-            colors: [
-              bg1.withAlpha(220),
-              bg2.withAlpha(180),
-              bg3.withAlpha(140),
-              const Color(0xFF000000),
-            ],
-            stops: const [0.0, 0.38, 0.68, 1.0],
-          ),
-        ),
-      ),
-
-      // L2: Artwork tint layer — ImageFiltered for cached blur
-      // Dark mode: minimal motion (spec) — opacity breathe only, no scale
-      // Gated by Settings → Appearance → "Show Blurred Background" and
-      // "Player Background Style" ('Gradient'/'Solid' both skip the blur).
-      if (showBlur && bgStyle != 'Gradient' && song.artworkUrl.isNotEmpty)
+      // L1: Artwork fills entire background — the Echo Nightly way.
+      //     Scale > 1 so edges bleed out (no letterboxing).
+      //     Blur at 55σ: artwork is fully unrecognisable as an image,
+      //     it reads as pure color atmosphere.
+      if (song.artworkUrl.isNotEmpty)
         Opacity(
           opacity: artOpacity,
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(
-              sigmaX: 10, sigmaY: 10,
-              tileMode: TileMode.clamp,
-            ),
-            child: AurumArtwork(
-              url: song.artworkUrl,
-              size: double.infinity,
-              borderRadius: 0,
+          child: Transform.scale(
+            scale: 1.55,
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(
+                sigmaX: 55, sigmaY: 55,
+                tileMode: TileMode.clamp,
+              ),
+              child: AurumArtwork(
+                url: song.artworkUrl,
+                size: double.infinity,
+                borderRadius: 0,
+              ),
             ),
           ),
         ),
 
-      // L3: Ambient glow orbs
+      // L2: Color palette gradient tint — deepens the artwork colors
+      //     so they stay saturated even on AMOLED
+      if (bgStyle != 'Gradient')
+        Container(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(-0.25 + b * 0.08, -0.55),
+              radius: 1.35,
+              colors: [
+                bg1.withAlpha(130),
+                bg2.withAlpha(90),
+                Colors.transparent,
+              ],
+              stops: const [0.0, 0.45, 1.0],
+            ),
+          ),
+        ),
+
+      // L3: Ambient glow orbs — palette-colored soft blobs
       RepaintBoundary(
         child: CustomPaint(
           painter: _AmbientGlowPainter(
@@ -3300,19 +3411,21 @@ class _BgLayer extends StatelessWidget {
         ),
       ),
 
-      // L4: Gradient scrim — vignette + bottom darkening for AMOLED
+      // L4: Vignette — keeps text perfectly readable.
+      //     Top: darkened for status bar / drag handle
+      //     Bottom: heavy dark gradient so controls pop
       Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.black.withAlpha(30 + (b * 12).toInt()),
+              Colors.black.withAlpha(160),
               Colors.transparent,
-              Colors.black.withAlpha(110),
+              Colors.transparent,
               Colors.black.withAlpha(210),
             ],
-            stops: const [0.0, 0.30, 0.70, 1.0],
+            stops: const [0.0, 0.18, 0.60, 1.0],
           ),
         ),
       ),
@@ -3346,48 +3459,36 @@ class _AmbientGlowPainter extends CustomPainter {
     final h = size.height;
     final b = breathe;
 
-    // Base alpha: light mode glows are more visible, dark mode subtle.
-    // Swing amplitudes reduced (18→8, 14→6, 10→4) — the original swing was
-    // large enough that, combined with discrete repaint steps (see
-    // shouldRepaint threshold below), the orbs near the screen edges read
-    // as a visible "blink" rather than a smooth ambient breathe. Smaller
-    // swing keeps the effect ambient without being perceptible as flicker.
-    final baseAlpha = isLight ? 55 : 38;
+    // Echo Nightly spec: large saturated orbs that own the whole canvas.
+    // Dark mode: stronger alpha — the background IS the orb color.
+    // Light mode: softer, warm.
+    final baseAlpha = isLight ? 62 : 52;
 
-    // ── Orb 1: Top-left area, drifts right and down slowly ──
+    // ── Orb 1: Upper-left, primary palette color — dominates top half ──
     _drawOrb(
       canvas,
-      center: Offset(
-        w * (0.15 + b * 0.12),
-        h * (0.12 + b * 0.08),
-      ),
-      radiusX: w * 0.55,
-      radiusY: h * 0.38,
-      color: color1.withAlpha(baseAlpha + (b * 8).toInt()),
+      center: Offset(w * (0.12 + b * 0.08), h * (0.08 + b * 0.06)),
+      radiusX: w * 0.75,
+      radiusY: h * 0.52,
+      color: color1.withAlpha(baseAlpha + (b * 14).toInt()),
     );
 
-    // ── Orb 2: Bottom-right, drifts left and up ──
+    // ── Orb 2: Bottom-right, secondary color — dominates lower half ──
     _drawOrb(
       canvas,
-      center: Offset(
-        w * (0.88 - b * 0.10),
-        h * (0.78 - b * 0.06),
-      ),
-      radiusX: w * 0.52,
-      radiusY: h * 0.40,
-      color: color2.withAlpha(baseAlpha - 8 + (b * 6).toInt()),
+      center: Offset(w * (0.92 - b * 0.07), h * (0.82 - b * 0.05)),
+      radiusX: w * 0.70,
+      radiusY: h * 0.48,
+      color: color2.withAlpha(baseAlpha - 6 + (b * 10).toInt()),
     );
 
-    // ── Orb 3: Center-ish, very slow pulse in size ──
+    // ── Orb 3: Center, tertiary — ties the two together ──
     _drawOrb(
       canvas,
-      center: Offset(
-        w * (0.50 + b * 0.05),
-        h * (0.45 - b * 0.04),
-      ),
-      radiusX: w * (0.38 + b * 0.06),
-      radiusY: h * (0.28 + b * 0.05),
-      color: color3.withAlpha(baseAlpha - 16 + (b * 4).toInt()),
+      center: Offset(w * (0.48 + b * 0.04), h * (0.44 - b * 0.03)),
+      radiusX: w * (0.50 + b * 0.08),
+      radiusY: h * (0.36 + b * 0.06),
+      color: color3.withAlpha(baseAlpha - 18 + (b * 8).toInt()),
     );
   }
 
@@ -3411,7 +3512,7 @@ class _AmbientGlowPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_AmbientGlowPainter old) =>
-      (breathe - old.breathe).abs() > 0.008 ||
+      (breathe - old.breathe).abs() > 0.004 ||
       color1 != old.color1 ||
       color2 != old.color2 ||
       color3 != old.color3;
