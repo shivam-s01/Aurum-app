@@ -109,9 +109,16 @@ class _LookaheadCache {
 // =============================================================================
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
+  // BUGFIX (2026-07-01): this had regressed back to a Chrome desktop UA.
+  // This is the exact YouTube-playback-breaking bug that was already fixed
+  // and documented once before: the Cloudflare Worker resolves/signs YouTube
+  // stream URLs for the ANDROID client type, and Google's CDN validates that
+  // the UA on the actual playback request matches what the URL was signed
+  // for. A mismatched UA (Chrome desktop here) causes the CDN to reject the
+  // request — this is what "YouTube songs fail silently" looks like. Must
+  // stay an Android client UA, not a browser UA.
   final _player = AudioPlayer(
-    userAgent:
-        'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+    userAgent: 'com.google.android.youtube/19.29.37 (Linux; U; Android 13) gzip',
   );
 
   List<Song> _queue        = [];
@@ -270,7 +277,21 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
           '${_shortenUrl(freshUrl)}');
 
       final freshSource = LockCachingAudioSource(Uri.parse(freshUrl), tag: _songToMediaItem(songNow));
-      await _player.setAudioSource(freshSource, initialIndex: 0, preload: false);
+      // BUGFIX (2026-07-01): this used to call
+      // setAudioSource(freshSource, ...) with a BARE LockCachingAudioSource,
+      // not wrapped in a ConcatenatingAudioSource — unlike every other real
+      // playback path in this file (playQueue, playSong both wrap in
+      // ConcatenatingAudioSource). _player.audioSource is
+      // ConcatenatingAudioSource checks are used all over this file
+      // (skipToNext, addToQueue, playNext, _resolveQueueInBackground,
+      // _handleMidStreamIdle) — with a bare source, every one of those
+      // checks would silently fail and skip its logic, breaking next/prev
+      // and further recovery for this song until the next full
+      // playQueue()/playSong() call rebuilt a proper sequence. Wrapping it
+      // here keeps the player's internal structure consistent with every
+      // other code path.
+      final freshPlaylist = ConcatenatingAudioSource(children: [freshSource]);
+      await _player.setAudioSource(freshPlaylist, initialIndex: 0, preload: false);
 
       // Verify the retry actually produced a non-idle state before declaring
       // success — setAudioSource() completing without throwing does NOT mean
@@ -321,6 +342,31 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (song.isLocal) return;
     final srcLabel = song.source.name;
 
+    // BUGFIX (2026-07-01): capture the LIVE player index + the song actually
+    // sitting at that index in the player's own sequence right now, not just
+    // _queue[_currentIndex]. This is the fix for "next song plays, then ~10s
+    // later the OLD song comes back and the new one stops." Root cause: this
+    // function used to only guard against a *session* change during its
+    // resolve (which takes up to 12s here). But the player can naturally
+    // advance to the NEXT song in that same 12s window without the session
+    // ID changing at all (a session only bumps on playQueue/playSong, not on
+    // a normal auto-advance). So by the time the resolve for the OLD song
+    // finished, this function would splice that stale recovered source back
+    // into `playerIdx` — which by then held the NEW song — silently
+    // replacing it and seeking back to the old song's position. We now
+    // re-check, right before splicing, that the player's live current index
+    // still holds a sequence entry tagged with THIS song's id. If the user
+    // (or natural playback) has moved on, we abort instead of splicing.
+    final playerIdxAtStart = _player.currentIndex;
+    bool stillOnThisSong() {
+      final liveIdx = _player.currentIndex;
+      if (liveIdx == null || liveIdx != playerIdxAtStart) return false;
+      final seq = _player.sequence;
+      if (seq == null || liveIdx >= seq.length) return false;
+      final tag = seq[liveIdx].tag;
+      return tag is MediaItem && tag.id == song.id;
+    }
+
     debugPrint('[AurumHandler] Stream expired for "${song.title}" '
         '(source=$srcLabel id=${song.id}) at ${pos.inSeconds}s — recovering');
     ApiService.invalidateStream(song);
@@ -339,6 +385,15 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     if (sessionAtError != _playSessionId) return;
 
+    // The user/player moved to a different song while we were resolving —
+    // do NOT splice the old song back in. Just let the new song keep
+    // playing; there's nothing to recover anymore.
+    if (!stillOnThisSong()) {
+      debugPrint('[AurumHandler] Mid-stream recovery for "${song.title}" aborted — '
+          'player has since moved to a different song, nothing to recover.');
+      return;
+    }
+
     if (freshUrl != null) {
       try {
         debugPrint('[AurumHandler] Mid-stream fresh URL for "${song.title}": '
@@ -347,16 +402,24 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         final seq = _player.audioSource;
         if (seq is ConcatenatingAudioSource) {
           final playerIdx = _player.currentIndex ?? 0;
-          if (playerIdx < seq.length) {
+          // Re-verify ONE more time right before mutating the live sequence —
+          // resolveStreamUrl finishing and the moment we actually splice can
+          // still be separated by a scheduler tick during which the index
+          // could change again.
+          if (playerIdx < seq.length && stillOnThisSong()) {
             await seq.removeAt(playerIdx);
             await seq.insert(playerIdx, freshSource);
             await _player.seek(pos, index: playerIdx);
             await _player.play();
             debugPrint('[AurumHandler] Recovered "${song.title}" at ${pos.inSeconds}s ✓');
             return;
-          } else {
+          } else if (playerIdx >= seq.length) {
             debugPrint('[AurumHandler] [ERROR] Mid-stream recovery for "${song.title}" — '
                 'playerIdx ($playerIdx) out of range for sequence length (${seq.length})');
+          } else {
+            debugPrint('[AurumHandler] Mid-stream recovery for "${song.title}" aborted '
+                'right before splice — player moved on in the meantime.');
+            return;
           }
         } else {
           debugPrint('[AurumHandler] [ERROR] Mid-stream recovery for "${song.title}" — '
@@ -383,8 +446,23 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   // ─── CURRENT INDEX STREAM HANDLING ─────────────────────────────────────────
 
+  // BUGFIX (2026-07-01): this used to bail out entirely with
+  // `if (_splicingInProgress) return;` at the top. _splicingInProgress stays
+  // true for the ENTIRE duration of _resolveQueueInBackground — which, for a
+  // long auto-extended queue, can easily take longer than one song's
+  // playtime. If the player naturally auto-advanced to the next track in its
+  // own live ConcatenatingAudioSource while background resolution was still
+  // running, this function used to silently do nothing: _currentIndex never
+  // updated, mediaItem/lock screen never updated, and _queue and the
+  // player's real position drifted apart. That drift is what then made
+  // _handleMidStreamIdle/_handleFreshStartIdle "recover" and splice the
+  // WRONG (old) song back in ~10s later — because they trusted the now-stale
+  // _queue[_currentIndex] as truth. The player's live currentIndexStream is
+  // always the actual truth about what's audibly playing, splicing or not,
+  // so we now always resync to it. _splicingInProgress still guards
+  // _maybeAutoExtendQueue() further down (no reason to kick off another
+  // auto-extend fetch while one is already in flight), just not the sync.
   void _handleCurrentIndexChanged(int? index) {
-    if (_splicingInProgress) return;
     if (index == null) return;
 
     // Sleep timer "finish song" — pause the moment the NEXT song would start.
@@ -395,10 +473,20 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
 
     // Gapless OFF: 600ms pause between tracks
+    // BUGFIX (2026-07-01): this delayed play() had no session guard. If the
+    // user tapped a different song within the 600ms window, this callback
+    // would still fire and blindly call _player.play() on whatever the
+    // player's source was AT THAT LATER MOMENT — which by then could be the
+    // newly-tapped song still mid-resolve, or briefly the old song before
+    // _hardStopAndMute's empty-source swap landed. Capturing the session ID
+    // now and checking it before resuming prevents this from stepping on an
+    // unrelated, newer playback attempt.
     if (!AudioPrefs.gapless && index != _currentIndex &&
         !_isLoadingNewSong && _crossfadeSecs <= 0) {
+      final sessionAtPause = _playSessionId;
       _player.pause();
       Future.delayed(const Duration(milliseconds: 600), () {
+        if (sessionAtPause != _playSessionId) return;
         if (_player.processingState != ProcessingState.idle) {
           _player.play();
         }
@@ -476,12 +564,32 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     });
   }
 
-  // Fade in from 0 → 1 over _crossfadeSecs when a new track starts
+  // Fade in from 0 → 1 over _crossfadeSecs when a new track starts.
+  //
+  // BUGFIX (2026-07-01): two problems fixed here.
+  //   1. This Timer.periodic was never cancelled if _applyCrossfadeFadeIn()
+  //      got called again before the previous one finished (rapid skips) —
+  //      multiple timers could run at once, fighting over setVolume().
+  //      Now we cancel any previous _fadeTimer first.
+  //   2. No session guard. If the user tapped away to a NEW song while an
+  //      old fade timer was still ticking, the stale timer's setVolume()
+  //      calls could run AFTER _hardStopAndMute() had just set volume to 0
+  //      for the new song's silent-resolve window — audibly un-muting
+  //      whatever the player happened to be attached to at that instant.
+  //      This was a second possible cause of old audio being briefly
+  //      audible during a song change. Now the timer checks the session ID
+  //      every tick and stops touching the player the moment it's stale.
   void _applyCrossfadeFadeIn() {
+    _fadeTimer?.cancel();
+    final mySession = _playSessionId;
     final steps = (_crossfadeSecs * 10).round().clamp(1, 120);
     final stepDuration = Duration(milliseconds: (_crossfadeSecs * 1000 ~/ steps));
     var step = 0;
-    Timer.periodic(stepDuration, (timer) {
+    _fadeTimer = Timer.periodic(stepDuration, (timer) {
+      if (mySession != _playSessionId) {
+        timer.cancel();
+        return;
+      }
       step++;
       final vol = step / steps;
       _player.setVolume(vol.clamp(0.0, 1.0));
@@ -496,6 +604,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   // Crossfade duration in seconds (0 = off). Applied at track transitions.
   double _crossfadeSecs = 0.0;
+
+  // BUGFIX (2026-07-01): tracks the currently-running fade-in timer so a new
+  // transition can cancel any still-running previous one (see
+  // _applyCrossfadeFadeIn below for why this matters).
+  Timer? _fadeTimer;
 
   AndroidEqualizer? _equalizer;
   AndroidLoudnessEnhancer? _loudnessEnhancer;
@@ -757,15 +870,33 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     return null;
   }
 
+  // BUGFIX (2026-07-01): this used to pass maxAttempts: 1. Lookahead runs
+  // silently in the background at 70% of the current song — there is no
+  // user actively waiting on it, so there's no real cost to giving it the
+  // same 2-attempt retry a normal resolve gets. With only 1 attempt, a
+  // single slow/flaky YouTube resolve (Piped/Invidious chain, ~28s worst
+  // case) left the lookahead cache empty far more often than it should —
+  // which meant the natural auto-advance moment (song ending) had to fall
+  // back to a full COLD resolve instead of an instant cache hit. That cold
+  // resolve is exactly the multi-second window where the auto-advance race
+  // conditions (stale _currentIndex, mid-stream idle "recovery" splicing
+  // the wrong song back in) do their damage — which is why the "random
+  // song chaos on auto-advance" was reported as worst on YouTube: YouTube's
+  // lookahead was failing silently far more often than Saavn/local, forcing
+  // a cold resolve right at the riskiest moment, far more often.
   Future<void> lookaheadResolve(Song nextSong) async {
     if (nextSong.isLocal) return;
     if (nextSong.id.isEmpty) return;
     if (_LookaheadCache.get(nextSong.id) != null) return;
     debugPrint('[AurumHandler] Lookahead resolving: "${nextSong.title}"');
-    final url = await _resolveFast(nextSong, maxAttempts: 1);
+    final url = await _resolveFast(nextSong, maxAttempts: 2);
     if (url != null) {
       _LookaheadCache.put(nextSong.id, url);
       debugPrint('[AurumHandler] Lookahead cached: "${nextSong.title}"');
+    } else {
+      debugPrint('[AurumHandler] [ERROR] Lookahead resolve failed for '
+          '"${nextSong.title}" (source=${nextSong.source.name}) after 2 attempts — '
+          'will fall back to a cold resolve at auto-advance time.');
     }
   }
 
@@ -792,6 +923,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // sits in a genuinely empty, silent state for the entire duration of the
   // resolve, no matter how long that takes.
   Future<void> _hardStopAndMute() async {
+    _fadeTimer?.cancel();
+    _fadeTimer = null;
     await _player.setVolume(0);
     await _player.pause();
     await _player.stop();
@@ -824,6 +957,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _queue        = List<Song>.from(songs);
     _currentIndex = safeIndex;
     _splicingInProgress = true;
+    // BUGFIX (2026-07-01): playQueue() never called queue.add() here, unlike
+    // playSong() and loadQueueSilently() which both do. AudioService's
+    // `queue` stream is what drives the lock screen's / Android Auto's
+    // queue-aware "Up Next" UI — without publishing it, that UI could show
+    // a stale or empty queue even while mediaItem (title/artist/art) and
+    // actual playback were both fine. playQueue() is the function used
+    // every time a song is tapped from a playlist/album/home screen, so
+    // this was a real gap. Publish immediately, and again below if the
+    // fallback walk (_findFirstPlayableFrom) changes the effective index.
+    queue.add(_queue.map(_songToMediaItem).toList());
     onQueueChanged?.call();
 
     bool started = false;
@@ -1345,6 +1488,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   }
 
   Future<void> disposeHandler() async {
+    _fadeTimer?.cancel();
     _shakeSub?.cancel();
     _interruptionSub?.cancel();
     _noisySub?.cancel();
