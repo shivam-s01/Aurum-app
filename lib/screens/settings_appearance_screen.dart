@@ -239,7 +239,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             title: 'Player Slider Style',
             subtitle: 'Seek bar appearance',
             value: _playerSliderStyle,
-            options: ['Slim', 'Thick', 'Rounded'],
+            options: ['Slim', 'Thick', 'Rounded', 'Waveform'],
             onChanged: (v) { setState(() => _playerSliderStyle = v!); _save('player_slider_style', v!); context.read<ThemeProvider>().setPlayerSliderStyle(v); },
           ),
           _inlineSwitch(context,

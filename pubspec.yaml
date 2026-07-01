@@ -14,6 +14,7 @@ dependencies:
   just_audio: ^0.9.40
   audio_service: ^0.18.13
   audio_session: ^0.1.18
+  just_waveform: ^0.0.11
 
   # State Management
   provider: ^6.1.1
@@ -45,6 +46,7 @@ dependencies:
   # Utils
   rxdart: ^0.27.7
   uuid: ^4.3.3
+  crypto: ^3.0.3
   url_launcher: ^6.3.0
   share_plus: ^10.1.2
   permission_handler: ^11.3.1

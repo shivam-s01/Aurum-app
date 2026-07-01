@@ -17,6 +17,7 @@ import '../providers/theme_provider.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
+import '../services/waveform_service.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/premium_gate.dart';
 import 'library_screen.dart' show showAddToPlaylistSheet;
@@ -1045,6 +1046,24 @@ class _SeekBar extends StatefulWidget {
 
 class _SeekBarState extends State<_SeekBar> {
   bool _dragging = false;
+  double? _dragValue;
+  List<double>? _waveform;
+  String? _waveformFor;
+
+  Future<void> _loadWaveform() async {
+    final song = widget.player.currentSong;
+    if (song == null) return;
+    final key = song.localPath ?? song.streamUrl ?? song.id;
+    if (_waveformFor == key) return;
+    _waveformFor = key;
+    final isLocal = song.isLocal;
+    final path = song.localPath ?? song.streamUrl ?? '';
+    if (path.isEmpty) return;
+    final wf = await WaveformService.getWaveform(path, isLocal: isLocal);
+    if (mounted && _waveformFor == key) {
+      setState(() => _waveform = wf);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1066,10 +1085,38 @@ class _SeekBarState extends State<_SeekBar> {
         baseTrackHeight = 6.0;
         thumbRadius = 7.0;
         break;
+      case 'Waveform':
+        baseTrackHeight = 0;
+        thumbRadius = 0;
+        break;
       case 'Rounded':
       default:
         baseTrackHeight = 3.0;
         thumbRadius = 5.5;
+    }
+
+    if (sliderStyle == 'Waveform') {
+      _loadWaveform();
+      return _WaveformSeekBar(
+        player: widget.player,
+        hPad: widget.hPad,
+        waveform: _waveform,
+        activeColor: trackActive,
+        inactiveColor: trackInactive,
+        timeColor: timeColor,
+        dragging: _dragging,
+        dragValue: _dragValue,
+        onDragStart: () {
+          HapticFeedback.selectionClick();
+          setState(() => _dragging = true);
+        },
+        onDrag: (v) => setState(() => _dragValue = v),
+        onDragEnd: (v) {
+          HapticFeedback.selectionClick();
+          widget.player.seek(v);
+          setState(() { _dragging = false; _dragValue = null; });
+        },
+      );
     }
 
     return Padding(
@@ -1131,8 +1178,155 @@ class _SeekBarState extends State<_SeekBar> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Controls
+// _WaveformSeekBar — premium waveform-style progress bar
 // ─────────────────────────────────────────────────────────────────────────────
+class _WaveformSeekBar extends StatelessWidget {
+  final PlayerProvider player;
+  final double hPad;
+  final List<double>? waveform;
+  final Color activeColor;
+  final Color inactiveColor;
+  final Color timeColor;
+  final bool dragging;
+  final double? dragValue;
+  final VoidCallback onDragStart;
+  final ValueChanged<double> onDrag;
+  final ValueChanged<double> onDragEnd;
+
+  const _WaveformSeekBar({
+    required this.player,
+    required this.hPad,
+    required this.waveform,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.timeColor,
+    required this.dragging,
+    required this.dragValue,
+    required this.onDragStart,
+    required this.onDrag,
+    required this.onDragEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = dragging ? (dragValue ?? player.progress) : player.progress;
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: hPad - 4),
+      child: Column(children: [
+        SizedBox(
+          height: 32,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              void handleUpdate(Offset local) {
+                final v = (local.dx / width).clamp(0.0, 1.0);
+                onDrag(v);
+              }
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragStart: (d) {
+                  onDragStart();
+                  handleUpdate(d.localPosition);
+                },
+                onHorizontalDragUpdate: (d) => handleUpdate(d.localPosition),
+                onHorizontalDragEnd: (_) => onDragEnd(dragValue ?? progress),
+                onTapDown: (d) {
+                  onDragStart();
+                  handleUpdate(d.localPosition);
+                },
+                onTapUp: (_) => onDragEnd(dragValue ?? progress),
+                child: CustomPaint(
+                  size: Size(width, 32),
+                  painter: _WaveformPainter(
+                    bars: waveform,
+                    progress: progress,
+                    activeColor: activeColor,
+                    inactiveColor: inactiveColor,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 2),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(player.positionString,
+                style: TextStyle(color: timeColor, fontSize: 11,
+                    fontWeight: FontWeight.w500, letterSpacing: 0.3)),
+              Text(player.durationString,
+                style: TextStyle(color: timeColor, fontSize: 11,
+                    fontWeight: FontWeight.w500, letterSpacing: 0.3)),
+            ],
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _WaveformPainter extends CustomPainter {
+  final List<double>? bars;
+  final double progress;
+  final Color activeColor;
+  final Color inactiveColor;
+
+  _WaveformPainter({
+    required this.bars,
+    required this.progress,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final data = bars ?? List.filled(60, 0.4);
+    final count = data.length;
+    if (count == 0) return;
+
+    final gap = 2.5;
+    final barWidth = (size.width - gap * (count - 1)) / count;
+    final centerY = size.height / 2;
+    final progressX = size.width * progress;
+
+    final activePaint = Paint()
+      ..color = activeColor
+      ..strokeCap = StrokeCap.round;
+    final inactivePaint = Paint()
+      ..color = inactiveColor
+      ..strokeCap = StrokeCap.round;
+
+    for (int i = 0; i < count; i++) {
+      final x = i * (barWidth + gap) + barWidth / 2;
+      final h = (data[i].clamp(0.08, 1.0)) * (size.height * 0.85);
+      final isActive = x <= progressX;
+      final paint = isActive ? activePaint : inactivePaint;
+      paint.strokeWidth = barWidth.clamp(1.5, 4.0);
+      canvas.drawLine(
+        Offset(x, centerY - h / 2),
+        Offset(x, centerY + h / 2),
+        paint,
+      );
+    }
+
+    // Playhead dot
+    canvas.drawCircle(
+      Offset(progressX, centerY),
+      3.5,
+      Paint()..color = activeColor,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaveformPainter old) =>
+      old.progress != progress || old.bars != bars ||
+      old.activeColor != activeColor || old.inactiveColor != inactiveColor;
+}
+
+
 class _Controls extends StatelessWidget {
   final PlayerProvider player;
   final double hPad;
