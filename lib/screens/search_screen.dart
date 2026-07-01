@@ -290,23 +290,39 @@ class _SearchScreenState extends State<SearchScreen>
     setState(() { _showHistory = false; _liveLoading = true; });
 
     _suggestDebounce = Timer(const Duration(milliseconds: 280), () async {
-      if (!mounted || _controller.text.trim() != query) return;
+      // FIX (blank search screen): if the query changed by the time this
+      // timer fired (user kept typing), we used to bail out here WITHOUT
+      // resetting _liveLoading — which was already set true back in
+      // _onChanged for the newest keystroke. If that newest keystroke's own
+      // timer/callbacks also hit this same stale-query guard, _liveLoading
+      // could get stuck true forever with nothing left to flip it back to
+      // false. Since _buildLivePanel only shows a small loader while
+      // _liveLoading is true and there are no results yet, the rest of the
+      // screen just stayed empty indefinitely — looking like a "blank page"
+      // whenever the user typed fast enough to produce a stale timer.
+      if (!mounted) return;
+      if (_controller.text.trim() != query) return;
 
       // Fire both independently — whichever resolves first updates the UI
       // immediately. Previously these were awaited together, so a slow
       // autocomplete call could hold up already-ready song results.
       ApiService.quickSearch(query).then((songs) {
-        if (!mounted || _controller.text.trim() != query) return;
+        if (!mounted) return;
+        if (_controller.text.trim() != query) return;
         setState(() {
           _liveResults = songs;
           _liveLoading = false;
         });
+      }).catchError((_) {
+        if (!mounted) return;
+        if (_controller.text.trim() != query) return;
+        setState(() => _liveLoading = false);
       });
 
       ApiService.suggest(query).then((suggestions) {
         if (!mounted || _controller.text.trim() != query) return;
         setState(() => _suggestions = suggestions);
-      });
+      }).catchError((_) {});
 
       // also trigger browse if on Browse tab
       if (_tabController.index == 1) _fetchBrowse(query);

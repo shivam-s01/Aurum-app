@@ -155,6 +155,27 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   bool _splicingInProgress = false;
   bool _restoredSilently   = false;
 
+  // FIX (UI thumbnail swap while same song keeps playing): just_audio's
+  // currentIndexStream doesn't ONLY fire on a genuine audible track change —
+  // it can also emit when the underlying ConcatenatingAudioSource is
+  // mutated (seq.add / seq.insert / seq.move / seq.removeAt), because those
+  // operations can shift what index the player's CURRENTLY PLAYING item now
+  // sits at, even though no actual transition happened. addToQueue (used by
+  // the silent auto-extend-queue feature), playNext, removeFromQueue, and
+  // moveQueueItem all call one of those. _handleCurrentIndexChanged used to
+  // trust every emission as "the audible song changed" and would update
+  // mediaItem (title/artist/artwork — what the UI reads as currentSong) to
+  // whatever _queue[index] was at that moment. If that emission was really
+  // just a queue-list mutation echo, the UI would jump to showing a
+  // different song's thumbnail/title while the ACTUAL audio playing was
+  // still the original song — exactly the "UI mein dusra song ka thumbnail
+  // show ho raha hai but same song chal raha hai" symptom.
+  //
+  // Fix: briefly mark queue-mutation calls so _handleCurrentIndexChanged can
+  // tell a mutation-echo apart from a real transition and skip the mediaItem
+  // update for it.
+  bool _queueMutating = false;
+
   // FIX #7: store AudioSession + player subscriptions for cancellation on dispose.
   StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
   StreamSubscription<void>?                  _noisySub;
@@ -464,6 +485,13 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // auto-extend fetch while one is already in flight), just not the sync.
   void _handleCurrentIndexChanged(int? index) {
     if (index == null) return;
+
+    // See _queueMutating doc comment above: a queue-list mutation
+    // (add/insert/move/removeAt on the ConcatenatingAudioSource) can echo
+    // through this same stream without any real audible transition having
+    // happened. Ignore those — the mutating call sites already re-publish
+    // `queue`/mediaItem correctly themselves when needed.
+    if (_queueMutating) return;
 
     // Sleep timer "finish song" — pause the moment the NEXT song would start.
     if (_stopAfterCurrentSong && index != _currentIndex) {
@@ -1271,7 +1299,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (source == null) return;
     if (session != _playSessionId) return;
     final seq = _player.audioSource;
-    if (seq is ConcatenatingAudioSource) await seq.add(source);
+    if (seq is ConcatenatingAudioSource) {
+      _queueMutating = true;
+      try {
+        await seq.add(source);
+      } finally {
+        _queueMutating = false;
+      }
+    }
     // FIX #25: keep AudioService queue in sync.
     queue.add(_queue.map(_songToMediaItem).toList());
   }
@@ -1284,7 +1319,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (source == null) return;
     if (session != _playSessionId) return;
     final seq = _player.audioSource;
-    if (seq is ConcatenatingAudioSource) await seq.insert(insertIdx, source);
+    if (seq is ConcatenatingAudioSource) {
+      _queueMutating = true;
+      try {
+        await seq.insert(insertIdx, source);
+      } finally {
+        _queueMutating = false;
+      }
+    }
     queue.add(_queue.map(_songToMediaItem).toList());
   }
 
@@ -1293,7 +1335,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _queue.removeAt(index);
     final seq = _player.audioSource;
     if (seq is ConcatenatingAudioSource && index < seq.length) {
-      await seq.removeAt(index);
+      _queueMutating = true;
+      try {
+        await seq.removeAt(index);
+      } finally {
+        _queueMutating = false;
+      }
     }
     queue.add(_queue.map(_songToMediaItem).toList());
   }
@@ -1302,7 +1349,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     final song = _queue.removeAt(from);
     _queue.insert(to, song);
     final seq = _player.audioSource;
-    if (seq is ConcatenatingAudioSource) await seq.move(from, to);
+    if (seq is ConcatenatingAudioSource) {
+      _queueMutating = true;
+      try {
+        await seq.move(from, to);
+      } finally {
+        _queueMutating = false;
+      }
+    }
     queue.add(_queue.map(_songToMediaItem).toList());
   }
 
