@@ -1102,8 +1102,10 @@ class ApiService {
           .timeout(const Duration(seconds: 3));
       if (head.statusCode >= 200 && head.statusCode < 400) return true;
       if (head.statusCode == 405 || head.statusCode == 403) {
+        // PERFORMANCE (2026-07-02): shrunk from 1024→256 bytes — same
+        // liveness check, less wasted transfer per resolve.
         final ranged = await _client
-            .get(uri, headers: {'Range': 'bytes=0-1023'})
+            .get(uri, headers: {'Range': 'bytes=0-255'})
             .timeout(const Duration(seconds: 3));
         return ranged.statusCode == 200 || ranged.statusCode == 206;
       }
@@ -1281,15 +1283,17 @@ class ApiService {
     _log('[ytStreamById] Stage 3: Worker extended-timeout retry for $videoId');
     try {
       final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
+      // PERFORMANCE (2026-07-02): same probe-range shrink as Stage 1 —
+      // 256 bytes is enough to confirm liveness/content-type.
       final rangeRes = await _client.get(
         Uri.parse(proxyUrl),
-        headers: {'Range': 'bytes=0-1023'},
+        headers: {'Range': 'bytes=0-255'},
       ).timeout(const Duration(seconds: 30));
       if (rangeRes.statusCode == 206 || rangeRes.statusCode == 200) {
         final ct = (rangeRes.headers['content-type'] ?? '').toLowerCase();
         final isAudio = ct.contains('audio') || ct.contains('octet') ||
             ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
-        if (isAudio || rangeRes.bodyBytes.length > 512) {
+        if (isAudio || rangeRes.bodyBytes.length > 128) {
           _log('[ytStreamById] Stage 3 Worker proxy OK for $videoId ✓');
           return proxyUrl;
         }
@@ -1371,16 +1375,22 @@ class ApiService {
   // unreliable against googlevideo.com) that the phone can actually open it.
   static Future<String?> _workerYtStream(String videoId) async {
     // ── PRIMARY: /api/yt-proxy — IP-safe, always playable from any network ──
+    // PERFORMANCE (2026-07-02): probe range shrunk from 1024→256 bytes.
+    // This is a pure liveness/content-type sniff before real playback ever
+    // starts — headers + a few hundred bytes is already enough to confirm
+    // "the proxy is alive and returning audio," so pulling a full 1KB was
+    // wasted transfer on every single tap. Detection logic (content-type
+    // check, body-length fallback) is unchanged, just cheaper.
     try {
       final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
       final probe = await _client
-          .get(Uri.parse(proxyUrl), headers: {'Range': 'bytes=0-1023'})
+          .get(Uri.parse(proxyUrl), headers: {'Range': 'bytes=0-255'})
           .timeout(const Duration(seconds: 16));
       if (probe.statusCode == 200 || probe.statusCode == 206) {
         final ct = (probe.headers['content-type'] ?? '').toLowerCase();
         final looksAudio = ct.contains('audio') || ct.contains('octet') ||
             ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
-        if (looksAudio || probe.bodyBytes.length > 512) {
+        if (looksAudio || probe.bodyBytes.length > 128) {
           _log('[worker] /api/yt-proxy OK for $videoId (IP-safe path)');
           return proxyUrl;
         }

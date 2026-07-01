@@ -109,6 +109,23 @@ class _LookaheadCache {
 // =============================================================================
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
+  // =============================================================================
+  // BUGFIX (2026-07-02): Bass Boost / 10-band Equalizer were completely
+  // non-functional. Root cause: `_equalizer`/`_loudnessEnhancer` were built
+  // as bare standalone objects, but `_player` had NO `audioPipeline:` at
+  // all. In just_audio, Android audio effects only touch real audio when
+  // passed into an `AudioPipeline(androidAudioEffects: [...])` at PLAYER
+  // CONSTRUCTION time — anything not in a pipeline is inert (calls succeed,
+  // nothing audible changes). Also, `_applySettings()` never read the
+  // `eq_band_0..9` values the EQ screen was saving.
+  //
+  // FIX: build the effects first, wire them into a real AudioPipeline, pass
+  // that into AudioPlayer(...). Bass Boost now drives BOTH a strong
+  // LoudnessEnhancer gain AND actual low-band EQ shaping (sub-bass/bass),
+  // the same two-stage approach commercial players use so it sounds
+  // genuinely "tagda"/punchy, not just louder overall.
+  // =============================================================================
+
   // BUGFIX (2026-07-01): this had regressed back to a Chrome desktop UA.
   // This is the exact YouTube-playback-breaking bug that was already fixed
   // and documented once before: the Cloudflare Worker resolves/signs YouTube
@@ -117,8 +134,54 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // for. A mismatched UA (Chrome desktop here) causes the CDN to reject the
   // request — this is what "YouTube songs fail silently" looks like. Must
   // stay an Android client UA, not a browser UA.
-  final _player = AudioPlayer(
+  //
+  // DSP chain order: LoudnessEnhancer (overall perceived-loudness boost)
+  // runs BEFORE Equalizer (per-band shaping) in the pipeline list.
+  final AndroidLoudnessEnhancer _loudnessEnhancer = AndroidLoudnessEnhancer();
+  final AndroidEqualizer _equalizer = AndroidEqualizer();
+
+  late final AudioPipeline _audioPipeline = AudioPipeline(
+    androidAudioEffects: [_loudnessEnhancer, _equalizer],
+  );
+
+  // =============================================================================
+  // PERFORMANCE (2026-07-02): "YouTube songs feel heavy / phone heats up"
+  // -----------------------------------------------------------------------
+  // ExoPlayer's DEFAULT buffer/load settings are tuned for general video
+  // streaming (can hold up to ~50MB / 30-50s ahead per track) — way more
+  // than a music app ever needs, since audio bitrates are tiny compared to
+  // video. That oversized default buffer means more sustained network
+  // activity, more memory held resident, and more radio wake time than
+  // audio-only playback actually requires — a real, measurable contributor
+  // to background CPU/network load and device heat during long YouTube
+  // listening sessions.
+  //
+  // This config keeps enough buffer ahead for smooth, gapless, uninterrupted
+  // playback (min 15s, max 50s buffered) while capping it well below
+  // ExoPlayer's video-oriented defaults — small enough to noticeably cut
+  // sustained network/CPU activity, large enough that normal listening never
+  // audibly stutters or rebuffers. Nothing about resolve, fallback, or
+  // recovery logic changes — this only shapes how much of an ALREADY-
+  // resolved stream ExoPlayer keeps buffered in memory at once.
+  // =============================================================================
+  late final AudioLoadConfiguration _loadConfiguration = AudioLoadConfiguration(
+    androidLoadControl: AndroidLoadControl(
+      minBufferDuration: const Duration(seconds: 15),
+      maxBufferDuration: const Duration(seconds: 50),
+      bufferForPlaybackDuration: const Duration(milliseconds: 1500),
+      bufferForPlaybackAfterRebufferDuration: const Duration(seconds: 3),
+      targetBufferBytes: 4 * 1024 * 1024, // 4MB cap — plenty for audio, far below video-oriented defaults
+      prioritizeTimeOverSizeThresholds: true,
+    ),
+    darwinLoadControl: const DarwinLoadControl(
+      preferredForwardBufferDuration: Duration(seconds: 20),
+    ),
+  );
+
+  late final _player = AudioPlayer(
     userAgent: 'com.google.android.youtube/19.29.37 (Linux; U; Android 13) gzip',
+    audioPipeline: _audioPipeline,
+    audioLoadConfiguration: _loadConfiguration,
   );
 
   List<Song> _queue        = [];
@@ -178,11 +241,17 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   // FIX #7: store AudioSession + player subscriptions for cancellation on dispose.
   StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
-  StreamSubscription<void>?                  _noisySub;
-  StreamSubscription<PlaybackEvent>?         _broadcastSub;
-  StreamSubscription<PlaybackEvent>?         _idleSub;
-  StreamSubscription<Duration?>?             _durationSub;
-  StreamSubscription<int?>?                  _currentIndexSub;
+  StreamSubscription<void>? _noisySub;
+  StreamSubscription<PlaybackEvent>? _broadcastSub;
+  StreamSubscription<PlaybackEvent>? _idleSub;
+  StreamSubscription<Duration?>? _durationSub;
+  StreamSubscription<int?>? _currentIndexSub;
+
+  // Volume captured right before a `duck` interruption begins, so it can be
+  // restored exactly (rather than hardcoded to 1.0) when the duck ends —
+  // see the interruptionEventStream listener in _init() for the fix this
+  // supports (duck should lower volume, not pause playback).
+  double? _volumeBeforeDuck;
 
   StreamSubscription<AccelerometerEvent>? _shakeSub;
   DateTime _lastShake = DateTime.now();
@@ -195,18 +264,42 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> _init() async {
     await AudioPrefs.load();
 
-    // DSP pipeline: LoudnessEnhancer → Equalizer → Player
-    _loudnessEnhancer = AndroidLoudnessEnhancer();
-    _equalizer = AndroidEqualizer();
+    // NOTE: _loudnessEnhancer / _equalizer / _audioPipeline / _player are
+    // now all constructed as `final`/`late final` fields above (see the
+    // 2026-07-02 bugfix note at the top of this class) so the effects are
+    // guaranteed to be attached to the player's real audio pipeline before
+    // any playback starts. Nothing to construct here anymore.
 
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
 
+    // BUGFIX (2026-07-02): "random pause" — this used to call
+    // _player.pause() for EVERY interruption, duck or not. A `duck` event
+    // (brief notification sound, keyboard click, another app grabbing
+    // audio for a second) is specifically the signal Android sends when
+    // playback should just get QUIETER, not stop — pausing on duck is why
+    // playback appeared to randomly pause whenever another app made any
+    // sound, whenever duckOnNotifications was on. Full (non-duck)
+    // interruptions also fire far more often than literal phone calls —
+    // any app requesting exclusive audio focus triggers one — but pausing
+    // for those is still the semantically correct response, so that half
+    // is unchanged.
     _interruptionSub = session.interruptionEventStream.listen((event) {
       final isDuck = event.type == AudioInterruptionType.duck;
 
-      if (isDuck && !AudioPrefs.duckOnNotifications) return;
-      if (!isDuck && !AudioPrefs.pauseOnCall) return;
+      if (isDuck) {
+        if (!AudioPrefs.duckOnNotifications) return;
+        if (event.begin) {
+          _volumeBeforeDuck ??= _player.volume;
+          _player.setVolume((_volumeBeforeDuck! * 0.35).clamp(0.0, 1.0));
+        } else {
+          _player.setVolume(_volumeBeforeDuck ?? 1.0);
+          _volumeBeforeDuck = null;
+        }
+        return;
+      }
+
+      if (!AudioPrefs.pauseOnCall) return;
 
       if (event.begin) {
         _player.pause();
@@ -638,8 +731,28 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // _applyCrossfadeFadeIn below for why this matters).
   Timer? _fadeTimer;
 
-  AndroidEqualizer? _equalizer;
-  AndroidLoudnessEnhancer? _loudnessEnhancer;
+  // Bass Boost strength, in millibels, applied to AndroidLoudnessEnhancer.
+  // just_audio's setTargetGain takes MILLIBELS (100 = 1dB), so 1800 = +18dB.
+  // Old value was 800 (+8dB) — barely audible even when the pipeline WAS
+  // attached. +18dB on the loudness enhancer alone is already a strong,
+  // clearly-audible push; combined with the low-band EQ shelf below it
+  // reads as genuinely "premium/tagda" bass rather than just "louder".
+  static const int _bassBoostLoudnessGainMb = 1800;
+
+  // Extra EQ gain (in dB) added on TOP of the user's saved band values for
+  // the two lowest bands (32Hz sub-bass, 64Hz bass) when Bass Boost is on.
+  // This is what gives the boost actual low-end WEIGHT/punch instead of
+  // sounding like the whole track just got louder — a plain loudness
+  // enhancer boosts everything roughly equally, but ears perceive "bass
+  // boost" specifically as more low-frequency energy relative to the rest.
+  static const double _bassBoostSubBassExtraDb = 7.0; // 32Hz band
+  static const double _bassBoostBassExtraDb    = 5.0; // 64Hz band
+
+  // AndroidEqualizer clamps to whatever range the device's Equalizer effect
+  // reports (commonly ±15dB, sometimes ±12dB) — clamp defensively so a
+  // combined "saved band + bass boost extra" gain never gets silently
+  // rejected by the platform for being out of range.
+  static const double _eqGainClampDb = 15.0;
 
   Future<void> _applySettings() async {
     await AudioPrefs.load();
@@ -652,28 +765,56 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     // Crossfade
     _crossfadeSecs = p.getDouble('crossfade_duration') ?? 0.0;
 
-    // Bass Boost via AndroidLoudnessEnhancer (boosts perceived bass/loudness)
     final bassBoost = p.getBool('bass_boost') ?? false;
-    try {
-      if (_loudnessEnhancer != null) {
-        await _loudnessEnhancer!.setEnabled(bassBoost);
-        if (bassBoost) await _loudnessEnhancer!.setTargetGain(800); // ~8dB boost
-      }
-    } catch (_) {}
+    final volNorm   = p.getBool('volume_normalization') ?? false;
 
-    // Volume Normalization via AndroidEqualizer (flat EQ = normalized reference)
-    final volNorm = p.getBool('volume_normalization') ?? false;
+    // ── STAGE 1: LoudnessEnhancer — strong overall gain when Bass Boost is on.
     try {
-      if (_equalizer != null) {
-        final params = await _equalizer!.parameters;
-        // Vol norm: flatten all bands to 0 for consistent perceived loudness
-        if (volNorm) {
-          for (final band in params.bands) {
-            await band.setGain(0.0);
-          }
-        }
+      await _loudnessEnhancer.setEnabled(bassBoost);
+      if (bassBoost) {
+        await _loudnessEnhancer.setTargetGain(_bassBoostLoudnessGainMb);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[AurumHandler] LoudnessEnhancer apply failed: $e');
+    }
+
+    // ── STAGE 2: Equalizer — user's saved 10-band curve, PLUS a low-end
+    // shelf boost stacked on top when Bass Boost is on. This is what makes
+    // the bass boost sound like real bass, not just "everything louder".
+    try {
+      await _equalizer.setEnabled(true);
+      final params = await _equalizer.parameters;
+      final bands  = params.bands;
+      final bandCount = bands.length;
+
+      // Volume Normalization only flattens to a neutral 0dB curve when the
+      // user hasn't actually set a custom EQ (i.e. all saved bands are
+      // still 0/default). If they've picked a preset or dragged sliders,
+      // their curve is respected — vol-norm no longer silently overwrites
+      // a deliberately-set EQ, it only supplies the neutral default.
+      final savedBands = List.generate(
+        bandCount,
+        (i) => p.getDouble('eq_band_$i') ?? 0.0,
+      );
+      final hasCustomCurve = savedBands.any((g) => g != 0.0);
+
+      for (int i = 0; i < bandCount; i++) {
+        double gain = (volNorm && !hasCustomCurve) ? 0.0 : savedBands[i];
+
+        // Stack the bass-boost shelf onto the two lowest bands (index 0 =
+        // ~32Hz sub-bass, index 1 = ~64Hz bass on the standard 10-band
+        // layout used by EqualizerScreen).
+        if (bassBoost) {
+          if (i == 0) gain += _bassBoostSubBassExtraDb;
+          if (i == 1) gain += _bassBoostBassExtraDb;
+        }
+
+        gain = gain.clamp(-_eqGainClampDb, _eqGainClampDb);
+        await bands[i].setGain(gain);
+      }
+    } catch (e) {
+      debugPrint('[AurumHandler] Equalizer apply failed: $e');
+    }
 
     // Shake to skip
     final shakeEnabled = p.getBool('shake_to_skip') ?? false;
@@ -1135,11 +1276,55 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     return e.toString();
   }
 
+  // =============================================================================
+  // PERFORMANCE (2026-07-02): "YouTube songs heavy / phone heats up, time waste"
+  // -----------------------------------------------------------------------
+  // _resolveQueueInBackground used to resolve + network-fetch EVERY remaining
+  // song in the queue immediately, back-to-back, the instant playback
+  // started. For YouTube specifically, each resolve can involve a Worker
+  // probe request and — on failure — a parallel blast race across multiple
+  // Piped/Invidious instances. Tapping a 30-50 song playlist meant firing
+  // that entire chain 30-50 times almost simultaneously, most of it for
+  // songs the user might not reach for another 20+ minutes (or ever, if
+  // they skip around). That's sustained radio/CPU activity competing with
+  // the actually-playing song — the real source of "load/heat/time waste."
+  //
+  // FIX (nothing removed — every song still gets fully resolved and
+  // spliced in before playback would reach it, exactly as before):
+  //   1. PRIORITY WINDOW — the next few songs (and previous few, for
+  //      instant back-skip) resolve immediately, back-to-back, same as
+  //      before. This is what actually matters for smooth/instant
+  //      skip-ahead, so zero change in responsiveness here.
+  //   2. PACED TAIL — everything beyond the priority window still gets
+  //      resolved and spliced in, just with a small delay between each one
+  //      instead of firing all at once. A typical song is 3+ minutes; even
+  //      a modest pacing delay finishes resolving a 50-song queue well
+  //      before a real listener could ever reach the back of it, while
+  //      collapsing dozens of simultaneous network calls into a gentle
+  //      trickle — the actual fix for sustained background load/heat.
+  // =============================================================================
+  static const int _priorityForwardWindow = 3; // resolved immediately, no pacing
+  static const int _priorityBackwardWindow = 2; // resolved immediately, no pacing
+  static const Duration _pacedResolveDelay = Duration(milliseconds: 900);
+
   // FIX #26: Future<void> not void — unhandled errors won't escape to zone.
   Future<void> _resolveQueueInBackground(List<Song> songs, int startIndex, int sessionId) async {
     try {
-      for (int i = startIndex + 1; i < songs.length; i++) {
+      // ── Forward: priority window first (unpaced), then the rest (paced) ──
+      final forwardEnd = songs.length;
+      for (int i = startIndex + 1; i < forwardEnd; i++) {
         if (sessionId != _playSessionId) return;
+
+        final distanceFromStart = i - startIndex;
+        if (distanceFromStart > _priorityForwardWindow) {
+          // Beyond the priority window — pace ourselves so a long queue
+          // doesn't fire dozens of resolves in a tight burst. Still
+          // guarantees every song is ready well before natural playback
+          // could reach it.
+          await Future.delayed(_pacedResolveDelay);
+          if (sessionId != _playSessionId) return;
+        }
+
         try {
           final source = await _sourceForSong(songs[i], sessionId: sessionId);
           if (sessionId != _playSessionId) return;
@@ -1147,14 +1332,26 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
             final seq = _player.audioSource;
             if (seq is ConcatenatingAudioSource && sessionId == _playSessionId) {
               await seq.add(source);
+              // BUGFIX: see addToQueue's doc comment — re-sync against the
+              // live player index in case a real transition landed during
+              // this splice (same race this file already guards elsewhere).
+              _handleCurrentIndexChanged(_player.currentIndex);
             }
           }
         } catch (_) {}
       }
 
+      // ── Backward: priority window first (unpaced), then the rest (paced) ──
       int playerIndex = 0;
       for (int i = startIndex - 1; i >= 0; i--) {
         if (sessionId != _playSessionId) return;
+
+        final distanceFromStart = startIndex - i;
+        if (distanceFromStart > _priorityBackwardWindow) {
+          await Future.delayed(_pacedResolveDelay);
+          if (sessionId != _playSessionId) return;
+        }
+
         try {
           final source = await _sourceForSong(songs[i], sessionId: sessionId);
           if (sessionId != _playSessionId) return;
@@ -1164,6 +1361,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
               await seq.insert(0, source);
               playerIndex++;
               await _player.seek(_player.position, index: playerIndex);
+              _handleCurrentIndexChanged(_player.currentIndex);
             }
           }
         } catch (_) {}
@@ -1306,6 +1504,20 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       } finally {
         _queueMutating = false;
       }
+      // BUGFIX (2026-07-02): "UI shows a different song while audio plays
+      // correctly" — see _queueMutating doc comment. _queueMutating being
+      // true for the whole `await seq.add(...)` window can swallow a
+      // GENUINE transition that happens to land in that same window (e.g.
+      // the current song naturally ends and the player auto-advances at
+      // the exact moment auto-extend-queue is silently adding more songs
+      // in the background, which is common since auto-extend triggers near
+      // the end of the queue — i.e. near the end of a song). Immediately
+      // after the mutation flag is cleared, force a re-sync against
+      // whatever the player's live currentIndex actually is right now —
+      // if a real transition happened during the mutation, this catches it
+      // instantly instead of leaving _currentIndex/mediaItem stale until
+      // the next unrelated event. This call is a no-op if nothing changed.
+      _handleCurrentIndexChanged(_player.currentIndex);
     }
     // FIX #25: keep AudioService queue in sync.
     queue.add(_queue.map(_songToMediaItem).toList());
@@ -1326,6 +1538,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       } finally {
         _queueMutating = false;
       }
+      // BUGFIX (2026-07-02): see addToQueue's doc comment above — re-sync
+      // against the player's live index in case a real transition landed
+      // during this mutation and would otherwise be lost.
+      _handleCurrentIndexChanged(_player.currentIndex);
     }
     queue.add(_queue.map(_songToMediaItem).toList());
   }
@@ -1341,6 +1557,8 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       } finally {
         _queueMutating = false;
       }
+      // BUGFIX (2026-07-02): see addToQueue's doc comment above.
+      _handleCurrentIndexChanged(_player.currentIndex);
     }
     queue.add(_queue.map(_songToMediaItem).toList());
   }
@@ -1356,6 +1574,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       } finally {
         _queueMutating = false;
       }
+      // BUGFIX (2026-07-02): see addToQueue's doc comment above. Also
+      // matters extra here since a move can itself shift what index the
+      // currently-playing item sits at — re-syncing picks up the player's
+      // real live index either way (a genuine overlapping transition, or
+      // just the index shift from the move itself).
+      _handleCurrentIndexChanged(_player.currentIndex);
     }
     queue.add(_queue.map(_songToMediaItem).toList());
   }
@@ -1569,8 +1793,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _idleSub?.cancel();
     _durationSub?.cancel();
     _currentIndexSub?.cancel();
-    _equalizer = null;
-    _loudnessEnhancer = null;
+    // _equalizer / _loudnessEnhancer are final fields owned by the
+    // AudioPipeline attached to _player — disposing the player releases
+    // the whole pipeline (including these effects) with it.
     await _player.dispose();
   }
 }
