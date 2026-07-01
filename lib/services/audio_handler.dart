@@ -829,7 +829,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       return LockCachingAudioSource(Uri.parse(cachedUrl), tag: _songToMediaItem(song));
     }
 
-    final url = await _resolveFast(song, sessionId: sessionId);
+    // Only one attempt here: the 45s YouTube timeout already wraps ApiService's
+    // own internal Stage1->2->3 fallback chain, which IS the retry logic.
+    // A second full 45s outer retry on top of that made the user wait up to
+    // 90s on a tap before falling back to the next song. Lookahead (below,
+    // no one actively waiting) still gets maxAttempts: 2 as a safety net.
+    final url = await _resolveFast(song, sessionId: sessionId, maxAttempts: 1);
     if (url == null) return null;
     if (sessionId != null && sessionId != _playSessionId) return null;
     return LockCachingAudioSource(Uri.parse(url), tag: _songToMediaItem(song));
@@ -842,8 +847,22 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // transient failure one more shot without making the user wait excessively
   // long before seeing an error if both attempts fail.
   Future<String?> _resolveFast(Song song, {int? sessionId, int maxAttempts = 2}) async {
+    // BUGFIX (2026-07-01): YouTube's internal fallback chain in
+    // ApiService.resolveStreamUrl (Worker /api/yt-proxy up to 16s ->
+    // Worker /api/yt-stream + device liveness check up to ~12s+ -> Piped/
+    // Invidious blast race -> Worker extended-timeout retry up to 30s) can
+    // legitimately take 45-55s end to end on a cold/throttled path. The old
+    // 28s outer timeout here was killing that chain mid-flight, almost
+    // always before Stage 2/3 ever got a chance to return a URL — so even
+    // with the Worker fully live, most YouTube resolves were being aborted
+    // by US, not by the Worker failing. That's what looked like "worker is
+    // live but songs still skip": _findFirstPlayableFrom then silently
+    // walked to the next song with no visible error.
+    //
+    // 45s here gives the full internal chain room to actually finish
+    // before we give up on this attempt.
     final perAttemptTimeout = song.source == SongSource.youtube
-        ? const Duration(seconds: 28)
+        ? const Duration(seconds: 45)
         : const Duration(seconds: 12);
 
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {

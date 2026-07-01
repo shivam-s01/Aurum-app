@@ -173,13 +173,23 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _breatheCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 18000),
-    )..repeat(reverse: true);
+    );
 
     // Artwork float: 6s pure vertical — Echo Nightly spec
     _artworkFloatCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 6000),
-    )..repeat(reverse: true);
+    );
+
+    // Only start the ambient loops if the user hasn't disabled animations.
+    // Previously these always started with ..repeat(reverse: true), so even
+    // with the setting off the controllers kept ticking at 60fps forever
+    // while the full player was open - pure wasted GPU/battery, since
+    // _BgLayer clamps the consumed value to 0.5 either way when off.
+    if (AudioPrefs.enableAnimationsNotifier.value) {
+      _breatheCtrl.repeat(reverse: true);
+      _artworkFloatCtrl.repeat(reverse: true);
+    }
 
     _springBackCtrl = AnimationController(
       vsync: this,
@@ -274,8 +284,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   void _resumeAmbientAnims() {
     if (!_ambientPaused) return;
     _ambientPaused = false;
-    _breatheCtrl.repeat(reverse: true);
-    _artworkFloatCtrl.repeat(reverse: true);
+    // Respect the Appearance -> Animations setting: if the user has turned
+    // ambient motion off, don't spin these controllers at all - no point
+    // burning GPU/battery on a value that _BgLayer will just clamp to 0.5.
+    if (AudioPrefs.enableAnimationsNotifier.value) {
+      _breatheCtrl.repeat(reverse: true);
+      _artworkFloatCtrl.repeat(reverse: true);
+    }
   }
 
   // ── Palette extraction → 4 colors, theme-adaptive, on track change only ──
@@ -547,7 +562,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             ),
                           ),
                           SafeArea(
-                            child: _buildBody(context, player, song),
+                            child: RepaintBoundary(
+                              child: _buildBody(context, player, song),
+                            ),
                           ),
                         ],
                       ),
