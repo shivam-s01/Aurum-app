@@ -600,8 +600,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             _BottomPill(hPad: hPad, onTap: _openPanel),
             SizedBox(height: isCompact ? 8.0 : 12.0),
           ],
-        ),
-      );
+        );
     });
   }
 }
