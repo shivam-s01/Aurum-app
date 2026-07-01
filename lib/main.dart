@@ -87,10 +87,15 @@ Future<void> main() async {
       androidNotificationClickStartsActivity: true,
       androidNotificationIcon: 'mipmap/ic_launcher',
       androidShowNotificationBadge: false,
-      // Keep the foreground service (and thus lock screen controls) alive
-      // through pause — only tear it down on explicit stop(). Without this,
-      // pausing can let Android reclaim the notification/session.
-      androidStopForegroundOnPause: false,
+      // NOTE: androidStopForegroundOnPause is intentionally left at its
+      // default (true) here. The audio_service package hard-asserts that
+      // androidNotificationOngoing + androidStopForegroundOnPause:false is
+      // an invalid combination (it throws at startup) — ongoing already
+      // makes the notification swipe-proof while playing, which is what
+      // was actually needed for "swipe se hat jaata hai" fix. On pause,
+      // Android is allowed to demote the foreground service, same as
+      // Spotify/YouTube Music behave — the MediaSession and notification
+      // still persist, just no longer marked "ongoing".
       artDownscaleWidth: 300,
       artDownscaleHeight: 300,
       // Preload artwork the instant a MediaItem is set, instead of waiting
