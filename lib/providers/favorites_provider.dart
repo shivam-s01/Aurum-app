@@ -10,14 +10,21 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../services/recommendation_engine.dart';
+import 'download_provider.dart';
 
 class FavoritesProvider extends ChangeNotifier {
   static const _boxName = 'aurum_favorites';
   late Box<Map> _box;
   List<Song> _favorites = [];
   bool _isLoading = true;
+
+  /// Injected after init so FavoritesProvider can trigger auto-downloads
+  /// when the user favorites a song with "Auto-Download Liked Songs" on.
+  /// Set from main.dart after both providers are created.
+  DownloadProvider? downloadProvider;
 
   List<Song> get favorites   => List.unmodifiable(_favorites);
   bool get isLoading         => _isLoading;
@@ -43,9 +50,14 @@ class FavoritesProvider extends ChangeNotifier {
       }
     } else {
       await _add(song);
-      // Very strong positive signal — user favorited
       if (song.source != SongSource.local) {
         RecommendationEngine.onFavorited(song);
+      }
+      // Auto-download liked songs if setting is enabled
+      final p = await SharedPreferences.getInstance();
+      if (p.getBool('auto_download_liked') == true &&
+          song.source != SongSource.local) {
+        downloadProvider?.download(song);
       }
     }
   }

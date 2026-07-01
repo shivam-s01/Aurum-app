@@ -104,9 +104,13 @@ class RecentlyPlayedProvider extends ChangeNotifier {
 
     _history.insert(0, entry);
 
-    // Trim to limit
-    if (_history.length > AppConstants.recentlyPlayedLimit) {
-      _history = _history.sublist(0, AppConstants.recentlyPlayedLimit);
+    // Settings → Player & Audio → "History Duration": slider 0–100 maps
+    // to 10–200 songs. Default 50 = 100 songs.
+    final p2 = await SharedPreferences.getInstance();
+    final sliderVal = (p2.getInt('history_duration') ?? 50).clamp(0, 100);
+    final maxHistory = (10 + (sliderVal / 100.0 * 190).round()).clamp(10, 200);
+    if (_history.length > maxHistory) {
+      _history = _history.sublist(0, maxHistory);
     }
 
     // Persist to Hive (clear + rewrite for correct order)
@@ -166,6 +170,20 @@ class RecentlyPlayedProvider extends ChangeNotifier {
     if (AudioPrefs.incognito) return;
     if (song.source == SongSource.local) return;
     RecommendationEngine.onUnfavorited(song);
+  }
+
+  // ---------------------------------------------------------------------------
+  // trimToLimit — trims history to [limit] most recent songs.
+  // Called live when the user moves the "History Duration" slider.
+  // ---------------------------------------------------------------------------
+  Future<void> trimToLimit(int limit) async {
+    if (_history.length <= limit) return;
+    _history = _history.sublist(0, limit);
+    await _box.clear();
+    for (final s in _history.reversed) {
+      await _box.put(s.id, s.toJson());
+    }
+    notifyListeners();
   }
 
   // ---------------------------------------------------------------------------

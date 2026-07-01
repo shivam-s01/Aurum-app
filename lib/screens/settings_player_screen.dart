@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_handler.dart';
 import '../services/audio_prefs.dart';
+import '../providers/recently_played_provider.dart';
 
 // =============================================================================
 // Sleep Timer Service — singleton so it survives screen navigation
@@ -207,6 +209,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) {
                 setState(() => _gapless = v);
                 _save('gapless', v);
+                AudioPrefs.gapless = v;
               }),
 
           // Playback Speed
@@ -528,7 +531,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
             Text('History Duration',
                 style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
             const Spacer(),
-            Text('${_historyDuration.toInt()} songs',
+            Text('${(10 + (_historyDuration / 100.0 * 190).round())} songs',
                 style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
           ]),
           Slider(
@@ -537,6 +540,9 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
             onChanged: (v) {
               setState(() => _historyDuration = v);
               _save('history_duration', v.toInt());
+              // Trim existing history to new limit immediately
+              context.read<RecentlyPlayedProvider>()
+                  .trimToLimit((10 + (v / 100.0 * 190).round()).clamp(10, 200));
             },
           ),
         ]),

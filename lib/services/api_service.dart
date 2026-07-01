@@ -1579,6 +1579,49 @@ class ApiService {
     return null;
   }
 
+  /// Quality-specific download URL for [song]. Used by DownloadProvider so
+  /// downloads respect Settings → Storage → "Download Quality".
+  static Future<String?> resolveDownloadUrl(
+    Song song, {
+    required List<String> qualityOrder,
+  }) async {
+    if (song.isLocal) return song.localPath;
+    if (song.source == SongSource.youtube) return resolveStreamUrl(song);
+
+    try {
+      final resp = await _dio.get(
+        '$_onrenderBase/api/songs',
+        queryParameters: {'ids': song.id},
+      );
+      final data = resp.data;
+      List? songs;
+      if (data is Map) {
+        final d = data['data'];
+        if (d is Map) songs = d['results'] as List?;
+        else if (d is List) songs = d;
+      }
+      if (songs != null && songs.isNotEmpty) {
+        final songData = songs.first as Map<String, dynamic>;
+        final downloads = songData['downloadUrl'] as List?;
+        if (downloads != null) {
+          for (final q in qualityOrder) {
+            final match = downloads.firstWhere(
+              (d) => d is Map && d['quality'] == q &&
+                     (d['url'] as String?)?.startsWith('http') == true,
+              orElse: () => null,
+            );
+            if (match != null) return _proxiedSaavnUrl(match['url'] as String);
+          }
+          final best = downloads.last;
+          if (best is Map && (best['url'] as String?)?.startsWith('http') == true) {
+            return _proxiedSaavnUrl(best['url'] as String);
+          }
+        }
+      }
+    } catch (_) {}
+    return resolveStreamUrl(song);
+  }
+
   // ===========================================================================
   // RACE HELPER
   // ===========================================================================

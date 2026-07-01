@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../models/download_item.dart';
 import '../services/notification_service.dart';
@@ -105,7 +107,34 @@ class DownloadProvider extends ChangeNotifier {
   /// the right feedback to the user.
   Future<bool> download(Song song) async {
     if (isDownloaded(song.id) || isDownloading(song.id)) return true;
-    if (song.isLocal) return false; // already on device, nothing to download
+    if (song.isLocal) return false;
+
+    // ── WiFi-only check ────────────────────────────────────────────────────
+    final prefs = await SharedPreferences.getInstance();
+    final wifiOnly = prefs.getBool('download_wifi_only') ?? true;
+    if (wifiOnly) {
+      final result = await Connectivity().checkConnectivity();
+      final onWifi = result.contains(ConnectivityResult.wifi);
+      if (!onWifi) return false; // caller should show "WiFi only" snackbar
+    }
+
+    // ── Resolve quality order for this download ────────────────────────────
+    final rawQuality = prefs.getString('download_quality') ?? '320kbps';
+    // Build a priority list that starts with the user's chosen quality and
+    // falls back gracefully, so we always get something even if that exact
+    // quality isn't available from the API.
+    final List<String> qualityOrder;
+    switch (rawQuality) {
+      case '96kbps':
+        qualityOrder = const ['96kbps', '48kbps', '12kbps'];
+        break;
+      case '128kbps':
+        qualityOrder = const ['160kbps', '96kbps', '48kbps', '12kbps'];
+        break;
+      case '320kbps':
+      default:
+        qualityOrder = const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
+    }
 
     // Show "queued" immediately so the UI reacts instantly, even while we
     // resolve the actual stream URL (YouTube songs don't carry one upfront).
@@ -119,7 +148,7 @@ class DownloadProvider extends ChangeNotifier {
     String? url = song.streamUrl;
     if (url == null || url.isEmpty || !url.startsWith('http')) {
       try {
-        url = await ApiService.resolveStreamUrl(song);
+        url = await ApiService.resolveDownloadUrl(song, qualityOrder: qualityOrder);
       } catch (_) {
         url = null;
       }

@@ -198,6 +198,8 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                   onChanged: (v) async {
                     setState(() => _maxImageCache = v);
                     await _save('max_image_cache', v);
+                    PaintingBinding.instance.imageCache.maximumSizeBytes =
+                        (v * 1024 * 1024).toInt();
                   },
                   onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Image Cache', () => _clearDir('image_cache')); },
                   clearLabel: 'Clear Image Cache',

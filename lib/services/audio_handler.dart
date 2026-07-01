@@ -374,6 +374,17 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       return;
     }
 
+    // Gapless OFF: 600ms pause between tracks
+    if (!AudioPrefs.gapless && index != _currentIndex &&
+        !_isLoadingNewSong && _crossfadeSecs <= 0) {
+      _player.pause();
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (_player.processingState != ProcessingState.idle) {
+          _player.play();
+        }
+      });
+    }
+
     // Crossfade: fade in new track when transitioning
     if (_crossfadeSecs > 0 && index != _currentIndex && !_isLoadingNewSong) {
       _applyCrossfadeFadeIn();
@@ -1107,7 +1118,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         title:   song.title,
         artist:  song.artist,
         album:   song.album,
-        artUri:  song.artworkUrl.isNotEmpty ? Uri.parse(song.artworkUrl) : null,
+        artUri:  AudioPrefs.showArtworkNotif && song.artworkUrl.isNotEmpty
+            ? Uri.parse(song.artworkUrl)
+            : null,
         duration: song.duration != null ? Duration(seconds: song.duration!) : null,
       );
 
@@ -1145,13 +1158,15 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         MediaAction.seekBackward,
       },
       androidCompactActionIndices: compactIndices,
-      processingState: {
-        ProcessingState.idle:      AudioProcessingState.idle,
-        ProcessingState.loading:   AudioProcessingState.loading,
-        ProcessingState.buffering: AudioProcessingState.buffering,
-        ProcessingState.ready:     AudioProcessingState.ready,
-        ProcessingState.completed: AudioProcessingState.completed,
-      }[_player.processingState]!,
+      processingState: !AudioPrefs.showMediaNotif
+          ? AudioProcessingState.idle
+          : {
+              ProcessingState.idle:      AudioProcessingState.idle,
+              ProcessingState.loading:   AudioProcessingState.loading,
+              ProcessingState.buffering: AudioProcessingState.buffering,
+              ProcessingState.ready:     AudioProcessingState.ready,
+              ProcessingState.completed: AudioProcessingState.completed,
+            }[_player.processingState]!,
       playing:          playing,
       updatePosition:   _player.position,
       bufferedPosition: _player.bufferedPosition,

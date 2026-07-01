@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'services/audio_handler.dart';
 import 'services/notification_service.dart';
 import 'services/api_service.dart';
@@ -48,6 +49,16 @@ Future<void> main() async {
 
   // Hive init for local DB (favorites, playlists, recently played, downloads)
   await Hive.initFlutter();
+
+  // Apply user's image cache size preference to Flutter's in-memory image
+  // cache. This is separate from cached_network_image's disk cache, but
+  // controls how many decoded images are kept in RAM.
+  try {
+    final p = await SharedPreferences.getInstance();
+    final maxImgMB = p.getDouble('max_image_cache') ?? 100.0;
+    PaintingBinding.instance.imageCache.maximumSizeBytes =
+        (maxImgMB * 1024 * 1024).toInt();
+  } catch (_) {}
 
   // Supabase init — must happen before any AuthService/Supabase.instance use.
   try {
@@ -122,9 +133,15 @@ class AurumApp extends StatelessWidget {
             return sp;
           },
         ),
-        ChangeNotifierProvider(create: (_) => FavoritesProvider()..init()),
         ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()),
         ChangeNotifierProvider(create: (_) => DownloadProvider()..init()),
+        ChangeNotifierProxyProvider<DownloadProvider, FavoritesProvider>(
+          create: (_) => FavoritesProvider()..init(),
+          update: (_, dl, fav) {
+            fav?.downloadProvider = dl;
+            return fav ?? (FavoritesProvider()..init()..downloadProvider = dl);
+          },
+        ),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()..init()),
         ChangeNotifierProvider(create: (_) => FollowedArtistsProvider()..init()),
         ChangeNotifierProvider(create: (_) => AuthProvider()..init()),

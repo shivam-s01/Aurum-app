@@ -56,6 +56,18 @@ class AudioPrefs {
   /// If true, use compact notification style (fewer buttons).
   static bool notifCompact = false;
 
+  /// If true (default), show the media notification while playing.
+  /// If false, the notification is suppressed (processingState set to idle).
+  static bool showMediaNotif = true;
+
+  /// If true (default), include song artwork bitmap in the notification.
+  /// If false, artUri is omitted — smaller notification, no album art shown.
+  static bool showArtworkNotif = true;
+
+  /// If true (default), tracks play back-to-back with no gap.
+  /// If false, a 600ms silence gap is inserted between tracks.
+  static bool gapless = true;
+
   static bool incognito = false;
 
   /// If true (default), screen-to-screen navigation uses the slide+fade
@@ -138,6 +150,9 @@ class AudioPrefs {
   static const _kHideStats     = 'hide_listen_stats';
   static const _kNotifShowPrev = 'notif_show_prev';
   static const _kNotifStyle    = 'notif_style';
+  static const _kShowMediaNotif   = 'show_media_notif';
+  static const _kShowArtworkNotif = 'show_artwork_notif';
+  static const _kGapless          = 'gapless';
 
   /// Restore all values from disk. Call once at startup (from the audio
   /// handler's _init()).
@@ -166,6 +181,9 @@ class AudioPrefs {
     hideListenStats     = p.getBool(_kHideStats) ?? hideListenStats;
     notifShowPrev       = p.getBool(_kNotifShowPrev) ?? notifShowPrev;
     notifCompact        = (p.getString(_kNotifStyle) ?? 'Expanded') == 'Compact';
+    showMediaNotif      = p.getBool(_kShowMediaNotif) ?? showMediaNotif;
+    showArtworkNotif    = p.getBool(_kShowArtworkNotif) ?? showArtworkNotif;
+    gapless             = p.getBool(_kGapless) ?? gapless;
   }
 
   static Future<void> setStreamQuality(String v) async {
