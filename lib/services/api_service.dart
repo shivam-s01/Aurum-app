@@ -251,16 +251,7 @@ class ApiService {
     _PoolEntry('haryanvi original songs sapna choudhary',  'Haryanvi Hits'),
   ];
 
-  // ── Progressive version — calls onSection(section) as soon as each batch
-  // resolves, instead of making the UI wait for all ~15-20 queries to finish.
-  // First batch (time-mood + personal picks) typically lands in ~1-2s, so
-  // the home screen can paint real content almost immediately while the
-  // rest streams in behind it — same total data, much faster perceived load.
-  static Future<void> fetchHomeStreaming({
-    List<String> topArtists = const [],
-    List<Song> recentlyPlayed = const [],
-    required void Function(SongSection section) onSection,
-  }) async {
+  static Future<List<SongSection>> fetchHome({List<String> topArtists = const [], List<Song> recentlyPlayed = const []}) async {
     await RecommendationEngine.load();
     final now = DateTime.now();
     final hourSeed = now.difference(DateTime(2026, 1, 1)).inHours;
@@ -315,44 +306,31 @@ class ApiService {
       }
     }
 
-    // Priority sections (time-mood + personal artists + genres) go out as
-    // their own first wave — these are the most relevant, so they're what
-    // the user should see land first. Bigger batch + no artificial delay
-    // between waves (the old 100ms sleep was pure wasted latency; the
-    // network round-trip itself is already the real bottleneck).
-    final priorityQueries = queryList.where((q) => q.priority).toList();
-    final restQueries     = queryList.where((q) => !q.priority).toList();
-    final orderedQueries  = [...priorityQueries, ...restQueries];
-
-    final globalSeenIds = <String>{};
-    final seenTitles = <String>{};
-    const batchSize = 5;
-    for (int i = 0; i < orderedQueries.length; i += batchSize) {
-      final batch = orderedQueries.skip(i).take(batchSize).toList();
+    final results = <SongSection?>[];
+    const batchSize = 3;
+    for (int i = 0; i < queryList.length; i += batchSize) {
+      final batch = queryList.skip(i).take(batchSize).toList();
       final batchResults = await Future.wait(
         batch.map((sq) => sq.isSuggestion
             ? _suggestionSection(sq.suggestionSongId!, sq.label)
             : _saavnSectionV4(sq.query, sq.label)),
       );
-      for (final s in batchResults.whereType<SongSection>()) {
-        if (!seenTitles.add(s.title)) continue;
-        final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
-        if (uniqueSongs.isNotEmpty) {
-          onSection(SongSection(title: s.title, songs: uniqueSongs));
-        }
+      results.addAll(batchResults);
+      if (i + batchSize < queryList.length) {
+        await Future.delayed(const Duration(milliseconds: 100));
       }
     }
-  }
 
-  // Non-streaming wrapper kept for any call sites that still want the
-  // "wait for everything, get one List back" shape.
-  static Future<List<SongSection>> fetchHome({List<String> topArtists = const [], List<Song> recentlyPlayed = const []}) async {
+    final globalSeenIds = <String>{};
+    final seen = <String>{};
     final sections = <SongSection>[];
-    await fetchHomeStreaming(
-      topArtists: topArtists,
-      recentlyPlayed: recentlyPlayed,
-      onSection: sections.add,
-    );
+    for (final s in results.whereType<SongSection>()) {
+      if (!seen.add(s.title)) continue;
+      final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
+      if (uniqueSongs.isNotEmpty) {
+        sections.add(SongSection(title: s.title, songs: uniqueSongs));
+      }
+    }
     return sections;
   }
 
@@ -375,110 +353,6 @@ class ApiService {
     }
     if (merged.isEmpty) return null;
     return SongSection(title: label, songs: merged.take(20).toList());
-  }
-
-  // ── Curated "Playlists for You" cards — premium, Saavn-first, fresh every
-  // pull-to-refresh ───────────────────────────────────────────────────────
-  // Unlike search() (relevance-ranked, cached, Saavn+YT mixed for the Search
-  // tab) this is the same pro-grade pipeline as the home sections: Saavn
-  // gets priority and near-exclusive weight, remix/cover/lofi variants are
-  // hard-blocked, results are deduped by id AND normalized title, then
-  // shuffled with a refresh-salted seed so re-opening or pulling to refresh
-  // serves a genuinely different set within the same category — exactly
-  // like Spotify/YT Music rotate "Made For You" style shelves.
-  static Future<List<Song>> fetchPlaylistSongs(String query, {int limit = 30}) async {
-    // 1. Saavn-only pass first — fetch generously since variants get filtered.
-    final saavnSongs = await _searchSaavn(query, limit: 50);
-
-    // 2. Only fall back to YT if Saavn genuinely came up short — keeps the
-    //    "max Saavn" guarantee while still avoiding a thin/empty playlist.
-    List<Song> ytSongs = const [];
-    if (saavnSongs.length < limit) {
-      ytSongs = await _searchYt(query, limit: 15)
-          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
-    }
-
-    final seenIds    = <String>{};
-    final seenTitles = <String>{};
-    final merged     = <Song>[];
-
-    // Saavn songs always placed first in the candidate pool, so they
-    // dominate the shuffled output before any YT filler is considered.
-    for (final s in [...saavnSongs, ...ytSongs]) {
-      if (s.id.isEmpty || s.title.isEmpty) continue;
-      if (!seenIds.add(s.id)) continue;
-      if (RecommendationEngine.isInherentVariant(s.title)) continue;
-      final tk = _normTitle(s.title);
-      if (!seenTitles.add(tk)) continue;
-      merged.add(s);
-    }
-    if (merged.isEmpty) return [];
-
-    // Fresh shuffle every call — refresh salt guarantees a different order
-    // (and effectively a different "top N" slice) on every pull-to-refresh,
-    // while still being weighted toward Saavn since YT only fills gaps.
-    final refreshSalt = math.Random().nextInt(1000000);
-    final seed = query.hashCode ^ DateTime.now().millisecondsSinceEpoch ^ refreshSalt;
-    merged.shuffle(math.Random(seed));
-
-    return merged.take(limit).toList();
-  }
-
-  // ── Auto-continue queue — "Up Next" never goes silent ──────────────────
-  // Used by the audio handler when playback nears the end of the current
-  // queue. Tries Saavn's native "similar songs" endpoint first (true
-  // recommendation quality, same as the real JioSaavn app's autoplay), and
-  // falls back to an artist-based Saavn search if the song has no native
-  // suggestions (e.g. an unusual/regional track). Same variant-blocking and
-  // dedup rules as every other home-feed pipeline, so autoplay quality
-  // never drops below what the rest of the app already guarantees.
-  static Future<List<Song>> fetchSimilarSongs({
-    required String songId,
-    required String artist,
-    required String title,
-    List<String> excludeIds = const [],
-  }) async {
-    final exclude = excludeIds.toSet();
-    final seenTitles = <String>{};
-    final out = <Song>[];
-
-    void addAll(List<Song> songs) {
-      for (final s in songs) {
-        if (s.id.isEmpty || s.title.isEmpty) continue;
-        if (exclude.contains(s.id)) continue;
-        if (RecommendationEngine.isInherentVariant(s.title)) continue;
-        final tk = _normTitle(s.title);
-        if (!seenTitles.add(tk)) continue;
-        out.add(s);
-      }
-    }
-
-    // 1. Native Saavn "similar songs" — best quality, mirrors what the
-    //    real JioSaavn app autoplays next.
-    try {
-      final cleanId = songId.replaceFirst(RegExp(r'^[a-z]+_'), '');
-      final url = Uri.parse('$_saavnPrimary/api/songs/$cleanId/suggestions?limit=20');
-      final res = await _client.get(url).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final List? raw = data is Map ? (data['data'] as List?) : (data is List ? data : null);
-        if (raw != null) {
-          addAll(raw.whereType<Map<String, dynamic>>().map(_songFromSaavn).toList());
-        }
-      }
-    } catch (_) {
-      // fall through to artist-based fallback below
-    }
-
-    // 2. Fallback: same-artist Saavn search, if suggestions came up short.
-    if (out.length < 10 && artist.isNotEmpty) {
-      try {
-        final artistSongs = await _searchSaavn('$artist songs', limit: 25);
-        addAll(artistSongs);
-      } catch (_) {}
-    }
-
-    return out;
   }
 
   // "Because You Played" section — pure JioSaavn suggestions, same category guaranteed
@@ -1577,49 +1451,6 @@ class ApiService {
     final su = song['media_url'] ?? song['streamUrl'];
     if (su is String && su.startsWith('http')) return _proxiedSaavnUrl(su);
     return null;
-  }
-
-  /// Quality-specific download URL for [song]. Used by DownloadProvider so
-  /// downloads respect Settings → Storage → "Download Quality".
-  static Future<String?> resolveDownloadUrl(
-    Song song, {
-    required List<String> qualityOrder,
-  }) async {
-    if (song.isLocal) return song.localPath;
-    if (song.source == SongSource.youtube) return resolveStreamUrl(song);
-
-    try {
-      final resp = await _client.get(
-        Uri.parse('$_saavnPrimary/api/songs?ids=${song.id}'),
-      );
-      if (resp.statusCode != 200) throw Exception('HTTP ${resp.statusCode}');
-      final data = jsonDecode(resp.body);
-      List? songs;
-      if (data is Map) {
-        final d = data['data'];
-        if (d is Map) songs = d['results'] as List?;
-        else if (d is List) songs = d;
-      }
-      if (songs != null && songs.isNotEmpty) {
-        final songData = songs.first as Map<String, dynamic>;
-        final downloads = songData['downloadUrl'] as List?;
-        if (downloads != null) {
-          for (final q in qualityOrder) {
-            final match = downloads.firstWhere(
-              (d) => d is Map && d['quality'] == q &&
-                     (d['url'] as String?)?.startsWith('http') == true,
-              orElse: () => null,
-            );
-            if (match != null) return _proxiedSaavnUrl(match['url'] as String);
-          }
-          final best = downloads.last;
-          if (best is Map && (best['url'] as String?)?.startsWith('http') == true) {
-            return _proxiedSaavnUrl(best['url'] as String);
-          }
-        }
-      }
-    } catch (_) {}
-    return resolveStreamUrl(song);
   }
 
   // ===========================================================================
