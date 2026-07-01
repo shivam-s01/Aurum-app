@@ -90,6 +90,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   bool _isDragging = false;
   bool _dragIsUpward = false;
 
+  // ── Spring-back after a cancelled drag ──
+  // Previously a cancelled drag (released before crossing the dismiss
+  // threshold) snapped _dragY straight to 0 via setState with no
+  // animation at all — visually a hard jump/jerk. This controller
+  // animates that snap-back smoothly instead.
+  late final AnimationController _springBackCtrl;
+
   // ── Palette / song cache ──
   String? _lastArtUrl;
   String? _lastSongId;
@@ -173,6 +180,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       vsync: this,
       duration: const Duration(milliseconds: 6000),
     )..repeat(reverse: true);
+
+    _springBackCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    )..addListener(() {
+        if (mounted) setState(() {});
+      });
   }
 
   @override
@@ -187,7 +201,28 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _playBtnCtrl.dispose();
     _bgColorCtrl.dispose();
     _breatheCtrl.dispose();
+    _springBackCtrl.dispose();
     super.dispose();
+  }
+
+  /// Smoothly animates _dragY back to 0 after a cancelled drag, instead
+  /// of snapping instantly. Uses an easeOutBack curve for a subtle
+  /// "settle" feel rather than a linear slide.
+  void _springBackDrag() {
+    final start = _dragY;
+    _springBackCtrl.reset();
+    final anim = Tween<double>(begin: start, end: 0.0).animate(
+      CurvedAnimation(parent: _springBackCtrl, curve: Curves.easeOutCubic),
+    );
+    void listener() {
+      _dragY = anim.value;
+    }
+
+    anim.addListener(listener);
+    _springBackCtrl.forward().whenCompleteOrCancel(() {
+      anim.removeListener(listener);
+      _dragY = 0;
+    });
   }
 
   @override
@@ -280,10 +315,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       _currentBg4 = Color.lerp(_currentBg4, _targetBg4, t) ?? _currentBg4;
 
       if (isLight) {
-        _targetBg1 = Color.lerp(c1, Colors.white, 0.52)!;
-        _targetBg2 = Color.lerp(c2, Colors.white, 0.44)!;
-        _targetBg3 = Color.lerp(c3, Colors.white, 0.35)!;
-        _targetBg4 = Color.lerp(c4, Colors.white, 0.58)!;
+        // Previously blended 35-58% toward white, which washed the
+        // artwork's actual colors out into a flat grey/white haze (the
+        // "bekar" light-mode look). Cut the white blend way down so the
+        // extracted palette stays visibly saturated — matching how the
+        // dark-mode branch keeps most of the color and only deepens it
+        // toward black. Light mode now lightens just enough to keep dark
+        // text/icons readable, without losing the artwork's identity.
+        _targetBg1 = Color.lerp(c1, Colors.white, 0.16)!;
+        _targetBg2 = Color.lerp(c2, Colors.white, 0.10)!;
+        _targetBg3 = Color.lerp(c3, Colors.white, 0.04)!;
+        _targetBg4 = Color.lerp(c4, Colors.white, 0.20)!;
       } else {
         // Less black = more saturated, more cinematic — Echo Nightly style
         _targetBg1 = Color.lerp(c1, Colors.black, 0.22)!;
@@ -453,7 +495,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                     (_dragIsUpward || velocity < -400)) {
                   _openPanel();
                 } else {
-                  setState(() => _dragY = 0);
+                  _springBackDrag();
                 }
                 _dragIsUpward = false;
               },
@@ -464,7 +506,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   child: Opacity(
                     opacity: dragOpacity,
                     child: Scaffold(
-                      backgroundColor: Colors.transparent,
+                      // Was Colors.transparent — combined with the
+                      // route's opaque:true (needed to stop the screen
+                      // behind from freezing), any frame where this
+                      // Scaffold hadn't yet painted its own background
+                      // (e.g. right at the start of the slide-up
+                      // transition) showed through as a flash of plain
+                      // white instead of the previous route or the
+                      // player's own gradient. A real background color
+                      // matching the current theme removes that gap.
+                      backgroundColor:
+                          Theme.of(context).brightness == Brightness.light
+                              ? const Color(0xFFF5F0EA)
+                              : Colors.black,
                       body: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -3276,19 +3330,28 @@ class _BgLayer extends StatelessWidget {
 
     if (bgStyle == 'Solid') return ColoredBox(color: bg1);
 
+    // Previously this stacked THREE white layers on top of the artwork
+    // (a 115-alpha veil, then a 130/170-alpha top/bottom vignette, on top
+    // of artwork already dimmed to 0.68 opacity) — the combined effect
+    // erased almost all of the artwork's actual color, leaving the flat
+    // white/grey look. Artwork opacity is bumped closer to dark mode's,
+    // the veil is much lighter, and the vignette is now just enough at
+    // the very top/bottom edges to keep the top bar and control text
+    // readable without greying out the whole screen.
     return Stack(fit: StackFit.expand, children: [
-      // L0: Warm white base
+      // L0: Warm white base (only visible at extreme edges now)
       const ColoredBox(color: Color(0xFFF5F0EA)),
 
-      // L1: Artwork fills screen — heavily blurred into pure color atmosphere
+      // L1: Artwork fills screen — blurred into color atmosphere, but
+      // kept vivid enough to actually read as the artwork's palette.
       if (song.artworkUrl.isNotEmpty)
         Opacity(
-          opacity: 0.68 + b * 0.08,
+          opacity: 0.86 + b * 0.08,
           child: Transform.scale(
             scale: 1.55,
             child: ImageFiltered(
               imageFilter: ImageFilter.blur(
-                sigmaX: 50, sigmaY: 50,
+                sigmaX: 46, sigmaY: 46,
                 tileMode: TileMode.clamp,
               ),
               child: AurumArtwork(
@@ -3300,8 +3363,9 @@ class _BgLayer extends StatelessWidget {
           ),
         ),
 
-      // L2: White translucent veil — keeps light mode feel
-      Container(color: Colors.white.withAlpha(115)),
+      // L2: Faint white veil — just enough to keep the light-mode feel,
+      // not enough to wash the color out.
+      Container(color: Colors.white.withAlpha(28)),
 
       // L3: Ambient glow orbs
       RepaintBoundary(
@@ -3314,19 +3378,19 @@ class _BgLayer extends StatelessWidget {
         ),
       ),
 
-      // L4: Vignette for text readability
+      // L4: Vignette for text readability — tight at the edges only
       Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.white.withAlpha(130),
+              Colors.white.withAlpha(90),
               Colors.transparent,
               Colors.transparent,
-              Colors.white.withAlpha(170),
+              Colors.white.withAlpha(110),
             ],
-            stops: const [0.0, 0.18, 0.62, 1.0],
+            stops: const [0.0, 0.12, 0.72, 1.0],
           ),
         ),
       ),
