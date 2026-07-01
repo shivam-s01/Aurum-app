@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart' as widgets;
 import 'package:flutter/services.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:provider/provider.dart';
@@ -155,7 +156,7 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
           _animateTo(0.0);
         }
       }
-    } else if (n is UserScrollNotification && n.direction == ScrollDirection.idle) {
+    } else if (n is UserScrollNotification && n.direction == widgets.ScrollDirection.idle) {
       // Genuine "scrolling has fully stopped" signal (e.g. a fling that
       // settles without a distinct ScrollEndNotification reaching here).
       // Kept as a safety net so a pull never gets stuck mid-air, but no
