@@ -44,16 +44,20 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-// ── Curated playlists shown as Spotify-style cards ──
+// ── Curated playlists shown as Spotify/JioSaavn-style cards ──
+// Focused on current-era (2025/2026) Bollywood trending music instead of
+// generic mood buckets — these queries are written to surface recent
+// releases first on Saavn's search ranking (which favors recency +
+// popularity for these kinds of phrasing).
 const List<_PlaylistMeta> _kCuratedPlaylists = [
-  _PlaylistMeta('90s Hits',        '90s bollywood superhits',     '🎸', Color(0xFF7B3F00)),
-  _PlaylistMeta('Romantic Vibes',  'romantic hindi love songs',   '❤️', Color(0xFF8B1A1A)),
-  _PlaylistMeta('Party Mode',      'party dance hindi songs',     '🎉', Color(0xFF1A3A8B)),
-  _PlaylistMeta('Lofi & Chill',    'lofi chill hindi songs',      '🌙', Color(0xFF1A3A3A)),
-  _PlaylistMeta('Workout Energy',  'workout motivation songs',    '💪', Color(0xFF3A1A1A)),
-  _PlaylistMeta('Sad Hours',       'sad heartbreak hindi songs',  '🌧️', Color(0xFF1A1A3A)),
-  _PlaylistMeta('Bollywood Icons', 'arijit singh atif aslam hit songs', '🎤', Color(0xFF3A2A00)),
-  _PlaylistMeta('Old Is Gold',     'old classic hindi film songs','✨', Color(0xFF2A1A00)),
+  _PlaylistMeta('Trending Now',        'bollywood songs 2026',            '🔥', Color(0xFF8B1A1A)),
+  _PlaylistMeta('New Releases',        'new bollywood songs 2026',        '🆕', Color(0xFF1A3A8B)),
+  _PlaylistMeta('2025 Chartbusters',   'top bollywood songs 2025',        '⭐', Color(0xFF7B3F00)),
+  _PlaylistMeta('Arijit Singh Hits',   'arijit singh new songs 2025',     '🎤', Color(0xFF3A2A00)),
+  _PlaylistMeta('Romantic This Week',  'bollywood romantic songs 2025',   '❤️', Color(0xFF8B1A1A)),
+  _PlaylistMeta('Party Anthems',       'bollywood party songs 2025',      '🎉', Color(0xFF1A3A8B)),
+  _PlaylistMeta('Fresh Bollywood',     'latest bollywood songs',          '✨', Color(0xFF2A1A00)),
+  _PlaylistMeta('Movie Blockbusters',  'bollywood movie songs 2025 2026', '🎬', Color(0xFF1A3A3A)),
 ];
 
 class _PlaylistMeta {
@@ -169,7 +173,14 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
             child: widget.child,
           ),
           Positioned(
-            top: 18,
+            // Was a fixed `top: 18` measured from the very edge of the
+            // screen — on phones with a tall status bar / camera cutout,
+            // that put the loader circle partly or fully behind the
+            // cutout, making pull-to-refresh look like it wasn't
+            // triggering even though it was. Anchoring to the safe-area
+            // inset (status bar height) instead keeps it clear on every
+            // device.
+            top: MediaQuery.of(context).padding.top + 8,
             left: 0,
             right: 0,
             child: IgnorePointer(
@@ -1959,7 +1970,7 @@ class _CuratedPlaylistsSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Playlists for You',
+            'Trending Playlists',
             style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
               fontSize: 17,
@@ -1999,6 +2010,7 @@ class _PlaylistCard extends StatefulWidget {
 class _PlaylistCardState extends State<_PlaylistCard> {
   bool _pressed = false;
   String? _artUrl;
+  bool _artFailed = false;
   List<Song>? _cachedSongs;
 
   @override
@@ -2010,7 +2022,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
   Future<void> _loadArt() async {
     try {
       final songs = await ApiService
-          .fetchPlaylistSongs(widget.playlist.query, limit: 30)
+          .fetchPlaylistSongs(widget.playlist.query, limit: 65)
           .timeout(const Duration(seconds: 12));
       if (!mounted) return;
       // Cache the fetched songs on the card itself (not globally) so
@@ -2018,7 +2030,10 @@ class _PlaylistCardState extends State<_PlaylistCard> {
       // network fetch right after the thumbnail's fetch — art and the
       // opened tracklist always match for this card instance.
       _cachedSongs = songs;
-      if (songs.isEmpty) return;
+      if (songs.isEmpty) {
+        setState(() => _artFailed = true);
+        return;
+      }
       // Thumbnail must be the FIRST song's own artwork — that's what the
       // user will actually hear first when they tap the card, so the cover
       // should represent that exact track, not just any song in the set.
@@ -2026,9 +2041,15 @@ class _PlaylistCardState extends State<_PlaylistCard> {
       final url = songs.first.artworkUrl.isNotEmpty
           ? songs.first.artworkUrl
           : songs.where((s) => s.artworkUrl.isNotEmpty).map((s) => s.artworkUrl).firstOrNull;
-      setState(() => _artUrl = url);
+      if (url == null) {
+        setState(() => _artFailed = true);
+      } else {
+        setState(() => _artUrl = url);
+      }
     } catch (_) {
-      // leave _artUrl null → gradient fallback shown
+      // Fetch failed/timed out — stop showing the spinner, fall back to
+      // the gradient+emoji card instead of spinning forever.
+      if (mounted) setState(() => _artFailed = true);
     }
   }
 
@@ -2054,7 +2075,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
       // Reuse the songs already fetched for the thumbnail when available —
       // same Saavn-first, variant-filtered set the user is about to see
       // art for. Only re-fetch if that hasn't resolved yet.
-      final songs = _cachedSongs ?? await ApiService.fetchPlaylistSongs(widget.playlist.query, limit: 30);
+      final songs = _cachedSongs ?? await ApiService.fetchPlaylistSongs(widget.playlist.query, limit: 65);
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       if (songs.isEmpty) return;
@@ -2158,6 +2179,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
   @override
   Widget build(BuildContext context) {
     final p = widget.playlist;
+    final loading = _artUrl == null && !_artFailed;
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) => setState(() => _pressed = false),
@@ -2168,28 +2190,64 @@ class _PlaylistCardState extends State<_PlaylistCard> {
         duration: const Duration(milliseconds: 120),
         child: Container(
           width: 200,
+          height: 130,
           margin: const EdgeInsets.only(right: 12),
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                p.color.withOpacity(0.9),
-                p.color.withOpacity(0.5),
-                Colors.black.withOpacity(0.3),
-              ],
-            ),
             border: Border.all(
               color: Colors.white.withOpacity(0.08),
               width: 0.8,
             ),
           ),
-          child: Stack(children: [
-            // Emoji top-right
+          child: Stack(fit: StackFit.expand, children: [
+            // Base layer: real album art once fetched, gradient fallback
+            // otherwise. This used to fetch _artUrl and then never
+            // actually paint it — the card always showed a flat gradient
+            // even after the real artwork was ready, which is why the
+            // playlists looked cheap/generic instead of like a real
+            // JioSaavn/Spotify playlist cover.
+            if (_artUrl != null)
+              AnimatedOpacity(
+                opacity: 1.0,
+                duration: const Duration(milliseconds: 260),
+                child: CachedNetworkImage(
+                  imageUrl: _artUrl!,
+                  fit: BoxFit.cover,
+                  fadeInDuration: const Duration(milliseconds: 260),
+                  errorWidget: (_, __, ___) => _gradientFallback(p),
+                ),
+              )
+            else
+              _gradientFallback(p),
+
+            // Darken for text legibility over any artwork
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withOpacity(0.05),
+                    Colors.black.withOpacity(0.55),
+                  ],
+                  stops: const [0.35, 1.0],
+                ),
+              ),
+            ),
+
+            // Centered loading spinner while the playlist's first track
+            // (and therefore its cover art) is still resolving.
+            if (loading)
+              Center(
+                child: AurumMorphLoader(size: 26),
+              ),
+
+            // Emoji top-right — small brand touch, stays even over real art
             Positioned(
               top: 12, right: 12,
-              child: Text(p.emoji, style: const TextStyle(fontSize: 28)),
+              child: Text(p.emoji, style: const TextStyle(fontSize: 22,
+                  shadows: [Shadow(color: Colors.black54, blurRadius: 6)])),
             ),
             // Title bottom-left
             Positioned(
