@@ -731,13 +731,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // _applyCrossfadeFadeIn below for why this matters).
   Timer? _fadeTimer;
 
-  // Bass Boost strength, in millibels, applied to AndroidLoudnessEnhancer.
-  // just_audio's setTargetGain takes MILLIBELS (100 = 1dB), so 1800 = +18dB.
-  // Old value was 800 (+8dB) — barely audible even when the pipeline WAS
-  // attached. +18dB on the loudness enhancer alone is already a strong,
-  // clearly-audible push; combined with the low-band EQ shelf below it
-  // reads as genuinely "premium/tagda" bass rather than just "louder".
-  static const int _bassBoostLoudnessGainMb = 1800;
+  // Bass Boost strength, in DECIBELS, applied to AndroidLoudnessEnhancer.
+  // BUGFIX (2026-07-02): just_audio's AndroidLoudnessEnhancer.setTargetGain()
+  // takes a `double` value in DECIBELS (not millibels, and not an int) —
+  // the plugin converts dB→millibels internally on the native side. The
+  // previous value here (1800, as an int) was wrong on two counts: wrong
+  // type (caused a real compile error — "argument type 'int' can't be
+  // assigned to parameter type 'double'") AND wrong unit (1800 "dB" would
+  // have been a nonsensical, heavily-distorting gain even if it had
+  // compiled). +18.0dB is the actually-intended strong/premium boost.
+  static const double _bassBoostLoudnessGainDb = 18.0;
 
   // Extra EQ gain (in dB) added on TOP of the user's saved band values for
   // the two lowest bands (32Hz sub-bass, 64Hz bass) when Bass Boost is on.
@@ -772,7 +775,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     try {
       await _loudnessEnhancer.setEnabled(bassBoost);
       if (bassBoost) {
-        await _loudnessEnhancer.setTargetGain(_bassBoostLoudnessGainMb);
+        await _loudnessEnhancer.setTargetGain(_bassBoostLoudnessGainDb);
       }
     } catch (e) {
       debugPrint('[AurumHandler] LoudnessEnhancer apply failed: $e');
