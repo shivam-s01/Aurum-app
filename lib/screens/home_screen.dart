@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -51,7 +52,7 @@ const List<_PlaylistMeta> _kCuratedPlaylists = [
   _PlaylistMeta('Lofi & Chill',    'lofi chill hindi songs',      '🌙', Color(0xFF1A3A3A)),
   _PlaylistMeta('Workout Energy',  'workout motivation songs',    '💪', Color(0xFF3A1A1A)),
   _PlaylistMeta('Sad Hours',       'sad heartbreak hindi songs',  '🌧️', Color(0xFF1A1A3A)),
-  _PlaylistMeta('Punjabi Blast',   'punjabi hits songs',          '🔥', Color(0xFF3A2A00)),
+  _PlaylistMeta('Bollywood Icons', 'arijit singh atif aslam hit songs', '🎤', Color(0xFF3A2A00)),
   _PlaylistMeta('Old Is Gold',     'old classic hindi film songs','✨', Color(0xFF2A1A00)),
 ];
 
@@ -67,6 +68,147 @@ class _PlaylistMeta {
 // session (_kPlaylistArtCache). Removed so art genuinely refreshes each
 // pull-to-refresh along with the songs — a stale thumbnail next to a fresh
 // random tracklist looked broken/cheap, not premium.
+
+// ══════════════════════════════════════════════════════════════════
+// AURUM PULL-TO-REFRESH — branded replacement for the stock Android
+// RefreshIndicator (plain Material spinner circle). Uses the app's own
+// gold morph-blob loader (AurumMorphLoader) inside a smooth reveal that
+// grows/fades with the pull distance, then settles into a steady spin
+// while refreshing — matches Spotify/Apple Music-tier polish instead
+// of looking like a generic Flutter widget.
+// ══════════════════════════════════════════════════════════════════
+class _AurumPullToRefresh extends StatefulWidget {
+  const _AurumPullToRefresh({required this.onRefresh, required this.child});
+  final Future<void> Function() onRefresh;
+  final Widget child;
+
+  @override
+  State<_AurumPullToRefresh> createState() => _AurumPullToRefreshState();
+}
+
+class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
+    with SingleTickerProviderStateMixin {
+  static const double _triggerDistance = 88.0;
+  static const double _maxReveal = 110.0;
+
+  double _pullDistance = 0.0;
+  bool _refreshing = false;
+  bool _dragging = false;
+
+  late final AnimationController _settleCtrl;
+  Animation<double>? _settleAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _settleCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 320));
+  }
+
+  @override
+  void dispose() {
+    _settleCtrl.dispose();
+    super.dispose();
+  }
+
+  void _animateTo(double target, {VoidCallback? onDone}) {
+    _settleAnim = Tween<double>(begin: _pullDistance, end: target)
+        .animate(CurvedAnimation(parent: _settleCtrl, curve: Curves.easeOutCubic))
+      ..addListener(() => setState(() => _pullDistance = _settleAnim!.value));
+    _settleCtrl.forward(from: 0).whenComplete(() => onDone?.call());
+  }
+
+  bool _onNotification(ScrollNotification n) {
+    if (_refreshing) return false;
+
+    if (n is ScrollUpdateNotification) {
+      final metrics = n.metrics;
+      if (metrics.pixels < 0) {
+        _dragging = true;
+        setState(() {
+          // Rubber-band: diminishing returns the further you pull.
+          final raw = -metrics.pixels;
+          _pullDistance = _maxReveal * (1 - math.exp(-raw / _maxReveal));
+        });
+      }
+    } else if (n is ScrollEndNotification || n is UserScrollNotification) {
+      if (_dragging && !_refreshing) {
+        _dragging = false;
+        if (_pullDistance >= _triggerDistance * 0.72) {
+          _startRefresh();
+        } else if (_pullDistance > 0) {
+          _animateTo(0.0);
+        }
+      }
+    }
+    return false;
+  }
+
+  Future<void> _startRefresh() async {
+    HapticFeedback.mediumImpact();
+    setState(() => _refreshing = true);
+    _animateTo(_triggerDistance * 0.72);
+    try {
+      await widget.onRefresh();
+    } finally {
+      if (mounted) {
+        setState(() => _refreshing = false);
+        _animateTo(0.0);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (_pullDistance / _triggerDistance).clamp(0.0, 1.0);
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onNotification,
+      child: Stack(
+        children: [
+          Transform.translate(
+            offset: Offset(0, _pullDistance),
+            child: widget.child,
+          ),
+          Positioned(
+            top: 18,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Center(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 150),
+                  opacity: _pullDistance > 4 ? 1.0 : 0.0,
+                  child: Transform.scale(
+                    scale: 0.55 + (0.45 * progress),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AurumTheme.bgCardOf(context),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.18),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: AurumMorphLoader(
+                        size: 26,
+                        rotateDuration: _refreshing
+                            ? const Duration(milliseconds: 900)
+                            : Duration(milliseconds: (4000 - (2800 * progress)).round()),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _HomeScreenState extends State<HomeScreen> {
   List<SongSection> _onlineSections = [];
@@ -199,10 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const _TopAmbientGlow(),
 
           // ── Main scroll content ──
-          RefreshIndicator(
-            color: AurumTheme.gold,
-            backgroundColor: AurumTheme.bgCardOf(context),
-            displacement: 60,
+          _AurumPullToRefresh(
             onRefresh: () => isOnline
                 ? _loadOnline()
                 : context.read<LibraryProvider>().refresh(),
@@ -1872,14 +2011,21 @@ class _PlaylistCardState extends State<_PlaylistCard> {
     try {
       final songs = await ApiService
           .fetchPlaylistSongs(widget.playlist.query, limit: 30)
-          .timeout(const Duration(seconds: 6));
+          .timeout(const Duration(seconds: 12));
       if (!mounted) return;
       // Cache the fetched songs on the card itself (not globally) so
       // tapping the card doesn't trigger a second, possibly different,
       // network fetch right after the thumbnail's fetch — art and the
       // opened tracklist always match for this card instance.
       _cachedSongs = songs;
-      final url = songs.where((s) => s.artworkUrl.isNotEmpty).map((s) => s.artworkUrl).firstOrNull;
+      if (songs.isEmpty) return;
+      // Thumbnail must be the FIRST song's own artwork — that's what the
+      // user will actually hear first when they tap the card, so the cover
+      // should represent that exact track, not just any song in the set.
+      // Only fall back to the next song's art if the first one is missing.
+      final url = songs.first.artworkUrl.isNotEmpty
+          ? songs.first.artworkUrl
+          : songs.where((s) => s.artworkUrl.isNotEmpty).map((s) => s.artworkUrl).firstOrNull;
       setState(() => _artUrl = url);
     } catch (_) {
       // leave _artUrl null → gradient fallback shown

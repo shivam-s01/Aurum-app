@@ -205,11 +205,22 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   List<String> topArtists({int count = 2}) {
     if (_history.isEmpty) return [];
 
+    // Label/publisher names that sometimes appear in the `artist` field of
+    // Saavn metadata instead of an actual singer — these must never be
+    // treated as an artist for "Made for You" personalization.
+    const labelNames = {
+      'unknown', 'unknown artist', 't-series', 'tseries', 't series',
+      'zee music company', 'zee music', 'sony music', 'sony music india',
+      'saregama', 'venus', 'venus music', 'tips', 'tips music',
+      'yrf', 'yash raj films', 'eros now music', 'eros music',
+      'speed records', 'white hill music', 'jjust music',
+    };
+
     final freq = <String, int>{};
     for (final song in _history) {
       final artist = song.artist.trim();
-      if (artist.isEmpty || artist.toLowerCase() == 'unknown' ||
-          artist.toLowerCase() == 'unknown artist') continue;
+      final key = artist.toLowerCase();
+      if (artist.isEmpty || labelNames.contains(key)) continue;
       freq[artist] = (freq[artist] ?? 0) + 1;
     }
 
