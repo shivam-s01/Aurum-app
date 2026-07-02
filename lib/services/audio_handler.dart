@@ -379,6 +379,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       }
       if (_queue.isEmpty || _currentIndex >= _queue.length) return;
       if (_queue[_currentIndex].id != songAtIdle!.id) return;
+      // BUGFIX (2026-07-02): explicit session re-check immediately before
+      // the write too, alongside the existing song-identity check above —
+      // belt and braces against a fresh tap superseding this recovery
+      // attempt in the last moment before setAudioSource runs.
+      if (sessionAtIdle != _playSessionId) return;
 
       debugPrint('[AurumHandler] Fresh URL resolved for "$songTitle" in ${resolveMs}ms: '
           '${_shortenUrl(freshUrl)}');
@@ -465,6 +470,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     }
     _currentIndex = found.index;
     onQueueChanged?.call();
+    // BUGFIX (2026-07-02): same immediate pre-write check as playQueue/
+    // playSong — this recovery path runs asynchronously and can easily
+    // still be resolving when a fresh user tap starts a newer session;
+    // without this check it could write a dead/stale song's source onto
+    // the player right after a newer session already moved on.
+    if (sessionAtFailure != _playSessionId) return;
     final fresh = ConcatenatingAudioSource(children: [found.source]);
     try {
       await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
@@ -674,8 +685,25 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       if (mediaItem.value?.id != tag.id) {
         mediaItem.add(tag);
       }
-      if (index != _currentIndex && index < _queue.length) {
-        _currentIndex = index;
+      // BUGFIX (2026-07-02): the old guard only synced _currentIndex when
+      // `index != _currentIndex` — i.e. only when the *position number*
+      // moved. That's the wrong condition. What actually matters is whether
+      // _queue[_currentIndex] still matches the tag we just pushed to
+      // mediaItem. If _queue has drifted out of order relative to the
+      // player's live sequence (splicing, auto-extend, moveQueueItem, a
+      // crossfade racing a skip — several of which are documented above),
+      // `index` can equal `_currentIndex` while `_queue[_currentIndex]` is
+      // actually a DIFFERENT song than `tag`. mediaItem (notification/lock
+      // screen) would then be showing the correct, audibly-playing song,
+      // while currentSong / the full player screen — which reads
+      // _queue[_currentIndex] — kept showing a stale one. That's the
+      // "notification shows one song, full player shows another" split
+      // reported 2026-07-02. Fix: resync _currentIndex to wherever `tag`
+      // actually lives in _queue, by id, any time they disagree — not only
+      // when the raw index moved.
+      final queueIdx = _queue.indexWhere((s) => s.id == tag.id);
+      if (queueIdx != -1 && queueIdx != _currentIndex) {
+        _currentIndex = queueIdx;
       }
       _maybeAutoExtendQueue();
       return;
@@ -1089,12 +1117,41 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // becomes physically impossible to hear, not just unlikely. The player
   // sits in a genuinely empty, silent state for the entire duration of the
   // resolve, no matter how long that takes.
-  Future<void> _hardStopAndMute() async {
+  // BUGFIX (2026-07-02): "rapid song-switching must never corrupt playback
+  // structure." This used to have ZERO session awareness — every step
+  // (setVolume/pause/stop/setAudioSource) is its own `await`, meaning the
+  // event loop yields between each one. If the user tapped a second song
+  // while THIS call was still mid-sequence, the second tap's OWN
+  // _hardStopAndMute() call would start interleaving with this one on the
+  // exact same `_player` instance — two concurrent stop/clear sequences
+  // racing each other, with no defined winner. Worse, whichever call's
+  // later setAudioSource(REAL SONG) landed last on the native side would
+  // "win" regardless of which song was actually tapped last, because nothing
+  // stopped a stale, already-superseded session from continuing to touch
+  // `_player` after a newer tap had already moved on. That's the mechanism
+  // behind "fast switching breaks structure" — not a crash, but the wrong
+  // song silently ending up loaded, or two setAudioSource calls stomping
+  // each other mid-flight.
+  //
+  // Fix: accept the caller's session ID and re-check it between every single
+  // await inside this sequence. The instant a newer session has started,
+  // a stale call abandons the rest of its own stop/clear sequence
+  // immediately — it has no business continuing to touch the live player
+  // once a newer tap already owns it. The newer session's own
+  // _hardStopAndMute() call (which runs next) starts from a clean baseline
+  // regardless, so nothing is lost by bailing out early here.
+  Future<void> _hardStopAndMute({int? sessionId}) async {
     _fadeTimer?.cancel();
     _fadeTimer = null;
+    bool stillCurrent() => sessionId == null || sessionId == _playSessionId;
+
+    if (!stillCurrent()) return;
     await _player.setVolume(0);
+    if (!stillCurrent()) return;
     await _player.pause();
+    if (!stillCurrent()) return;
     await _player.stop();
+    if (!stillCurrent()) return;
     try {
       await _player.setAudioSource(ConcatenatingAudioSource(children: []));
     } catch (e) {
@@ -1140,7 +1197,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     try {
       // Player is now guaranteed silent and source-free — see
       // _hardStopAndMute's doc comment for why this is the real fix.
-      await _hardStopAndMute();
+      // Session-guarded (2026-07-02) so a superseded playQueue call can't
+      // interleave its own stop/clear sequence with a newer one's.
+      await _hardStopAndMute(sessionId: mySession);
       if (mySession != _playSessionId) return;
 
       var startSource = await _sourceForSong(songs[safeIndex], sessionId: mySession);
@@ -1170,6 +1229,15 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         onQueueChanged?.call();
       }
 
+      // BUGFIX (2026-07-02): re-check RIGHT BEFORE the write, not just
+      // after. The resolve above (_sourceForSong / _findFirstPlayableFrom)
+      // can take long enough for a newer tap to supersede this session —
+      // without this immediate pre-check, a stale session could still call
+      // setAudioSource with an old song's source a moment after a newer
+      // session already started its own silence/resolve sequence,
+      // corrupting whichever song actually ends up loaded. This closes the
+      // exact race window rapid tapping can hit.
+      if (mySession != _playSessionId) return;
       final fresh = ConcatenatingAudioSource(children: [startSource]);
       try {
         await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
@@ -1205,8 +1273,14 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         '[${songs[safeIndex2].source.name}] — $detail',
       );
     } finally {
-      await _restoreVolume();
+      // BUGFIX (2026-07-02): same issue as playSong() — _restoreVolume()
+      // used to run unconditionally here too, even for a playQueue() call
+      // that has since been superseded by a newer tap. A stale, superseded
+      // call has no business setting the live player's volume — that can
+      // only ever stomp on whatever the CURRENT session is legitimately
+      // doing with volume (crossfade fade-in, duck). Gate it the same way.
       if (mySession == _playSessionId) {
+        await _restoreVolume();
         _isLoadingNewSong = false;
         if (!started) _splicingInProgress = false;
       } else {
@@ -1392,7 +1466,9 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       _isLoadingNewSong = true;
       // Same real fix as playQueue — player goes fully silent and
       // source-free before we even start resolving the new song.
-      await _hardStopAndMute();
+      // Session-guarded (2026-07-02) so a superseded playSong call can't
+      // interleave its own stop/clear sequence with a newer one's.
+      await _hardStopAndMute(sessionId: mySession);
       if (mySession != _playSessionId) return;
 
       var source = await _sourceForSong(song, sessionId: mySession);
@@ -1424,6 +1500,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         return;
       }
 
+      // BUGFIX (2026-07-02): same immediate pre-write check as playQueue —
+      // see that call site's comment for why this closes the rapid-tap
+      // race window instead of just checking after the write.
+      if (mySession != _playSessionId) return;
       final fresh = ConcatenatingAudioSource(children: [source]);
       try {
         await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
@@ -1456,9 +1536,17 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         'playSong failed for "${song.title}" [${song.source.name}] — $detail',
       );
     } finally {
-      await _restoreVolume();
-      // FIX #29: always clear flag regardless of path taken.
+      // BUGFIX (2026-07-02): this used to call _restoreVolume() unconditionally,
+      // even when mySession != _playSessionId — i.e. even when THIS call had
+      // already been superseded by a newer tap. Rapid tapping (song A, then
+      // song B before A's resolve/play sequence finished) meant A's stale
+      // finally block could force player volume to 1.0 at some arbitrary
+      // later moment, stomping on whatever B was legitimately doing to
+      // volume right then (a crossfade fade-in ramping up from 0, or a duck
+      // in progress). Only the call that is still current is allowed to
+      // touch the live player's volume.
       if (mySession == _playSessionId) {
+        await _restoreVolume();
         _isLoadingNewSong = false;
         // playSong() always starts a 1-song queue — _handleCurrentIndexChanged
         // won't fire again until the user reaches the end, so check now.
@@ -1736,6 +1824,21 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     // force a full re-resolve through playQueue when it may finish
     // splicing into range a moment later anyway.
     if (seq is ConcatenatingAudioSource && index < seq.length && !_splicingInProgress) {
+      // BUGFIX (2026-07-02): this used to only call seek() + play() and
+      // rely on the player's currentIndexStream to eventually fire
+      // _handleCurrentIndexChanged and catch _currentIndex/mediaItem up to
+      // the new position. That stream update isn't synchronous with seek()
+      // returning — for a brief window right after this call, _currentIndex
+      // still pointed at the OLD position, so currentSong (and therefore
+      // the full player screen, if it read state in that window) could
+      // show the wrong song even though audio had already jumped to the
+      // right one. Update _currentIndex/mediaItem immediately here so
+      // there's no gap; the later currentIndexStream emission for this
+      // same index is just a no-op confirmation.
+      if (index < _queue.length) {
+        _currentIndex = index;
+        _updateMediaItem(_queue[index]);
+      }
       await _player.seek(Duration.zero, index: index);
       await _player.play();
     } else if (index < _queue.length) {
