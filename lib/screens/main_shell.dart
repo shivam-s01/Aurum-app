@@ -12,7 +12,6 @@ import 'search_screen.dart';
 import 'library_screen.dart';
 import '../providers/player_provider.dart';
 import '../services/update_service.dart';
-import '../services/audio_prefs.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -54,19 +53,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // Save queue when app goes to background. Also re-check Android's real
-  // system Data Saver state on resume — Android doesn't reliably notify
-  // background apps of Data Saver changes, so the moment the user is back
-  // in the app (having possibly just flipped it in system settings) is the
-  // right time to refresh, ensuring the very next song resolve honors
-  // whatever the user's system-level choice currently is.
+  // Save queue when app goes to background
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _saveQueue();
-    } else if (state == AppLifecycleState.resumed) {
-      AudioPrefs.refreshSystemDataSaver();
     }
   }
 

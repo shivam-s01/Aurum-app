@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Immutable bundle of lyrics text formatting settings.
@@ -40,40 +39,6 @@ class AudioPrefs {
   /// Forces the lowest available stream quality regardless of
   /// [streamQuality] — used to save mobile data. Overrides streamQuality.
   static bool dataSaver = false;
-
-  // ── SYSTEM DATA SAVER (Android Settings → Network → Data Saver) ──────────
-  // Distinct from [dataSaver] above, which is Aurum's OWN in-app toggle.
-  // This mirrors the phone's actual OS-level Data Saver switch.
-  //
-  // WHY THIS MATTERS: if the user has explicitly turned system Data Saver
-  // OFF, that's a clear, deliberate signal — "I don't want my data usage
-  // restricted, quality matters more to me right now." Auto-quality
-  // playback should honor that signal and confidently reach for the
-  // highest available bitrate instead of playing it safe. Conversely, if
-  // system Data Saver is ON, we respect it as a safety net even if the
-  // user forgot to also flip Aurum's own in-app Data Saver toggle — no
-  // user should burn mobile data against Data Saver's whole purpose just
-  // because they only remembered to set the system-wide switch.
-  static const MethodChannel _systemChannel =
-      MethodChannel('com.aurum.music/media_store');
-
-  /// Cached result of the last system Data Saver read. Defaults to false
-  /// (i.e. "not restricted") so a not-yet-refreshed value never silently
-  /// downgrades quality before the first real check completes.
-  static bool systemDataSaverEnabled = false;
-
-  /// Re-reads Android's system Data Saver state. Cheap, safe to call often
-  /// (e.g. right before building a quality order for a fresh resolve) —
-  /// never throws, and leaves [systemDataSaverEnabled] unchanged on any
-  /// platform-channel failure rather than guessing.
-  static Future<void> refreshSystemDataSaver() async {
-    try {
-      final result = await _systemChannel.invokeMethod<bool>('getDataSaverEnabled');
-      if (result != null) systemDataSaverEnabled = result;
-    } catch (e) {
-      debugPrint('[AudioPrefs] refreshSystemDataSaver failed (ignored): $e');
-    }
-  }
 
   /// If true (default), playback pauses when a phone call interrupts audio.
   /// If false, Aurum ignores call interruptions and keeps playing wherever
@@ -219,13 +184,6 @@ class AudioPrefs {
     showMediaNotif      = p.getBool(_kShowMediaNotif) ?? showMediaNotif;
     showArtworkNotif    = p.getBool(_kShowArtworkNotif) ?? showArtworkNotif;
     gapless             = p.getBool(_kGapless) ?? gapless;
-
-    // Read the real system Data Saver state once at startup. Every
-    // resolve-time quality decision uses the cached [systemDataSaverEnabled]
-    // rather than awaiting a fresh platform-channel call each time, but we
-    // also opportunistically refresh it in qualityOrder() below so a user
-    // toggling system Data Saver mid-session doesn't need to restart the app.
-    await refreshSystemDataSaver();
   }
 
   static Future<void> setStreamQuality(String v) async {
@@ -365,28 +323,13 @@ class AudioPrefs {
   }
 
   /// Ordered list of Saavn quality strings to try, highest priority first —
-  /// driven by [streamQuality], [dataSaver] (Aurum's own in-app toggle), and
-  /// [systemDataSaverEnabled] (Android's real system Data Saver switch).
-  ///
-  /// PRIORITY: system Data Saver ON acts as a safety net and forces the
-  /// lowest tier even if the user forgot to also flip Aurum's in-app
-  /// toggle — no user should burn mobile data against Data Saver's whole
-  /// purpose. Aurum's own in-app Data Saver toggle forces the same low tier
-  /// on top of that. If NEITHER is on, "Auto" quality means what it says —
-  /// confidently reach for the highest bitrate, since the user has given no
-  /// signal (in-app or system-level) that they want data usage restricted.
-  ///
-  /// FIX: the old lists put 160kbps/320kbps as fallback entries even in
-  /// Data Saver / Low quality mode. Since Saavn doesn't have every bitrate
-  /// available for every song, the "lowest quality first" list would often
-  /// fail to find 48/96/12kbps and silently fall through to 160kbps or even
-  /// 320kbps — quietly burning far more mobile data than the user asked for,
-  /// while Data Saver still showed as "on". Low-tier lists now only ever
-  /// fall back to other LOW tiers (12/48/96kbps), never to 160/320kbps.
+  /// driven by [streamQuality] and [dataSaver] (Aurum's own in-app toggle).
+  /// Data Saver ON caps at 160kbps (a reasonable data-saving tier, not the
+  /// harshest one). Data Saver OFF always reaches for the highest available
+  /// bitrate — "Auto" means "give me the best quality this song has," not a
+  /// cautious middle ground.
   static List<String> qualityOrder() {
-    if (dataSaver || systemDataSaverEnabled) {
-      return const ['12kbps', '48kbps', '96kbps'];
-    }
+    if (dataSaver) return const ['160kbps', '96kbps', '48kbps', '12kbps'];
 
     // Phase 5 — 320kbps is premium-only. Free users capped at 160kbps.
     if (!isPremium) {
@@ -407,11 +350,10 @@ class AudioPrefs {
       case 'Medium':
         return const ['160kbps', '96kbps', '320kbps', '48kbps', '12kbps'];
       case 'High':
-        return const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
       case 'Auto':
       default:
-        // Neither in-app nor system Data Saver is on — Auto confidently
-        // reaches for the highest bitrate first.
+        // Data Saver is off — always reach for the highest bitrate first,
+        // regardless of the manual Stream Quality dropdown.
         return const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
     }
   }

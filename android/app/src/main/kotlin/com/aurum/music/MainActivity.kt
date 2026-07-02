@@ -53,26 +53,6 @@ class MainActivity : AudioServiceActivity() {
                         result.success(Build.VERSION.SDK_INT)
                     }
 
-                    // Reports Android's SYSTEM-LEVEL Data Saver state (Settings ->
-                    // Network -> Data Saver), NOT any in-app toggle. Used so the
-                    // app can pick audio quality based on what the USER actually
-                    // told the OS they want, not just an in-app preference —
-                    // specifically: if system Data Saver is OFF, the user has
-                    // explicitly signalled "I don't want data usage restricted",
-                    // so Auto-quality playback should confidently reach for the
-                    // highest available bitrate rather than playing it safe.
-                    "getDataSaverEnabled" -> {
-                        try {
-                            result.success(isSystemDataSaverEnabled())
-                        } catch (e: Exception) {
-                            Log.w(TAG, "getDataSaverEnabled error", e)
-                            // Fail safe: if we can't read the real system state for
-                            // any reason, report "not enabled" rather than forcing
-                            // every user onto low quality due to a read error.
-                            result.success(false)
-                        }
-                    }
-                    
                 "installApk" -> {
                     try {
                         val apkPath = call.argument<String>("path") ?: run { result.error("NO_PATH", "No path", null); return@setMethodCallHandler }
@@ -109,20 +89,6 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
-    }
-
-    // Reads Android's real system Data Saver preference via ConnectivityManager.
-    // RESTRICT_BACKGROUND_STATUS_ENABLED means the user has Data Saver turned ON
-    // in system settings. Anything else (DISABLED, or WHITELISTED meaning this
-    // app is exempted) is treated as "not restricting" for our purposes — if
-    // the app is whitelisted to bypass Data Saver, there's no reason to
-    // artificially cap its own audio quality either.
-    private fun isSystemDataSaverEnabled(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false // API added in Android 7.0
-        val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
-            as android.net.ConnectivityManager
-        return cm.restrictBackgroundStatus ==
-            android.net.ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED
     }
 
     private fun getSongs(): List<Map<String, Any?>> {
