@@ -31,6 +31,8 @@ class AurumMediaSessionService : MediaSessionService() {
 
     companion object {
         private const val LIKE_ACTION = "com.aurum.music.ACTION_TOGGLE_LIKE"
+        private const val NOTIFICATION_ID = 1
+        private const val CHANNEL_ID = "aurum_playback"
 
         // Set by AurumEngineChannelHandler right after it constructs the
         // engine (MainActivity.configureFlutterEngine runs before this
@@ -51,6 +53,7 @@ class AurumMediaSessionService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        createNotificationChannel()
 
         val engine = sharedEngine ?: run {
             // Defensive fallback: service was started (e.g. by the OS
@@ -122,6 +125,7 @@ class AurumMediaSessionService : MediaSessionService() {
             sessionBuilder.setSessionActivity(sessionActivityIntent)
         }
         mediaSession = sessionBuilder.build()
+        startForeground(NOTIFICATION_ID, buildNotification())
 
         // Keep the notification's like-button icon in sync whenever the
         // engine's liked state changes (e.g. FavoritesProvider toggled from
@@ -168,6 +172,22 @@ class AurumMediaSessionService : MediaSessionService() {
             stopSelf()
         }
         super.onTaskRemoved(rootIntent)
+    }
+
+    private fun createNotificationChannel() {
+        val mgr = getSystemService(android.app.NotificationManager::class.java)
+        val channel = android.app.NotificationChannel(
+            CHANNEL_ID, "Playback", android.app.NotificationManager.IMPORTANCE_LOW
+        )
+        mgr.createNotificationChannel(channel)
+    }
+
+    private fun buildNotification(): android.app.Notification {
+        return android.app.Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Aurum Music")
+            .setContentText("Loading playback…")
+            .build()
     }
 
     override fun onDestroy() {
