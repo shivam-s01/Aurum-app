@@ -76,6 +76,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import 'api_service.dart';
 import 'audio_prefs.dart';
+import 'audio_effects_controller.dart';
 
 // =============================================================================
 // LOOKAHEAD STREAM CACHE
@@ -110,39 +111,15 @@ class _LookaheadCache {
 
 class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   // =============================================================================
-  // BUGFIX (2026-07-02): Bass Boost / 10-band Equalizer were completely
-  // non-functional. Root cause: `_equalizer`/`_loudnessEnhancer` were built
-  // as bare standalone objects, but `_player` had NO `audioPipeline:` at
-  // all. In just_audio, Android audio effects only touch real audio when
-  // passed into an `AudioPipeline(androidAudioEffects: [...])` at PLAYER
-  // CONSTRUCTION time — anything not in a pipeline is inert (calls succeed,
-  // nothing audible changes). Also, `_applySettings()` never read the
-  // `eq_band_0..9` values the EQ screen was saving.
-  //
-  // FIX: build the effects first, wire them into a real AudioPipeline, pass
-  // that into AudioPlayer(...). Bass Boost now drives BOTH a strong
-  // LoudnessEnhancer gain AND actual low-band EQ shaping (sub-bass/bass),
-  // the same two-stage approach commercial players use so it sounds
-  // genuinely "tagda"/punchy, not just louder overall.
+  // AUDIO EFFECTS (2026-07-02): Bass Boost / Equalizer construction, gain
+  // application, and error/health handling now live entirely in
+  // AudioEffectsController (see audio_effects_controller.dart). This class
+  // only ever touches `_effects.pipeline` (once, to construct `_player`) and
+  // `_effects.applySettings()` (on settings change). A bad EQ gain value can
+  // no longer cascade into broken playback here — that failure mode is
+  // structurally contained to the controller file.
   // =============================================================================
-
-  // BUGFIX (2026-07-01): this had regressed back to a Chrome desktop UA.
-  // This is the exact YouTube-playback-breaking bug that was already fixed
-  // and documented once before: the Cloudflare Worker resolves/signs YouTube
-  // stream URLs for the ANDROID client type, and Google's CDN validates that
-  // the UA on the actual playback request matches what the URL was signed
-  // for. A mismatched UA (Chrome desktop here) causes the CDN to reject the
-  // request — this is what "YouTube songs fail silently" looks like. Must
-  // stay an Android client UA, not a browser UA.
-  //
-  // DSP chain order: LoudnessEnhancer (overall perceived-loudness boost)
-  // runs BEFORE Equalizer (per-band shaping) in the pipeline list.
-  final AndroidLoudnessEnhancer _loudnessEnhancer = AndroidLoudnessEnhancer();
-  final AndroidEqualizer _equalizer = AndroidEqualizer();
-
-  late final AudioPipeline _audioPipeline = AudioPipeline(
-    androidAudioEffects: [_loudnessEnhancer, _equalizer],
-  );
+  final AudioEffectsController _effects = AudioEffectsController();
 
   // =============================================================================
   // PERFORMANCE (2026-07-02): "YouTube songs feel heavy / phone heats up"
@@ -180,7 +157,7 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   late final _player = AudioPlayer(
     userAgent: 'com.google.android.youtube/19.29.37 (Linux; U; Android 13) gzip',
-    audioPipeline: _audioPipeline,
+    audioPipeline: _effects.pipeline,
     audioLoadConfiguration: _loadConfiguration,
   );
 
@@ -273,11 +250,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   Future<void> _init() async {
     await AudioPrefs.load();
 
-    // NOTE: _loudnessEnhancer / _equalizer / _audioPipeline / _player are
-    // now all constructed as `final`/`late final` fields above (see the
-    // 2026-07-02 bugfix note at the top of this class) so the effects are
-    // guaranteed to be attached to the player's real audio pipeline before
-    // any playback starts. Nothing to construct here anymore.
+    // NOTE: _player and its audio pipeline (via _effects.pipeline) are
+    // constructed as `late final` fields above, so effects are guaranteed
+    // to be attached before any playback starts. All effects construction,
+    // gain logic, and error handling now live in AudioEffectsController —
+    // nothing to construct here anymore.
 
     final session = await AudioSession.instance;
     await session.configure(const AudioSessionConfiguration.music());
@@ -801,39 +778,6 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // _applyCrossfadeFadeIn below for why this matters).
   Timer? _fadeTimer;
 
-  // Bass Boost strength, in DECIBELS, applied to AndroidLoudnessEnhancer.
-  // BUGFIX (2026-07-02): just_audio's AndroidLoudnessEnhancer.setTargetGain()
-  // takes a `double` value in DECIBELS (not millibels, and not an int) —
-  // the plugin converts dB→millibels internally on the native side.
-  //
-  // CRASH FIX (2026-07-02): +18.0dB was too aggressive — Android's native
-  // LoudnessEnhancer effect commonly hard-rejects target gains above what
-  // the device's audio HAL considers safe (varies by OEM, but ~+12dB is a
-  // widely-supported ceiling; some devices reject anything past +10dB).
-  // A rejected setTargetGain() doesn't just fail quietly — it can leave the
-  // native effect in a bad/half-initialized state, which then throws
-  // `IllegalArgumentException: AudioEffect: bad parameter value` the next
-  // time ANY song (regardless of source — Saavn, local, YouTube) tries to
-  // attach to that same audio session, making the crash look unrelated to
-  // Bass Boost entirely ("Saavn songs won't play"). +10.0dB is still a
-  // clearly audible, strong boost without tripping that ceiling.
-  static const double _bassBoostLoudnessGainDb = 10.0;
-
-  // Extra EQ gain (in dB) added on TOP of the user's saved band values for
-  // the two lowest bands (32Hz sub-bass, 64Hz bass) when Bass Boost is on.
-  // This is what gives the boost actual low-end WEIGHT/punch instead of
-  // sounding like the whole track just got louder — a plain loudness
-  // enhancer boosts everything roughly equally, but ears perceive "bass
-  // boost" specifically as more low-frequency energy relative to the rest.
-  static const double _bassBoostSubBassExtraDb = 7.0; // 32Hz band
-  static const double _bassBoostBassExtraDb    = 5.0; // 64Hz band
-
-  // AndroidEqualizer clamps to whatever range the device's Equalizer effect
-  // reports (commonly ±15dB, sometimes ±12dB) — clamp defensively so a
-  // combined "saved band + bass boost extra" gain never gets silently
-  // rejected by the platform for being out of range.
-  static const double _eqGainClampDb = 15.0;
-
   Future<void> _applySettings() async {
     await AudioPrefs.load();
     final p = await SharedPreferences.getInstance();
@@ -845,71 +789,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     // Crossfade
     _crossfadeSecs = p.getDouble('crossfade_duration') ?? 0.0;
 
-    final bassBoost = p.getBool('bass_boost') ?? false;
-    final volNorm   = p.getBool('volume_normalization') ?? false;
-
-    // ── STAGE 1: LoudnessEnhancer — strong overall gain when Bass Boost is on.
-    try {
-      await _loudnessEnhancer.setEnabled(bassBoost);
-      if (bassBoost) {
-        try {
-          await _loudnessEnhancer.setTargetGain(_bassBoostLoudnessGainDb);
-        } catch (e) {
-          // Defensive fallback: some devices reject even +10dB. Retry once
-          // at a conservative +6dB rather than leaving the native effect in
-          // a rejected/half-set state, which is what was previously
-          // crashing the NEXT song's setAudioSource with an unrelated-
-          // looking "AudioEffect: bad parameter value" error.
-          debugPrint('[AurumHandler] LoudnessEnhancer gain ${_bassBoostLoudnessGainDb}dB rejected ($e) — retrying at 6dB');
-          try {
-            await _loudnessEnhancer.setTargetGain(6.0);
-          } catch (e2) {
-            debugPrint('[AurumHandler] LoudnessEnhancer gain 6dB also rejected ($e2) — disabling to avoid a corrupted effect');
-            try { await _loudnessEnhancer.setEnabled(false); } catch (_) {}
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('[AurumHandler] LoudnessEnhancer apply failed: $e');
-    }
-
-    // ── STAGE 2: Equalizer — user's saved 10-band curve, PLUS a low-end
-    // shelf boost stacked on top when Bass Boost is on. This is what makes
-    // the bass boost sound like real bass, not just "everything louder".
-    try {
-      await _equalizer.setEnabled(true);
-      final params = await _equalizer.parameters;
-      final bands  = params.bands;
-      final bandCount = bands.length;
-
-      // Volume Normalization only flattens to a neutral 0dB curve when the
-      // user hasn't actually set a custom EQ (i.e. all saved bands are
-      // still 0/default). If they've picked a preset or dragged sliders,
-      // their curve is respected — vol-norm no longer silently overwrites
-      // a deliberately-set EQ, it only supplies the neutral default.
-      final savedBands = List.generate(
-        bandCount,
-        (i) => p.getDouble('eq_band_$i') ?? 0.0,
-      );
-      final hasCustomCurve = savedBands.any((g) => g != 0.0);
-
-      for (int i = 0; i < bandCount; i++) {
-        double gain = (volNorm && !hasCustomCurve) ? 0.0 : savedBands[i];
-
-        // Stack the bass-boost shelf onto the two lowest bands (index 0 =
-        // ~32Hz sub-bass, index 1 = ~64Hz bass on the standard 10-band
-        // layout used by EqualizerScreen).
-        if (bassBoost) {
-          if (i == 0) gain += _bassBoostSubBassExtraDb;
-          if (i == 1) gain += _bassBoostBassExtraDb;
-        }
-
-        gain = gain.clamp(-_eqGainClampDb, _eqGainClampDb);
-        await bands[i].setGain(gain);
-      }
-    } catch (e) {
-      debugPrint('[AurumHandler] Equalizer apply failed: $e');
-    }
+    // Bass Boost / Equalizer: entirely delegated to AudioEffectsController
+    // (see audio_effects_controller.dart). This call can never throw and
+    // can never break playback — any native effect rejection is caught,
+    // logged, and contained inside the controller itself.
+    await _effects.applySettings();
 
     // Shake to skip
     final shakeEnabled = p.getBool('shake_to_skip') ?? false;
@@ -1893,9 +1777,11 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     _idleSub?.cancel();
     _durationSub?.cancel();
     _currentIndexSub?.cancel();
-    // _equalizer / _loudnessEnhancer are final fields owned by the
-    // AudioPipeline attached to _player — disposing the player releases
-    // the whole pipeline (including these effects) with it.
+    // The native effects (owned by AudioEffectsController) are attached to
+    // _player's AudioPipeline — disposing the player releases the whole
+    // pipeline, including these effects, with it. _effects.dispose() is a
+    // documented no-op for anything beyond that.
+    _effects.dispose();
     await _player.dispose();
   }
 }
