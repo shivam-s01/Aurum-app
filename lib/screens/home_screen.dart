@@ -280,22 +280,17 @@ class _HomeScreenState extends State<HomeScreen> {
       // See audio_handler.dart's onPlaybackError / runRealPlaybackTest
       // for where these messages come from.
       final player = context.read<PlayerProvider>();
-      player.onPlaybackError = (error) {
-        if (!mounted) return;
-        // Silent fresh-start failures auto-skip — no need to show error to user
-        if (error.toLowerCase().contains('fresh-start') ||
-            error.toLowerCase().contains('silent') ||
-            error.toLowerCase().contains('resolve')) {
-          debugPrint('[Aurum] Playback error (silent): $error');
-          return;
-        }
-        // Only show snackbar for genuine user-facing errors
+      player.onPlaybackError = (error, {silent = false}) {
+        debugPrint('[Aurum] Playback error${silent ? " (silent, auto-recovered)" : ""}: $error');
+        if (!mounted || silent) return;
+        // Only reaches here when every automatic retry/skip attempt has
+        // been exhausted — a single flaky song no longer triggers this.
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.red.shade900,
             duration: const Duration(seconds: 4),
             content: Text(
-              'Could not play this song. Skipping...',
+              error,
               style: const TextStyle(color: Colors.white, fontSize: 13),
             ),
           ),
