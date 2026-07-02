@@ -85,6 +85,20 @@ class PlayerProvider extends ChangeNotifier {
   Timer? _indexDebounce;
   int?   _lastHandledIndex;
 
+  // BUGFIX (2026-07-02): "click kiya kuch aur, play kuch aur ho gaya".
+  // playSong() below is async and NOT awaited by most call sites (song
+  // tiles fire-and-forget it on tap). If the user taps song B while song
+  // A's playSong() is still awaiting _handler.playQueue()/playSong() or
+  // _buildInitialSmartQueue() is still running in the background, A's
+  // in-flight work would previously keep running with no way to know a
+  // newer tap had superseded it — _buildInitialSmartQueue in particular
+  // would keep calling _handler.addToQueue() with SONG A's recommendations
+  // even after the user had already moved on to song B, silently
+  // appending the wrong songs into what is now B's queue. This counter is
+  // bumped on every playSong() call; anything from an older call checks it
+  // before touching the queue and bails out if it's been superseded.
+  int _uiPlaySession = 0;
+
   // Last error reported by AurumAudioHandler.onPlaybackError — exposed so
   // the UI (home_screen.dart) can show it via SnackBar the instant a real
   // playSong/playQueue attempt fails, without needing logcat/adb access.
@@ -94,7 +108,10 @@ class PlayerProvider extends ChangeNotifier {
   // Fired every time a new playback error comes in, even if the message
   // text is identical to the previous one (so repeated taps on the same
   // broken song each show a fresh SnackBar instead of being deduped away).
-  void Function(String error)? onPlaybackError;
+  // `silent` mirrors AurumAudioHandler.onPlaybackError — true means this
+  // was auto-recovered (single song skipped, playback continues) and
+  // should only be logged, not shown to the user.
+  void Function(String error, {bool silent})? onPlaybackError;
 
   // ── Phase 4: Skip limit for free users ───────────────────────────────────
   // Free users get 6 skips per hour. Resets automatically after 60 min.
@@ -151,9 +168,9 @@ class PlayerProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   PlayerProvider(this._handler, {RecentlyPlayedProvider? recentlyPlayedProvider})
       : _recentlyPlayed = recentlyPlayedProvider {
-    _handler.onPlaybackError = (error) {
+    _handler.onPlaybackError = (error, {silent = false}) {
       _lastPlaybackError = error;
-      onPlaybackError?.call(error);
+      onPlaybackError?.call(error, silent: silent);
       notifyListeners();
     };
 
@@ -401,31 +418,42 @@ class PlayerProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   Future<void> playSong(Song song, {List<Song>? queue, int? index}) async {
     _lastHandledIndex = null;
+    _uiPlaySession++;
+    final mySession = _uiPlaySession;
+
     if (queue != null && index != null) {
       await _handler.playQueue(queue, index);
+      if (mySession != _uiPlaySession) return; // superseded by a newer tap
       if (queue.length < 10 && !song.isLocal) {
-        _buildInitialSmartQueue(song, alreadyInQueue: queue.map((s) => s.id).toSet());
+        _buildInitialSmartQueue(song, alreadyInQueue: queue.map((s) => s.id).toSet(), sessionId: mySession);
       }
     } else {
       await _handler.playSong(song);
+      if (mySession != _uiPlaySession) return; // superseded by a newer tap
       if (!song.isLocal) {
-        _buildInitialSmartQueue(song, alreadyInQueue: {song.id});
+        _buildInitialSmartQueue(song, alreadyInQueue: {song.id}, sessionId: mySession);
       }
     }
     notifyListeners();
   }
 
-  Future<void> _buildInitialSmartQueue(Song song, {required Set<String> alreadyInQueue}) async {
+  Future<void> _buildInitialSmartQueue(Song song, {required Set<String> alreadyInQueue, required int sessionId}) async {
     if (_isExtendingQueue) return;
+    if (sessionId != _uiPlaySession) return;
     _isExtendingQueue = true;
     try {
       await RecommendationEngine.load();
+      if (sessionId != _uiPlaySession) return;
       // Phase 1: 20 songs fast
       final phase1 = await ApiService.getAutoQueue(song, limit: 20, existingQueueIds: alreadyInQueue);
+      if (sessionId != _uiPlaySession) return;
       if (phase1.isNotEmpty) {
         final currentIds = _handler.currentQueue.map((s) => s.id).toSet();
         final toAdd = phase1.where((s) => !currentIds.contains(s.id)).toList();
-        for (final s in toAdd) await _handler.addToQueue(s);
+        for (final s in toAdd) {
+          if (sessionId != _uiPlaySession) return;
+          await _handler.addToQueue(s);
+        }
         alreadyInQueue.addAll(toAdd.map((s) => s.id));
         notifyListeners();
       }
@@ -433,10 +461,14 @@ class PlayerProvider extends ChangeNotifier {
       final phase2 = await ApiService.getAutoQueue(song, limit: 30, existingQueueIds: {
         ...alreadyInQueue, ...RecommendationEngine.sessionRecentIds,
       });
+      if (sessionId != _uiPlaySession) return;
       if (phase2.isNotEmpty) {
         final currentIds = _handler.currentQueue.map((s) => s.id).toSet();
         final toAdd = phase2.where((s) => !currentIds.contains(s.id)).toList();
-        for (final s in toAdd) await _handler.addToQueue(s);
+        for (final s in toAdd) {
+          if (sessionId != _uiPlaySession) return;
+          await _handler.addToQueue(s);
+        }
         notifyListeners();
       }
     } catch (_) {

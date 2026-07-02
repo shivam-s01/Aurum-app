@@ -113,6 +113,53 @@ class _InstanceHealth {
   }
 }
 
+// =============================================================================
+// WORKER HEALTH TRACKER
+// -----------------------------------------------------------------------
+// PERFORMANCE/HEATING FIX (2026-07-02): "YouTube songs — phone heats up,
+// speed slow, songs won't play, auto-skip/auto-pause a lot."
+//
+// Root cause: _workerYtStream (Stage 1 of _ytStreamById) makes TWO
+// sequential network calls (up to 16s + 12s = 28s worst case) before ever
+// falling through to Stage 2's 6-way parallel blast race (3 Piped + 3
+// Invidious) — which is itself another burst of simultaneous connections,
+// followed by a Stage 3 retry with a 30s timeout. If the Worker is
+// temporarily down/slow, this ENTIRE ~28s Stage-1 wait repeated on every
+// single song tap, before even reaching fallbacks — no memory of "the
+// Worker just failed 30 seconds ago, don't wait on it again." That
+// repeated network churn (radio kept awake, back-to-back HTTP attempts,
+// parallel blast races) is exactly what shows up as battery/heat and as
+// "won't play / slow to start."
+//
+// Fix: remember when the Worker fails and skip straight to the (already
+// parallel, already fast) fallback race for a short cooldown, instead of
+// re-paying the full sequential Stage-1 timeout on every tap. Short
+// cooldown (60s, not 5min like dead instances) because the Worker is the
+// PRIMARY path and should be retried again soon once it recovers.
+// =============================================================================
+class _WorkerHealth {
+  static DateTime? _deadUntil;
+  static const Duration _cooldown = Duration(seconds: 60);
+
+  static bool get isAlive {
+    final dead = _deadUntil;
+    if (dead == null) return true;
+    if (DateTime.now().isAfter(dead)) {
+      _deadUntil = null;
+      return true;
+    }
+    return false;
+  }
+
+  static void markDead() {
+    _deadUntil = DateTime.now().add(_cooldown);
+  }
+
+  static void markAlive() {
+    _deadUntil = null;
+  }
+}
+
 
 class ApiService {
 
@@ -1246,10 +1293,18 @@ class ApiService {
     // phone IP != Cloudflare IP. Worker proxy resolves + pipes bytes
     // through same CF IP → no mismatch. Explode only used in Stage 3
     // as last-resort, routed through Worker proxy to avoid IP-lock.
-    final stage1 = await _workerYtStream(videoId);
-    if (stage1 != null) return stage1;
-
-    _log('[ytStreamById] Stage 1 (Worker) failed for $videoId — blast racing fallbacks');
+    //
+    // PERFORMANCE (2026-07-02): skip Stage 1 entirely if the Worker has
+    // failed recently (_WorkerHealth) — no point re-paying up to 28s of
+    // sequential timeout on every single tap when we already know it's
+    // down. Go straight to the fast parallel fallback race instead.
+    if (_WorkerHealth.isAlive) {
+      final stage1 = await _workerYtStream(videoId);
+      if (stage1 != null) return stage1;
+      _log('[ytStreamById] Stage 1 (Worker) failed for $videoId — blast racing fallbacks');
+    } else {
+      _log('[ytStreamById] Worker in cooldown (recent failure) — skipping Stage 1, blast racing fallbacks directly');
+    }
 
     // ── STAGE 2: Blast race all Piped + Invidious simultaneously ─────────
     final aliveInstances = [
@@ -1295,6 +1350,7 @@ class ApiService {
             ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
         if (isAudio || rangeRes.bodyBytes.length > 128) {
           _log('[ytStreamById] Stage 3 Worker proxy OK for $videoId ✓');
+          _WorkerHealth.markAlive();
           return proxyUrl;
         }
       }
@@ -1392,6 +1448,7 @@ class ApiService {
             ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
         if (looksAudio || probe.bodyBytes.length > 128) {
           _log('[worker] /api/yt-proxy OK for $videoId (IP-safe path)');
+          _WorkerHealth.markAlive();
           return proxyUrl;
         }
       }
@@ -1399,6 +1456,7 @@ class ApiService {
           '(status=${probe.statusCode}) - trying direct /api/yt-stream');
     } catch (e) {
       _log('[worker] /api/yt-proxy failed for $videoId: $e - trying direct /api/yt-stream');
+      _WorkerHealth.markDead();
     }
 
     // ── SECONDARY: /api/yt-stream direct URL — only if it survives a real
@@ -1431,9 +1489,11 @@ class ApiService {
       }
       _log('[worker] /api/yt-stream OK for $videoId '
           '(${data["source"]} ${data["quality"]}) - direct path, verified');
+      _WorkerHealth.markAlive();
       return url;
     } catch (e) {
       _log('[worker] /api/yt-stream failed for $videoId: $e');
+      _WorkerHealth.markDead();
       return null;
     }
   }
