@@ -375,7 +375,7 @@ class AurumAudioEngine(
     // I2: resolve with a single fast attempt (2 attempts max), same timeouts
     // as Dart's _resolveFast — YouTube gets 45s per attempt, others 12s.
     private suspend fun resolveFast(song: NativeSong, sessionId: Int, maxAttempts: Int = 2): String? {
-        val perAttemptTimeoutMs = if (song.source == "youtube") 45_000L else 12_000L
+        val perAttemptTimeoutMs = if (song.source == "youtube") 18_000L else 12_000L
         repeat(maxAttempts) { attemptIndex ->
             if (sessionId != playSessionId) return null
             val url = try {
@@ -630,6 +630,12 @@ class AurumAudioEngine(
     // ─────────────────────────────────────────────────────────────────
     // QUEUE MUTATIONS
     // ─────────────────────────────────────────────────────────────────
+    fun lookaheadResolve(song: NativeSong) {
+        scope.launch {
+            try { resolveFast(song, playSessionId, maxAttempts = 1) } catch (e: Exception) {}
+        }
+    }
+
     fun addToQueue(song: NativeSong) {
         scope.launch { addToQueueInternal(song, playSessionId) }
     }

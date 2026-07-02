@@ -120,6 +120,10 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     engine.addToQueue(parseSong(call.argument<Map<String, Any?>>("song")!!))
                     result.success(null)
                 }
+                "lookaheadResolve" -> {
+                    engine.lookaheadResolve(parseSong(call.argument<Map<String, Any?>>("song")!!))
+                    result.success(null)
+                }
                 "removeFromQueue" -> {
                     engine.removeFromQueue(call.argument<Int>("index") ?: -1)
                     result.success(null)

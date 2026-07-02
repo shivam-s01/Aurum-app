@@ -400,7 +400,10 @@ class PlayerProvider extends ChangeNotifier {
     // an explicit prefetch method.
     if (!_nextPrefetchFired && durSeconds > 10 && posSeconds / durSeconds >= 0.70) {
       _nextPrefetchFired = true;
-      // No-op by design — native side handles pre-warm internally.
+      final nextIdx = _currentIndex + 1;
+      if (nextIdx < _queue.length) {
+        _engine.lookaheadResolve(_queue[nextIdx]);
+      }
     }
   }
 
@@ -459,6 +462,7 @@ class PlayerProvider extends ChangeNotifier {
       // Prefetch next song's stream URL so it starts instantly
       if (toAdd.isNotEmpty) {
         ApiService.prefetchNext(toAdd.first);
+        if (toAdd.length > 1) ApiService.prefetchNext(toAdd[1]);
         notifyListeners();
       }
     } catch (_) {
@@ -612,11 +616,27 @@ class PlayerProvider extends ChangeNotifier {
     if (skipLimitReached) return false; // caller shows PremiumGate
     _recordSkip();
     _fireEarlySkipIfArmed(); // ← behavior tracking hook
+
+    if (_currentIndex + 1 < _queue.length) {
+      _currentIndex += 1;
+      _currentSong = _queue[_currentIndex];
+      _lastHandledIndex = _currentIndex;
+      notifyListeners();
+    }
+
     await _engine.skipToNext();
     return true;
   }
 
-  Future<void> skipPrev() => _engine.skipToPrevious();
+  Future<void> skipPrev() async {
+    if (_currentIndex - 1 >= 0) {
+      _currentIndex -= 1;
+      _currentSong = _queue[_currentIndex];
+      _lastHandledIndex = _currentIndex;
+      notifyListeners();
+    }
+    await _engine.skipToPrevious();
+  }
 
   Future<void> addToQueue(Song song) async {
     await _engine.addToQueue(song);
