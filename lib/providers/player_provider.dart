@@ -268,6 +268,17 @@ class PlayerProvider extends ChangeNotifier {
           break;
         }
       }
+      // Native says a song is playing but our local mirror doesn't have it
+      // yet (auto-extend/splice race) — build a minimal stand-in so the UI
+      // still reflects the change instead of showing the stale song.
+      resolvedSong ??= Song(
+        id: state.currentSongId!,
+        title: _currentSong?.id == state.currentSongId ? _currentSong!.title : '',
+        artist: _currentSong?.id == state.currentSongId ? _currentSong!.artist : '',
+        album: '',
+        artworkUrl: '',
+        source: SongSource.saavn,
+      );
     }
     resolvedSong ??= (_queue.isNotEmpty && newIndex >= 0 && newIndex < _queue.length)
         ? _queue[newIndex]
