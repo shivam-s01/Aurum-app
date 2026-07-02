@@ -2,10 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:audio_service/audio_service.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'services/audio_handler.dart';
+import 'services/native_engine_bridge.dart';
 import 'services/notification_service.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
@@ -28,7 +27,7 @@ import 'screens/splash_screen.dart';
 import 'screens/app_lock_screen.dart';
 import 'utils/aurum_transitions.dart';
 
-late AurumAudioHandler _audioHandler;
+late NativeAudioEngine _audioEngine;
 
 /// Global navigator key — lets the notification-tap callback (which fires
 /// outside the widget tree) push the Downloads screen.
@@ -67,47 +66,16 @@ Future<void> main() async {
 
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
-  // NOTE: no timeout() here on purpose. AudioService.init() registers the
-  // MediaSession with the OS via a platform channel — if we let a timeout
-  // race it and fall back to a bare `AurumAudioHandler()`, that fallback
-  // handler is a normal Dart object with zero connection to audio_service's
-  // platform side. Playback still works (UI drives _player directly), but
-  // no MediaSession ever gets created, so lock screen / notification /
-  // Bluetooth / Android Auto controls silently never appear. This is why
-  // lock screen controls were showing up inconsistently — on any cold start
-  // slower than 5s (Supabase init, Hive, etc. all run before this), it fell
-  // into the broken path. AudioService.init() itself is not slow/hanging in
-  // practice, so we let it complete naturally instead of racing it.
-  _audioHandler = await AudioService.init(
-    builder: () => AurumAudioHandler(),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.aurum.music.channel.audio',
-      androidNotificationChannelName: 'Aurum Music',
-      androidNotificationOngoing: true,
-      androidNotificationClickStartsActivity: true,
-      androidNotificationIcon: 'mipmap/ic_launcher',
-      androidShowNotificationBadge: false,
-      // NOTE: androidStopForegroundOnPause is intentionally left at its
-      // default (true) here. The audio_service package hard-asserts that
-      // androidNotificationOngoing + androidStopForegroundOnPause:false is
-      // an invalid combination (it throws at startup) — ongoing already
-      // makes the notification swipe-proof while playing, which is what
-      // was actually needed for "swipe se hat jaata hai" fix. On pause,
-      // Android is allowed to demote the foreground service, same as
-      // Spotify/YouTube Music behave — the MediaSession and notification
-      // still persist, just no longer marked "ongoing".
-      artDownscaleWidth: 300,
-      artDownscaleHeight: 300,
-      // Preload artwork the instant a MediaItem is set, instead of waiting
-      // for the notification to first render and only then fetch it — this
-      // is what removes the "art pops in a second late" delay on lock
-      // screen after a song change.
-      preloadArtwork: true,
-      fastForwardInterval: Duration(seconds: 10),
-      rewindInterval: Duration(seconds: 10),
-      notificationColor: AurumTheme.gold,
-    ),
-  );
+  // NativeAudioEngine just wires up MethodChannel/EventChannel listeners —
+  // it doesn't block on any platform-side MediaSession registration (unlike
+  // the old AudioService.init(), which awaited the audio_service plugin's
+  // async platform handshake). The actual MediaSession/notification is now
+  // owned by AurumMediaSessionService (Kotlin), which
+  // AurumEngineChannelHandler starts via startForegroundService() the
+  // moment a queue exists — see onQueueChanged in that file. So construction
+  // here is synchronous and can never hang or race a timeout the way the
+  // old AudioService.init() call could.
+  _audioEngine = NativeAudioEngine();
 
   // Download progress/complete notifications. Tapping one opens Downloads.
   try {
@@ -119,15 +87,15 @@ Future<void> main() async {
     };
   } catch (_) {}
 
-  runApp(AurumApp(handler: _audioHandler));
+  runApp(AurumApp(engine: _audioEngine));
   }, (error, stack) {
     debugPrint('[Aurum] Uncaught error: $error\n$stack');
   });
 }
 
 class AurumApp extends StatelessWidget {
-  final AurumAudioHandler handler;
-  const AurumApp({super.key, required this.handler});
+  final NativeAudioEngine engine;
+  const AurumApp({super.key, required this.engine});
 
   @override
   Widget build(BuildContext context) {
@@ -144,7 +112,7 @@ class AurumApp extends StatelessWidget {
             // valid for the new mode — stop it immediately instead of
             // leaving a dead/wrong song stuck in the mini player.
             //
-            // FIX: handler.stop() is async and was called fire-and-forget
+            // FIX: engine.stop() is async and was called fire-and-forget
             // with no error handling. If the player has nothing loaded
             // (e.g. user toggles source before playing anything) or the
             // native ExoPlayer call throws, that became an unhandled
@@ -153,7 +121,7 @@ class AurumApp extends StatelessWidget {
             // and swallowed — stopping playback is best-effort, it should
             // never be able to take down the UI.
             sp.onSourceChanged = () {
-              handler.stop().catchError((e, st) {
+              engine.stop().catchError((e, st) {
                 debugPrint('[Aurum] stop() on source change failed: $e');
               });
             };
@@ -184,9 +152,9 @@ class AurumApp extends StatelessWidget {
           },
         ),
         ChangeNotifierProxyProvider2<RecentlyPlayedProvider, FavoritesProvider, PlayerProvider>(
-          create: (_) => PlayerProvider(handler),
+          create: (_) => PlayerProvider(engine),
           update: (_, recentlyPlayed, favorites, player) {
-            final p = player ?? PlayerProvider(handler, recentlyPlayedProvider: recentlyPlayed);
+            final p = player ?? PlayerProvider(engine, recentlyPlayedProvider: recentlyPlayed);
             p.updateRecentlyPlayed(recentlyPlayed);
             p.updateFavorites(favorites);
             return p;
@@ -255,11 +223,12 @@ class AurumApp extends StatelessWidget {
 //
 // How: a static bool `_played` is set to true the first time the splash
 // completes. It lives on the class (not in State) so it survives hot-reload
-// and background/foreground cycles for the entire Dart VM lifetime. On Android,
-// the audio_service process stays alive in the background, so the Dart VM is
-// never restarted on a normal resume — `_played` stays true and the splash
-// is skipped. Only a genuine force-close + relaunch resets the process and
-// clears `_played`, giving a fresh cold-start animation.
+// and background/foreground cycles for the entire Dart VM lifetime. On
+// Android, AurumMediaSessionService (the native Kotlin foreground service)
+// keeps the process alive in the background while music plays, so the Dart
+// VM is not restarted on a normal resume — `_played` stays true and the
+// splash is skipped. Only a genuine force-close + relaunch resets the
+// process and clears `_played`, giving a fresh cold-start animation.
 class _SplashOnEveryEntry extends StatelessWidget {
   final Widget child;
   const _SplashOnEveryEntry({required this.child});

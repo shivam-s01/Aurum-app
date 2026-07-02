@@ -6,7 +6,6 @@ import '../utils/aurum_transitions.dart';
 import '../providers/player_provider.dart';
 import '../providers/premium_provider.dart';
 import 'premium_screen.dart';
-import '../services/audio_handler.dart';
 import 'settings_player_screen.dart';
 import 'settings_appearance_screen.dart';
 import 'settings_storage_screen.dart';
@@ -19,8 +18,8 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Get the handler from PlayerProvider so we can pass it to player settings
-    final handler = context.read<PlayerProvider>().handler;
+    // Get the native engine from PlayerProvider so we can pass it to player settings
+    final engine = context.read<PlayerProvider>().handler;
 
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
@@ -63,7 +62,7 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: 'Playback, EQ, crossfade & behavior',
                   onTap: () {
                     HapticFeedback.lightImpact();
-                    AurumPageRoute.to(context, SettingsPlayerScreen(audioHandler: handler));
+                    AurumPageRoute.to(context, SettingsPlayerScreen(audioEngine: engine));
                   },
                 ),
                 const SizedBox(height: 10),

@@ -49,9 +49,9 @@ import 'recommendation_engine.dart';
 
 // =============================================================================
 // Result of a REAL playback attempt, used by debugPlaybackPath's
-// [realPlaybackTest] callback. Lives here (not in audio_handler.dart) so
-// BOTH api_service.dart and audio_handler.dart can reference it without
-// creating a circular import (audio_handler.dart already imports
+// [realPlaybackTest] callback. Lives here (not in player_provider.dart) so
+// BOTH api_service.dart and player_provider.dart can reference it without
+// creating a circular import (player_provider.dart already imports
 // api_service.dart for resolveStreamUrl etc).
 // =============================================================================
 class RealPlaybackResult {
@@ -2342,12 +2342,11 @@ class ApiService {
   // DIAGNOSTICS
   // ===========================================================================
 
-  // Result of a REAL playback attempt through the live AurumAudioHandler —
+  // Result of a REAL playback attempt through the live AurumAudioEngine —
   // returned by the [realPlaybackTest] callback passed into
   // [debugPlaybackPath] from the UI. Separate from PlayerException so the
-  // diagnostic function doesn't need to import audio_handler.dart directly
-  // (avoids a circular import: audio_handler.dart already imports
-  // api_service.dart).
+  // diagnostic function doesn't need to import native_engine_bridge.dart
+  // directly (avoids a circular import concern, same rationale as before).
   static Map<String, dynamic> getDiagnosticsSnapshot() {
     return {
       'timestamp':           DateTime.now().toIso8601String(),
@@ -2366,7 +2365,7 @@ class ApiService {
   }
 
   /// [realPlaybackTest], if provided, is called with a test [Song] and
-  /// should attempt REAL playback through the app's live AurumAudioHandler
+  /// should attempt REAL playback through the app's live AurumAudioEngine
   /// (wired in from home_screen.dart via PlayerProvider) and report back
   /// what actually happened. When null, falls back to the old
   /// throwaway-AudioPlayer test so this function still works standalone.
@@ -2439,22 +2438,21 @@ class ApiService {
     //
     // v5 CHANGE: previously this spun up a THROWAWAY `AudioPlayer()` with
     // its own one-off setAudioSource(..., preload: true) call. That is a
-    // DIFFERENT code path from the real app: production playback always
-    // goes through `AurumAudioHandler` (audio_handler.dart) via
-    // `playSong()`/`playQueue()`, which uses `preload: false`, a
-    // `ConcatenatingAudioSource` wrapper, volume-mute/stop choreography,
-    // and the shared `_player` instance with all its listeners attached.
-    // A throwaway player skips ALL of that — so this test could pass or
+    // DIFFERENT code path from the real app: production playback now goes
+    // through `AurumAudioEngine` (native Kotlin/Media3, see
+    // native_engine_bridge.dart) via `playSong()`/`playQueue()`, with its
+    // own gapless queueing, crossfade, and DSP pipeline. A throwaway
+    // just_audio player skips ALL of that — so this test could pass or
     // fail independently of whether real in-app playback works, which is
     // exactly the ambiguity that made this bug hard to pin down.
     //
     // Fix: if [realPlaybackTest] is supplied (wired from home_screen.dart
     // to PlayerProvider.playSong, which forwards to the real
-    // AurumAudioHandler), use the REAL handler/player instead of a
-    // throwaway one. Falls back to the old throwaway-player behaviour if
-    // no callback is supplied, so this function still works standalone.
+    // AurumAudioEngine), use the REAL engine instead of a throwaway
+    // just_audio player. Falls back to the old throwaway-player behaviour
+    // if no callback is supplied, so this function still works standalone.
     buf.writeln('▶ ${_kPipedInstances.length + 4}. REAL PLAYBACK TEST'
-        '${realPlaybackTest != null ? " (via live AurumAudioHandler)" : " (throwaway player — no handler wired)"}');
+        '${realPlaybackTest != null ? " (via live AurumAudioEngine)" : " (throwaway player — no engine wired)"}');
     if (resolvedUrl != null && testSongs.isNotEmpty) {
       if (realPlaybackTest != null) {
         try {

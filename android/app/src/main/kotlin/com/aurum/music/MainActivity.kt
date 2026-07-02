@@ -8,12 +8,12 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
-import com.ryanheise.audioservice.AudioServiceActivity
+import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 
-class MainActivity : AudioServiceActivity() {
+class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "com.aurum.music/media_store"
@@ -21,6 +21,15 @@ class MainActivity : AudioServiceActivity() {
         private val ALBUM_ART_URI = Uri.parse("content://media/external/audio/albumart")
         private const val MIN_SIZE_BYTES = 500_000L
     }
+
+    // Owns the native audio engine's MethodChannel/EventChannel wiring
+    // (playQueue/playSong/.../state stream/error stream/like-toggle
+    // reverse channel). Constructed once per Flutter engine attach —
+    // AurumMediaSessionService.sharedEngine is set inside its init{} so the
+    // foreground service (started separately, see
+    // AurumEngineChannelHandler.onQueueChanged) always finds the same
+    // ExoPlayer instance instead of building a second one.
+    private var audioEngineChannelHandler: AurumEngineChannelHandler? = null
 
     // NOTE: We intentionally do NOT use androidx.core.splashscreen's
     // installSplashScreen() here. On several OEM skins (MIUI, OxygenOS,
@@ -37,6 +46,8 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        audioEngineChannelHandler = AurumEngineChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -174,5 +185,11 @@ class MainActivity : AudioServiceActivity() {
         return contentResolver.openInputStream(uri)?.use { stream ->
             BitmapFactory.decodeStream(stream, null, opts)
         }
+    }
+
+    override fun onDestroy() {
+        audioEngineChannelHandler?.release()
+        audioEngineChannelHandler = null
+        super.onDestroy()
     }
 }

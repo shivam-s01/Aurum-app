@@ -1,76 +1,107 @@
 // =============================================================================
 // FILE: lib/providers/player_provider.dart
 // PROJECT: Aurum Music
-// VERSION: 2.0.0 — Behavior Tracking + Smart Queue
+// VERSION: 3.0.0 — Native engine switch (NativeAudioEngine / Kotlin+Media3)
 //
-// WHAT'S NEW IN v2:
-//   ✅ Early skip detection (<15s → RecentlyPlayedProvider.notifySkip)
-//   ✅ Completion detection (≥80% → RecentlyPlayedProvider.notifyCompletion)
-//   ✅ Replay detection (user re-seeks to start → notifyReplay)
-//   ✅ RecentlyPlayedProvider injected via constructor (passed from main.dart)
-//   ✅ Prefetch next song after auto-queue extension
-//   ✅ Auto-queue: passes existingQueueIds + session recent IDs for full dedup
+// WHAT CHANGED IN v3:
+//   🔁 Backing engine swapped: AurumAudioHandler (just_audio) → NativeAudioEngine
+//      (MethodChannel/EventChannel facade over AurumAudioEngine.kt).
+//   🔁 All transport/queue calls now go through NativeAudioEngine's method
+//      surface (playQueue, playSong, addToQueue, removeFromQueue,
+//      moveQueueItem, clearQueue, play, pause, stop, seek, skipToNext,
+//      skipToPrevious, skipToQueueItem, setRepeatMode, setShuffleMode,
+//      setCurrentSongLiked).
+//   🔁 Position/duration/buffered/playing/processingState/loop/shuffle/
+//      currentIndex/currentSong/queue are all derived from a single
+//      NativeAudioEngine.stateStream subscription instead of five separate
+//      just_audio streams.
+//   🔁 onPlaybackError is wired from NativeAudioEngine.errorStream instead of
+//      a handler callback.
+//   🔁 Since the native side only echoes back song IDs (queueIds /
+//      currentSongId) rather than full Song objects, this provider now
+//      keeps a local `_queue` mirror (List<Song>) updated on every call
+//      that changes the queue, and reconciles it against queueIds whenever
+//      state arrives (covers native-side reordering/removal we didn't
+//      initiate directly, e.g. an internal auto-advance).
 //
 // BACKWARD COMPATIBILITY:
-//   - All existing getters unchanged
-//   - All existing methods unchanged
-//   - New constructor param `recentlyPlayedProvider` added (nullable for safety)
-//   - No breaking API changes
+//   - All existing getters unchanged (position, duration, buffered,
+//     loopMode, shuffle, currentSong, queue, currentIndex, hasSong, etc.)
+//   - All existing public methods unchanged in name/signature
+//   - `playNext`, `lookaheadResolve`, `loadQueueSilently`, and
+//     `runRealPlaybackTest` had no NativeAudioEngine equivalent as of this
+//     bridge version — they're adapted below (see inline notes) rather than
+//     silently dropped, since UI call sites still call them.
+//   - No breaking API changes for callers of PlayerProvider.
 // =============================================================================
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:audio_service/audio_service.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:just_audio/just_audio.dart' show LoopMode;
 import '../models/song.dart';
-import '../services/audio_handler.dart';
+import '../services/native_engine_bridge.dart';
 import '../services/api_service.dart';
 import '../services/audio_prefs.dart';
 import '../services/recommendation_engine.dart';
 import 'recently_played_provider.dart';
 import 'favorites_provider.dart';
 
+// NOTE: LoopMode is still sourced from just_audio (`off`/`one`/`all`) purely
+// as a shared value type — full_player_screen.dart imports the same enum
+// directly and compares against `player.loopMode`. No just_audio Player is
+// constructed anywhere in this file; only the enum is reused so the UI
+// layer needs no changes for this engine swap.
+
 class PlayerProvider extends ChangeNotifier {
-  final AurumAudioHandler       _handler;
+  final NativeAudioEngine        _engine;
   final RecentlyPlayedProvider? _recentlyPlayed;
   FavoritesProvider? _favorites;
 
-  // Injected from main.dart once FavoritesProvider exists (it's created
-  // earlier in the provider tree, but PlayerProvider's constructor doesn't
-  // take a BuildContext, so we set this the same way updateRecentlyPlayed
-  // works). Re-wires the like bridge + listens for external like/unlike
-  // (e.g. tapping the heart in the full player) so the lock screen icon
-  // stays correct no matter where the like happened.
+  // Injected from main.dart once FavoritesProvider exists (created earlier
+  // in the provider tree; PlayerProvider's constructor doesn't take a
+  // BuildContext). Re-wires the like bridge + listens for external
+  // like/unlike (e.g. tapping the heart in the full player) so the lock
+  // screen icon stays correct no matter where the like happened.
   void updateFavorites(FavoritesProvider favorites) {
     if (identical(_favorites, favorites)) return;
     _favoritesSub?.cancel();
     _favorites = favorites;
 
-    _handler.isSongLikedLookup = (song) => favorites.isFavorite(song.id);
-    _handler.onLikeToggleRequested = (song) => favorites.toggleFavorite(song);
+    _isSongLikedLookup = (song) => favorites.isFavorite(song.id);
+    _onLikeToggleRequested = (song) => favorites.toggleFavorite(song);
 
     // Keep the lock screen heart in sync if the user likes/unlikes the
     // current song from anywhere else in the app (full player, library, etc).
     _favoritesSub = _FavoritesListener(favorites, () {
-      final song = _handler.currentSong;
+      final song = currentSong;
       if (song != null) {
-        _handler.setCurrentSongLiked(favorites.isFavorite(song.id));
+        _engine.setCurrentSongLiked(favorites.isFavorite(song.id));
       }
     });
 
     // Sync immediately for whatever's already playing.
-    final song = _handler.currentSong;
+    final song = currentSong;
     if (song != null) {
-      _handler.setCurrentSongLiked(favorites.isFavorite(song.id));
+      _engine.setCurrentSongLiked(favorites.isFavorite(song.id));
     }
   }
 
+  // Replaces AurumAudioHandler.isSongLikedLookup / onLikeToggleRequested.
+  // Now backed by a real reverse channel: AurumMediaSessionService (lock
+  // screen / notification heart tap) → AurumAudioEngine.triggerLikeToggle()
+  // → AurumEngineChannelHandler → NativeAudioEngine.onLikeToggleRequested
+  // (native_engine_bridge.dart) → wired here → FavoritesProvider →
+  // setCurrentSongLiked() pushes the authoritative result back to native.
+  bool Function(Song song)? _isSongLikedLookup;
+  Future<void> Function(Song song)? _onLikeToggleRequested;
+
   _FavoritesListener? _favoritesSub;
 
-  // Exposes the underlying handler for screens that need it directly
-  // (Sleep Timer, Equalizer) rather than re-routing every handler method
-  // through PlayerProvider just to avoid a single getter.
-  AurumAudioHandler get handler => _handler;
+  // Exposes the underlying engine for screens that need it directly
+  // (Sleep Timer, Equalizer) rather than re-routing every call through
+  // PlayerProvider just to avoid a single getter.
+  NativeAudioEngine get handler => _engine;
+  NativeAudioEngine get engine => _engine;
 
   bool     _isPlaying      = false;
   bool     _isLoading      = false;
@@ -85,22 +116,33 @@ class PlayerProvider extends ChangeNotifier {
   Timer? _indexDebounce;
   int?   _lastHandledIndex;
 
+  // Local mirror of the native queue. The native side only reports back
+  // `queueIds` (List<String>) + `currentSongId` in its state stream, not
+  // full Song objects, so we keep the actual Song list here — pushed to
+  // whenever we call playQueue/playSong/addToQueue/removeFromQueue/
+  // moveQueueItem/clearQueue — and reconcile it against `queueIds` on every
+  // incoming state event so any native-only mutation (auto-advance past
+  // the end, internal cleanup, etc.) can't leave this mirror stale.
+  List<Song> _queue = [];
+  int _currentIndex = 0;
+  Song? _currentSong;
+
   // BUGFIX (2026-07-02): "click kiya kuch aur, play kuch aur ho gaya".
   // playSong() below is async and NOT awaited by most call sites (song
   // tiles fire-and-forget it on tap). If the user taps song B while song
-  // A's playSong() is still awaiting _handler.playQueue()/playSong() or
+  // A's playSong() is still awaiting _engine.playQueue()/playSong() or
   // _buildInitialSmartQueue() is still running in the background, A's
   // in-flight work would previously keep running with no way to know a
   // newer tap had superseded it — _buildInitialSmartQueue in particular
-  // would keep calling _handler.addToQueue() with SONG A's recommendations
+  // would keep calling _engine.addToQueue() with SONG A's recommendations
   // even after the user had already moved on to song B, silently
   // appending the wrong songs into what is now B's queue. This counter is
   // bumped on every playSong() call; anything from an older call checks it
   // before touching the queue and bails out if it's been superseded.
   int _uiPlaySession = 0;
 
-  // Last error reported by AurumAudioHandler.onPlaybackError — exposed so
-  // the UI (home_screen.dart) can show it via SnackBar the instant a real
+  // Last error reported by NativeAudioEngine.errorStream — exposed so the
+  // UI (home_screen.dart) can show it via SnackBar the instant a real
   // playSong/playQueue attempt fails, without needing logcat/adb access.
   String? _lastPlaybackError;
   String? get lastPlaybackError => _lastPlaybackError;
@@ -108,9 +150,9 @@ class PlayerProvider extends ChangeNotifier {
   // Fired every time a new playback error comes in, even if the message
   // text is identical to the previous one (so repeated taps on the same
   // broken song each show a fresh SnackBar instead of being deduped away).
-  // `silent` mirrors AurumAudioHandler.onPlaybackError — true means this
-  // was auto-recovered (single song skipped, playback continues) and
-  // should only be logged, not shown to the user.
+  // `silent` mirrors NativeAudioEngine.PlaybackErrorEvent.silent — true
+  // means this was auto-recovered (single song skipped, playback
+  // continues) and should only be logged, not shown to the user.
   void Function(String error, {bool silent})? onPlaybackError;
 
   // ── Phase 4: Skip limit for free users ───────────────────────────────────
@@ -166,68 +208,107 @@ class PlayerProvider extends ChangeNotifier {
   // [recentlyPlayedProvider] is optional for backward compat — if null,
   // behavior tracking calls are silently skipped.
   // ---------------------------------------------------------------------------
-  PlayerProvider(this._handler, {RecentlyPlayedProvider? recentlyPlayedProvider})
+  PlayerProvider(this._engine, {RecentlyPlayedProvider? recentlyPlayedProvider})
       : _recentlyPlayed = recentlyPlayedProvider {
-    _handler.onPlaybackError = (error, {silent = false}) {
-      _lastPlaybackError = error;
-      onPlaybackError?.call(error, silent: silent);
-      notifyListeners();
-    };
-
-    _subs.add(_handler.player.playingStream.listen((playing) {
-      _isPlaying = playing;
+    _subs.add(_engine.errorStream.listen((event) {
+      _lastPlaybackError = event.message;
+      onPlaybackError?.call(event.message, silent: event.silent);
       notifyListeners();
     }));
 
-    _subs.add(_handler.player.positionStream.listen(_onPosition));
+    _subs.add(_engine.stateStream.listen(_onEngineState));
 
-    _subs.add(_handler.player.durationStream.listen((dur) {
-      if (dur != null) {
-        _duration = dur;
-        notifyListeners();
+    // Lock screen / notification heart tap → resolve songId against our
+    // local queue mirror → FavoritesProvider.toggleFavorite() (via
+    // updateFavorites' _onLikeToggleRequested) → push the authoritative
+    // result back to native so the icon reflects the persisted state.
+    _engine.onLikeToggleRequested = (songId) async {
+      Song? song;
+      for (final s in _queue) {
+        if (s.id == songId) { song = s; break; }
       }
-    }));
+      song ??= (_currentSong?.id == songId) ? _currentSong : null;
+      if (song == null) return;
+      await _onLikeToggleRequested?.call(song);
+      final liked = _isSongLikedLookup?.call(song) ?? false;
+      await _engine.setCurrentSongLiked(liked);
+    };
+  }
 
-    _subs.add(_handler.player.bufferedPositionStream.listen((buf) {
-      _buffered = buf;
-      notifyListeners();
-    }));
+  // ---------------------------------------------------------------------------
+  // SECTION: NATIVE STATE DERIVATION
+  //
+  // Single funnel for everything NativeAudioEngine reports. Replaces the
+  // five separate just_audio stream listeners (playing/position/duration/
+  // buffered/processingState) plus loopMode/shuffleModeEnabled/
+  // currentIndex from the old AurumAudioHandler-backed provider.
+  // ---------------------------------------------------------------------------
+  void _onEngineState(NativeEngineState state) {
+    _isPlaying = state.playing;
+    _isLoading = state.processingState == 'loading' ||
+        state.processingState == 'buffering';
+    _buffered  = state.bufferedPosition;
+    if (state.duration != null) _duration = state.duration!;
 
-    _subs.add(_handler.player.processingStateStream.listen((state) {
-      _isLoading = state == ProcessingState.loading || state == ProcessingState.buffering;
-      notifyListeners();
-    }));
+    // Reconcile the local queue mirror against queueIds. If the lengths and
+    // order already match by ID, nothing to do — this keeps us from
+    // rebuilding _queue (and losing any richer Song fields we already have,
+    // like artworkUrl) on every single state tick, since queueIds is sent
+    // on every position update too.
+    if (!_queueMatchesIds(state.queueIds)) {
+      _queue = _reconcileQueue(state.queueIds);
+    }
 
-    _subs.add(_handler.player.loopModeStream.listen((mode) {
-      _loopMode = mode;
-      notifyListeners();
-    }));
+    final newIndex = state.currentIndex ?? _currentIndex;
+    Song? resolvedSong;
+    if (state.currentSongId != null) {
+      for (final s in _queue) {
+        if (s.id == state.currentSongId) {
+          resolvedSong = s;
+          break;
+        }
+      }
+    }
+    resolvedSong ??= (_queue.isNotEmpty && newIndex >= 0 && newIndex < _queue.length)
+        ? _queue[newIndex]
+        : _currentSong;
+    _currentSong = resolvedSong;
+    _currentIndex = newIndex;
 
-    _subs.add(_handler.player.shuffleModeEnabledStream.listen((s) {
-      _shuffle = s;
-      notifyListeners();
-    }));
+    // position handling shares the same behavior-tracking hooks the old
+    // positionStream listener had.
+    _onPosition(state.position);
 
-    // Song change: reset tracking + trigger auto-queue
-    _subs.add(_handler.player.currentIndexStream.listen((index) {
-      if (index == null) return;
-      // Debounce: same rapid-fire burst that hits audio_handler's listener
-      // also hits this one — skip duplicate/sequential events so _onSongChanged
-      // and _maybeExtendQueue don't fire multiple times per real transition.
+    // Song-change detection (replaces currentIndexStream + 150ms debounce).
+    if (state.currentIndex != null && state.currentIndex != _lastHandledIndex) {
       _indexDebounce?.cancel();
+      final idx = state.currentIndex!;
       _indexDebounce = Timer(const Duration(milliseconds: 150), () {
-        if (index == _lastHandledIndex) return;
-        _lastHandledIndex = index;
-        _onSongChanged(index);
-        _maybeExtendQueue(index);
+        if (idx == _lastHandledIndex) return;
+        _lastHandledIndex = idx;
+        _onSongChanged(idx);
+        _maybeExtendQueue(idx);
       });
-    }));
+    }
 
-    // Fired synchronously the instant audio_handler updates its queue —
-    // happens before stream resolution, so the UI shows the new "now
-    // playing" song right away instead of waiting several seconds for
-    // currentIndexStream (which only fires once playback actually starts).
-    _handler.onQueueChanged = () => notifyListeners();
+    notifyListeners();
+  }
+
+  bool _queueMatchesIds(List<String> ids) {
+    if (_queue.length != ids.length) return false;
+    for (var i = 0; i < ids.length; i++) {
+      if (_queue[i].id != ids[i]) return false;
+    }
+    return true;
+  }
+
+  /// Rebuilds `_queue` in the order given by `ids`, reusing existing Song
+  /// objects from the current mirror where possible (so artwork/metadata
+  /// already fetched isn't thrown away just because native reordered or
+  /// trimmed the queue).
+  List<Song> _reconcileQueue(List<String> ids) {
+    final byId = {for (final s in _queue) s.id: s};
+    return ids.map((id) => byId[id]).whereType<Song>().toList();
   }
 
   // ---------------------------------------------------------------------------
@@ -243,7 +324,7 @@ class PlayerProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   void _onSongChanged(int index) {
-    final q    = _handler.currentQueue;
+    final q = _queue;
     if (q.isEmpty || index >= q.length) return;
     final song = q[index];
 
@@ -253,11 +334,15 @@ class PlayerProvider extends ChangeNotifier {
     _earlySkipArmed   = song.source != SongSource.local; // arm for online songs
     _replayArmed      = false;
     _nextPrefetchFired = false;
+
+    // Push liked-state for the new current song to the native session icon.
+    final liked = _isSongLikedLookup?.call(song) ?? false;
+    _engine.setCurrentSongLiked(liked);
   }
 
   void _onPosition(Duration pos) {
+    final prevPosition = _position;
     _position = pos;
-    notifyListeners();
 
     final song = _lastTrackedSong;
     if (song == null || song.source == SongSource.local) return;
@@ -267,8 +352,9 @@ class PlayerProvider extends ChangeNotifier {
 
     // ── EARLY SKIP detection ──────────────────────────────────────────────
     // If song was armed (just started) and user skips while position < 15s,
-    // the currentIndexStream will fire — we fire the skip signal there.
-    // Here we just track: if position > 15s, disarm early-skip.
+    // the song-change handler will fire — we fire the skip signal there
+    // via _fireEarlySkipIfArmed(). Here we just track: if position > 15s,
+    // disarm early-skip.
     if (_earlySkipArmed && posSeconds >= 15) {
       _earlySkipArmed = false;
     }
@@ -288,29 +374,22 @@ class PlayerProvider extends ChangeNotifier {
     if (!_replayArmed && durSeconds > 10) {
       if (posSeconds / durSeconds > 0.30) _replayArmed = true;
     }
-    if (_replayArmed && posSeconds <= 5 && _position.inSeconds <= 5) {
+    if (_replayArmed && posSeconds <= 5 && prevPosition.inSeconds <= 5) {
       _replayArmed = false; // disarm until >30% again
       _rp?.notifyReplay(song);
     }
 
     // ── LOOKAHEAD PRELOAD (70%) ──────────────────────────────────────────────
-    // At 70% of current song, resolve next song's stream URL into
-    // _LookaheadCache inside AurumAudioHandler. When the song actually
-    // switches, _sourceForSong checks this cache first — making the
-    // transition feel gapless (0ms resolve wait instead of 1-3s).
-    // 70% chosen over 50% to avoid wasting resolves on songs users skip early.
+    // At 70% of current song, ask the native engine to pre-warm the next
+    // song's stream so the transition feels gapless. NativeAudioEngine
+    // doesn't expose a Dart-side lookaheadResolve — under Stage 2/Kotlin
+    // orchestration this pre-warming is handled natively (see Worker v5's
+    // predictive pre-warm), so this hook now just invalidates nothing and
+    // is kept as a no-op trigger point in case a future engine build adds
+    // an explicit prefetch method.
     if (!_nextPrefetchFired && durSeconds > 10 && posSeconds / durSeconds >= 0.70) {
       _nextPrefetchFired = true;
-      final q   = _handler.currentQueue;
-      final idx = _handler.currentIndex;
-      if (idx + 1 < q.length) {
-        final next = q[idx + 1];
-        if (!next.isLocal) {
-          // Use handler's lookaheadResolve — stores in _LookaheadCache,
-          // not just ApiService stream cache. Faster path on song switch.
-          _handler.lookaheadResolve(next);
-        }
-      }
+      // No-op by design — native side handles pre-warm internally.
     }
   }
 
@@ -329,14 +408,14 @@ class PlayerProvider extends ChangeNotifier {
   //
   // Triggers when ≤2 songs remain in queue.
   // Uses RecommendationEngine-powered getAutoQueue (v3).
-  // Prefetches next song's stream URL after adding to queue.
   // ---------------------------------------------------------------------------
   Future<void> _maybeExtendQueue(int index) async {
-    final q = _handler.currentQueue;
+    final q = _queue;
     if (q.isEmpty) return;
 
     final remaining = q.length - 1 - index;
     if (q.length < 2 || remaining > 8 || _isExtendingQueue) return;
+    if (index >= q.length) return;
 
     _isExtendingQueue = true;
     try {
@@ -356,13 +435,14 @@ class PlayerProvider extends ChangeNotifier {
       );
 
       // Final dedup safety check
-      final currentQueueIds = _handler.currentQueue.map((s) => s.id).toSet();
+      final currentQueueIds = _queue.map((s) => s.id).toSet();
       final toAdd = nextSongs
           .where((s) => !currentQueueIds.contains(s.id))
           .toList();
 
       for (final song in toAdd) {
-        await _handler.addToQueue(song);
+        await _engine.addToQueue(song);
+        _queue.add(song);
       }
 
       // Prefetch next song's stream URL so it starts instantly
@@ -388,10 +468,10 @@ class PlayerProvider extends ChangeNotifier {
   LoopMode get loopMode       => _loopMode;
   bool     get shuffle        => _shuffle;
   bool     get showFullPlayer => _showFullPlayer;
-  Song?    get currentSong    => _handler.currentSong;
-  List<Song> get queue        => _handler.currentQueue;
-  int      get currentIndex   => _handler.currentIndex;
-  bool     get hasSong        => _handler.currentSong != null;
+  Song?    get currentSong    => _currentSong;
+  List<Song> get queue        => _queue;
+  int      get currentIndex   => _currentIndex;
+  bool     get hasSong        => _currentSong != null;
 
   double get progress {
     if (_duration.inMilliseconds == 0) return 0.0;
@@ -422,13 +502,23 @@ class PlayerProvider extends ChangeNotifier {
     final mySession = _uiPlaySession;
 
     if (queue != null && index != null) {
-      await _handler.playQueue(queue, index);
+      _queue = List<Song>.from(queue);
+      _currentIndex = index;
+      _currentSong = song;
+      notifyListeners();
+
+      await _engine.playQueue(queue, index);
       if (mySession != _uiPlaySession) return; // superseded by a newer tap
       if (queue.length < 10 && !song.isLocal) {
         _buildInitialSmartQueue(song, alreadyInQueue: queue.map((s) => s.id).toSet(), sessionId: mySession);
       }
     } else {
-      await _handler.playSong(song);
+      _queue = [song];
+      _currentIndex = 0;
+      _currentSong = song;
+      notifyListeners();
+
+      await _engine.playSong(song);
       if (mySession != _uiPlaySession) return; // superseded by a newer tap
       if (!song.isLocal) {
         _buildInitialSmartQueue(song, alreadyInQueue: {song.id}, sessionId: mySession);
@@ -448,11 +538,12 @@ class PlayerProvider extends ChangeNotifier {
       final phase1 = await ApiService.getAutoQueue(song, limit: 20, existingQueueIds: alreadyInQueue);
       if (sessionId != _uiPlaySession) return;
       if (phase1.isNotEmpty) {
-        final currentIds = _handler.currentQueue.map((s) => s.id).toSet();
+        final currentIds = _queue.map((s) => s.id).toSet();
         final toAdd = phase1.where((s) => !currentIds.contains(s.id)).toList();
         for (final s in toAdd) {
           if (sessionId != _uiPlaySession) return;
-          await _handler.addToQueue(s);
+          await _engine.addToQueue(s);
+          _queue.add(s);
         }
         alreadyInQueue.addAll(toAdd.map((s) => s.id));
         notifyListeners();
@@ -463,11 +554,12 @@ class PlayerProvider extends ChangeNotifier {
       });
       if (sessionId != _uiPlaySession) return;
       if (phase2.isNotEmpty) {
-        final currentIds = _handler.currentQueue.map((s) => s.id).toSet();
+        final currentIds = _queue.map((s) => s.id).toSet();
         final toAdd = phase2.where((s) => !currentIds.contains(s.id)).toList();
         for (final s in toAdd) {
           if (sessionId != _uiPlaySession) return;
-          await _handler.addToQueue(s);
+          await _engine.addToQueue(s);
+          _queue.add(s);
         }
         notifyListeners();
       }
@@ -478,59 +570,84 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   // Restores the last queue into the UI/notification on app reopen WITHOUT
-  // starting playback. No network resolve, no AudioSource, no play() —
-  // genuinely idle until the user taps play themselves.
+  // starting playback. NativeAudioEngine has no dedicated "silent load"
+  // method as of this bridge version, so we populate the local mirror
+  // (queue/currentSong/currentIndex) directly for immediate UI display and
+  // rely on the native session simply staying idle until play() is
+  // explicitly called — no playQueue()/play() call is made here, so no
+  // network resolve and no playback start occurs.
   Future<void> restoreQueueSilently(List<Song> queue, int index) async {
-    await _handler.loadQueueSilently(queue, index);
+    _queue = List<Song>.from(queue);
+    _currentIndex = index.clamp(0, queue.isEmpty ? 0 : queue.length - 1);
+    _currentSong = queue.isNotEmpty ? queue[_currentIndex] : null;
     notifyListeners();
   }
 
   Future<void> togglePlay() async {
-    if (_isPlaying) await _handler.pause();
-    else            await _handler.play();
+    if (_isPlaying) await _engine.pause();
+    else            await _engine.play();
   }
 
   Future<void> seek(double ratio) async {
     if (_duration == Duration.zero) return;
     final pos = Duration(milliseconds: (_duration.inMilliseconds * ratio).round());
-    await _handler.seek(pos);
+    await _engine.seek(pos);
   }
 
-  Future<void> seekTo(Duration pos) => _handler.seek(pos);
+  Future<void> seekTo(Duration pos) => _engine.seek(pos);
 
   /// Returns true if skip was allowed, false if limit reached (UI should show gate).
   Future<bool> skipNext() async {
     if (skipLimitReached) return false; // caller shows PremiumGate
     _recordSkip();
     _fireEarlySkipIfArmed(); // ← behavior tracking hook
-    await _handler.skipToNext();
+    await _engine.skipToNext();
     return true;
   }
 
-  Future<void> skipPrev() => _handler.skipToPrevious();
+  Future<void> skipPrev() => _engine.skipToPrevious();
 
   Future<void> addToQueue(Song song) async {
-    await _handler.addToQueue(song);
+    await _engine.addToQueue(song);
+    _queue.add(song);
     notifyListeners();
   }
 
+  // NativeAudioEngine has no dedicated "insert at front" method — the old
+  // AurumAudioHandler.playNext() spliced the song directly after the
+  // current index. We replicate that with addToQueue + moveQueueItem so
+  // the visible behavior (song plays immediately after the current one)
+  // is preserved without needing a native-side API change.
   Future<void> playNext(Song song) async {
-    await _handler.playNext(song);
+    await _engine.addToQueue(song);
+    _queue.add(song);
+    final from = _queue.length - 1;
+    final to = (_currentIndex + 1).clamp(0, _queue.length - 1);
+    if (from != to) {
+      await _engine.moveQueueItem(from, to);
+      final moved = _queue.removeAt(from);
+      _queue.insert(to, moved);
+    }
     notifyListeners();
   }
 
   Future<void> removeFromQueue(int index) async {
-    await _handler.removeFromQueue(index);
+    await _engine.removeFromQueue(index);
+    if (index >= 0 && index < _queue.length) _queue.removeAt(index);
     notifyListeners();
   }
 
   Future<void> moveQueueItem(int from, int to) async {
-    await _handler.moveQueueItem(from, to);
+    await _engine.moveQueueItem(from, to);
+    if (from >= 0 && from < _queue.length) {
+      final item = _queue.removeAt(from);
+      _queue.insert(to.clamp(0, _queue.length), item);
+    }
     notifyListeners();
   }
 
   Future<void> skipToIndex(int index) async {
-    await _handler.skipToQueueItem(index);
+    await _engine.skipToQueueItem(index);
     notifyListeners();
   }
 
@@ -540,21 +657,19 @@ class PlayerProvider extends ChangeNotifier {
         : _loopMode == LoopMode.all
             ? LoopMode.one
             : LoopMode.off;
-    await _handler.setRepeatMode(
-      next == LoopMode.off
-          ? AudioServiceRepeatMode.none
-          : next == LoopMode.one
-              ? AudioServiceRepeatMode.one
-              : AudioServiceRepeatMode.all,
+    _loopMode = next;
+    // NativeAudioEngine/Kotlin expects "none" | "one" | "all" (see
+    // AurumAudioEngine.kt#setRepeatMode) — not "off".
+    await _engine.setRepeatMode(
+      next == LoopMode.off ? 'none' : next == LoopMode.one ? 'one' : 'all',
     );
+    notifyListeners();
   }
 
   Future<void> toggleShuffle() async {
-    await _handler.setShuffleMode(
-      _shuffle
-          ? AudioServiceShuffleMode.none
-          : AudioServiceShuffleMode.all,
-    );
+    _shuffle = !_shuffle;
+    await _engine.setShuffleMode(_shuffle);
+    notifyListeners();
   }
 
   void openFullPlayer() {
@@ -567,12 +682,15 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> pause() => _handler.pause();
-  Future<void> stop() => _handler.stop();
+  Future<void> pause() => _engine.pause();
+  Future<void> stop() => _engine.stop();
 
   Future<void> stopAndClear() async {
-    await _handler.stop();
-    await _handler.clearQueue();
+    await _engine.stop();
+    await _engine.clearQueue();
+    _queue = [];
+    _currentSong = null;
+    _currentIndex = 0;
     notifyListeners();
   }
 
@@ -600,15 +718,37 @@ class PlayerProvider extends ChangeNotifier {
   RecentlyPlayedProvider? get _rp => _latestRecentlyPlayed ?? _recentlyPlayed;
 
   // ---------------------------------------------------------------------------
-  // DIAGNOSTICS — exposes the real handler's playback test to the UI layer
-  // (home_screen.dart) without that screen needing to know about
-  // AurumAudioHandler directly. See audio_handler.dart's
-  // runRealPlaybackTest() and api_service.dart's debugPlaybackPath() for
-  // why this matters: it lets the diagnostics dialog test the SAME
-  // play path real taps use, instead of a throwaway player.
+  // DIAGNOSTICS — NativeAudioEngine has no runRealPlaybackTest equivalent
+  // (that lived inside AurumAudioHandler and exercised just_audio directly).
+  // Kept as a thin shim so the diagnostics dialog in home_screen.dart still
+  // compiles and gives a meaningful result: it now drives the same
+  // playSong() path real taps use and reports success/failure via
+  // errorStream instead of a bespoke test harness.
   // ---------------------------------------------------------------------------
-  Future<RealPlaybackResult> runRealPlaybackTest(Song song) =>
-      _handler.runRealPlaybackTest(song);
+  Future<RealPlaybackResult> runRealPlaybackTest(Song song) async {
+    String? capturedError;
+    final sub = _engine.errorStream.listen((e) => capturedError = e.message);
+    try {
+      await _engine.playSong(song);
+      await Future.delayed(const Duration(seconds: 3));
+      final ok = capturedError == null && _isPlaying;
+      return RealPlaybackResult(
+        success: ok,
+        positionMs: _position.inMilliseconds,
+        processingState: _isLoading ? 'buffering' : (ok ? 'ready' : 'idle'),
+        errorMessage: capturedError,
+      );
+    } catch (e) {
+      return RealPlaybackResult(
+        success: false,
+        positionMs: 0,
+        processingState: 'error',
+        errorMessage: e.toString(),
+      );
+    } finally {
+      await sub.cancel();
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // DISPOSE
@@ -618,6 +758,7 @@ class PlayerProvider extends ChangeNotifier {
     _indexDebounce?.cancel();
     for (final sub in _subs) sub.cancel();
     _favoritesSub?.cancel();
+    _engine.onLikeToggleRequested = null;
     super.dispose();
   }
 }

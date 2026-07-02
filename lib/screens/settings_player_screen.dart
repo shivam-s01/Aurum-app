@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
-import '../services/audio_handler.dart';
+import '../services/native_engine_bridge.dart';
 import '../services/audio_prefs.dart';
 import '../providers/recently_played_provider.dart';
 
@@ -17,7 +17,7 @@ class SleepTimerService {
   Timer? _timer;
   DateTime? _endsAt;
   bool _finishSong = false;
-  AurumAudioHandler? _handler;
+  NativeAudioEngine? _engine;
 
   // Listeners so UI can rebuild when timer ticks/ends
   final List<VoidCallback> _listeners = [];
@@ -31,11 +31,11 @@ class SleepTimerService {
   void start({
     required int minutes,
     required bool finishSong,
-    required AurumAudioHandler? handler,
+    required NativeAudioEngine? engine,
   }) {
     cancel();
     _finishSong = finishSong;
-    _handler = handler;
+    _engine = engine;
     _endsAt = DateTime.now().add(Duration(minutes: minutes));
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       _notify();
@@ -59,9 +59,9 @@ class SleepTimerService {
     _endsAt = null;
     if (_finishSong) {
       // Let current song finish, then pause at next song start
-      _handler?.customAction('sleepAfterSong');
+      _engine?.sleepAfterCurrentSong();
     } else {
-      _handler?.pause();
+      _engine?.pause();
     }
     _notify();
   }
@@ -71,8 +71,8 @@ class SleepTimerService {
 // SettingsPlayerScreen
 // =============================================================================
 class SettingsPlayerScreen extends StatefulWidget {
-  final AurumAudioHandler? audioHandler;
-  const SettingsPlayerScreen({super.key, this.audioHandler});
+  final NativeAudioEngine? audioEngine;
+  const SettingsPlayerScreen({super.key, this.audioEngine});
   @override
   State<SettingsPlayerScreen> createState() => _SettingsPlayerScreenState();
 }
@@ -144,8 +144,19 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
     if (value is String) await p.setString(key, value);
   }
 
-  Future<void> _notifyHandler() async {
-    await widget.audioHandler?.customAction('reloadSettings');
+  // Pushes current Bass Boost / Volume Normalization / EQ band settings to
+  // the native AurumAudioEffects. Replaces the old
+  // `audioHandler?.customAction('reloadSettings')` call — the Kotlin side
+  // has no equivalent "reload from SharedPreferences" hook of its own, so
+  // Dart reads prefs itself and sends the resolved values explicitly.
+  Future<void> _notifyEngine() async {
+    final p = await SharedPreferences.getInstance();
+    final bandGains = List.generate(10, (i) => p.getDouble('eq_band_$i') ?? 0.0);
+    await widget.audioEngine?.applyAudioEffects(
+      bassBoost: _bassBoost,
+      volumeNormalization: _volumeNormalization,
+      bandGainsDb: bandGains,
+    );
   }
 
   // ── Sleep Timer Sheet ──────────────────────────────────────────────────────
@@ -157,7 +168,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => SleepTimerSheet(
-        handler: widget.audioHandler,
+        engine: widget.audioEngine,
         finishSong: _sleepTimerFinishSong,
         onFinishSongChanged: (v) {
           setState(() => _sleepTimerFinishSong = v);
@@ -227,7 +238,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) async {
                 setState(() => _volumeNormalization = v);
                 await _save('volume_normalization', v);
-                await _notifyHandler();
+                await _notifyEngine();
               }),
 
           // Bass Boost
@@ -239,7 +250,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) async {
                 setState(() => _bassBoost = v);
                 await _save('bass_boost', v);
-                await _notifyHandler();
+                await _notifyEngine();
               }),
 
           // ── SLEEP TIMER ───────────────────────────────────────────────────
@@ -255,7 +266,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               title: 'Equalizer',
               subtitle: '10-band EQ with presets',
               onTap: () => Navigator.of(context)
-                  .push(_slideRoute(EqualizerScreen(audioHandler: widget.audioHandler)))),
+                  .push(_slideRoute(EqualizerScreen(audioEngine: widget.audioEngine)))),
 
           // ── BEHAVIOR ──────────────────────────────────────────────────────
           const SizedBox(height: 16),
@@ -555,12 +566,12 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 // Sleep Timer Bottom Sheet
 // =============================================================================
 class SleepTimerSheet extends StatefulWidget {
-  final AurumAudioHandler? handler;
+  final NativeAudioEngine? engine;
   final bool finishSong;
   final ValueChanged<bool> onFinishSongChanged;
 
   const SleepTimerSheet({
-    required this.handler,
+    required this.engine,
     required this.finishSong,
     required this.onFinishSongChanged,
   });
@@ -678,7 +689,7 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
                 SleepTimerService.instance.start(
                   minutes: _selectedMinutes,
                   finishSong: _finishSong,
-                  handler: widget.handler,
+                  engine: widget.engine,
                 );
                 Navigator.pop(context);
               },
@@ -725,8 +736,8 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
 // Equalizer Screen
 // =============================================================================
 class EqualizerScreen extends StatefulWidget {
-  final AurumAudioHandler? audioHandler;
-  const EqualizerScreen({this.audioHandler});
+  final NativeAudioEngine? audioEngine;
+  const EqualizerScreen({this.audioEngine});
   @override
   State<EqualizerScreen> createState() => EqualizerScreenState();
 }
@@ -766,7 +777,16 @@ class EqualizerScreenState extends State<EqualizerScreen> {
     for (int i = 0; i < 10; i++) {
       await p.setDouble('eq_band_$i', _values[i]);
     }
-    await widget.audioHandler?.customAction('reloadSettings');
+    // Bass Boost / Volume Normalization toggles live in
+    // SettingsPlayerScreen's state, not here — read the persisted values
+    // fresh so a custom EQ curve edit doesn't accidentally clobber them.
+    final bassBoost = p.getBool('bass_boost') ?? false;
+    final volNorm = p.getBool('volume_normalization') ?? false;
+    await widget.audioEngine?.applyAudioEffects(
+      bassBoost: bassBoost,
+      volumeNormalization: volNorm,
+      bandGainsDb: _values,
+    );
   }
 
   void _applyPreset(String name) {

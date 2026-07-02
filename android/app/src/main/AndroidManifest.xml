@@ -50,25 +50,23 @@
             </intent-filter>
         </activity>
 
-        <!-- audio_service background service -->
+        <!-- Native Media3 MediaSessionService — replaces audio_service's
+             AudioService entirely. Owns the MediaSession, foreground
+             notification, and lock-screen/Bluetooth/Android Auto controls
+             directly from AurumAudioEngine's ExoPlayer instance. The
+             MediaSessionService action intent-filter is what lets the
+             system (and MediaController.Builder on the Dart/other-process
+             side, if ever needed) discover and bind to this service. -->
         <service
-            android:name="com.ryanheise.audioservice.AudioService"
+            android:name=".AurumMediaSessionService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="true"
-            android:stopWithTask="true">
+            android:stopWithTask="false">
             <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService"/>
                 <action android:name="android.media.browse.MediaBrowserService"/>
             </intent-filter>
         </service>
-
-        <receiver
-            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
-            android:exported="true"
-            android:stopWithTask="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MEDIA_BUTTON"/>
-            </intent-filter>
-        </receiver>
 
         <meta-data
             android:name="flutterEmbedding"

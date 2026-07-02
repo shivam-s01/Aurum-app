@@ -1924,7 +1924,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       _SheetAction(Icons.equalizer_rounded, 'Audio Effects', Colors.orangeAccent, () {
         Navigator.pop(context);
         Navigator.of(widget.rootContext).push(MaterialPageRoute(
-          builder: (_) => EqualizerScreen(audioHandler: widget.player.handler),
+          builder: (_) => EqualizerScreen(audioEngine: widget.player.handler),
         ));
       }),
       _SheetAction(

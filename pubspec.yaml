@@ -11,8 +11,16 @@ dependencies:
     sdk: flutter
 
   # Audio
+  # NOTE: just_audio stays as a dependency even though AurumAudioHandler is
+  # gone — api_service.dart's diagnostics throwaway AudioPlayer still uses
+  # it, and its LoopMode enum is reused (as a shared value type only, no
+  # Player constructed) by player_provider.dart / full_player_screen.dart.
+  # audio_service is REMOVED — replaced entirely by native_engine_bridge.dart
+  # (NativeAudioEngine) talking to AurumAudioEngine.kt, with the
+  # MediaSession/notification/background-service role now owned by
+  # AurumMediaSessionService.kt (Media3-native) instead of the audio_service
+  # plugin's AudioService.
   just_audio: ^0.9.40
-  audio_service: ^0.18.13
   audio_session: ^0.1.18
   just_waveform: ^0.0.7
 

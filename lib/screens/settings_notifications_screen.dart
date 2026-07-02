@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
-import '../providers/player_provider.dart';
 
 class SettingsNotificationsScreen extends StatefulWidget {
   const SettingsNotificationsScreen({super.key});
@@ -40,12 +38,21 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
     final p = await SharedPreferences.getInstance();
     if (value is bool)   await p.setBool(key, value);
     if (value is String) await p.setString(key, value);
-    // Reload live so notification updates immediately
+    // Reload live so AudioPrefs-dependent behavior (e.g. stream quality
+    // checks elsewhere) picks up the new value immediately.
+    //
+    // NOTE: unlike the old audio_service-based AurumAudioHandler, there is
+    // no "reloadSettings" native call needed here anymore — Media3's
+    // MediaSessionService-driven notification (AurumMediaSessionService.kt)
+    // is generated automatically from the MediaSession/MediaMetadata on
+    // every player state change, not from a manually-populated
+    // notification config that needed an explicit refresh signal. The
+    // show/artwork/prev-button toggles below currently only affect what
+    // this settings screen persists to SharedPreferences; wiring them into
+    // the actual notification layout (e.g. hiding the prev button) would
+    // require reading these prefs from AurumMediaSessionService's
+    // CommandButton/custom-layout setup — not yet implemented there.
     await AudioPrefs.load();
-    try {
-      final handler = context.read<PlayerProvider>().handler;
-      await handler.customAction('reloadSettings');
-    } catch (_) {}
   }
 
   @override

@@ -277,8 +277,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // Surface real playback failures immediately via SnackBar — no
       // logcat/adb needed to see exactly why a tap didn't start sound.
-      // See audio_handler.dart's onPlaybackError / runRealPlaybackTest
-      // for where these messages come from.
+      // See player_provider.dart's onPlaybackError (wired from
+      // NativeAudioEngine.errorStream) for where these messages come from.
       final player = context.read<PlayerProvider>();
       player.onPlaybackError = (error, {silent = false}) {
         debugPrint('[Aurum] Playback error${silent ? " (silent, auto-recovered)" : ""}: $error');
@@ -513,9 +513,9 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.bug_report_outlined,
                 color: AurumTheme.textSecondaryOf(context)),
             onPressed: () async {
-              // Wire the REAL handler in, so the "REAL PLAYBACK TEST" step
+              // Wire the REAL engine in, so the "REAL PLAYBACK TEST" step
               // tests actual in-app playback instead of a throwaway player.
-              // See api_service.dart / audio_handler.dart for why this
+              // See api_service.dart / player_provider.dart for why this
               // distinction matters — it's what made this bug ambiguous.
               final playerProvider = context.read<PlayerProvider>();
               final result = await ApiService.debugPlaybackPath(
