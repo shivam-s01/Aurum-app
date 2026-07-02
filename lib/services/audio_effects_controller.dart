@@ -140,6 +140,16 @@ class AudioEffectsController {
       final bands = params.bands;
       final bandCount = bands.length;
 
+      // BUILD FIX (2026-07-02): minDecibels/maxDecibels are properties of
+      // the shared AndroidEqualizerParameters object (one range for the
+      // whole equalizer), NOT of each individual AndroidEqualizerBand —
+      // bands[i].minDecibels doesn't exist and fails to compile. Confirmed
+      // against just_audio's own example (example_effects.dart), which
+      // reads `parameters.minDecibels` / `parameters.maxDecibels` once and
+      // applies that same range to every band's slider.
+      final minDb = params.minDecibels;
+      final maxDb = params.maxDecibels;
+
       // Volume Normalization only flattens to a neutral 0dB curve when the
       // user hasn't actually set a custom EQ. If they've picked a preset or
       // dragged sliders, their curve is respected.
@@ -159,12 +169,10 @@ class AudioEffectsController {
           if (i == 1) gain += _bassBoostBassExtraDb;
         }
 
-        // Clamp to THIS device's actual reported range for this band —
-        // never a hardcoded number. A hardcoded clamp is exactly what
+        // Clamp to THIS device's actual reported range — never a
+        // hardcoded number. A hardcoded/wrong clamp is exactly what
         // caused the original "bad parameter value" cascade: the assumed
         // range didn't match what the native effect actually accepted.
-        final minDb = bands[i].minDecibels;
-        final maxDb = bands[i].maxDecibels;
         gain = gain.clamp(minDb, maxDb);
 
         try {
