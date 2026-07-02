@@ -188,7 +188,16 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   int        _currentIndex = 0;
 
   void Function()? onQueueChanged;
-  void Function(String error)? onPlaybackError;
+  // `silent: true` means this failure was (or will be) auto-recovered —
+  // a single song in a queue failing and the handler already moving on
+  // to try the next one. These are logged via debugPrint but never shown
+  // to the user, because showing a red SnackBar for every transient
+  // single-song hiccup (which happens fairly often on YouTube's fallback
+  // chain) trains the user to associate normal auto-recovery with a
+  // broken app. `silent: false` (the default) means every fallback in the
+  // chain has been exhausted for this attempt and nothing further will
+  // retry automatically — that's the only case actually worth surfacing.
+  void Function(String error, {bool silent})? onPlaybackError;
 
   // ─── LIKE (favorite) — surfaced as a custom action button on the lock
   // screen / notification so the user can like/unlike without opening the
@@ -378,10 +387,17 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         debugPrint('[AurumHandler] [ERROR] resolveStreamUrl returned null for '
             '"$songTitle" (source=$srcLabel id=${songNow.id}) after ${resolveMs}ms — '
             'all fallback stages (Worker/Piped/Invidious/explode) failed or timed out');
+        if (sessionAtIdle != _playSessionId) return;
+        // Don't just error out and leave the player sitting idle on a dead
+        // song — that's the "message says Skipping but nothing actually
+        // skips" bug. Walk forward to the next song in the queue, same as
+        // the initial-tap failure path in playQueue.
         onPlaybackError?.call(
           'Resolve failed for "$songTitle" [$srcLabel] — '
-          'no fallback source returned a URL within 15s (${resolveMs}ms elapsed).',
+          'no fallback source returned a URL within 15s (${resolveMs}ms elapsed). Skipping to next song.',
+          silent: true,
         );
+        await _advancePastDeadSong(songNow, sessionAtIdle);
         return;
       }
       if (_queue.isEmpty || _currentIndex >= _queue.length) return;
@@ -420,8 +436,10 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
             'network_security_config.xml whitelist and Worker response).');
         onPlaybackError?.call(
           'Playback failed for "$songTitle" [$srcLabel] — stream URL was returned '
-          'but ExoPlayer could not open it (silent idle@0ms after retry).',
+          'but ExoPlayer could not open it (silent idle@0ms after retry). Skipping to next song.',
+          silent: true,
         );
+        await _advancePastDeadSong(songNow, sessionAtIdle);
         return;
       }
 
@@ -432,8 +450,57 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       final detail = _exceptionDetail(e);
       debugPrint('[AurumHandler] [ERROR] Fresh-start retry threw for "$songTitle" '
           '(source=$srcLabel): $detail');
+      if (sessionAtIdle == _playSessionId) {
+        onPlaybackError?.call(
+          'Playback failed for "$songTitle" [$srcLabel] after retry — $detail Skipping to next song.',
+          silent: true,
+        );
+        await _advancePastDeadSong(songNow, sessionAtIdle);
+      }
+    }
+  }
+
+  // Used when a song has exhausted every automatic retry (fresh-start retry,
+  // mid-stream recovery) and is definitively dead for this session. Walks
+  // forward through the rest of the CURRENT queue (not a fresh copy — the
+  // live `_queue`) to find the next playable song and starts it, so a single
+  // bad song advances playback instead of leaving the player stuck idle.
+  // Only shows an error to the user if EVERY remaining song also fails.
+  Future<void> _advancePastDeadSong(Song deadSong, int sessionAtFailure) async {
+    if (sessionAtFailure != _playSessionId) return;
+    if (_queue.isEmpty) return;
+    final deadIdx = _queue.indexWhere((s) => s.id == deadSong.id);
+    final startFrom = deadIdx >= 0 ? deadIdx + 1 : _currentIndex + 1;
+    if (startFrom >= _queue.length) {
       onPlaybackError?.call(
-        'Playback failed for "$songTitle" [$srcLabel] after retry — $detail',
+        'Reached end of queue after "${deadSong.title}" [${deadSong.source.name}] could not be played.',
+      );
+      return;
+    }
+    final found = await _findFirstPlayableFrom(_queue, startFrom, sessionAtFailure);
+    if (sessionAtFailure != _playSessionId) return;
+    if (found == null) {
+      onPlaybackError?.call(
+        'Could not play "${deadSong.title}" [${deadSong.source.name}] or any '
+        'later song in the queue — all resolve attempts failed.',
+      );
+      return;
+    }
+    _currentIndex = found.index;
+    onQueueChanged?.call();
+    final fresh = ConcatenatingAudioSource(children: [found.source]);
+    try {
+      await _player.setAudioSource(fresh, initialIndex: 0, preload: false);
+      if (sessionAtFailure != _playSessionId) return;
+      await _reapplySpeed();
+      _updateMediaItem(_queue[found.index]);
+      await _restoreVolume();
+      await _player.play();
+      debugPrint('[AurumHandler] Advanced past dead song to "${_queue[found.index].title}" ✓');
+    } catch (e) {
+      debugPrint('[AurumHandler] [ERROR] _advancePastDeadSong setAudioSource failed: ${_exceptionDetail(e)}');
+      onPlaybackError?.call(
+        'Could not play "${deadSong.title}" [${deadSong.source.name}] or the next song — ${_exceptionDetail(e)}',
       );
     }
   }
@@ -552,10 +619,13 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
     debugPrint('[AurumHandler] [ERROR] Mid-stream recovery for "${song.title}" '
         '(source=$srcLabel) failed completely');
+    if (sessionAtError != _playSessionId) return;
     onPlaybackError?.call(
       'Stream expired for "${song.title}" [$srcLabel] at ${pos.inSeconds}s '
-      'and could not be recovered (resolve failed or source swap failed).',
+      'and could not be recovered. Skipping to next song.',
+      silent: true,
     );
+    await _advancePastDeadSong(song, sessionAtError);
   }
 
   // ─── CURRENT INDEX STREAM HANDLING ─────────────────────────────────────────
@@ -1754,7 +1824,12 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   @override
   Future<void> skipToQueueItem(int index) async {
     final seq = _player.audioSource;
-    if (seq is ConcatenatingAudioSource && index < seq.length) {
+    // While background splicing is still resolving surrounding songs, the
+    // live ConcatenatingAudioSource can be shorter than the real queue —
+    // don't let that make an already-queued song look "not ready yet" and
+    // force a full re-resolve through playQueue when it may finish
+    // splicing into range a moment later anyway.
+    if (seq is ConcatenatingAudioSource && index < seq.length && !_splicingInProgress) {
       await _player.seek(Duration.zero, index: index);
       await _player.play();
     } else if (index < _queue.length) {
