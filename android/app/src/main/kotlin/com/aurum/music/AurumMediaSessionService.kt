@@ -126,6 +126,11 @@ class AurumMediaSessionService : MediaSessionService() {
         }
         mediaSession = sessionBuilder.build()
         startForeground(NOTIFICATION_ID, buildNotification())
+        engine.player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) stopForeground(android.app.Service.STOP_FOREGROUND_DETACH)
+            }
+        })
 
         // Keep the notification's like-button icon in sync whenever the
         // engine's liked state changes (e.g. FavoritesProvider toggled from
@@ -186,7 +191,8 @@ class AurumMediaSessionService : MediaSessionService() {
         return android.app.Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Aurum Music")
-            .setContentText("Loading playback…")
+            .setContentText("Playback ready")
+            .setOngoing(false)
             .build()
     }
 

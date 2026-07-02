@@ -20,7 +20,8 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
     }
 
     private val resolver = MethodChannelStreamResolver(messenger)
-    val engine = AurumAudioEngine(context, resolver)
+    val engine: AurumAudioEngine = AurumMediaSessionService.sharedEngine
+        ?: AurumAudioEngine(context.applicationContext, resolver)
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(Dispatchers.Main.immediate)
     private var stateJob: Job? = null
