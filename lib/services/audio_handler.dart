@@ -804,13 +804,20 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   // Bass Boost strength, in DECIBELS, applied to AndroidLoudnessEnhancer.
   // BUGFIX (2026-07-02): just_audio's AndroidLoudnessEnhancer.setTargetGain()
   // takes a `double` value in DECIBELS (not millibels, and not an int) —
-  // the plugin converts dB→millibels internally on the native side. The
-  // previous value here (1800, as an int) was wrong on two counts: wrong
-  // type (caused a real compile error — "argument type 'int' can't be
-  // assigned to parameter type 'double'") AND wrong unit (1800 "dB" would
-  // have been a nonsensical, heavily-distorting gain even if it had
-  // compiled). +18.0dB is the actually-intended strong/premium boost.
-  static const double _bassBoostLoudnessGainDb = 18.0;
+  // the plugin converts dB→millibels internally on the native side.
+  //
+  // CRASH FIX (2026-07-02): +18.0dB was too aggressive — Android's native
+  // LoudnessEnhancer effect commonly hard-rejects target gains above what
+  // the device's audio HAL considers safe (varies by OEM, but ~+12dB is a
+  // widely-supported ceiling; some devices reject anything past +10dB).
+  // A rejected setTargetGain() doesn't just fail quietly — it can leave the
+  // native effect in a bad/half-initialized state, which then throws
+  // `IllegalArgumentException: AudioEffect: bad parameter value` the next
+  // time ANY song (regardless of source — Saavn, local, YouTube) tries to
+  // attach to that same audio session, making the crash look unrelated to
+  // Bass Boost entirely ("Saavn songs won't play"). +10.0dB is still a
+  // clearly audible, strong boost without tripping that ceiling.
+  static const double _bassBoostLoudnessGainDb = 10.0;
 
   // Extra EQ gain (in dB) added on TOP of the user's saved band values for
   // the two lowest bands (32Hz sub-bass, 64Hz bass) when Bass Boost is on.
@@ -845,7 +852,22 @@ class AurumAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     try {
       await _loudnessEnhancer.setEnabled(bassBoost);
       if (bassBoost) {
-        await _loudnessEnhancer.setTargetGain(_bassBoostLoudnessGainDb);
+        try {
+          await _loudnessEnhancer.setTargetGain(_bassBoostLoudnessGainDb);
+        } catch (e) {
+          // Defensive fallback: some devices reject even +10dB. Retry once
+          // at a conservative +6dB rather than leaving the native effect in
+          // a rejected/half-set state, which is what was previously
+          // crashing the NEXT song's setAudioSource with an unrelated-
+          // looking "AudioEffect: bad parameter value" error.
+          debugPrint('[AurumHandler] LoudnessEnhancer gain ${_bassBoostLoudnessGainDb}dB rejected ($e) — retrying at 6dB');
+          try {
+            await _loudnessEnhancer.setTargetGain(6.0);
+          } catch (e2) {
+            debugPrint('[AurumHandler] LoudnessEnhancer gain 6dB also rejected ($e2) — disabling to avoid a corrupted effect');
+            try { await _loudnessEnhancer.setEnabled(false); } catch (_) {}
+          }
+        }
       }
     } catch (e) {
       debugPrint('[AurumHandler] LoudnessEnhancer apply failed: $e');
