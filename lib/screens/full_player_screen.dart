@@ -1663,7 +1663,7 @@ void showSleepTimerForSong(BuildContext context, PlayerProvider player) {
     isScrollControlled: true,
     barrierColor: Colors.black.withAlpha(150),
     builder: (_) => SleepTimerSheet(
-      handler: handler,
+      engine: handler,
       finishSong: finishSong,
       onFinishSongChanged: (v) => finishSong = v,
     ),

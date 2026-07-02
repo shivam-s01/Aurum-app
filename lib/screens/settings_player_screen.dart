@@ -317,7 +317,10 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) async {
                 setState(() => _shakeToSkip = v);
                 await _save('shake_to_skip', v);
-                await _notifyHandler();
+                // Behavioral pref only — read directly from
+                // SharedPreferences wherever shake-to-skip is handled, no
+                // native engine call needed (unlike Bass Boost/EQ/speed/
+                // crossfade which are actual DSP/playback parameters).
               }),
           _switchTile(context,
               icon: Icons.swipe_rounded,
@@ -386,7 +389,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) => setState(() => _playbackSpeed = v),
               onChangeEnd: (v) async {
                 await _save('playback_speed', v);
-                await _notifyHandler();
+                await widget.audioEngine?.setSpeed(v);
               },
             ),
             Row(
@@ -450,7 +453,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) => setState(() => _crossfadeDuration = v),
               onChangeEnd: (v) async {
                 await _save('crossfade_duration', v);
-                await _notifyHandler();
+                await widget.audioEngine?.setCrossfadeSeconds(v);
               },
             ),
             Row(
