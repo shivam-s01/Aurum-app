@@ -31,8 +31,6 @@ class AurumMediaSessionService : MediaSessionService() {
 
     companion object {
         private const val LIKE_ACTION = "com.aurum.music.ACTION_TOGGLE_LIKE"
-        private const val NOTIFICATION_ID = 1
-        private const val CHANNEL_ID = "aurum_playback"
 
         // Set by AurumEngineChannelHandler right after it constructs the
         // engine (MainActivity.configureFlutterEngine runs before this
@@ -53,7 +51,6 @@ class AurumMediaSessionService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        createNotificationChannel()
 
         val engine = sharedEngine ?: run {
             // Defensive fallback: service was started (e.g. by the OS
@@ -125,12 +122,27 @@ class AurumMediaSessionService : MediaSessionService() {
             sessionBuilder.setSessionActivity(sessionActivityIntent)
         }
         mediaSession = sessionBuilder.build()
-        startForeground(NOTIFICATION_ID, buildNotification())
-        engine.player.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (isPlaying) stopForeground(android.app.Service.STOP_FOREGROUND_DETACH)
-            }
-        })
+
+        // THE actual fix for "background/lock-screen kuch nahi ho raha":
+        // this class does NOT call startForeground()/stopForeground() or
+        // build any notification itself. Media3's MediaSessionService base
+        // class already owns an internal MediaNotificationManager that
+        // listens to the exact same player events (playback state,
+        // play-when-ready, media metadata, timeline) and automatically:
+        //   - builds a proper MediaStyle notification (title/artist/
+        //     artwork/play-pause-next-prev controls) from engine.player's
+        //     current MediaMetadata (already wired in AurumAudioEngine's
+        //     buildMediaItem — see setSingleMediaItemInternal etc)
+        //   - calls startForeground() the moment playback actually starts
+        //   - demotes back to background once playback stops
+        // A previous version of this file manually called
+        // startForeground()/stopForeground() with a separate hand-built
+        // notification, which fought this internal mechanism and produced
+        // undefined/broken behavior — no notification, no lock-screen
+        // controls, background playback dying. The fix is to not touch
+        // foreground/notification state here at all and let
+        // onGetSession() below (which the base class calls automatically
+        // via onBind()) be the only integration point needed.
 
         // Keep the notification's like-button icon in sync whenever the
         // engine's liked state changes (e.g. FavoritesProvider toggled from
@@ -177,23 +189,6 @@ class AurumMediaSessionService : MediaSessionService() {
             stopSelf()
         }
         super.onTaskRemoved(rootIntent)
-    }
-
-    private fun createNotificationChannel() {
-        val mgr = getSystemService(android.app.NotificationManager::class.java)
-        val channel = android.app.NotificationChannel(
-            CHANNEL_ID, "Playback", android.app.NotificationManager.IMPORTANCE_LOW
-        )
-        mgr.createNotificationChannel(channel)
-    }
-
-    private fun buildNotification(): android.app.Notification {
-        return android.app.Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Aurum Music")
-            .setContentText("Playback ready")
-            .setOngoing(false)
-            .build()
     }
 
     override fun onDestroy() {

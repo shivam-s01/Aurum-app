@@ -22,7 +22,6 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
     private val resolver = MethodChannelStreamResolver(messenger)
     val engine: AurumAudioEngine = AurumMediaSessionService.sharedEngine
         ?: AurumAudioEngine(context.applicationContext, resolver)
-    private val appContext = context.applicationContext
     private val scope = CoroutineScope(Dispatchers.Main.immediate)
     private var stateJob: Job? = null
     private var errorSink: EventChannel.EventSink? = null
@@ -37,18 +36,30 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
         engine.onPlaybackError = { message, silent ->
             errorSink?.success(mapOf("message" to message, "silent" to silent))
         }
-        // Queue/song changes are also the signal to (re)start the
-        // foreground MediaSessionService — Media3 needs the service
-        // actually started (not just bound) to keep it alive and
-        // foreground-promoted while music plays in the background,
-        // mirroring what AudioService.init()/androidNotificationOngoing
-        // used to do for us automatically.
-        engine.onQueueChanged = {
-            androidx.core.content.ContextCompat.startForegroundService(
-                appContext,
-                android.content.Intent(appContext, AurumMediaSessionService::class.java),
-            )
-        }
+        // NOTE: we do NOT manually call startForegroundService() here.
+        //
+        // Media3's MediaSessionService promotes itself to a foreground
+        // service automatically — internally, whenever the MediaSession's
+        // player starts actually playing, MediaSessionService calls
+        // startForeground() itself via its MediaNotificationManager,
+        // using the notification built from the player's current
+        // MediaMetadata (see AurumMediaSessionService, which does not
+        // override onUpdateNotification — that's what leaves this default
+        // behavior in place).
+        //
+        // The PREVIOUS version of this code called
+        // ContextCompat.startForegroundService(...) manually on every
+        // queue change, racing Media3's own foreground promotion: Android
+        // requires startForeground() within ~5s of startForegroundService()
+        // being called, but a manual call here could fire before playback
+        // (and therefore Media3's own notification) was actually ready,
+        // producing an intermittent
+        // android.app.ForegroundServiceDidNotStartInTimeException crash —
+        // exactly the "keeps stopping" / no background playback / no lock
+        // screen controls symptom this fixes. Removing the manual call
+        // lets Media3 own the entire foreground lifecycle, which is the
+        // documented/supported pattern.
+        engine.onQueueChanged = { /* no-op — Media3 handles foreground promotion internally */ }
 
         // Reverse channel: notification/lock-screen heart tap → Dart's
         // FavoritesProvider.toggleFavorite(). Dart is expected to call

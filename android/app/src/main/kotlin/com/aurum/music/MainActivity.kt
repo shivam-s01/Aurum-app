@@ -1,11 +1,16 @@
 package com.aurum.music
 
+import android.content.ComponentName
 import android.content.ContentUris
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.os.IBinder
 import android.provider.MediaStore
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
@@ -26,10 +31,21 @@ class MainActivity : FlutterActivity() {
     // (playQueue/playSong/.../state stream/error stream/like-toggle
     // reverse channel). Constructed once per Flutter engine attach —
     // AurumMediaSessionService.sharedEngine is set inside its init{} so the
-    // foreground service (started separately, see
-    // AurumEngineChannelHandler.onQueueChanged) always finds the same
+    // service (bound below, right after this) always finds the same
     // ExoPlayer instance instead of building a second one.
     private var audioEngineChannelHandler: AurumEngineChannelHandler? = null
+
+    // THE fix for "background/lock-screen kuch nahi ho raha": previously
+    // nothing ever bound to or started AurumMediaSessionService, so its
+    // onCreate()/onGetSession() never ran and no MediaSession was ever
+    // actually live — the notification/lock-screen controls had nothing
+    // to attach to. bindService() (not startForegroundService — that path
+    // is what caused the earlier ForegroundServiceDidNotStartInTimeException
+    // crash) is the documented way to bring a MediaSessionService to life:
+    // it has no 5-second foreground-promotion deadline, and the service's
+    // own internal MediaNotificationManager promotes to foreground on its
+    // own once real playback starts (see AurumMediaSessionService.kt).
+    private var mediaSessionServiceConnection: ServiceConnection? = null
 
     // NOTE: We intentionally do NOT use androidx.core.splashscreen's
     // installSplashScreen() here. On several OEM skins (MIUI, OxygenOS,
@@ -48,6 +64,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
 
         audioEngineChannelHandler = AurumEngineChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
+        bindMediaSessionService()
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -180,6 +197,36 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun bindMediaSessionService() {
+        if (mediaSessionServiceConnection != null) return // already bound
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                // Nothing to do — AurumMediaSessionService.onGetSession()
+                // handles exposing the MediaSession to any real
+                // MediaController that connects (lock screen, Bluetooth,
+                // Android Auto, etc). This binding's only job is to keep
+                // the service alive and trigger its onCreate()/onBind() so
+                // that MediaSession actually exists in the first place.
+            }
+            override fun onServiceDisconnected(name: ComponentName?) {
+                mediaSessionServiceConnection = null
+            }
+        }
+        val intent = Intent(this, AurumMediaSessionService::class.java)
+        // Both calls are needed: startService() keeps the service alive
+        // independently of this Activity's lifecycle (so playback survives
+        // the app being backgrounded/the Activity being destroyed);
+        // bindService() is what actually triggers onCreate()/onBind()/
+        // onGetSession() so the MediaSession comes into existence. Neither
+        // call here carries the foreground-promotion 5-second deadline
+        // that startForegroundService() does — that deadline is only
+        // relevant to the startForeground() call AurumMediaSessionService
+        // itself makes once real playback begins (see its Player.Listener).
+        startService(intent)
+        bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        mediaSessionServiceConnection = connection
+    }
+
     private fun openStreamAsBitmap(uri: Uri): Bitmap? {
         val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
         return contentResolver.openInputStream(uri)?.use { stream ->
@@ -188,6 +235,10 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        mediaSessionServiceConnection?.let {
+            try { unbindService(it) } catch (_: Exception) {}
+        }
+        mediaSessionServiceConnection = null
         audioEngineChannelHandler?.release()
         audioEngineChannelHandler = null
         super.onDestroy()
