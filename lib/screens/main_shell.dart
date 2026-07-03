@@ -249,32 +249,27 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               // bottom corners — it reads as a stray white line under the
               // mini player instead of a bar separator. Suppress it whenever
               // a song is showing and the capsule style is active.
-              ValueListenableBuilder<String>(
-                valueListenable: MiniPlayer.styleNotifier,
-                builder: (context, miniPlayerStyle, _) {
-                  final hideDivider = player.hasSong && miniPlayerStyle != 'Compact Bar';
-                  return _AurumBottomNavBar(
-                    showTopDivider: !hideDivider,
-                    currentIndex: _tab,
-                    onTap: (i) {
-                      // FIX: SearchScreen lives inside an IndexedStack — never
-                      // disposed, just hidden. Unfocus on EVERY tab tap (not
-                      // just when leaving search) so the keyboard never bleeds
-                      // through to other screens. The primary keyboard issue was:
-                      // user opens search → types → switches tab → keyboard hides
-                      // visually but focus is still held by the TextField → any
-                      // rebuild (song change, mini-player update) causes Android
-                      // to resurface the keyboard. Calling primaryFocus?.unfocus()
-                      // with UnfocusDisposition.scope drops focus from the entire
-                      // widget tree, not just the current scope — this is more
-                      // aggressive than FocusScope.of(context).unfocus() and
-                      // correctly handles the case where focus is held by a
-                      // widget in a different branch of the tree (IndexedStack).
-                      primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
-                      // OS-level keyboard kill — most reliable way to ensure
-                      // keyboard never bleeds through from IndexedStack branches.
-                      SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-                      setState(() => _tab = i);
+              ValueListenableBuilder<bool>(
+                valueListenable: MiniPlayer.heroVisibleNotifier,
+                builder: (context, heroVisible, _) {
+                  return ValueListenableBuilder<String>(
+                    valueListenable: MiniPlayer.styleNotifier,
+                    builder: (context, miniPlayerStyle, _) {
+                      // Divider must hide both when there's no song AND when
+                      // the mini player is collapsed by the home hero scroll —
+                      // otherwise the capsule's border survives as a stray
+                      // white line after the mini player itself fades out.
+                      final hideDivider = (player.hasSong && miniPlayerStyle != 'Compact Bar')
+                          || heroVisible;
+                      return _AurumBottomNavBar(
+                        showTopDivider: !hideDivider,
+                        currentIndex: _tab,
+                        onTap: (i) {
+                          primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+                          SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+                          setState(() => _tab = i);
+                        },
+                      );
                     },
                   );
                 },
@@ -326,12 +321,16 @@ class _AurumBottomNavBar extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.38 : 0.32),
-              border: showTopDivider
-                  ? Border(
-                      top: BorderSide(
-                        color: Colors.white.withOpacity(isLight ? 0.5 : 0.08),
-                        width: 0.7,
-                      ))
+              gradient: showTopDivider
+                  ? LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      stops: const [0.0, 0.04],
+                      colors: [
+                        Colors.white.withOpacity(isLight ? 0.28 : 0.10),
+                        Colors.transparent,
+                      ],
+                    )
                   : null,
             ),
           child: SafeArea(

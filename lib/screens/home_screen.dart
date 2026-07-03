@@ -134,29 +134,14 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
   bool _onNotification(ScrollNotification n) {
     if (_refreshing) return false;
 
-    if (n is ScrollUpdateNotification) {
-      final metrics = n.metrics;
-      // Only react when the list is actually at/past its top edge. We
-      // previously also required metrics.atEdge here — but this CustomScrollView
-      // has a `floating: true, snap: true` SliverAppBar, and atEdge only
-      // reports true once that appbar sliver has fully finished its own
-      // reveal/snap cycle. That meant a pull often produced pixels <= 0
-      // (finger clearly dragging down from the top) while atEdge was still
-      // false, so the condition never passed — the loader silently never
-      // appeared. metrics.pixels <= 0 alone is sufficient: with
-      // BouncingScrollPhysics that state is only reachable from the actual
-      // top of the content, and using scrollDelta to require a genuine
-      // downward drag (not an upward fling settling back to 0) still guards
-      // against the old "flashes for no reason" issue.
-      final scrollingDown = (n.scrollDelta ?? 0) <= 0;
-      if (metrics.pixels <= 0 && (scrollingDown || _dragging)) {
+    final metrics = n.metrics;
+    final atTop = metrics.pixels <= 0;
+
+    if (n is ScrollUpdateNotification || n is OverscrollNotification) {
+      if (atTop) {
         _dragging = true;
+        final raw = -metrics.pixels;
         setState(() {
-          // Rubber-band: diminishing returns the further you pull. Raw
-          // overscroll under _deadZone maps to zero reveal — the user has
-          // to commit to a real pull before anything shows, instead of a
-          // light jerk/bounce producing a partial flash of the loader.
-          final raw = -metrics.pixels;
           if (raw <= _deadZone) {
             _pullDistance = 0.0;
           } else {
@@ -164,26 +149,11 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
             _pullDistance = _maxReveal * (1 - math.exp(-effective / _maxReveal));
           }
         });
-      } else if (_dragging && metrics.pixels > 0) {
-        // Finger moved back past the top edge (still down, scrolled back
-        // into content) — cancel the in-progress pull cleanly instead of
-        // leaving a stale reveal hanging.
+      } else if (_dragging) {
         _dragging = false;
         _animateTo(0.0);
       }
-    } else if (n is ScrollEndNotification) {
-      // BUGFIX (2026-07-02): "pull-to-refresh kabhi kaam karta hai kabhi
-      // nahi" — this used to also treat ANY UserScrollNotification as
-      // gesture-end. UserScrollNotification fires the moment the scroll
-      // DIRECTION changes (including right at the start of a drag, with
-      // direction=forward) — not only when the user actually lets go.
-      // That meant _dragging could flip back to false while the finger
-      // was still down, mid-pull, well before the real release. The next
-      // genuine release then saw _dragging already false and silently did
-      // nothing — explaining why it felt random/inconsistent rather than
-      // reliably broken. ScrollEndNotification is the actual, unambiguous
-      // "the user let go / the gesture ended" signal, so it's now the
-      // only thing that finalizes a pull.
+    } else if (n is ScrollEndNotification || n is UserScrollNotification && n.direction == ScrollDirection.idle) {
       if (_dragging) {
         _dragging = false;
         if (_pullDistance >= _triggerDistance * 0.72) {
@@ -191,15 +161,6 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
         } else if (_pullDistance > 0) {
           _animateTo(0.0);
         }
-      }
-    } else if (n is UserScrollNotification && n.direction == ScrollDirection.idle) {
-      // Genuine "scrolling has fully stopped" signal (e.g. a fling that
-      // settles without a distinct ScrollEndNotification reaching here).
-      // Kept as a safety net so a pull never gets stuck mid-air, but no
-      // longer treated as equivalent to release on every direction change.
-      if (_dragging && _pullDistance > 0 && _pullDistance < _triggerDistance * 0.72) {
-        _dragging = false;
-        _animateTo(0.0);
       }
     }
     return false;
