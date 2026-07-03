@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/mini_player.dart';
 import '../models/song.dart';
@@ -241,9 +242,9 @@ class _AurumBottomNavBar extends StatelessWidget {
   final ValueChanged<int> onTap;
 
   static const _items = [
-    (outline: Icons.home_outlined, filled: Icons.home_rounded, label: 'Home'),
-    (outline: Icons.search_outlined, filled: Icons.search_rounded, label: 'Search'),
-    (outline: Icons.library_music_outlined, filled: Icons.library_music_rounded, label: 'Library'),
+    (outline: PhosphorIconsRegular.houseSimple, filled: PhosphorIconsFill.houseSimple, label: 'Home'),
+    (outline: PhosphorIconsRegular.magnifyingGlass, filled: PhosphorIconsFill.magnifyingGlass, label: 'Search'),
+    (outline: PhosphorIconsRegular.vinylRecord, filled: PhosphorIconsFill.vinylRecord, label: 'Library'),
   ];
 
   @override
@@ -263,8 +264,7 @@ class _AurumBottomNavBar extends StatelessWidget {
               final item = _items[i];
               final selected = i == currentIndex;
               return Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
+                child: _NavTapScale(
                   onTap: () {
                     if (!selected) HapticFeedback.selectionClick();
                     onTap(i);
@@ -277,28 +277,12 @@ class _AurumBottomNavBar extends StatelessWidget {
                         AnimatedContainer(
                           duration: const Duration(milliseconds: 260),
                           curve: Curves.easeOutCubic,
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                          padding: const EdgeInsets.all(9),
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            gradient: selected
-                                ? LinearGradient(
-                                    colors: [
-                                      AurumTheme.gold.withOpacity(0.22),
-                                      AurumTheme.gold.withOpacity(0.08),
-                                    ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                  )
-                                : null,
-                            boxShadow: selected
-                                ? [
-                                    BoxShadow(
-                                      color: AurumTheme.gold.withOpacity(0.22),
-                                      blurRadius: 14,
-                                      spreadRadius: -2,
-                                    ),
-                                  ]
-                                : const [],
+                            shape: BoxShape.circle,
+                            color: selected
+                                ? AurumTheme.gold.withOpacity(0.16)
+                                : Colors.transparent,
                           ),
                           child: AnimatedSwitcher(
                             duration: const Duration(milliseconds: 200),
@@ -328,6 +312,17 @@ class _AurumBottomNavBar extends StatelessWidget {
                           ),
                           child: Text(item.label),
                         ),
+                        const SizedBox(height: 2),
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          width: selected ? 4 : 0,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: AurumTheme.gold,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -336,6 +331,56 @@ class _AurumBottomNavBar extends StatelessWidget {
             }),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// NAV TAP SCALE — wraps each nav item with a quick press-down/spring-
+// back scale so tapping a tab feels tactile, like a native paid-app
+// button, instead of a flat instant tap with no physical feedback.
+// ══════════════════════════════════════════════════════════════════
+class _NavTapScale extends StatefulWidget {
+  const _NavTapScale({required this.onTap, required this.child});
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  State<_NavTapScale> createState() => _NavTapScaleState();
+}
+
+class _NavTapScaleState extends State<_NavTapScale>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 120),
+    reverseDuration: const Duration(milliseconds: 180),
+    lowerBound: 0.0,
+    upperBound: 1.0,
+  );
+  late final Animation<double> _scale = Tween(begin: 1.0, end: 0.88).animate(
+    CurvedAnimation(parent: _controller, curve: Curves.easeOut, reverseCurve: Curves.elasticOut),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) => _controller.reverse(),
+      onTapCancel: () => _controller.reverse(),
+      onTap: widget.onTap,
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (context, child) => Transform.scale(scale: _scale.value, child: child),
+        child: widget.child,
       ),
     );
   }

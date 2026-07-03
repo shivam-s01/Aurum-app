@@ -128,17 +128,20 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
 
     if (n is ScrollUpdateNotification) {
       final metrics = n.metrics;
-      // Only react when the list is actually AT its top edge and being
-      // pulled further past it. Previously this fired on any
-      // metrics.pixels < 0, which also happens from the natural bounce-back
-      // of a fast fling anywhere in the list (BouncingScrollPhysics briefly
-      // overshoots past 0 as it settles) — that made the loader flash in
-      // "for no reason" during normal scrolling instead of only on a real,
-      // deliberate downward pull from the top. Requiring atEdge means the
-      // scroll position has to have actually reached the top boundary
-      // first, so a mid-list fling that merely bounces at the end never
-      // triggers it.
-      if (metrics.atEdge && metrics.pixels <= 0) {
+      // Only react when the list is actually at/past its top edge. We
+      // previously also required metrics.atEdge here — but this CustomScrollView
+      // has a `floating: true, snap: true` SliverAppBar, and atEdge only
+      // reports true once that appbar sliver has fully finished its own
+      // reveal/snap cycle. That meant a pull often produced pixels <= 0
+      // (finger clearly dragging down from the top) while atEdge was still
+      // false, so the condition never passed — the loader silently never
+      // appeared. metrics.pixels <= 0 alone is sufficient: with
+      // BouncingScrollPhysics that state is only reachable from the actual
+      // top of the content, and using scrollDelta to require a genuine
+      // downward drag (not an upward fling settling back to 0) still guards
+      // against the old "flashes for no reason" issue.
+      final scrollingDown = (n.scrollDelta ?? 0) <= 0;
+      if (metrics.pixels <= 0 && (scrollingDown || _dragging)) {
         _dragging = true;
         setState(() {
           // Rubber-band: diminishing returns the further you pull.
@@ -296,6 +299,7 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
                             : AurumMorphLoader(
                                 key: const ValueKey('spin'),
                                 size: 26,
+                                color: AurumTheme.gold,
                                 rotateDuration: _refreshing
                                     ? const Duration(milliseconds: 900)
                                     : Duration(milliseconds: (4000 - (2800 * progress)).round()),

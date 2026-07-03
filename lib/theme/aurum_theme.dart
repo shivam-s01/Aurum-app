@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 class AurumTheme {
   // ── Brand Colors (fixed, theme-independent) ──
-  static const Color gold      = Color(0xFFB89640);
-  static const Color goldLight = Color(0xFFD4AF5A);
-  static const Color goldDark  = Color(0xFF8A6F2A);
+  static const Color gold      = Color(0xFF9B7EDE);
+  static const Color goldLight = Color(0xFFB69FEE);
+  static const Color goldDark  = Color(0xFF7A5FC4);
 
   // ── Dark Theme ──
   static const Color darkBg          = Color(0xFF050508);
