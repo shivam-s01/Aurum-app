@@ -9,6 +9,7 @@ import '../services/audio_prefs.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_artwork.dart';
 import 'aurum_loader.dart';
+import 'aurum_pressable.dart';
 import '../screens/full_player_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,13 +217,20 @@ class _MiniPlayerState extends State<MiniPlayer>
         // opaque:true is visually identical and fixes the freeze.
         opaque: true,
         pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-        transitionsBuilder: (_, anim, __, child) => SlideTransition(
-          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-              .animate(
-                  CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+        // FullPlayerScreen already runs its own polished entry animation
+        // internally (_entryCtrl: slide-up + fade + staggered content +
+        // Hero artwork flight). Wrapping the route in a SECOND
+        // SlideTransition here made two slide animations run at once,
+        // fighting each other — that's what made open/close feel janky
+        // instead of premium. The route transition is now just a quick
+        // fade so the Hero flight + FullPlayerScreen's own entry motion
+        // reads as one continuous, intentional movement.
+        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
           child: child,
         ),
-        transitionDuration: const Duration(milliseconds: 280),
+        transitionDuration: const Duration(milliseconds: 320),
+        reverseTransitionDuration: const Duration(milliseconds: 260),
       ),
     );
   }
@@ -747,7 +755,9 @@ class _PlayBtn extends StatelessWidget {
         ),
       );
     }
-    return GestureDetector(
+    return AurumPressable(
+      scaleAmount: 0.88,
+      haptic: false,
       onTap: () {
         HapticFeedback.heavyImpact();
         player.togglePlay();
@@ -801,9 +811,10 @@ class _ControlBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext ctx) {
-    return GestureDetector(
+    return AurumPressable(
+      scaleAmount: 0.82,
+      haptic: false,
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
       child: SizedBox(
         width: 32,
         height: 32,

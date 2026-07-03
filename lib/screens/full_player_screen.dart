@@ -19,6 +19,7 @@ import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
 import '../services/waveform_service.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_pressable.dart';
 import '../widgets/premium_gate.dart';
 import 'library_screen.dart' show showAddToPlaylistSheet;
 import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
@@ -1590,9 +1591,10 @@ class _FavButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = context.watch<ThemeProvider>().accentColor;
-    return GestureDetector(
+    return AurumPressable(
+      scaleAmount: 0.8,
+      haptic: false,
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.all(8),
         child: AnimatedSwitcher(
@@ -2248,6 +2250,14 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final screenH = MediaQuery.of(context).size.height;
+    final topInset = MediaQuery.of(context).padding.top;
+    // Previously 0.95 * screenH — tall enough to reach almost the very top
+    // of the screen, under the status bar/notch, which read as the whole
+    // full player relocating upward rather than a sheet rising over it.
+    // Cap it well below the safe-area top so there's always a clear gap
+    // showing the full player (and status bar) behind the sheet.
+    final panelHeight =
+        (screenH * 0.80).clamp(360.0, screenH - topInset - 56.0);
     final dragFraction = (_dragY / screenH).clamp(0.0, 1.0);
     final dragOpacity = (1.0 - dragFraction * 2.5).clamp(0.0, 1.0);
     final scale = (1.0 - dragFraction * 0.06).clamp(0.88, 1.0);
@@ -2297,7 +2307,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
             child: Opacity(
               opacity: opacity,
               child: SizedBox(
-                height: screenH * 0.95,
+                height: panelHeight,
                 child: ClipRRect(
                   borderRadius:
                       const BorderRadius.vertical(top: Radius.circular(32)),
@@ -2449,8 +2459,9 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
               children: List.generate(tabs.length, (i) {
                 final isActive = _activeTab == i;
                 return Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
+                  child: AurumPressable(
+                    scaleAmount: 0.94,
+                    haptic: false,
                     onTap: () => _switchTab(i),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -3539,7 +3550,8 @@ class _BgLayer extends StatelessWidget {
     );
   }
 
-  // ── LIGHT MODE ── Echo Nightly light: blurred artwork + warm white veil
+  // ── LIGHT MODE ── artwork color reads through clearly, just enough
+  // warm-white lift to keep the "light mode" feel and text legible.
   Widget _buildLight(Color bg1, Color bg2, Color bg3, Color bg4, Widget staticBlur) {
     final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
     final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
@@ -3555,16 +3567,18 @@ class _BgLayer extends StatelessWidget {
     // L1 (static blur) is passed in pre-built and does NOT rebuild on the
     // breathe tick anymore — only L3 (orbs) sits inside the AnimatedBuilder.
     return Stack(fit: StackFit.expand, children: [
-      // L0: Warm white base (only visible at extreme edges now)
-      const ColoredBox(color: Color(0xFFF5F0EA)),
+      // L0: Neutral warm-grey base (was near-white — that pre-tinted
+      // everything before the artwork colour even landed, which is what
+      // made light mode read as washed out regardless of the art).
+      const ColoredBox(color: Color(0xFFEDE9E2)),
 
       // L1: Artwork fills screen — blurred into color atmosphere. Built
       // once per song, not every breathe frame.
       staticBlur,
 
-      // L2: Faint white veil — just enough to keep the light-mode feel,
-      // not enough to wash the color out.
-      const RepaintBoundary(child: ColoredBox(color: Color(0x1CFFFFFF))),
+      // L2: Barely-there white lift — was strong enough before to flatten
+      // the artwork's actual saturation. Cut way down so colour carries.
+      const RepaintBoundary(child: ColoredBox(color: Color(0x0AFFFFFF))),
 
       // L3: Ambient glow orbs — the only layer that actually needs to
       // rebuild on every breathe tick, isolated in its own AnimatedBuilder.
@@ -3588,8 +3602,10 @@ class _BgLayer extends StatelessWidget {
         ),
       ),
 
-      // L4: Vignette for text readability — tight at the edges only,
-      // static — no need to rebuild ever.
+      // L4: Vignette for text readability — tightened to the very edges
+      // only (was a broad, strong white gradient eating into the middle
+      // of the artwork colour; now it only does its job at the top/bottom
+      // safe zones where text actually sits).
       const RepaintBoundary(
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -3597,12 +3613,12 @@ class _BgLayer extends StatelessWidget {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0x5AFFFFFF),
+                Color(0x3DFFFFFF),
                 Colors.transparent,
                 Colors.transparent,
-                Color(0x6EFFFFFF),
+                Color(0x4EFFFFFF),
               ],
-              stops: [0.0, 0.12, 0.72, 1.0],
+              stops: [0.0, 0.09, 0.78, 1.0],
             ),
           ),
         ),
@@ -3844,6 +3860,7 @@ class _MarqueeText extends StatefulWidget {
 class _MarqueeTextState extends State<_MarqueeText>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
+  late final Animation<double> _scrollAnim;
   bool _overflowing = false;
 
   // Cached TextPainter + the (text, style) it was built for. Rebuilding
@@ -3873,6 +3890,10 @@ class _MarqueeTextState extends State<_MarqueeText>
     super.initState();
     _ctrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 10500));
+    _scrollAnim = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.0, 0.857, curve: Curves.linear),
+    );
   }
 
   @override
@@ -3925,11 +3946,7 @@ class _MarqueeTextState extends State<_MarqueeText>
             child: AnimatedBuilder(
               animation: _ctrl,
               builder: (_, __) {
-                final scrollAnim = CurvedAnimation(
-                  parent: _ctrl,
-                  curve: const Interval(0.0, 0.857, curve: Curves.linear),
-                );
-                final shift = -(tp.width + 40) * scrollAnim.value;
+                final shift = -(tp.width + 40) * _scrollAnim.value;
                 return Stack(children: [
                   Positioned(
                       left: shift,
@@ -4085,8 +4102,9 @@ class _IconBtn extends StatelessWidget {
     return Semantics(
       label: semanticLabel,
       button: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+      child: AurumPressable(
+        scaleAmount: 0.85,
+        haptic: false,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -4127,8 +4145,9 @@ class _CtrlBtn extends StatelessWidget {
     return Semantics(
       label: semanticLabel,
       button: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+      child: AurumPressable(
+        scaleAmount: 0.85,
+        haptic: false, // callers already fire their own haptic per action
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(10),

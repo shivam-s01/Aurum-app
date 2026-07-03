@@ -36,47 +36,63 @@ class _CriticallyDampedSpring extends Curve {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SplashScreen — flagship edition (minimal, premium, ~1.8s).
+// SplashScreen — flagship edition (minimal, premium, ~2.2s).
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Design intent: calm, confident, luxurious — with one signature move: the
-// mark rests dead-centre the entire time (no drop, no jump, no bounce) and
-// slowly, smoothly spins flat in its own plane — like a soap bubble turning
-// in still air — decelerating the whole way until it drifts to a stop
-// exactly upright. No 3D flip, no squeeze, no distortion: it's a plain
-// rotation, so the mark's shape and size stay constant at every frame.
+// Design intent: a small, confident piece of choreography — not a single
+// motion, but a few coordinated moves layered together, the way a
+// hand-animated icon (à la Material "animated vector") feels: alive without
+// being busy. Two independent layers:
+//
+//   • the glow ring: a soft halo behind the mark that slowly rotates the
+//     entire time, completely independently of the mark on top — the same
+//     trick Echo's icon uses (ring spins on its own layer while the glyph
+//     on top does something else entirely)
+//   • the mark itself: scales in from small or was fully invisible, arrives
+//     with a gentle overshoot, then performs one small settle "wobble"
+//     (a quick tilt one way, back, a smaller tilt the other way, back —
+//     like it's finding its balance) and a subtle breathing pulse, before
+//     coming to a dead stop at exactly its launcher-icon size and rotation
+//
 // Sequence:
 //
-//   0ms                  logo begins: 0 opacity, 2px blur, centred, rotated
-//                        -50° (about to start its slow turn)
-//   0–1150ms             smooth flat rotation from -50° to 0°, decelerating
-//                        continuously (fast-ish start, glacially slow
-//                        finish) so it drifts to rest rather than snapping —
-//                        the bubble-settle feel
-//   0–420ms               opacity 0→1, blur 2px→0 (ease-out) — resolves into
-//                        focus early, while still turning
-//   0–1150ms              ultra-soft radial glow (8–12% opacity) breathes in
-//                        alongside the turn and settles with it
-//   950–1300ms            a single soft gradient highlight sweeps across the
-//                        face of the mark once it's essentially still, like
+//   0ms                  mark: 0 opacity, 70% scale, 2px blur, centred
+//                        glow ring: 0 opacity, rotation 0°
+//   0–450ms              mark scales 70%→100% with a gentle overshoot
+//                        spring (easeOutBack) — arrives with real presence,
+//                        settles without snapping
+//   0–380ms               opacity 0→1, blur 2px→0 (ease-out)
+//   450–650ms             wobble part 1: mark tilts to -6°
+//   650–900ms             wobble part 2: tilts back through 0° to +3°
+//   900–1100ms            wobble settles: +3° eases back to 0° — mark is
+//                        now perfectly still, at exact original proportions
+//   1100–1300ms           one gentle breathing pulse: 100%→103%→100%,
+//                        a single soft "life" beat, not a loop
+//   0–2200ms              the glow ring behind the mark rotates slowly and
+//                        continuously the entire time (independent layer,
+//                        never stops until handoff) — the ambient motion
+//                        that keeps the frame feeling alive without ever
+//                        drawing focus from the mark itself
+//   1300–1650ms            a single soft gradient highlight sweeps across
+//                        the face of the mark once it's fully still, like
 //                        light catching brushed metal — never repeats
-//   1150–1500ms           brief confident hold on the settled mark
-//   1500–1800ms           seamless shared-element style handoff: splash
+//   1650–1900ms            brief confident hold on the settled mark
+//   1900–2200ms            seamless shared-element style handoff: splash
 //                        cross-fades directly into the home screen's first
 //                        frame (no wipe, no zoom-out flash)
 //
-// Total: ~1.8s.
+// Total: ~2.2s.
 //
 // Perf: a single AnimationController drives every value via CurvedAnimation
-// / Interval — no nested controllers, no per-frame allocations. The glow and
-// logo each sit behind their own RepaintBoundary so repaints never cascade
-// into the rest of the tree. ImageFiltered blur is only active while
-// blur > 0 (first ~200ms) — once it reaches 0 the ImageFiltered node is
-// skipped entirely. The spin is a single Transform.rotate (2D, no
-// perspective matrix) — cheap, GPU-composited, no shader work. The
-// controller runs on the engine's vsync (SchedulerBinding), so it
-// automatically tracks 90/120Hz panels and falls back to 60Hz gracefully —
-// no manual FPS logic needed.
+// / Interval — no nested controllers, no per-frame allocations. The glow
+// ring and mark each sit behind their own RepaintBoundary so repaints never
+// cascade into the rest of the tree. ImageFiltered blur is only active
+// while blur > 0 (first ~200ms) — once it reaches 0 the ImageFiltered node
+// is skipped entirely. All motion is plain 2D Transform (translate / scale
+// / rotate) — cheap, GPU-composited, no shader work except the one-shot
+// sweep. The controller runs on the engine's vsync (SchedulerBinding), so
+// it automatically tracks 90/120Hz panels and falls back to 60Hz
+// gracefully — no manual FPS logic needed.
 class SplashScreen extends StatefulWidget {
   final Widget child;
   const SplashScreen({super.key, required this.child});
@@ -87,25 +103,32 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  // ── Timeline (tuned to land at ~1800ms total) ──────────────────────────
-  static const Duration _spin       = Duration(milliseconds: 1150);
-  static const Duration _sweepStart = Duration(milliseconds: 950);
+  // ── Timeline (tuned to land at ~2200ms total) ──────────────────────────
+  static const Duration _scaleIn    = Duration(milliseconds: 450);
+  static const Duration _wobble1End = Duration(milliseconds: 650);
+  static const Duration _wobble2End = Duration(milliseconds: 900);
+  static const Duration _wobble3End = Duration(milliseconds: 1100);
+  static const Duration _pulseEnd   = Duration(milliseconds: 1300);
+  static const Duration _sweepStart = Duration(milliseconds: 1300);
   static const Duration _sweepDur   = Duration(milliseconds: 350);
-  static const Duration _hold       = Duration(milliseconds: 350);
+  static const Duration _hold       = Duration(milliseconds: 250);
   static const Duration _handoff    = Duration(milliseconds: 300);
 
   late final Duration _sweepEnd = _sweepStart + _sweepDur;
-  late final Duration _holdEnd  = _spin + _hold;
+  late final Duration _holdEnd  = _pulseEnd + _hold;
   late final Duration _total    = _holdEnd + _handoff;
 
   late final AnimationController _ctrl;
 
-  late final Animation<double> _spinT;   // 0 → 1, drives the flat rotation
-  late final Animation<double> _opacity; // 0 → 1
-  late final Animation<double> _blur;    // 2.0 → 0.0
-  late final Animation<double> _glow;    // 0 → 1 (radial glow envelope)
-  late final Animation<double> _sweep;   // 0 → 1, single pass across logo
-  late final Animation<double> _handoffT; // 0 → 1, cross-fade into child
+  late final Animation<double> _markScale;  // entrance scale-in w/ overshoot
+  late final Animation<double> _markTilt;   // the settle wobble, in degrees
+  late final Animation<double> _markPulse;  // the one breathing beat
+  late final Animation<double> _opacity;
+  late final Animation<double> _blur;
+  late final Animation<double> _ringRotation; // continuous, independent
+  late final Animation<double> _ringGlow;     // 0 → 1 ring opacity envelope
+  late final Animation<double> _sweep;
+  late final Animation<double> _handoffT;
 
   bool _showChild = false;
 
@@ -116,39 +139,86 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _ctrl = AnimationController(vsync: this, duration: _total);
 
-    // Continuously decelerating — brisk at first, then drifts to a dead
-    // stop like a bubble losing momentum in still air. No overshoot, no
-    // snap-back: it simply runs out of energy exactly at 0°.
-    _spinT = CurvedAnimation(
-      parent: _ctrl,
-      curve: Interval(0.0, _f(_spin), curve: Curves.easeOutExpo),
-    );
+    _markScale = TweenSequence([
+      TweenSequenceItem(
+        tween: Tween(begin: 0.70, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: _scaleIn.inMilliseconds.toDouble(),
+      ),
+      TweenSequenceItem(
+        tween: ConstantTween(1.0),
+        weight: (_total.inMilliseconds - _scaleIn.inMilliseconds).toDouble(),
+      ),
+    ]).animate(_ctrl);
+
+    // The settle wobble: 0° → -6° → +3° → 0°, each leg eased, reading as
+    // the mark finding its balance rather than spinning.
+    _markTilt = TweenSequence([
+      TweenSequenceItem(tween: ConstantTween(0.0), weight: _scaleIn.inMilliseconds.toDouble()),
+      TweenSequenceItem(
+        tween: Tween(begin: 0.0, end: -6.0).chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: (_wobble1End - _scaleIn).inMilliseconds.toDouble(),
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: -6.0, end: 3.0).chain(CurveTween(curve: Curves.easeInOutCubic)),
+        weight: (_wobble2End - _wobble1End).inMilliseconds.toDouble(),
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 3.0, end: 0.0).chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: (_wobble3End - _wobble2End).inMilliseconds.toDouble(),
+      ),
+      TweenSequenceItem(
+        tween: ConstantTween(0.0),
+        weight: (_total.inMilliseconds - _wobble3End.inMilliseconds).toDouble(),
+      ),
+    ]).animate(_ctrl);
+
+    // One gentle breathing pulse after the wobble settles — a single beat
+    // of life, never repeating.
+    _markPulse = TweenSequence([
+      TweenSequenceItem(tween: ConstantTween(1.0), weight: _wobble3End.inMilliseconds.toDouble()),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.0, end: 1.03).chain(CurveTween(curve: Curves.easeInOutSine)),
+        weight: ((_pulseEnd - _wobble3End).inMilliseconds / 2).toDouble(),
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.03, end: 1.0).chain(CurveTween(curve: Curves.easeInOutSine)),
+        weight: ((_pulseEnd - _wobble3End).inMilliseconds / 2).toDouble(),
+      ),
+      TweenSequenceItem(
+        tween: ConstantTween(1.0),
+        weight: (_total.inMilliseconds - _pulseEnd.inMilliseconds).toDouble(),
+      ),
+    ]).animate(_ctrl);
 
     _opacity = Tween(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _ctrl,
-        curve: Interval(0.0, _f(const Duration(milliseconds: 420)), curve: Curves.easeOut),
-      ),
-    );
-
-    _blur = Tween(begin: 2.0, end: 0.0).animate(
       CurvedAnimation(
         parent: _ctrl,
         curve: Interval(0.0, _f(const Duration(milliseconds: 380)), curve: Curves.easeOut),
       ),
     );
 
-    // Glow breathes in alongside the spin and settles with it — never
-    // overshoots past its 8–12% ceiling, no pulsing.
-    _glow = TweenSequence([
+    _blur = Tween(begin: 2.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _ctrl,
+        curve: Interval(0.0, _f(const Duration(milliseconds: 340)), curve: Curves.easeOut),
+      ),
+    );
+
+    // The ring behind the mark rotates continuously and independently —
+    // its own layer, its own motion, never synced to the mark's wobble.
+    _ringRotation = Tween(begin: 0.0, end: 2 * math.pi * 0.65).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.linear),
+    );
+
+    _ringGlow = TweenSequence([
       TweenSequenceItem(
-        tween: Tween(begin: 0.0, end: 1.0)
-            .chain(CurveTween(curve: Curves.easeOutCubic)),
-        weight: _spin.inMilliseconds.toDouble(),
+        tween: Tween(begin: 0.0, end: 1.0).chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: _scaleIn.inMilliseconds.toDouble(),
       ),
       TweenSequenceItem(
         tween: ConstantTween(1.0),
-        weight: (_total.inMilliseconds - _spin.inMilliseconds).toDouble(),
+        weight: (_total.inMilliseconds - _scaleIn.inMilliseconds).toDouble(),
       ),
     ]).animate(_ctrl);
 
@@ -205,13 +275,16 @@ class _SplashScreenState extends State<SplashScreen>
               opacity: 1.0 - _handoffT.value,
               child: Center(
                 child: RepaintBoundary(
-                  child: _GlowLogo(
-                    spin:    _spinT.value,
-                    opacity: _opacity.value,
-                    blur:    _blur.value,
-                    glow:    _glow.value,
-                    sweep:   _sweep.value,
-                    gold:    gold,
+                  child: _ChoreographedLogo(
+                    markScale:    _markScale.value,
+                    markTiltDeg:  _markTilt.value,
+                    markPulse:    _markPulse.value,
+                    opacity:      _opacity.value,
+                    blur:         _blur.value,
+                    ringRotation: _ringRotation.value,
+                    ringGlow:     _ringGlow.value,
+                    sweep:        _sweep.value,
+                    gold:         gold,
                   ),
                 ),
               ),
@@ -231,26 +304,31 @@ class _SplashScreenState extends State<SplashScreen>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _GlowLogo — logo image + soft radial glow + slow flat 2D spin (bubble
-// settle) + single gradient sweep once fully still.
+// _ChoreographedLogo — two independent layers:
+//   1. a soft glow ring behind the mark that rotates continuously on its
+//      own, entirely independent of the mark's motion
+//   2. the mark itself: scales in with overshoot, performs one settle
+//      wobble, then one gentle breathing pulse, then a single light sweep
 // ─────────────────────────────────────────────────────────────────────────────
-class _GlowLogo extends StatelessWidget {
-  final double spin;    // 0 → 1, drives the flat rotation
+class _ChoreographedLogo extends StatelessWidget {
+  final double markScale;
+  final double markTiltDeg;
+  final double markPulse;
   final double opacity;
   final double blur;
-  final double glow;
+  final double ringRotation; // radians, continuous
+  final double ringGlow;     // 0 → 1 envelope
   final double sweep;
   final Color  gold;
 
-  // Starts turned -50° and drifts to 0° — a gentle, single, decelerating
-  // turn rather than multiple full spins. Reads as calm, not playful.
-  static const double _startDeg = -50.0;
-
-  const _GlowLogo({
-    required this.spin,
+  const _ChoreographedLogo({
+    required this.markScale,
+    required this.markTiltDeg,
+    required this.markPulse,
     required this.opacity,
     required this.blur,
-    required this.glow,
+    required this.ringRotation,
+    required this.ringGlow,
     required this.sweep,
     required this.gold,
   });
@@ -258,12 +336,7 @@ class _GlowLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const double logoSize = 116;
-    final glowOpacity = 0.08 + 0.04 * glow; // 8% → 12%, settles, never pulses
-
-    // Flat, in-plane rotation only — no perspective, no squeeze. The mark's
-    // width/height never change, it simply turns like a bubble drifting to
-    // rest.
-    final angle = (_startDeg * (1.0 - spin)) * (math.pi / 180.0);
+    final glowOpacity = (0.10 + 0.05 * ringGlow).clamp(0.0, 0.15);
 
     Widget mark = SizedBox(
       width: logoSize,
@@ -274,8 +347,7 @@ class _GlowLogo extends StatelessWidget {
       ),
     );
 
-    // Single premium highlight sweep — only built while active, and only
-    // once the mark has essentially come to rest.
+    // Single premium highlight sweep — only built while active.
     if (sweep > 0.0 && sweep < 1.0) {
       mark = ShaderMask(
         blendMode: BlendMode.srcATop,
@@ -300,41 +372,75 @@ class _GlowLogo extends StatelessWidget {
       );
     }
 
-    Widget content = Stack(
-      alignment: Alignment.center,
-      children: [
-        // Ultra-soft radial glow behind the logo.
-        IgnorePointer(
-          child: Container(
-            width: logoSize * 2.1,
-            height: logoSize * 2.1,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  gold.withOpacity(glowOpacity),
-                  gold.withOpacity(0.0),
-                ],
-                stops: const [0.0, 1.0],
-              ),
-            ),
-          ),
+    // Layer 1: the glow ring — its own rotation, its own RepaintBoundary,
+    // completely decoupled from the mark's transforms above it.
+    final ring = RepaintBoundary(
+      child: Transform.rotate(
+        angle: ringRotation,
+        child: CustomPaint(
+          size: const Size(logoSize * 2.1, logoSize * 2.1),
+          painter: _RingGlowPainter(color: gold, opacity: glowOpacity),
         ),
-        mark,
-      ],
+      ),
     );
 
-    // Blur only costs anything while it's actually non-zero.
+    // Layer 2: the mark — scale (entrance + pulse combined), then tilt.
+    Widget markLayer = Transform.rotate(
+      angle: markTiltDeg * (math.pi / 180.0),
+      child: Transform.scale(
+        scale: markScale * markPulse,
+        child: mark,
+      ),
+    );
+
     if (blur > 0.01) {
-      content = ImageFiltered(
+      markLayer = ImageFiltered(
         imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: content,
+        child: markLayer,
       );
     }
 
     return Opacity(
       opacity: opacity,
-      child: Transform.rotate(angle: angle, child: content),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          ring,
+          markLayer,
+        ],
+      ),
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _RingGlowPainter — a soft radial halo. Painted rather than a Container
+// decoration so it can live cheaply inside its own rotating Transform
+// without needing a BoxDecoration rebuild.
+// ─────────────────────────────────────────────────────────────────────────────
+class _RingGlowPainter extends CustomPainter {
+  final Color  color;
+  final double opacity;
+
+  _RingGlowPainter({required this.color, required this.opacity});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (opacity <= 0.001) return;
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    final paint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withOpacity(opacity),
+          color.withOpacity(0.0),
+        ],
+        stops: const [0.0, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: radius));
+    canvas.drawCircle(center, radius, paint);
+  }
+
+  @override
+  bool shouldRepaint(_RingGlowPainter old) =>
+      old.color != color || old.opacity != opacity;
 }
