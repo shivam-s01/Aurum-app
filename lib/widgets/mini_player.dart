@@ -439,7 +439,17 @@ class _MiniPlayerState extends State<MiniPlayer>
         return ValueListenableBuilder<bool>(
           valueListenable: MiniPlayer.heroVisibleNotifier,
           builder: (context, heroVisible, _) {
-            return AnimatedSlide(
+            // AnimatedSize collapses the widget's reserved layout space to
+            // zero when the hero is visible, instead of just fading opacity
+            // (which left a blank gap the height of the mini player, since
+            // the widget was still taking up space in the Column even while
+            // invisible/ignored).
+            return AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.bottomCenter,
+              child: ClipRect(
+                child: AnimatedSlide(
               duration: const Duration(milliseconds: 160),
               curve: Curves.easeOutCubic,
               offset: heroVisible ? const Offset(0, 0.5) : Offset.zero,
@@ -467,6 +477,8 @@ class _MiniPlayerState extends State<MiniPlayer>
                     child: _buildInner(context, player),
                   ),
                 ),
+              ),
+            ),
               ),
             );
           },
