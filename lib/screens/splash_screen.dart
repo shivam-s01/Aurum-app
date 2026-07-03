@@ -16,9 +16,9 @@ import '../theme/aurum_theme.dart';
 //
 // This version instead uses two PNGs extracted directly, pixel-for-pixel,
 // from the actual ic_launcher_foreground.png:
-//   • assets/images/scallop_ring.png — the 10-lobe scallop silhouette + gradient,
+//   • assets/scallop_ring.png — the 10-lobe scallop silhouette + gradient,
 //     with the note-glyph area cut out (transparent hole where the note is)
-//   • assets/images/note_glyph.png   — just the white eighth-note, isolated
+//   • assets/note_glyph.png   — just the white eighth-note, isolated
 //
 // Because both layers are literally cropped from the same source image,
 // stacking them recreates the exact icon with zero distortion, at any
@@ -171,8 +171,7 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     if (_showChild) return widget.child;
 
-    final isDark = context.watch<ThemeProvider>().isDark;
-    final bg = isDark ? const Color(0xFF0B0B10) : const Color(0xFFFAF9FB);
+    final bg = AurumTheme.bgOf(context);
 
     return AnimatedBuilder(
       animation: _ctrl,
@@ -247,7 +246,7 @@ class _SplashScreenState extends State<SplashScreen>
                   child: Opacity(
                     opacity: 0.5,
                     child: Image.asset(
-                      'assets/images/scallop_ring.png',
+                      'assets/scallop_ring.png',
                       width: markSize,
                       height: markSize,
                     ),
@@ -264,7 +263,7 @@ class _SplashScreenState extends State<SplashScreen>
                   child: Opacity(
                     opacity: 0.3,
                     child: Image.asset(
-                      'assets/images/scallop_ring.png',
+                      'assets/scallop_ring.png',
                       width: markSize,
                       height: markSize,
                     ),
@@ -279,7 +278,7 @@ class _SplashScreenState extends State<SplashScreen>
             child: Transform.rotate(
               angle: _ringAngle.value,
               child: Image.asset(
-                'assets/images/scallop_ring.png',
+                'assets/scallop_ring.png',
                 width: markSize,
                 height: markSize,
               ),
@@ -303,7 +302,7 @@ class _SplashScreenState extends State<SplashScreen>
                   ],
                 ),
                 child: Image.asset(
-                  'assets/images/note_glyph.png',
+                  'assets/note_glyph.png',
                   width: markSize,
                   height: markSize,
                 ),
