@@ -52,6 +52,7 @@ class AurumMediaSessionService : MediaSessionService() {
     }
 
     private var mediaSession: MediaSession? = null
+    private var notificationProvider: androidx.media3.session.DefaultMediaNotificationProvider? = null
     private val likeCommand = SessionCommand(LIKE_ACTION, Bundle.EMPTY)
 
     override fun onCreate() {
@@ -75,12 +76,12 @@ class AurumMediaSessionService : MediaSessionService() {
         // via startForeground(). Only one notification ever exists now,
         // and it's MediaStyle (title/artist/artwork/play-pause-next-prev)
         // from the very first frame it's shown.
-        val notificationProvider = androidx.media3.session.DefaultMediaNotificationProvider
+        notificationProvider = androidx.media3.session.DefaultMediaNotificationProvider
             .Builder(this)
             .setChannelId(NOTIFICATION_CHANNEL_ID)
             .setChannelName(androidx.media3.session.R.string.default_notification_channel_name)
             .build()
-        setMediaNotificationProvider(notificationProvider)
+        setMediaNotificationProvider(notificationProvider!!)
         createNotificationChannelIfNeeded()
 
         val engine = sharedEngine ?: run {
@@ -171,6 +172,14 @@ class AurumMediaSessionService : MediaSessionService() {
         // (title/artist/artwork/play-pause-next-prev) the moment player
         // state is available — same notification ID/channel, so there is
         // still only ever one notification visible.
+        //
+        // This MUST happen before addSession() below: addSession() can
+        // itself trigger an immediate notification-refresh attempt (e.g.
+        // if playWhenReady is already true by the time this runs), and
+        // that refresh calls startForeground() internally. Calling our
+        // own startForeground() first guarantees the service is already
+        // in the foreground state before Media3's internal machinery ever
+        // tries to touch it — avoiding a startForeground-ordering race.
         val placeholderNotification = androidx.core.app.NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("Aurum")
             .setContentText("Loading…")
@@ -190,6 +199,23 @@ class AurumMediaSessionService : MediaSessionService() {
         } else {
             startForeground(NOTIFICATION_ID, placeholderNotification)
         }
+
+        // THE actual root cause of "Loading... kabhi update nahi hota":
+        // Media3's MediaNotificationManager (the thing that rebuilds the
+        // notification whenever player/metadata state changes) only ever
+        // starts listening to a session once MediaSessionService.addSession()
+        // is called on it. That call normally happens automatically inside
+        // MediaSessionService's own onBind()/connect() handling — but ONLY
+        // when a real androidx.media3.session.MediaController connects to
+        // this service. MainActivity's bindService() is a plain Android
+        // service bind, not a MediaController connection, so that path
+        // never fires and addSession() was never being called — the
+        // session existed and had a real player attached, but the
+        // notification manager didn't know it existed, so it never
+        // refreshed past the placeholder text. Calling addSession()
+        // ourselves, right here, is what actually wires up live title/
+        // artist/artwork + control-state updates on every player event.
+        addSession(mediaSession!!)
 
         // THE actual fix for "background/lock-screen kuch nahi ho raha":
         // Media3's MediaSessionService base class owns an internal
@@ -266,6 +292,7 @@ class AurumMediaSessionService : MediaSessionService() {
 
     override fun onDestroy() {
         mediaSession?.run {
+            removeSession(this)
             player.release()
             release()
             mediaSession = null
