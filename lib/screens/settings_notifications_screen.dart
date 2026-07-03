@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
 
@@ -10,7 +11,8 @@ class SettingsNotificationsScreen extends StatefulWidget {
   State<SettingsNotificationsScreen> createState() => _SettingsNotificationsScreenState();
 }
 
-class _SettingsNotificationsScreenState extends State<SettingsNotificationsScreen> {
+class _SettingsNotificationsScreenState extends State<SettingsNotificationsScreen>
+    with WidgetsBindingObserver {
   bool   _showMediaNotif      = true;
   bool   _showArtworkInNotif  = true;
   String _notifStyle          = 'Expanded';
@@ -18,10 +20,43 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
   // New
   bool _showPrevButton = true;
 
+  // THE fix for "background run nahi kar raha" on aggressive OEM skins
+  // (Realme/ColorOS, MIUI, etc): these manufacturers kill background
+  // services far more readily than stock Android unless the user
+  // explicitly whitelists the app from battery optimization. Declaring
+  // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS in the manifest only lets the app
+  // ASK for this — the user still has to grant it via a system dialog,
+  // which this tile triggers. Re-checked in didChangeAppLifecycleState
+  // (via _refreshBatteryStatus) so the toggle reflects reality immediately
+  // when the user comes back from the system settings screen, not just
+  // once at initState.
+  bool _batteryOptimizationIgnored = false;
+
+  Future<void> _refreshBatteryStatus() async {
+    final status = await Permission.ignoreBatteryOptimizations.status;
+    if (mounted) setState(() => _batteryOptimizationIgnored = status.isGranted);
+  }
+
   @override
   void initState() {
     super.initState();
     _load();
+    _refreshBatteryStatus();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Refreshes the toggle the instant the user comes back from the
+    // system battery-optimization settings screen, rather than requiring
+    // them to leave and re-enter this screen to see the updated state.
+    if (state == AppLifecycleState.resumed) _refreshBatteryStatus();
   }
 
   Future<void> _load() async {
@@ -64,6 +99,78 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
+
+          // ── BACKGROUND PLAYBACK ───────────────────────────────────────
+          // THE most impactful fix for "background mein gaana ruk jaata
+          // hai" on Realme/Xiaomi/other aggressive OEMs — those skins kill
+          // background services within minutes unless the user manually
+          // exempts the app from battery optimization. This can't be done
+          // silently; Android requires an explicit user-facing system
+          // dialog for this specific permission.
+          _sectionLabel('🔋 BACKGROUND PLAYBACK'),
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: AurumTheme.bgCardOf(context),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+              onTap: _batteryOptimizationIgnored
+                  ? null
+                  : () async {
+                      HapticFeedback.selectionClick();
+                      final status = await Permission.ignoreBatteryOptimizations.request();
+                      if (mounted) setState(() => _batteryOptimizationIgnored = status.isGranted);
+                      // Some OEM skins (Realme/ColorOS, MIUI, etc.) don't
+                      // honor the standard Android dialog reliably and
+                      // need their own separate "auto-start"/"battery
+                      // saver whitelist" screen — send the user to app
+                      // settings as a fallback so they can find it
+                      // manually if the standard prompt didn't stick.
+                      if (mounted && !status.isGranted && status.isPermanentlyDenied) {
+                        openAppSettings();
+                      }
+                    },
+              leading: Container(
+                width: 38, height: 38,
+                decoration: BoxDecoration(
+                  color: _batteryOptimizationIgnored
+                      ? AurumTheme.gold.withOpacity(0.15)
+                      : AurumTheme.bgOf(context),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  _batteryOptimizationIgnored
+                      ? Icons.battery_charging_full_rounded
+                      : Icons.battery_alert_rounded,
+                  color: _batteryOptimizationIgnored
+                      ? AurumTheme.gold
+                      : AurumTheme.textMutedOf(context),
+                  size: 18,
+                ),
+              ),
+              title: Text(
+                _batteryOptimizationIgnored
+                    ? 'Background Playback Enabled'
+                    : 'Allow Background Playback',
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 14, fontWeight: FontWeight.w500,
+                ),
+              ),
+              subtitle: Text(
+                _batteryOptimizationIgnored
+                    ? 'Music will keep playing when screen is off or app is closed'
+                    : 'Tap to allow music to keep playing in the background — some phones stop playback without this',
+                style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12),
+              ),
+              trailing: _batteryOptimizationIgnored
+                  ? Icon(Icons.check_circle_rounded, color: AurumTheme.gold, size: 20)
+                  : Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 20),
+            ),
+          ),
 
           // ── PLAYER NOTIFICATION ───────────────────────────────────────
           _sectionLabel('🔔 PLAYER NOTIFICATION'),

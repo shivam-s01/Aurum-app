@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'services/native_engine_bridge.dart';
 import 'services/notification_service.dart';
 import 'services/api_service.dart';
@@ -42,6 +43,27 @@ Future<void> main() async {
   runZonedGuarded(() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // THE fix for "background playback/notification unreliable on Android
+  // 13+": AndroidManifest.xml already declares POST_NOTIFICATIONS, but
+  // declaring a dangerous permission in the manifest does not grant it —
+  // Android 13+ (API 33+) requires an explicit runtime request, exactly
+  // like camera or location. Without this being granted, the system can
+  // suppress AurumMediaSessionService's foreground notification entirely,
+  // which in turn makes Android treat the service as a low-priority
+  // "invisible" background process and kill it far more aggressively —
+  // this was the root cause of playback dying in the background even
+  // after the MediaSessionService lifecycle itself was fixed. Requested
+  // as early as possible (right after Flutter's binding is ready, before
+  // any other init) so the OS prompt appears on first launch rather than
+  // silently failing the first time a song is played. Wrapped in a
+  // try/catch and never awaited-blocking on the result: if the user
+  // denies it, the app must keep working (foreground playback still
+  // works fine; only the background/lock-screen notification is
+  // affected), never gate app startup behind this.
+  try {
+    await Permission.notification.request();
+  } catch (_) {}
+
   // Wake the Saavn free-tier backend the instant the app launches — by the
   // time the user reaches Home/Search it's had a head start to warm up.
   ApiService.wakeSaavn();
@@ -70,11 +92,13 @@ Future<void> main() async {
   // it doesn't block on any platform-side MediaSession registration (unlike
   // the old AudioService.init(), which awaited the audio_service plugin's
   // async platform handshake). The actual MediaSession/notification is now
-  // owned by AurumMediaSessionService (Kotlin), which
-  // AurumEngineChannelHandler starts via startForegroundService() the
-  // moment a queue exists — see onQueueChanged in that file. So construction
-  // here is synchronous and can never hang or race a timeout the way the
-  // old AudioService.init() call could.
+  // owned by AurumMediaSessionService (Kotlin), which MainActivity binds to
+  // (bindService + startService in configureFlutterEngine) the moment the
+  // Flutter engine attaches — see MainActivity.bindMediaSessionService().
+  // Media3's own internal MediaNotificationManager then promotes the
+  // service to foreground automatically once real playback starts. So
+  // construction here is synchronous and can never hang or race a timeout
+  // the way the old AudioService.init() call could.
   _audioEngine = NativeAudioEngine();
 
   // Download progress/complete notifications. Tapping one opens Downloads.
