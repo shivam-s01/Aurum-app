@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
-import androidx.core.app.NotificationCompat
 import androidx.media3.common.Player
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
@@ -37,7 +36,6 @@ class AurumMediaSessionService : MediaSessionService() {
     companion object {
         private const val LIKE_ACTION = "com.aurum.music.ACTION_TOGGLE_LIKE"
         private const val NOTIFICATION_CHANNEL_ID = "aurum_playback"
-        private const val NOTIFICATION_ID = 1001
 
         // Set by AurumEngineChannelHandler right after it constructs the
         // engine (MainActivity.configureFlutterEngine runs before this
@@ -59,34 +57,30 @@ class AurumMediaSessionService : MediaSessionService() {
         super.onCreate()
         instance = this
 
-        // Defensive safety-net for aggressive OEM battery managers
-        // (ColorOS/realme UI and similar) that have been observed killing
-        // this service within moments of creation, before Media3's own
-        // internal MediaNotificationManager gets a chance to auto-promote
-        // it to foreground on the first player event. Posting a minimal
-        // placeholder notification immediately — synchronously, as the
-        // very first thing onCreate() does — puts the service in the
-        // OS's "protected foreground" bucket right away. Media3 replaces
-        // this with its real MediaStyle notification (title/artist/
-        // artwork/controls) the moment playback state is available; this
-        // call never fights that, it just closes the gap where the
-        // service was vulnerable before Media3's own notification existed.
-        createNotificationChannelIfNeeded()
-        val placeholderNotification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Aurum")
-            .setContentText("Starting playback…")
-            .setSmallIcon(R.drawable.ic_like_outline)
-            .setOngoing(true)
+        // Explicitly wire Media3's own notification provider instead of
+        // relying purely on its implicit default. THE actual second bug
+        // (after the earlier release()-kills-the-player fix): a separate
+        // plain NotificationCompat notification (no MediaStyle) was being
+        // posted via startForeground() under its own ID, while Media3's
+        // own MediaNotificationManager built a DIFFERENT, real MediaStyle
+        // notification once the session/player were ready. Two
+        // notifications existed; the plain one (posted first) "won" the
+        // visible slot, and it had no transport controls because it was
+        // never MediaStyle — hence "name dikh raha hai, controls nahi".
+        //
+        // Fix: grab the SAME DefaultMediaNotificationProvider Media3 uses
+        // internally, build the real MediaStyle notification with it
+        // ourselves once mediaSession exists (see below), and post that
+        // via startForeground(). Only one notification ever exists now,
+        // and it's MediaStyle (title/artist/artwork/play-pause-next-prev)
+        // from the very first frame it's shown.
+        val notificationProvider = androidx.media3.session.DefaultMediaNotificationProvider
+            .Builder(this)
+            .setChannelId(NOTIFICATION_CHANNEL_ID)
+            .setChannelName(androidx.media3.session.R.string.default_notification_channel_name)
             .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                placeholderNotification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, placeholderNotification)
-        }
+        setMediaNotificationProvider(notificationProvider)
+        createNotificationChannelIfNeeded()
 
         val engine = sharedEngine ?: run {
             // Defensive fallback: service was started (e.g. by the OS
@@ -158,6 +152,33 @@ class AurumMediaSessionService : MediaSessionService() {
             sessionBuilder.setSessionActivity(sessionActivityIntent)
         }
         mediaSession = sessionBuilder.build()
+
+        // Defensive safety-net for aggressive OEM battery managers
+        // (ColorOS/realme UI and similar) that have been observed killing
+        // this service within moments of creation, before Media3's own
+        // internal auto-promotion has a chance to fire on the first player
+        // event. Now that mediaSession exists, ask the SAME provider
+        // Media3 uses internally to build the real MediaStyle notification
+        // right away and post it ourselves via startForeground() — so the
+        // service is in the OS's protected-foreground bucket immediately,
+        // and the one notification that exists is MediaStyle (title/
+        // artist/artwork/play-pause-next-prev) from the first frame,
+        // rather than a separate plain notification that never gets
+        // replaced.
+        val initialNotification = notificationProvider.createNotification(
+            mediaSession!!,
+            ImmutableList.of(likeButton),
+            androidx.media3.session.MediaNotification.ActionFactory.DEFAULT,
+        ) { }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                initialNotification.notificationId,
+                initialNotification.notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+            )
+        } else {
+            startForeground(initialNotification.notificationId, initialNotification.notification)
+        }
 
         // THE actual fix for "background/lock-screen kuch nahi ho raha":
         // Media3's MediaSessionService base class owns an internal
