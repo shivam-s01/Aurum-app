@@ -246,7 +246,7 @@ class _SplashScreenState extends State<SplashScreen>
                   child: Opacity(
                     opacity: 0.5,
                     child: Image.asset(
-                      'assets/scallop_ring.png',
+                      'assets/images/scallop_ring.png',
                       width: markSize,
                       height: markSize,
                     ),
@@ -263,7 +263,7 @@ class _SplashScreenState extends State<SplashScreen>
                   child: Opacity(
                     opacity: 0.3,
                     child: Image.asset(
-                      'assets/scallop_ring.png',
+                      'assets/images/scallop_ring.png',
                       width: markSize,
                       height: markSize,
                     ),
@@ -278,7 +278,7 @@ class _SplashScreenState extends State<SplashScreen>
             child: Transform.rotate(
               angle: _ringAngle.value,
               child: Image.asset(
-                'assets/scallop_ring.png',
+                'assets/images/scallop_ring.png',
                 width: markSize,
                 height: markSize,
               ),
@@ -302,7 +302,7 @@ class _SplashScreenState extends State<SplashScreen>
                   ],
                 ),
                 child: Image.asset(
-                  'assets/note_glyph.png',
+                  'assets/images/note_glyph.png',
                   width: markSize,
                   height: markSize,
                 ),

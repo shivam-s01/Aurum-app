@@ -242,27 +242,41 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             mainAxisSize: MainAxisSize.min,
             children: [
               const MiniPlayer(),
-              _AurumBottomNavBar(
-                currentIndex: _tab,
-                onTap: (i) {
-                  // FIX: SearchScreen lives inside an IndexedStack — never
-                  // disposed, just hidden. Unfocus on EVERY tab tap (not
-                  // just when leaving search) so the keyboard never bleeds
-                  // through to other screens. The primary keyboard issue was:
-                  // user opens search → types → switches tab → keyboard hides
-                  // visually but focus is still held by the TextField → any
-                  // rebuild (song change, mini-player update) causes Android
-                  // to resurface the keyboard. Calling primaryFocus?.unfocus()
-                  // with UnfocusDisposition.scope drops focus from the entire
-                  // widget tree, not just the current scope — this is more
-                  // aggressive than FocusScope.of(context).unfocus() and
-                  // correctly handles the case where focus is held by a
-                  // widget in a different branch of the tree (IndexedStack).
-                  primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
-                  // OS-level keyboard kill — most reliable way to ensure
-                  // keyboard never bleeds through from IndexedStack branches.
-                  SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-                  setState(() => _tab = i);
+              // The nav bar's own top divider is meant for the edge-to-edge
+              // "Compact Bar" mini player style. With the floating "Capsule"
+              // style (rounded card, side margins) that divider is a straight
+              // full-width line sitting just past the capsule's rounded
+              // bottom corners — it reads as a stray white line under the
+              // mini player instead of a bar separator. Suppress it whenever
+              // a song is showing and the capsule style is active.
+              ValueListenableBuilder<String>(
+                valueListenable: MiniPlayer.styleNotifier,
+                builder: (context, miniPlayerStyle, _) {
+                  final hideDivider = player.hasSong && miniPlayerStyle != 'Compact Bar';
+                  return _AurumBottomNavBar(
+                    showTopDivider: !hideDivider,
+                    currentIndex: _tab,
+                    onTap: (i) {
+                      // FIX: SearchScreen lives inside an IndexedStack — never
+                      // disposed, just hidden. Unfocus on EVERY tab tap (not
+                      // just when leaving search) so the keyboard never bleeds
+                      // through to other screens. The primary keyboard issue was:
+                      // user opens search → types → switches tab → keyboard hides
+                      // visually but focus is still held by the TextField → any
+                      // rebuild (song change, mini-player update) causes Android
+                      // to resurface the keyboard. Calling primaryFocus?.unfocus()
+                      // with UnfocusDisposition.scope drops focus from the entire
+                      // widget tree, not just the current scope — this is more
+                      // aggressive than FocusScope.of(context).unfocus() and
+                      // correctly handles the case where focus is held by a
+                      // widget in a different branch of the tree (IndexedStack).
+                      primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+                      // OS-level keyboard kill — most reliable way to ensure
+                      // keyboard never bleeds through from IndexedStack branches.
+                      SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+                      setState(() => _tab = i);
+                    },
+                  );
                 },
               ),
             ],
@@ -282,9 +296,14 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 // instead of looking like a stock Flutter default.
 // ══════════════════════════════════════════════════════════════════
 class _AurumBottomNavBar extends StatelessWidget {
-  const _AurumBottomNavBar({required this.currentIndex, required this.onTap});
+  const _AurumBottomNavBar({
+    required this.currentIndex,
+    required this.onTap,
+    this.showTopDivider = true,
+  });
   final int currentIndex;
   final ValueChanged<int> onTap;
+  final bool showTopDivider;
 
   static const _items = [
     (outline: PhosphorIconsRegular.houseSimple, filled: PhosphorIconsFill.houseSimple, label: 'Home'),
@@ -295,15 +314,26 @@ class _AurumBottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-        child: Container(
-          decoration: BoxDecoration(
-            color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.72 : 0.62),
-            border: Border(
-                top: BorderSide(color: AurumTheme.dividerOf(context), width: 0.5)),
-          ),
+    // RepaintBoundary isolates this blur onto its own layer — the mini
+    // player directly above uses its own BackdropFilter too, and letting
+    // two backdrop filters share a compositing layer can make Android's
+    // Skia backend blur the wrong region (same issue already fixed once
+    // in mini_player.dart).
+    return RepaintBoundary(
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          child: Container(
+            decoration: BoxDecoration(
+              color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.38 : 0.32),
+              border: showTopDivider
+                  ? Border(
+                      top: BorderSide(
+                        color: Colors.white.withOpacity(isLight ? 0.5 : 0.08),
+                        width: 0.7,
+                      ))
+                  : null,
+            ),
           child: SafeArea(
             top: false,
             child: SizedBox(
@@ -408,6 +438,7 @@ class _AurumBottomNavBar extends StatelessWidget {
           ),
         ),
       ),
+    ),
     );
   }
 }

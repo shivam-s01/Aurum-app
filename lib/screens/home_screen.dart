@@ -97,6 +97,13 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
     with SingleTickerProviderStateMixin {
   static const double _triggerDistance = 88.0;
   static const double _maxReveal = 110.0;
+  // Minimum raw overscroll (in px) before the pull starts producing ANY
+  // visible reveal. Below this, small jerks/bounces (a quick flick that
+  // slightly overscrolls past the top, a frame hitch, a light accidental
+  // drag) are fully absorbed and the loader stays completely hidden —
+  // only a real, sustained pull past this point starts to show anything,
+  // matching how a browser's pull-to-refresh ignores minor overscroll.
+  static const double _deadZone = 26.0;
 
   double _pullDistance = 0.0;
   bool _refreshing = false;
@@ -117,9 +124,9 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
     super.dispose();
   }
 
-  void _animateTo(double target, {VoidCallback? onDone}) {
+  void _animateTo(double target, {VoidCallback? onDone, Curve curve = Curves.easeOutCubic}) {
     _settleAnim = Tween<double>(begin: _pullDistance, end: target)
-        .animate(CurvedAnimation(parent: _settleCtrl, curve: Curves.easeOutCubic))
+        .animate(CurvedAnimation(parent: _settleCtrl, curve: curve))
       ..addListener(() => setState(() => _pullDistance = _settleAnim!.value));
     _settleCtrl.forward(from: 0).whenComplete(() => onDone?.call());
   }
@@ -145,9 +152,17 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
       if (metrics.pixels <= 0 && (scrollingDown || _dragging)) {
         _dragging = true;
         setState(() {
-          // Rubber-band: diminishing returns the further you pull.
+          // Rubber-band: diminishing returns the further you pull. Raw
+          // overscroll under _deadZone maps to zero reveal — the user has
+          // to commit to a real pull before anything shows, instead of a
+          // light jerk/bounce producing a partial flash of the loader.
           final raw = -metrics.pixels;
-          _pullDistance = _maxReveal * (1 - math.exp(-raw / _maxReveal));
+          if (raw <= _deadZone) {
+            _pullDistance = 0.0;
+          } else {
+            final effective = raw - _deadZone;
+            _pullDistance = _maxReveal * (1 - math.exp(-effective / _maxReveal));
+          }
         });
       } else if (_dragging && metrics.pixels > 0) {
         // Finger moved back past the top edge (still down, scrolled back
@@ -236,7 +251,13 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
         await Future.delayed(const Duration(milliseconds: 180));
         if (!mounted) return;
         setState(() => _justCompleted = false);
-        _animateTo(0.0);
+        // Post-success retract gets a slightly snappier curve than a plain
+        // cancelled/aborted pull, so the finish reads as a deliberate
+        // "snap away" moment. Deliberately NOT easeOutBack — that curve
+        // overshoots past its target, which here (target = 0) means
+        // _pullDistance would dip negative for a frame and flip the
+        // Transform.translate the wrong way.
+        _animateTo(0.0, curve: Curves.easeOutQuart);
       }
     }
   }

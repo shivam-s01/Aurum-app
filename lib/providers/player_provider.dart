@@ -349,6 +349,28 @@ class PlayerProvider extends ChangeNotifier {
     // Push liked-state for the new current song to the native session icon.
     final liked = _isSongLikedLookup?.call(song) ?? false;
     _engine.setCurrentSongLiked(liked);
+
+    // Fire Worker /api/prewarm for the next 3-5 upcoming YT songs. Piggybacks
+    // on the 150ms index-settle debounce above (see _onEngineState), so rapid
+    // skips only trigger one prewarm burst for the index the user actually
+    // lands on — not one per intermediate skip.
+    _prewarmUpcoming(index);
+  }
+
+  // Next 3-5 upcoming YouTube songs — fire-and-forget Worker prewarm so the
+  // stream is likely already KV-cached by the time the user reaches them.
+  // ApiService.prewarmYtStream has its own per-session dedup (_prewarmedIds)
+  // and skips songs whose URL is already locally cached, so calling this
+  // repeatedly as the queue advances is cheap and safe.
+  static const int _prewarmWindow = 5;
+
+  void _prewarmUpcoming(int fromIndex) {
+    final q = _queue;
+    if (q.isEmpty) return;
+    final end = (fromIndex + 1 + _prewarmWindow).clamp(0, q.length);
+    for (var i = fromIndex + 1; i < end; i++) {
+      ApiService.prewarmYtStream(q[i]);
+    }
   }
 
   void _onPosition(Duration pos) {
@@ -521,6 +543,12 @@ class PlayerProvider extends ChangeNotifier {
       _currentIndex = index;
       _currentSong = song;
       notifyListeners();
+
+      // Fire prewarm for the next 3-5 songs immediately on queue load —
+      // don't wait for the 70%-of-song or index-settle hooks. This overlaps
+      // the Worker round-trip with the current song's own start-up latency
+      // instead of stacking after it.
+      _prewarmUpcoming(_currentIndex);
 
       await _engine.playQueue(queue, index);
       if (mySession != _uiPlaySession) return; // superseded by a newer tap
