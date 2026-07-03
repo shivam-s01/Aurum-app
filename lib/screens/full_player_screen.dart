@@ -3501,43 +3501,46 @@ class _BgLayer extends StatelessWidget {
     required this.targetBg4,
   });
 
+  // FIX (lag): this used to be built entirely inside the AnimatedBuilder
+  // driven by the breathe controller (18s continuous loop). That forced
+  // the 40-42σ blurred-artwork layer — the most expensive single paint
+  // op on this whole screen — to rebuild its widget subtree 60 times a
+  // second, forever, any time the full player was on screen, whether or
+  // not the song ever changed. RepaintBoundary alone doesn't prevent that
+  // rebuild cost; only building it outside the animated scope does.
+  //
+  // Now: the blurred artwork is built ONCE per song (via a ValueKey on
+  // song.id + bg1, so it only rebuilds on an actual track/palette change),
+  // and only the cheap orb/gradient/vignette layers sit inside the
+  // breathe-driven AnimatedBuilder.
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
 
-    // Merge both controllers — single AnimatedBuilder, no nested rebuilds
     return AnimatedBuilder(
-      animation: Listenable.merge([bgCtrl, breatheCtrl]),
+      animation: bgCtrl,
       builder: (context, _) {
         final t = bgCtrl.value; // 0→1: song change morph
-        // Ease the breathe curve once here, reuse everywhere.
-        // Settings → Appearance → "Background Gradient Animation": when
-        // off, freeze the breathe value instead of stopping the controller
-        // outright (stopping it here would also freeze the artwork float,
-        // which shares this same controller and isn't part of this toggle).
-        final bRaw = (AudioPrefs.enableAnimationsNotifier.value &&
-                AudioPrefs.bgGradientAnimationNotifier.value)
-            ? breatheCtrl.value
-            : 0.5;
-        final b = Curves.easeInOut.transform(bRaw); // 0→1→0
-
-        // ── Lerped palette colors ──
         final bg1 = Color.lerp(startBg1, targetBg1, t)!;
         final bg2 = Color.lerp(startBg2, targetBg2, t)!;
         final bg3 = Color.lerp(startBg3, targetBg3, t)!;
         final bg4 = Color.lerp(startBg4, targetBg4, t)!;
 
-        if (isLight) {
-          return _buildLight(bg1, bg2, bg3, bg4, b);
-        } else {
-          return _buildDark(bg1, bg2, bg3, bg4, b);
-        }
+        final staticBlur = _StaticBlurArtwork(
+          key: ValueKey('${song.id}_${song.artworkUrl}'),
+          song: song,
+          isLight: isLight,
+        );
+
+        return isLight
+            ? _buildLight(bg1, bg2, bg3, bg4, staticBlur)
+            : _buildDark(bg1, bg2, bg3, bg4, staticBlur);
       },
     );
   }
 
   // ── LIGHT MODE ── Echo Nightly light: blurred artwork + warm white veil
-  Widget _buildLight(Color bg1, Color bg2, Color bg3, Color bg4, double b) {
+  Widget _buildLight(Color bg1, Color bg2, Color bg3, Color bg4, Widget staticBlur) {
     final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
     final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
     if (!dynamicColor) {
@@ -3549,73 +3552,58 @@ class _BgLayer extends StatelessWidget {
 
     if (bgStyle == 'Solid') return ColoredBox(color: bg1);
 
-    // Previously this stacked THREE white layers on top of the artwork
-    // (a 115-alpha veil, then a 130/170-alpha top/bottom vignette, on top
-    // of artwork already dimmed to 0.68 opacity) — the combined effect
-    // erased almost all of the artwork's actual color, leaving the flat
-    // white/grey look. Artwork opacity is bumped closer to dark mode's,
-    // the veil is much lighter, and the vignette is now just enough at
-    // the very top/bottom edges to keep the top bar and control text
-    // readable without greying out the whole screen.
+    // L1 (static blur) is passed in pre-built and does NOT rebuild on the
+    // breathe tick anymore — only L3 (orbs) sits inside the AnimatedBuilder.
     return Stack(fit: StackFit.expand, children: [
       // L0: Warm white base (only visible at extreme edges now)
       const ColoredBox(color: Color(0xFFF5F0EA)),
 
-      // L1: Artwork fills screen — blurred into color atmosphere, but
-      // kept vivid enough to actually read as the artwork's palette.
-      // RepaintBoundary isolates the expensive blur layer so sibling
-      // layers (gradient/orbs, which redraw every breathe tick) don't
-      // force this to repaint too — the blur is composited once and
-      // just re-used each frame.
-      if (song.artworkUrl.isNotEmpty)
-        RepaintBoundary(
-          child: Opacity(
-            opacity: 0.86 + b * 0.08,
-            child: Transform.scale(
-              scale: 1.55,
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(
-                  sigmaX: 40, sigmaY: 40,
-                  tileMode: TileMode.clamp,
-                ),
-                child: AurumArtwork(
-                  url: song.artworkUrl,
-                  size: double.infinity,
-                  borderRadius: 0,
-                ),
-              ),
-            ),
-          ),
-        ),
+      // L1: Artwork fills screen — blurred into color atmosphere. Built
+      // once per song, not every breathe frame.
+      staticBlur,
 
       // L2: Faint white veil — just enough to keep the light-mode feel,
       // not enough to wash the color out.
-      Container(color: Colors.white.withAlpha(28)),
+      const RepaintBoundary(child: ColoredBox(color: Color(0x1CFFFFFF))),
 
-      // L3: Ambient glow orbs
+      // L3: Ambient glow orbs — the only layer that actually needs to
+      // rebuild on every breathe tick, isolated in its own AnimatedBuilder.
       RepaintBoundary(
-        child: CustomPaint(
-          painter: _AmbientGlowPainter(
-            color1: bg1, color2: bg4, color3: bg2,
-            breathe: b, isLight: true,
-          ),
-          size: Size.infinite,
+        child: AnimatedBuilder(
+          animation: breatheCtrl,
+          builder: (context, _) {
+            final bRaw = (AudioPrefs.enableAnimationsNotifier.value &&
+                    AudioPrefs.bgGradientAnimationNotifier.value)
+                ? breatheCtrl.value
+                : 0.5;
+            final b = Curves.easeInOut.transform(bRaw);
+            return CustomPaint(
+              painter: _AmbientGlowPainter(
+                color1: bg1, color2: bg4, color3: bg2,
+                breathe: b, isLight: true,
+              ),
+              size: Size.infinite,
+            );
+          },
         ),
       ),
 
-      // L4: Vignette for text readability — tight at the edges only
-      Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.white.withAlpha(90),
-              Colors.transparent,
-              Colors.transparent,
-              Colors.white.withAlpha(110),
-            ],
-            stops: const [0.0, 0.12, 0.72, 1.0],
+      // L4: Vignette for text readability — tight at the edges only,
+      // static — no need to rebuild ever.
+      const RepaintBoundary(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0x5AFFFFFF),
+                Colors.transparent,
+                Colors.transparent,
+                Color(0x6EFFFFFF),
+              ],
+              stops: [0.0, 0.12, 0.72, 1.0],
+            ),
           ),
         ),
       ),
@@ -3623,7 +3611,7 @@ class _BgLayer extends StatelessWidget {
   }
 
   // ── DARK MODE ── Echo Nightly spec: artwork IS the background
-  Widget _buildDark(Color bg1, Color bg2, Color bg3, Color bg4, double b) {
+  Widget _buildDark(Color bg1, Color bg2, Color bg3, Color bg4, Widget staticBlur) {
     final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
     final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
     if (!dynamicColor) {
@@ -3637,95 +3625,122 @@ class _BgLayer extends StatelessWidget {
       return ColoredBox(color: Color.lerp(bg1, Colors.black, 0.35)!);
     }
 
-    // Artwork opacity breathes slightly: 0.82 → 0.92
-    final artOpacity = 0.82 + b * 0.10;
-
+    // L1 (static blur) is passed in pre-built — no longer recomposites on
+    // every breathe tick. Only L2 (gradient tint, whose center drifts
+    // slightly) and L3 (orbs) still need the live breathe value.
     return Stack(fit: StackFit.expand, children: [
       // L0: Pure black base
       const ColoredBox(color: Color(0xFF000000)),
 
-      // L1: Artwork fills entire background — the Echo Nightly way.
-      //     Scale > 1 so edges bleed out (no letterboxing).
-      //     Blur at 42σ: artwork is fully unrecognisable as an image,
-      //     it reads as pure color atmosphere. RepaintBoundary isolates
-      //     this expensive layer from the orb/gradient layers, which
-      //     redraw every breathe tick — the blur itself is composited
-      //     once per opacity change, not re-run every frame.
-      if (song.artworkUrl.isNotEmpty)
-        RepaintBoundary(
-          child: Opacity(
-            opacity: artOpacity,
-            child: Transform.scale(
-              scale: 1.55,
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(
-                  sigmaX: 42, sigmaY: 42,
-                  tileMode: TileMode.clamp,
-                ),
-                child: AurumArtwork(
-                  url: song.artworkUrl,
-                  size: double.infinity,
-                  borderRadius: 0,
-                ),
-              ),
-            ),
-          ),
-        ),
+      // L1: Artwork fills entire background — built once per song.
+      staticBlur,
 
-      // L2: Color palette gradient tint — deepens the artwork colors
-      //     so they stay saturated even on AMOLED. Isolated in its own
-      //     RepaintBoundary since its center drifts every breathe tick.
-      if (bgStyle != 'Gradient')
-        RepaintBoundary(
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment(-0.25 + b * 0.08, -0.55),
-                radius: 1.35,
-                colors: [
-                  bg1.withAlpha(130),
-                  bg2.withAlpha(90),
-                  Colors.transparent,
-                ],
-                stops: const [0.0, 0.45, 1.0],
-              ),
-            ),
-          ),
-        ),
-
-      // L3: Ambient glow orbs — palette-colored soft blobs
+      // L2 + L3: everything that actually needs the breathe value, in one
+      // shared AnimatedBuilder so there's a single rebuild per tick
+      // instead of two separate ones.
       RepaintBoundary(
-        child: CustomPaint(
-          painter: _AmbientGlowPainter(
-            color1: bg1,
-            color2: bg4,
-            color3: bg2,
-            breathe: b,
-            isLight: false,
-          ),
-          size: Size.infinite,
+        child: AnimatedBuilder(
+          animation: breatheCtrl,
+          builder: (context, _) {
+            final bRaw = (AudioPrefs.enableAnimationsNotifier.value &&
+                    AudioPrefs.bgGradientAnimationNotifier.value)
+                ? breatheCtrl.value
+                : 0.5;
+            final b = Curves.easeInOut.transform(bRaw);
+            return Stack(fit: StackFit.expand, children: [
+              // Color palette gradient tint — deepens the artwork colors
+              // so they stay saturated even on AMOLED.
+              if (bgStyle != 'Gradient')
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      center: Alignment(-0.25 + b * 0.08, -0.55),
+                      radius: 1.35,
+                      colors: [
+                        bg1.withAlpha(130),
+                        bg2.withAlpha(90),
+                        Colors.transparent,
+                      ],
+                      stops: const [0.0, 0.45, 1.0],
+                    ),
+                  ),
+                ),
+              // Ambient glow orbs — palette-colored soft blobs
+              CustomPaint(
+                painter: _AmbientGlowPainter(
+                  color1: bg1,
+                  color2: bg4,
+                  color3: bg2,
+                  breathe: b,
+                  isLight: false,
+                ),
+                size: Size.infinite,
+              ),
+            ]);
+          },
         ),
       ),
 
-      // L4: Vignette — keeps text perfectly readable.
+      // L4: Vignette — keeps text perfectly readable. Static, never
+      // needs to rebuild.
       //     Top: darkened for status bar / drag handle
       //     Bottom: heavy dark gradient so controls pop
-      Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.black.withAlpha(160),
-              Colors.transparent,
-              Colors.transparent,
-              Colors.black.withAlpha(210),
-            ],
-            stops: const [0.0, 0.18, 0.60, 1.0],
+      const RepaintBoundary(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xA0000000),
+                Colors.transparent,
+                Colors.transparent,
+                Color(0xD2000000),
+              ],
+              stops: [0.0, 0.18, 0.60, 1.0],
+            ),
           ),
         ),
       ),
     ]);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _StaticBlurArtwork — the expensive 40-42σ blur, built once per song
+// (keyed on song id + artwork url) instead of every breathe-controller
+// tick. This single change removes the majority of the full player's
+// idle GPU cost, since this was previously rebuilding 60x/sec forever.
+// ─────────────────────────────────────────────────────────────────────────────
+class _StaticBlurArtwork extends StatelessWidget {
+  final Song song;
+  final bool isLight;
+
+  const _StaticBlurArtwork({super.key, required this.song, required this.isLight});
+
+  @override
+  Widget build(BuildContext context) {
+    if (song.artworkUrl.isEmpty) return const SizedBox.shrink();
+    return RepaintBoundary(
+      child: Opacity(
+        opacity: isLight ? 0.90 : 0.88,
+        child: Transform.scale(
+          scale: 1.55,
+          child: ImageFiltered(
+            imageFilter: ImageFilter.blur(
+              sigmaX: isLight ? 40 : 42,
+              sigmaY: isLight ? 40 : 42,
+              tileMode: TileMode.clamp,
+            ),
+            child: AurumArtwork(
+              url: song.artworkUrl,
+              size: double.infinity,
+              borderRadius: 0,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
