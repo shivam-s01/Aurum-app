@@ -8,6 +8,8 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -39,6 +41,16 @@ class AurumAudioEngine(
     private val resolver: StreamResolver,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    // Serializes skip commands (next/prev/queue-jump). Without this, spamming
+    // next/prev fires a fresh coroutine per tap and they race — each one reads
+    // player.currentMediaItemIndex at ITS OWN launch time, which may already be
+    // stale because a previous coroutine's seekToNext() ran in between. Under
+    // fast repeated taps this desyncs the native player from the queue index
+    // Dart thinks it's on, and the final settled song doesn't match the last
+    // tap. Wrapping every skip op in this mutex forces them to run one at a
+    // time, in order, against consistent player state.
+    private val skipMutex = Mutex()
 
     // I10: identical buffer tuning to the Dart AndroidLoadControl config.
     private val loadControl = DefaultLoadControl.Builder()
@@ -748,28 +760,32 @@ class AurumAudioEngine(
 
     fun skipToNext() {
         scope.launch {
-            val liveLen = player.mediaItemCount
-            val livePos = player.currentMediaItemIndex
-            if (livePos < liveLen - 1) {
-                player.seekToNext(); player.play()
-            } else if (player.repeatMode == Player.REPEAT_MODE_ALL && liveLen > 0) {
-                player.seekTo(0, 0); player.play()
-            } else if (!splicingInProgress && currentIndex < queueSongs.size - 1) {
-                playQueueInternal(queueSongs, currentIndex + 1)
+            skipMutex.withLock {
+                val liveLen = player.mediaItemCount
+                val livePos = player.currentMediaItemIndex
+                if (livePos < liveLen - 1) {
+                    player.seekToNext(); player.play()
+                } else if (player.repeatMode == Player.REPEAT_MODE_ALL && liveLen > 0) {
+                    player.seekTo(0, 0); player.play()
+                } else if (!splicingInProgress && currentIndex < queueSongs.size - 1) {
+                    playQueueInternal(queueSongs, currentIndex + 1)
+                }
             }
         }
     }
 
     fun skipToPrevious() {
         scope.launch {
-            if (player.currentPosition > 3000) {
-                player.seekTo(0)
-            } else {
-                val livePos = player.currentMediaItemIndex
-                if (livePos > 0) {
-                    player.seekToPrevious()
-                } else if (currentIndex > 0) {
-                    playQueueInternal(queueSongs, currentIndex - 1)
+            skipMutex.withLock {
+                if (player.currentPosition > 3000) {
+                    player.seekTo(0)
+                } else {
+                    val livePos = player.currentMediaItemIndex
+                    if (livePos > 0) {
+                        player.seekToPrevious()
+                    } else if (currentIndex > 0) {
+                        playQueueInternal(queueSongs, currentIndex - 1)
+                    }
                 }
             }
         }
@@ -777,15 +793,17 @@ class AurumAudioEngine(
 
     fun skipToQueueItem(index: Int) {
         scope.launch {
-            if (index < player.mediaItemCount && !splicingInProgress) {
-                if (index < queueSongs.size) {
-                    currentIndex = index
-                    pushState()
+            skipMutex.withLock {
+                if (index < player.mediaItemCount && !splicingInProgress) {
+                    if (index < queueSongs.size) {
+                        currentIndex = index
+                        pushState()
+                    }
+                    player.seekTo(index, 0)
+                    player.play()
+                } else if (index < queueSongs.size) {
+                    playQueueInternal(queueSongs, index)
                 }
-                player.seekTo(index, 0)
-                player.play()
-            } else if (index < queueSongs.size) {
-                playQueueInternal(queueSongs, index)
             }
         }
     }
