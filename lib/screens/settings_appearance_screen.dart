@@ -7,6 +7,7 @@ import '../widgets/mini_player.dart';
 import '../providers/theme_provider.dart';
 import '../providers/premium_provider.dart';
 import '../widgets/premium_gate.dart';
+import '../widgets/aurum_pressable.dart';
 import '../services/audio_prefs.dart';
 
 class SettingsAppearanceScreen extends StatefulWidget {
@@ -45,7 +46,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   bool _bgGradientAnimation = true;
 
   static const List<Color> _accentOptions = [
-    Color(0xFFB89640), Color(0xFF2196F3), Color(0xFFE91E63),
+    Color(0xFF6D5DF6), Color(0xFF4F8CFF), Color(0xFFE91E63),
     Color(0xFF4CAF50), Color(0xFF9C27B0), Color(0xFFFF5722),
     Color(0xFF00BCD4), Color(0xFFFF9800),
   ];
@@ -157,9 +158,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                     final isFree = i == 0; // only gold is free
                     final sel = _accentColor.value == c.value;
                     final locked = !isFree && !isPremium;
-                    return GestureDetector(
+                    return AurumPressable(
+                      scaleAmount: 0.88,
                       onTap: () {
-                        HapticFeedback.selectionClick();
                         if (locked) {
                           PremiumGate.show(context,
                             feature: 'Custom Accent Colors',
@@ -366,9 +367,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
               final sel = _fontStyle == e.key;
               final locked = premiumFonts.contains(e.key) && !isPremium;
               return Expanded(
-                child: GestureDetector(
+                child: AurumPressable(
+                  scaleAmount: 0.96,
                   onTap: () {
-                    HapticFeedback.selectionClick();
                     if (locked) {
                       PremiumGate.show(context,
                         feature: '${e.key} Font',
@@ -533,9 +534,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           final sel = _miniPlayerStyle == s;
           final isCapsule = s == 'Capsule';
           return Expanded(
-            child: GestureDetector(
+            child: AurumPressable(
+              scaleAmount: 0.96,
               onTap: () {
-                HapticFeedback.selectionClick();
                 setState(() => _miniPlayerStyle = s);
                 _save('mini_player_style', s);
                 MiniPlayer.styleNotifier.value = s;
@@ -622,9 +623,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
         children: shapes.map((s) {
           final sel = _artworkShape == s;
           return Expanded(
-            child: GestureDetector(
+            child: AurumPressable(
+              scaleAmount: 0.96,
               onTap: () {
-                HapticFeedback.selectionClick();
                 setState(() => _artworkShape = s);
                 _save('artwork_shape', s);
                 AudioPrefs.setArtworkShape(s);

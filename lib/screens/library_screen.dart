@@ -26,6 +26,7 @@ import '../providers/auth_provider.dart';
 import '../models/download_item.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_empty_state.dart';
 import '../widgets/premium_gate.dart';
 import '../models/song.dart';
@@ -111,7 +112,7 @@ class LibraryScreen extends StatelessWidget {
           _QuickChip(
             icon: Icons.download_rounded,
             label: 'Downloads',
-            color: Colors.amber,
+            color: AurumTheme.gold,
             onTap: () => AurumPageRoute.to(context, const DownloadsScreen()),
           ),
           const SizedBox(width: 10),
@@ -203,7 +204,7 @@ class LibraryScreen extends StatelessWidget {
         physics: const NeverScrollableScrollPhysics(),
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
-        childAspectRatio: 2.6,
+        childAspectRatio: 3.1,
         children: items.map((item) => _CollectionCard(item: item)).toList(),
       ),
     );
@@ -737,9 +738,8 @@ class _PlaylistActionRow extends StatelessWidget {
         children: [
           // Play All
           Expanded(
-            child: GestureDetector(
+            child: AurumPressable(
               onTap: () {
-                HapticFeedback.lightImpact();
                 context.read<PlayerProvider>().playSong(
                       playlist.songs[0],
                       queue: playlist.songs,
@@ -771,9 +771,8 @@ class _PlaylistActionRow extends StatelessWidget {
           const SizedBox(width: 12),
           // Shuffle
           Expanded(
-            child: GestureDetector(
+            child: AurumPressable(
               onTap: () {
-                HapticFeedback.lightImpact();
                 final shuffled = List<Song>.from(playlist.songs)..shuffle();
                 context.read<PlayerProvider>().playSong(
                       shuffled[0],
@@ -921,7 +920,7 @@ class _PlaylistCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return AurumPressable(
       onTap: () => AurumPageRoute.to(
         context,
         PlaylistDetailScreen(playlistId: playlist.id),
@@ -1042,7 +1041,7 @@ class _EmptyPlaylists extends StatelessWidget {
                   height: 1.6),
             ),
             const SizedBox(height: 32),
-            GestureDetector(
+            AurumPressable(
               onTap: onCreateTap,
               child: Container(
                 padding: const EdgeInsets.symmetric(
@@ -1135,7 +1134,7 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
               style:
                   TextStyle(color: AurumTheme.textMutedOf(context))),
         ),
-        GestureDetector(
+        AurumPressable(
           onTap: _creating ? null : _create,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -1237,7 +1236,7 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
               style:
                   TextStyle(color: AurumTheme.textMutedOf(context))),
         ),
-        GestureDetector(
+        AurumPressable(
           onTap: () async {
             await context.read<PlaylistProvider>().renamePlaylist(
                   widget.playlist.id,
@@ -1672,9 +1671,8 @@ class _HistoryScreenState extends State<_HistoryScreen>
                         ),
                         const Spacer(),
                         // Play All
-                        GestureDetector(
+                        AurumPressable(
                           onTap: () {
-                            HapticFeedback.selectionClick();
                             context.read<PlayerProvider>().playSong(
                                 history[0],
                                 queue: history,
@@ -1708,7 +1706,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
                         ),
                         const SizedBox(width: 8),
                         // Clear
-                        GestureDetector(
+                        AurumPressable(
                           onTap: () async {
                             final confirmed = await showDialog<bool>(
                               context: context,
@@ -1940,7 +1938,7 @@ class _LocalFilesScreen extends StatelessWidget {
                               color: AurumTheme.textMutedOf(context),
                               fontSize: 13)),
                       const SizedBox(height: 20),
-                      GestureDetector(
+                      AurumPressable(
                         onTap: () => lib.load(),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
@@ -2010,7 +2008,7 @@ class DownloadsScreen extends StatelessWidget {
               title: Row(
                 children: [
                   const Icon(Icons.download_rounded,
-                      color: Colors.amber, size: 22),
+                      color: AurumTheme.gold, size: 22),
                   const SizedBox(width: 8),
                   ShaderMask(
                     shaderCallback: (b) =>
@@ -2037,13 +2035,13 @@ class DownloadsScreen extends StatelessWidget {
                         width: 80,
                         height: 80,
                         decoration: BoxDecoration(
-                          color: Colors.amber.withOpacity(0.1),
+                          color: AurumTheme.gold.withOpacity(0.1),
                           shape: BoxShape.circle,
                           border: Border.all(
-                              color: Colors.amber.withOpacity(0.3)),
+                              color: AurumTheme.gold.withOpacity(0.3)),
                         ),
                         child: const Icon(Icons.download_rounded,
-                            color: Colors.amber, size: 36),
+                            color: AurumTheme.gold, size: 36),
                       ),
                       const SizedBox(height: 20),
                       Text('No downloads yet',
@@ -2556,7 +2554,7 @@ class _QuickChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return AurumPressable(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -2600,7 +2598,7 @@ class _CollectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return AurumPressable(
       onTap: item.onTap,
       child: Container(
         decoration: BoxDecoration(

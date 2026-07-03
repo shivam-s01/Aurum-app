@@ -19,6 +19,7 @@ import '../widgets/aurum_artwork.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
+import '../widgets/aurum_pressable.dart';
 import '../widgets/mini_player.dart';
 import '../utils/aurum_transitions.dart';
 import 'package:shimmer/shimmer.dart';
@@ -770,43 +771,27 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   }
 }
 
-class _ResumeButton extends StatefulWidget {
+class _ResumeButton extends StatelessWidget {
   final VoidCallback onTap;
   const _ResumeButton({required this.onTap});
-
-  @override
-  State<_ResumeButton> createState() => _ResumeButtonState();
-}
-
-class _ResumeButtonState extends State<_ResumeButton> {
-  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
     final isPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
 
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTap: () {
-        HapticFeedback.selectionClick();
-        context.read<PlayerProvider>().togglePlay();
-      },
-      child: AnimatedScale(
-        scale: _pressed ? 0.92 : 1.0,
-        duration: const Duration(milliseconds: 100),
-        child: Container(
-          width: 40, height: 40,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: AurumTheme.gold,
-          ),
-          child: Icon(
-            isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-            color: Colors.black,
-            size: 22,
-          ),
+    return AurumPressable(
+      scaleAmount: 0.92,
+      onTap: () => context.read<PlayerProvider>().togglePlay(),
+      child: Container(
+        width: 40, height: 40,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          color: AurumTheme.gold,
+        ),
+        child: Icon(
+          isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+          color: Colors.black,
+          size: 22,
         ),
       ),
     );
@@ -873,11 +858,13 @@ class _TopAmbientGlowState extends State<_TopAmbientGlow>
       final t = _ctrl.value;
       _currentColor = Color.lerp(_currentColor, _targetColor, t) ?? _currentColor;
 
-      // Dark + desaturated so it's ambient, not harsh
-      _targetColor = HSLColor.fromColor(raw)
-          .withSaturation(0.55)
-          .withLightness(0.18)
-          .toColor();
+      final isDark = mounted && Theme.of(context).brightness == Brightness.dark;
+      _targetColor = isDark
+          // Dark mode: subtle, low-lightness — artwork stays the focus.
+          ? HSLColor.fromColor(raw).withSaturation(0.45).withLightness(0.14).toColor()
+          // Light mode: airy, higher lightness so it reads as soft
+          // colored light rather than a dark smear behind bright text.
+          : HSLColor.fromColor(raw).withSaturation(0.55).withLightness(0.72).toColor();
 
       // Fade out → update → fade in (crossfade feel)
       await _ctrl.reverse();
@@ -899,6 +886,7 @@ class _TopAmbientGlowState extends State<_TopAmbientGlow>
     }
 
     if (song == null) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return RepaintBoundary(
       child: AnimatedBuilder(
@@ -907,9 +895,9 @@ class _TopAmbientGlowState extends State<_TopAmbientGlow>
           return Opacity(
             opacity: _opacity.value,
             child: SizedBox(
-              height: 260,
+              height: isDark ? 220 : 300,
               width: double.infinity,
-              child: _GlowPainter(color: _currentColor),
+              child: _GlowPainter(color: _currentColor, isDark: isDark),
             ),
           );
         },
@@ -923,17 +911,19 @@ class _TopAmbientGlowState extends State<_TopAmbientGlow>
 // layout pass entirely.
 class _GlowPainter extends StatelessWidget {
   final Color color;
-  const _GlowPainter({required this.color});
+  final bool isDark;
+  const _GlowPainter({required this.color, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(painter: _GlowBlobPainter(color));
+    return CustomPaint(painter: _GlowBlobPainter(color, isDark));
   }
 }
 
 class _GlowBlobPainter extends CustomPainter {
   final Color color;
-  _GlowBlobPainter(this.color);
+  final bool isDark;
+  _GlowBlobPainter(this.color, this.isDark);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -943,11 +933,9 @@ class _GlowBlobPainter extends CustomPainter {
       ..shader = RadialGradient(
         center: Alignment.topCenter,
         radius: 1.1,
-        colors: [
-          color.withOpacity(0.38),
-          color.withOpacity(0.12),
-          Colors.transparent,
-        ],
+        colors: isDark
+            ? [color.withOpacity(0.30), color.withOpacity(0.10), Colors.transparent]
+            : [color.withOpacity(0.55), color.withOpacity(0.22), Colors.transparent],
         stops: const [0.0, 0.45, 1.0],
       ).createShader(Rect.fromLTWH(0, -size.height * 0.3, size.width, size.height * 1.3));
 
@@ -955,7 +943,7 @@ class _GlowBlobPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_GlowBlobPainter old) => old.color != color;
+  bool shouldRepaint(_GlowBlobPainter old) => old.color != color || old.isDark != isDark;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1455,23 +1443,15 @@ class _StatusPill extends StatefulWidget {
 }
 
 class _StatusPillState extends State<_StatusPill> {
-  bool _pressed = false;
-
   @override
   Widget build(BuildContext context) {
     final isOnline = context.watch<SourceProvider>().isOnline;
     final dotColor = isOnline ? AurumTheme.gold : AurumTheme.textMutedOf(context);
 
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
+    return AurumPressable(
+      scaleAmount: 0.96,
       onTap: widget.onTap,
-      child: AnimatedScale(
-        scale: _pressed ? 0.96 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOut,
-        child: AnimatedContainer(
+      child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
           margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
@@ -1512,7 +1492,6 @@ class _StatusPillState extends State<_StatusPill> {
             ],
           ),
         ),
-      ),
     );
   }
 }
@@ -1638,22 +1617,12 @@ class _SourceOption extends StatefulWidget {
 }
 
 class _SourceOptionState extends State<_SourceOption> {
-  bool _pressed = false;
-
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTap: () {
-        HapticFeedback.selectionClick();
-        widget.onTap();
-      },
-      child: AnimatedScale(
-        scale: _pressed ? 0.98 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        child: AnimatedContainer(
+    return AurumPressable(
+      scaleAmount: 0.98,
+      onTap: widget.onTap,
+      child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -1698,7 +1667,6 @@ class _SourceOptionState extends State<_SourceOption> {
               Icon(Icons.check_circle_rounded, size: 18, color: AurumTheme.gold),
           ]),
         ),
-      ),
     );
   }
 }
