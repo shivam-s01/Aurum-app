@@ -40,21 +40,27 @@ class _CriticallyDampedSpring extends Curve {
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Design intent: calm, confident, luxurious — with one signature move: the
-// mark arrives spinning in on its Y-axis like a coin settling flat, slowing
-// naturally into its final orientation. Sequence:
+// mark rests dead-centre the entire time (no drop, no jump, no bounce) and
+// slowly, smoothly spins flat in its own plane — like a soap bubble turning
+// in still air — decelerating the whole way until it drifts to a stop
+// exactly upright. No 3D flip, no squeeze, no distortion: it's a plain
+// rotation, so the mark's shape and size stay constant at every frame.
+// Sequence:
 //
-//   0ms                  logo begins: 0 opacity, 2px blur, mid-flip
-//   0–1150ms             Y-axis coin-flip: 1.5 full rotations, decelerating
-//                        the whole way (no linear spin) so it reads as a
-//                        single confident settle rather than a spinning loop
-//   0–420ms               opacity 0→1, blur 2px→0 (ease-out) — mark resolves
-//                        into focus early, while still mid-flip
-//   0–1150ms             ultra-soft radial glow (8–12% opacity) breathes in
-//                        alongside the flip and settles with it
+//   0ms                  logo begins: 0 opacity, 2px blur, centred, rotated
+//                        -50° (about to start its slow turn)
+//   0–1150ms             smooth flat rotation from -50° to 0°, decelerating
+//                        continuously (fast-ish start, glacially slow
+//                        finish) so it drifts to rest rather than snapping —
+//                        the bubble-settle feel
+//   0–420ms               opacity 0→1, blur 2px→0 (ease-out) — resolves into
+//                        focus early, while still turning
+//   0–1150ms              ultra-soft radial glow (8–12% opacity) breathes in
+//                        alongside the turn and settles with it
 //   950–1300ms            a single soft gradient highlight sweeps across the
-//                        face of the mark once it's flat-on, like light
-//                        catching brushed metal — never repeats
-//   1150–1500ms           brief confident hold on the settled, flat mark
+//                        face of the mark once it's essentially still, like
+//                        light catching brushed metal — never repeats
+//   1150–1500ms           brief confident hold on the settled mark
 //   1500–1800ms           seamless shared-element style handoff: splash
 //                        cross-fades directly into the home screen's first
 //                        frame (no wipe, no zoom-out flash)
@@ -66,8 +72,8 @@ class _CriticallyDampedSpring extends Curve {
 // logo each sit behind their own RepaintBoundary so repaints never cascade
 // into the rest of the tree. ImageFiltered blur is only active while
 // blur > 0 (first ~200ms) — once it reaches 0 the ImageFiltered node is
-// skipped entirely. The Y-flip uses a single Matrix4 rotationY + perspective
-// term, applied once per frame — cheap, GPU-composited, no shader work. The
+// skipped entirely. The spin is a single Transform.rotate (2D, no
+// perspective matrix) — cheap, GPU-composited, no shader work. The
 // controller runs on the engine's vsync (SchedulerBinding), so it
 // automatically tracks 90/120Hz panels and falls back to 60Hz gracefully —
 // no manual FPS logic needed.
@@ -82,19 +88,19 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   // ── Timeline (tuned to land at ~1800ms total) ──────────────────────────
-  static const Duration _flip     = Duration(milliseconds: 1150);
+  static const Duration _spin       = Duration(milliseconds: 1150);
   static const Duration _sweepStart = Duration(milliseconds: 950);
   static const Duration _sweepDur   = Duration(milliseconds: 350);
-  static const Duration _hold     = Duration(milliseconds: 350);
-  static const Duration _handoff  = Duration(milliseconds: 300);
+  static const Duration _hold       = Duration(milliseconds: 350);
+  static const Duration _handoff    = Duration(milliseconds: 300);
 
   late final Duration _sweepEnd = _sweepStart + _sweepDur;
-  late final Duration _holdEnd  = _flip + _hold;
+  late final Duration _holdEnd  = _spin + _hold;
   late final Duration _total    = _holdEnd + _handoff;
 
   late final AnimationController _ctrl;
 
-  late final Animation<double> _flipT;   // 0 → 1, drives the Y-axis spin
+  late final Animation<double> _spinT;   // 0 → 1, drives the flat rotation
   late final Animation<double> _opacity; // 0 → 1
   late final Animation<double> _blur;    // 2.0 → 0.0
   late final Animation<double> _glow;    // 0 → 1 (radial glow envelope)
@@ -110,11 +116,12 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _ctrl = AnimationController(vsync: this, duration: _total);
 
-    // Decelerating the whole way — starts brisk, settles slow and flat.
-    // No overshoot/bounce: it simply runs out of energy exactly at 0/360*n.
-    _flipT = CurvedAnimation(
+    // Continuously decelerating — brisk at first, then drifts to a dead
+    // stop like a bubble losing momentum in still air. No overshoot, no
+    // snap-back: it simply runs out of energy exactly at 0°.
+    _spinT = CurvedAnimation(
       parent: _ctrl,
-      curve: Interval(0.0, _f(_flip), curve: Curves.easeOutQuart),
+      curve: Interval(0.0, _f(_spin), curve: Curves.easeOutExpo),
     );
 
     _opacity = Tween(begin: 0.0, end: 1.0).animate(
@@ -131,17 +138,17 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
 
-    // Glow breathes in alongside the flip and settles with it — never
+    // Glow breathes in alongside the spin and settles with it — never
     // overshoots past its 8–12% ceiling, no pulsing.
     _glow = TweenSequence([
       TweenSequenceItem(
         tween: Tween(begin: 0.0, end: 1.0)
             .chain(CurveTween(curve: Curves.easeOutCubic)),
-        weight: _flip.inMilliseconds.toDouble(),
+        weight: _spin.inMilliseconds.toDouble(),
       ),
       TweenSequenceItem(
         tween: ConstantTween(1.0),
-        weight: (_total.inMilliseconds - _flip.inMilliseconds).toDouble(),
+        weight: (_total.inMilliseconds - _spin.inMilliseconds).toDouble(),
       ),
     ]).animate(_ctrl);
 
@@ -199,7 +206,7 @@ class _SplashScreenState extends State<SplashScreen>
               child: Center(
                 child: RepaintBoundary(
                   child: _GlowLogo(
-                    flip:    _flipT.value,
+                    spin:    _spinT.value,
                     opacity: _opacity.value,
                     blur:    _blur.value,
                     glow:    _glow.value,
@@ -224,23 +231,23 @@ class _SplashScreenState extends State<SplashScreen>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _GlowLogo — logo image + soft radial glow + Y-axis coin-flip + single
-// gradient sweep once it lands flat.
+// _GlowLogo — logo image + soft radial glow + slow flat 2D spin (bubble
+// settle) + single gradient sweep once fully still.
 // ─────────────────────────────────────────────────────────────────────────────
 class _GlowLogo extends StatelessWidget {
-  final double flip;    // 0 → 1, drives the coin-flip rotation
+  final double spin;    // 0 → 1, drives the flat rotation
   final double opacity;
   final double blur;
   final double glow;
   final double sweep;
   final Color  gold;
 
-  // 1.5 full rotations: lands flat-on (facing the viewer), never edge-on,
-  // matching a coin that's given a spin and settles heads-up.
-  static const double _turns = 1.5;
+  // Starts turned -50° and drifts to 0° — a gentle, single, decelerating
+  // turn rather than multiple full spins. Reads as calm, not playful.
+  static const double _startDeg = -50.0;
 
   const _GlowLogo({
-    required this.flip,
+    required this.spin,
     required this.opacity,
     required this.blur,
     required this.glow,
@@ -253,12 +260,10 @@ class _GlowLogo extends StatelessWidget {
     const double logoSize = 116;
     final glowOpacity = 0.08 + 0.04 * glow; // 8% → 12%, settles, never pulses
 
-    final angle = flip * _turns * 2 * math.pi; // radians travelled so far
-    // cos(angle) is the flat "facing factor": 1 = flat-on, 0 = edge-on.
-    final facing = math.cos(angle).abs();
-    // A soft specular glint appears only in the narrow edge-on window,
-    // exactly like light catching a spinning coin's rim.
-    final glint = (1.0 - facing).clamp(0.0, 1.0);
+    // Flat, in-plane rotation only — no perspective, no squeeze. The mark's
+    // width/height never change, it simply turns like a bubble drifting to
+    // rest.
+    final angle = (_startDeg * (1.0 - spin)) * (math.pi / 180.0);
 
     Widget mark = SizedBox(
       width: logoSize,
@@ -270,7 +275,7 @@ class _GlowLogo extends StatelessWidget {
     );
 
     // Single premium highlight sweep — only built while active, and only
-    // once the mark has essentially landed flat (post-flip).
+    // once the mark has essentially come to rest.
     if (sweep > 0.0 && sweep < 1.0) {
       mark = ShaderMask(
         blendMode: BlendMode.srcATop,
@@ -316,30 +321,6 @@ class _GlowLogo extends StatelessWidget {
           ),
         ),
         mark,
-        // Thin vertical specular glint while the mark is near edge-on —
-        // sells the sense of a reflective surface catching light mid-spin.
-        if (glint > 0.05)
-          IgnorePointer(
-            child: Opacity(
-              opacity: (glint * 0.5).clamp(0.0, 0.5),
-              child: Container(
-                width: 3,
-                height: logoSize * 0.82,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(2),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.white.withOpacity(0.0),
-                      Colors.white,
-                      Colors.white.withOpacity(0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
       ],
     );
 
@@ -351,19 +332,9 @@ class _GlowLogo extends StatelessWidget {
       );
     }
 
-    // Y-axis coin-flip: perspective term gives the rotation real depth
-    // instead of a flat squash. A single Matrix4, GPU-composited.
-    final matrix = Matrix4.identity()
-      ..setEntry(3, 2, 0.0016) // perspective
-      ..rotateY(angle);
-
     return Opacity(
       opacity: opacity,
-      child: Transform(
-        alignment: Alignment.center,
-        transform: matrix,
-        child: content,
-      ),
+      child: Transform.rotate(angle: angle, child: content),
     );
   }
 }
