@@ -677,11 +677,11 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
 
     _swipeCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 260),
+      duration: const Duration(milliseconds: 180),
     );
     _slideInCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 340),
+      duration: const Duration(milliseconds: 220),
     );
     _slideInAnim =
         CurvedAnimation(parent: _slideInCtrl, curve: Curves.easeOutCubic);
@@ -695,7 +695,13 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     super.dispose();
   }
 
+  // Generation token — same pattern as mini player's _swipeGen. Prevents
+  // stale .whenComplete() callbacks from firing extra/wrong skipNext/
+  // skipPrev calls when swipes are spammed rapidly back-to-back.
+  int _swipeGen = 0;
+
   void _onDragStartX(DragStartDetails _) {
+    _swipeGen++;
     _swipeCtrl.stop();
     setState(() => _isDraggingX = true);
   }
@@ -728,11 +734,12 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
 
   void _springBackX() {
     _swipeCtrl.stop();
+    final gen = ++_swipeGen;
     _swipeAnim = Tween<double>(begin: _dragX, end: 0.0).animate(
       CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
     );
     _swipeCtrl.forward(from: 0.0).whenComplete(() {
-      if (!mounted) return;
+      if (!mounted || gen != _swipeGen) return;
       _swipeCtrl.reset();
       setState(() => _dragX = 0);
     });
@@ -740,19 +747,21 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
 
   void _commitSwipe({required bool next}) {
     _swipeCtrl.stop();
+    final gen = ++_swipeGen;
     _swipeAnim =
         Tween<double>(begin: _dragX, end: next ? -220.0 : 220.0).animate(
       CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeInCubic),
     );
     _swipeDir = next ? -1 : 1;
     _swipeCtrl.forward(from: 0.0).whenComplete(() {
-      if (!mounted) return;
+      if (!mounted || gen != _swipeGen) return;
       final player = context.read<PlayerProvider>();
       next ? player.skipNext() : player.skipPrev();
       _swipeCtrl.reset();
       setState(() => _dragX = 0);
     });
   }
+
 
   void _openFullPlayer() {
     HapticFeedback.lightImpact();
@@ -775,40 +784,69 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     final song = context.select<PlayerProvider, Song?>((p) => p.currentSong);
     final isLight = Theme.of(context).brightness == Brightness.light;
 
-    if (song == null) {
-      // Lightweight static prompt — no blur, no animation, theme-safe.
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
-        child: Container(
-          height: 86,
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            color: AurumTheme.bgCardOf(context),
-            border: Border.all(color: AurumTheme.dividerOf(context), width: 0.8),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.graphic_eq_rounded,
-                  color: AurumTheme.gold.withOpacity(0.85), size: 22),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  'Pick something to play',
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
+    // AnimatedSize + AnimatedSwitcher: the hero smoothly grows/shrinks and
+    // crossfades between the "no song" prompt (86px) and the full playing
+    // card (168px) instead of snapping instantly between two hard-coded
+    // layouts — that instant jump was the "atak jaana" glitch on home.
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeIn,
+        transitionBuilder: (child, anim) => FadeTransition(
+          opacity: anim,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim),
+            child: child,
           ),
         ),
-      );
-    }
+        child: song == null
+            ? _buildEmptyPrompt(context)
+            : _buildPlayingCard(context, song, isLight),
+      ),
+    );
+  }
 
+  Widget _buildEmptyPrompt(BuildContext context) {
+    // Lightweight static prompt — no blur, no animation, theme-safe.
     return Padding(
+      key: const ValueKey('hero_empty'),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+      child: Container(
+        height: 86,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: AurumTheme.bgCardOf(context),
+          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.8),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.graphic_eq_rounded,
+                color: AurumTheme.gold.withOpacity(0.85), size: 22),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                'Pick something to play',
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayingCard(BuildContext context, Song song, bool isLight) {
+    return Padding(
+      key: const ValueKey('hero_playing'),
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
       child: AurumPressable(
         scaleAmount: 0.97,

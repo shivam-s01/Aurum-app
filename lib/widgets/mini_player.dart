@@ -109,13 +109,13 @@ class _MiniPlayerState extends State<MiniPlayer>
     super.initState();
     _settleCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 320),
+      duration: const Duration(milliseconds: 220),
     );
     _settleAnim = AlwaysStoppedAnimation(0.0);
 
     _entryCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 520),
+      duration: const Duration(milliseconds: 380),
     );
     _entrySlide = Tween<double>(begin: 1.0, end: 0.0).animate(
       CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutBack),
@@ -132,12 +132,12 @@ class _MiniPlayerState extends State<MiniPlayer>
 
     _swipeCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 260),
+      duration: const Duration(milliseconds: 180),
     );
 
     _slideInCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 340),
+      duration: const Duration(milliseconds: 220),
     );
     _slideInAnim = CurvedAnimation(
         parent: _slideInCtrl, curve: Curves.easeOutCubic);
@@ -265,8 +265,18 @@ class _MiniPlayerState extends State<MiniPlayer>
     });
   }
 
+  // Generation token for horizontal swipes — same pattern as _settleGen.
+  // Without this, spamming left/right swipes super fast leaves multiple
+  // .whenComplete() callbacks from interrupted animations still pending;
+  // each one still fires (stop() doesn't cancel whenComplete, only natural
+  // completion vs interruption changes), so stale callbacks were calling
+  // skipNext()/skipPrev() out of order — extra/wrong skips under rapid
+  // input. Now only the LATEST swipe's callback is allowed to commit.
+  int _swipeGen = 0;
+
   // ── Horizontal drag handlers ─────────────────────────────────────────
   void _onDragStartX(DragStartDetails _) {
+    _swipeGen++; // invalidate any in-flight swipe completion
     _swipeCtrl.stop();
     setState(() => _isDraggingX = true);
   }
@@ -303,12 +313,13 @@ class _MiniPlayerState extends State<MiniPlayer>
 
   void _springBackX() {
     _swipeCtrl.stop();
+    final gen = ++_swipeGen;
     final from = _dragX;
     _swipeAnim = Tween<double>(begin: from, end: 0.0).animate(
       CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
     );
     _swipeCtrl.forward(from: 0.0).whenComplete(() {
-      if (!mounted) return;
+      if (!mounted || gen != _swipeGen) return;
       _swipeCtrl.reset();
       setState(() => _dragX = 0);
     });
@@ -319,6 +330,7 @@ class _MiniPlayerState extends State<MiniPlayer>
   // the new content).
   void _commitSwipe({required bool next}) {
     _swipeCtrl.stop();
+    final gen = ++_swipeGen;
     final from = _dragX;
     final exitTo = next ? -220.0 : 220.0;
     _swipeAnim = Tween<double>(begin: from, end: exitTo).animate(
@@ -326,7 +338,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     );
     _swipeDir = next ? -1 : 1;
     _swipeCtrl.forward(from: 0.0).whenComplete(() {
-      if (!mounted) return;
+      if (!mounted || gen != _swipeGen) return;
       final player = context.read<PlayerProvider>();
       if (next) {
         player.skipNext();
@@ -420,26 +432,44 @@ class _MiniPlayerState extends State<MiniPlayer>
           });
         }
 
-        // Hide mini player when home hero is visible — no space left behind
-        final heroVisible = MiniPlayer.heroVisibleNotifier.value;
-        if (heroVisible) return const SizedBox.shrink();
-
-        return AnimatedBuilder(
-          animation: _entryCtrl,
-          builder: (_, child) {
-            return Transform.translate(
-              offset: Offset(0, _entrySlide.value * 80),
-              child: Transform.scale(
-                scale: _entryScale.value,
-                alignment: Alignment.bottomCenter,
-                child: Opacity(
-                  opacity: _entryOpacity.value,
-                  child: child,
+        // Hide mini player when home hero is visible — animated fade+slide
+        // via ValueListenableBuilder (not a raw .value read + hard return)
+        // so crossing the hero-scroll boundary is a smooth 220ms transition
+        // instead of an instant pop that reads as "stuck"/glitchy.
+        return ValueListenableBuilder<bool>(
+          valueListenable: MiniPlayer.heroVisibleNotifier,
+          builder: (context, heroVisible, _) {
+            return AnimatedSlide(
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOutCubic,
+              offset: heroVisible ? const Offset(0, 0.5) : Offset.zero,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 140),
+                curve: Curves.easeOut,
+                opacity: heroVisible ? 0.0 : 1.0,
+                child: IgnorePointer(
+                  ignoring: heroVisible,
+                  child: AnimatedBuilder(
+                    animation: _entryCtrl,
+                    builder: (_, child) {
+                      return Transform.translate(
+                        offset: Offset(0, _entrySlide.value * 80),
+                        child: Transform.scale(
+                          scale: _entryScale.value,
+                          alignment: Alignment.bottomCenter,
+                          child: Opacity(
+                            opacity: _entryOpacity.value,
+                            child: child,
+                          ),
+                        ),
+                      );
+                    },
+                    child: _buildInner(context, player),
+                  ),
                 ),
               ),
             );
           },
-          child: _buildInner(context, player),
         );
       },
     );

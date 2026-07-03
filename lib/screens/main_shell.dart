@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -249,64 +250,117 @@ class _AurumBottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AurumTheme.bgCardOf(context),
-        border: Border(
-            top: BorderSide(color: AurumTheme.dividerOf(context), width: 0.5)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 64,
-          child: Row(
-            children: List.generate(_items.length, (i) {
-              final item = _items[i];
-              final selected = i == currentIndex;
-              return Expanded(
-                child: _NavTapScale(
-                  onTap: () {
-                    if (!selected) HapticFeedback.selectionClick();
-                    onTap(i);
-                  },
-                  child: SizedBox.expand(
-                    child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.72 : 0.62),
+            border: Border(
+                top: BorderSide(color: AurumTheme.dividerOf(context), width: 0.5)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 64,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final tabWidth = constraints.maxWidth / _items.length;
+                  return Stack(
                     children: [
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 200),
-                        transitionBuilder: (child, anim) => ScaleTransition(
-                          scale: anim,
-                          child: FadeTransition(opacity: anim, child: child),
-                        ),
-                        child: Icon(
-                          selected ? item.filled : item.outline,
-                          key: ValueKey(selected),
-                          size: 24,
-                          color: selected
-                              ? AurumTheme.gold
-                              : AurumTheme.textMutedOf(context),
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 260),
+                        curve: Curves.easeOutCubic,
+                        left: tabWidth * currentIndex + tabWidth * 0.14,
+                        top: 8,
+                        width: tabWidth * 0.72,
+                        height: 48,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(20),
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    AurumTheme.gold.withOpacity(isLight ? 0.16 : 0.20),
+                                    AurumTheme.gold.withOpacity(isLight ? 0.06 : 0.08),
+                                  ],
+                                ),
+                                border: Border.all(
+                                  color: AurumTheme.gold.withOpacity(isLight ? 0.28 : 0.32),
+                                  width: 1,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AurumTheme.gold.withOpacity(0.18),
+                                    blurRadius: 18,
+                                    spreadRadius: -2,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      AnimatedDefaultTextStyle(
-                        duration: const Duration(milliseconds: 220),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                          color: selected
-                              ? AurumTheme.gold
-                              : AurumTheme.textMutedOf(context),
-                        ),
-                        child: Text(item.label),
+                      Row(
+                        children: List.generate(_items.length, (i) {
+                          final item = _items[i];
+                          final selected = i == currentIndex;
+                          return Expanded(
+                            child: _NavTapScale(
+                              onTap: () {
+                                if (!selected) HapticFeedback.selectionClick();
+                                onTap(i);
+                              },
+                              child: SizedBox.expand(
+                                child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 200),
+                                    transitionBuilder: (child, anim) => ScaleTransition(
+                                      scale: anim,
+                                      child: FadeTransition(opacity: anim, child: child),
+                                    ),
+                                    child: Icon(
+                                      selected ? item.filled : item.outline,
+                                      key: ValueKey(selected),
+                                      size: 24,
+                                      color: selected
+                                          ? AurumTheme.gold
+                                          : AurumTheme.textMutedOf(context),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  AnimatedDefaultTextStyle(
+                                    duration: const Duration(milliseconds: 220),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                                      color: selected
+                                          ? AurumTheme.gold
+                                          : AurumTheme.textMutedOf(context),
+                                    ),
+                                    child: Text(item.label),
+                                  ),
+                                ],
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
                       ),
                     ],
-                    ),
-                  ),
-                ),
-              );
-            }),
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ),
