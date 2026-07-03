@@ -13,6 +13,7 @@ import 'search_screen.dart';
 import 'library_screen.dart';
 import '../providers/player_provider.dart';
 import '../services/update_service.dart';
+import '../services/local_music_service.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -86,6 +87,43 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     try {
       await Permission.ignoreBatteryOptimizations.request();
     } catch (_) {}
+
+    // OEM autostart/background-allow dialog (realme/OPPO/MIUI/Vivo/etc).
+    // Battery-optimization exemption alone isn't enough on these skins —
+    // there's a separate "Auto-launch"/"Allow background running" toggle
+    // that also has to be turned on manually, or the OS kills playback
+    // within minutes regardless of the exemption above.
+    if (!mounted) return;
+    await _showAutostartDialog();
+  }
+
+  Future<void> _showAutostartDialog() async {
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AurumTheme.surface,
+        title: const Text('Keep music playing'),
+        content: const Text(
+          'Allow background running & auto-launch for Aurum so songs '
+          "don't stop when the screen locks.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Later'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              LocalMusicService.openAutostartSettings();
+            },
+            child: const Text('Enable'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

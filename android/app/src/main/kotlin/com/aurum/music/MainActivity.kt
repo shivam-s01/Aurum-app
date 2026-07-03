@@ -80,6 +80,9 @@ class MainActivity : FlutterActivity() {
                     "getSdkInt" -> {
                         result.success(Build.VERSION.SDK_INT)
                     }
+                    "openAutostartSettings" -> {
+                        result.success(openAutostartSettings())
+                    }
 
                 "installApk" -> {
                     try {
@@ -194,6 +197,46 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             Log.w(TAG, "getAlbumArtBytes failed for $uriString: ${e.message}")
             null
+        }
+    }
+
+    // Opens OEM-specific "autostart/background allow" settings screen
+    // (realme/OPPO/ColorOS, Xiaomi/MIUI, Vivo, Huawei, OnePlus, etc.).
+    // Tries known component names one by one; falls back to the app's
+    // own details page if none match/resolve on this device.
+    private fun openAutostartSettings(): Boolean {
+        val intents = listOf(
+            Intent().setComponent(ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
+            Intent().setComponent(ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity")),
+            Intent().setComponent(ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity")),
+            Intent().setComponent(ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerConsumptionActivity")),
+            Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
+            Intent().setComponent(ComponentName("com.letv.android.letvsafe", "com.letv.android.letvsafe.AutobootManageActivity")),
+            Intent().setComponent(ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
+            Intent().setComponent(ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")),
+            Intent().setComponent(ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity")),
+            Intent().setComponent(ComponentName("com.asus.mobilemanager", "com.asus.mobilemanager.autostart.AutoStartActivity"))
+        )
+        for (intent in intents) {
+            try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (packageManager.resolveActivity(intent, 0) != null) {
+                    startActivity(intent)
+                    return true
+                }
+            } catch (_: Exception) { /* try next */ }
+        }
+        // Fallback: app's own info page (Battery saver -> App details)
+        return try {
+            val fallback = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(fallback)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "openAutostartSettings fallback failed", e)
+            false
         }
     }
 

@@ -15,6 +15,18 @@ class LocalMusicService {
     return storage.isGranted;
   }
 
+  /// Opens the OEM-specific autostart/background-allow settings screen
+  /// (realme/OPPO ColorOS, MIUI, Vivo, Huawei, etc.), falling back to the
+  /// app's own info page if the device doesn't match a known OEM path.
+  static Future<bool> openAutostartSettings() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      return await _channel.invokeMethod('openAutostartSettings') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<bool> hasPermission() async {
     if (!Platform.isAndroid) return false;
     if (await Permission.audio.isGranted) return true;
