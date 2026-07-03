@@ -103,7 +103,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       context: context,
       barrierDismissible: true,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AurumTheme.surface,
+        backgroundColor: AurumTheme.darkBgCard,
         title: const Text('Keep music playing'),
         content: const Text(
           'Allow background running & auto-launch for Aurum so songs '
