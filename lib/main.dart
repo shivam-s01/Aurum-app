@@ -91,6 +91,18 @@ Future<void> main() async {
 
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
+  // Restore Player & Audio settings (shake-to-skip, swipe-to-change,
+  // stop-on-swipe, pause-on-call, duck-on-notifications, etc.) from disk
+  // BEFORE the audio engine/UI spin up. Without this, every AudioPrefs
+  // static defaults to its hardcoded value on a genuine cold start —
+  // toggles the user turned on would silently stop working until they
+  // happened to open a Settings screen again (settings_notifications_screen
+  // was the only other place calling this). try/catch so a prefs read
+  // failure can never block app startup.
+  try {
+    await AudioPrefs.load();
+  } catch (_) {}
+
   // NativeAudioEngine just wires up MethodChannel/EventChannel listeners —
   // it doesn't block on any platform-side MediaSession registration (unlike
   // the old AudioService.init(), which awaited the audio_service plugin's

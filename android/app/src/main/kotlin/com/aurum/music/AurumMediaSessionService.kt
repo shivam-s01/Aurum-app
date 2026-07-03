@@ -3,6 +3,7 @@ package com.aurum.music
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -282,12 +283,34 @@ class AurumMediaSessionService : MediaSessionService() {
     // the foreground service instead of leaving a silent phantom session
     // alive — matches audio_service's `stopWithTask="true"` behavior that
     // was configured in the old AndroidManifest.xml service entry.
+    //
+    // Now gated by the Settings → "Stop on Swipe from Recents" toggle
+    // (AudioPrefs.stopOnSwipeNotifier on the Dart side, mirrored here via
+    // MainActivity's setStopOnTaskRemoved channel call into the same
+    // SharedPreferences store the shared_preferences plugin uses). If the
+    // song is actively playing AND the toggle is off, playback continues
+    // in the background as normal. If nothing is playing, we always stop
+    // the service regardless of the toggle — there's no reason to keep a
+    // silent foreground service alive just because the setting is off.
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
-        if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
+        val isActivelyPlaying = player != null && player.playWhenReady && player.mediaItemCount > 0
+        if (!isActivelyPlaying) {
+            stopSelf()
+        } else if (readStopOnSwipePref()) {
+            player?.stop()
             stopSelf()
         }
         super.onTaskRemoved(rootIntent)
+    }
+
+    private fun readStopOnSwipePref(): Boolean {
+        return try {
+            getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                .getBoolean("flutter.stop_on_swipe", false)
+        } catch (e: Exception) {
+            false
+        }
     }
 
     override fun onDestroy() {

@@ -285,9 +285,10 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               title: 'Stop on Swipe from Recents',
               subtitle: 'Stop playback when app is swiped away',
               value: _stopOnSwipe,
-              onChanged: (v) {
+              onChanged: (v) async {
                 setState(() => _stopOnSwipe = v);
-                _save('stop_on_swipe', v);
+                await _save('stop_on_swipe', v);
+                await AudioPrefs.setStopOnSwipe(v);
               }),
           _switchTile(context,
               icon: Icons.call_rounded,
@@ -317,10 +318,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (v) async {
                 setState(() => _shakeToSkip = v);
                 await _save('shake_to_skip', v);
-                // Behavioral pref only — read directly from
-                // SharedPreferences wherever shake-to-skip is handled, no
-                // native engine call needed (unlike Bass Boost/EQ/speed/
-                // crossfade which are actual DSP/playback parameters).
+                await AudioPrefs.setShakeToSkip(v);
               }),
           _switchTile(context,
               icon: Icons.swipe_rounded,

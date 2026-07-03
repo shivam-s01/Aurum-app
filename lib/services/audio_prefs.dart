@@ -89,10 +89,29 @@ class AudioPrefs {
   static final ValueNotifier<LyricsStyle> lyricsStyleNotifier =
       ValueNotifier<LyricsStyle>(const LyricsStyle());
 
-  /// If true (default), swiping left/right on the full player artwork
+  /// If true, swiping left/right on the full player artwork
   /// skips to the next/previous track. Set from Settings → Player & Audio.
   static final ValueNotifier<bool> swipeToChangeNotifier =
       ValueNotifier<bool>(true);
+
+  /// If true, shaking the phone skips to the next track. Set from
+  /// Settings → Player & Audio → "Shake to Skip Song". Default false —
+  /// opt-in, since accidental shakes (walking, in a bag) shouldn't skip
+  /// tracks unless the user explicitly enables it.
+  static final ValueNotifier<bool> shakeToSkipNotifier =
+      ValueNotifier<bool>(false);
+
+  /// If true, swiping the app away from Recents stops playback + the
+  /// foreground service. If false, playback keeps running in the
+  /// background after the app is swiped away. Set from
+  /// Settings → Player & Audio → "Stop on Swipe from Recents". Mirrored to
+  /// native (Kotlin) via a MethodChannel call in [pushStopOnSwipeToNative]
+  /// so AurumMediaSessionService.onTaskRemoved can honor it — this is a
+  /// native Android lifecycle callback with no Dart involvement at the
+  /// moment it fires, so the flag has to already be sitting on the native
+  /// side before the swipe happens, not read reactively at swipe-time.
+  static final ValueNotifier<bool> stopOnSwipeNotifier =
+      ValueNotifier<bool>(false);
 
   /// 0–100 — how far you need to drag before a swipe registers as a skip.
   /// Higher = more sensitive (shorter swipe needed). Set from
@@ -140,6 +159,8 @@ class AudioPrefs {
   static const _kLyricsSize    = 'lyrics_text_size';
   static const _kLyricsSpacing = 'lyrics_line_spacing';
   static const _kSwipeChange   = 'swipe_to_change';
+  static const _kShakeToSkip   = 'shake_to_skip';
+  static const _kStopOnSwipe   = 'stop_on_swipe';
   static const _kSwipeSens     = 'swipe_sensitivity';
   static const _kDynamicColor  = 'dynamic_player_color';
   static const _kShowBlurBg    = 'show_blurred_bg';
@@ -171,6 +192,9 @@ class AudioPrefs {
       lineSpacing: p.getDouble(_kLyricsSpacing) ?? lyricsStyleNotifier.value.lineSpacing,
     );
     swipeToChangeNotifier.value = p.getBool(_kSwipeChange) ?? swipeToChangeNotifier.value;
+    shakeToSkipNotifier.value = p.getBool(_kShakeToSkip) ?? shakeToSkipNotifier.value;
+    stopOnSwipeNotifier.value = p.getBool(_kStopOnSwipe) ?? stopOnSwipeNotifier.value;
+    await pushStopOnSwipeToNative(stopOnSwipeNotifier.value);
     swipeSensitivity = p.getDouble(_kSwipeSens) ?? swipeSensitivity;
     dynamicPlayerColorNotifier.value = p.getBool(_kDynamicColor) ?? dynamicPlayerColorNotifier.value;
     showBlurredBgNotifier.value = p.getBool(_kShowBlurBg) ?? showBlurredBgNotifier.value;
@@ -250,6 +274,32 @@ class AudioPrefs {
     swipeToChangeNotifier.value = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kSwipeChange, v);
+  }
+
+  static Future<void> setShakeToSkip(bool v) async {
+    shakeToSkipNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kShakeToSkip, v);
+  }
+
+  static const _nativeChannel = MethodChannel('com.aurum.music/media_store');
+
+  static Future<void> setStopOnSwipe(bool v) async {
+    stopOnSwipeNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kStopOnSwipe, v);
+    await pushStopOnSwipeToNative(v);
+  }
+
+  /// Mirrors [stopOnSwipeNotifier] to the native AurumMediaSessionService so
+  /// onTaskRemoved (a native Android callback with no Dart running when it
+  /// fires) knows whether to stop playback on Recents-swipe. Silently no-ops
+  /// if the platform channel call fails — this is a nice-to-have preference,
+  /// never worth crashing startup or settings-save over.
+  static Future<void> pushStopOnSwipeToNative(bool v) async {
+    try {
+      await _nativeChannel.invokeMethod('setStopOnTaskRemoved', {'value': v});
+    } catch (_) {}
   }
 
   static Future<void> setSwipeSensitivity(double v) async {

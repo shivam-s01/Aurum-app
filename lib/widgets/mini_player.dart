@@ -499,17 +499,24 @@ class _MiniPlayerState extends State<MiniPlayer>
           ),
         );
       },
-      child: GestureDetector(
-        onTap: _openFullPlayer,
-        onVerticalDragStart: _onDragStart,
-        onVerticalDragUpdate: _onDragUpdate,
-        onVerticalDragEnd: _onDragEnd,
-        onHorizontalDragStart: _onDragStartX,
-        onHorizontalDragUpdate: _onDragUpdateX,
-        onHorizontalDragEnd: _onDragEndX,
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_swipeCtrl, _slideInCtrl]),
-          builder: (_, child) {
+      child: ValueListenableBuilder<bool>(
+        valueListenable: AudioPrefs.swipeToChangeNotifier,
+        builder: (context, swipeEnabled, _) {
+          return GestureDetector(
+            onTap: _openFullPlayer,
+            onVerticalDragStart: _onDragStart,
+            onVerticalDragUpdate: _onDragUpdate,
+            onVerticalDragEnd: _onDragEnd,
+            // Respect Settings → Player & Audio → "Swipe to Change Song".
+            // When off, these handlers are null so GestureDetector doesn't
+            // register horizontal drags at all — vertical dismiss/open-
+            // player swipe still works either way.
+            onHorizontalDragStart: swipeEnabled ? _onDragStartX : null,
+            onHorizontalDragUpdate: swipeEnabled ? _onDragUpdateX : null,
+            onHorizontalDragEnd: swipeEnabled ? _onDragEndX : null,
+            child: AnimatedBuilder(
+              animation: Listenable.merge([_swipeCtrl, _slideInCtrl]),
+              builder: (_, child) {
             final swipeX = _swipeCtrl.isAnimating ? _swipeAnim.value : _dragX;
             final swipeFrac = (swipeX.abs() / 160.0).clamp(0.0, 1.0);
             final swipeOpacity = (1.0 - swipeFrac * 0.7).clamp(0.0, 1.0);
@@ -537,14 +544,16 @@ class _MiniPlayerState extends State<MiniPlayer>
                 ),
               ),
             );
-          },
-          child: _MiniPlayerContent(
-            player: player,
-            isDragging: _isDragging,
-            dragY: _dragY,
-            style: _style,
-          ),
-        ),
+              },
+              child: _MiniPlayerContent(
+                player: player,
+                isDragging: _isDragging,
+                dragY: _dragY,
+                style: _style,
+              ),
+            ),
+          );
+        },
       ),
     );
   }

@@ -14,6 +14,7 @@ import '../providers/source_provider.dart';
 import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../services/api_service.dart';
+import '../services/audio_prefs.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/song_tile.dart';
@@ -855,10 +856,13 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
           borderRadius: BorderRadius.circular(24),
           child: SizedBox(
             height: 168,
-            child: GestureDetector(
-              onHorizontalDragStart: _onDragStartX,
-              onHorizontalDragUpdate: _onDragUpdateX,
-              onHorizontalDragEnd: _onDragEndX,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: AudioPrefs.swipeToChangeNotifier,
+              builder: (context, swipeEnabled, _) {
+                return GestureDetector(
+              onHorizontalDragStart: swipeEnabled ? _onDragStartX : null,
+              onHorizontalDragUpdate: swipeEnabled ? _onDragUpdateX : null,
+              onHorizontalDragEnd: swipeEnabled ? _onDragEndX : null,
               child: AnimatedBuilder(
                 animation: Listenable.merge([_swipeCtrl, _slideInCtrl]),
                 builder: (_, child) {
@@ -1004,6 +1008,8 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
               ),
             ]),
               ),
+            );
+              },
             ),
           ),
         ),

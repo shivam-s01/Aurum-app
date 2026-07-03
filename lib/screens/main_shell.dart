@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/mini_player.dart';
 import '../models/song.dart';
@@ -16,6 +19,7 @@ import 'library_screen.dart';
 import '../providers/player_provider.dart';
 import '../services/update_service.dart';
 import '../services/local_music_service.dart';
+import '../services/audio_prefs.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -32,10 +36,49 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     LibraryScreen(),
   ];
 
+  // ── Shake-to-skip ─────────────────────────────────────────────────
+  // Global accelerometer listener, active for the whole lifetime of
+  // MainShell (i.e. whenever the app is in the foreground) — gated live
+  // by AudioPrefs.shakeToSkipNotifier so toggling the Settings switch
+  // takes effect immediately without needing to restart the listener.
+  StreamSubscription<AccelerometerEvent>? _accelSub;
+  DateTime _lastShakeAt = DateTime.fromMillisecondsSinceEpoch(0);
+  // Rolling gravity-removed magnitude threshold — tuned to require a
+  // deliberate shake (not just walking/pocket jostle). ~2.7g of combined
+  // delta across axes, similar to common shake-detector packages.
+  static const double _shakeThreshold = 27.0; // m/s² combined delta
+  static const Duration _shakeCooldown = Duration(milliseconds: 900);
+
+  void _startShakeListener() {
+    _accelSub?.cancel();
+    _accelSub = accelerometerEventStream(
+      samplingPeriod: SensorInterval.gameInterval,
+    ).listen((event) {
+      if (!AudioPrefs.shakeToSkipNotifier.value) return;
+      final magnitude = math.sqrt(
+        event.x * event.x + event.y * event.y + event.z * event.z,
+      );
+      // Subtract ~9.8 (1g at rest) so we're measuring motion, not gravity.
+      final delta = (magnitude - 9.8).abs();
+      if (delta < _shakeThreshold) return;
+
+      final now = DateTime.now();
+      if (now.difference(_lastShakeAt) < _shakeCooldown) return;
+      _lastShakeAt = now;
+
+      if (!mounted) return;
+      final player = context.read<PlayerProvider>();
+      if (!player.hasSong) return;
+      HapticFeedback.mediumImpact();
+      player.skipNext();
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _startShakeListener();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Update check
@@ -131,6 +174,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _accelSub?.cancel();
     super.dispose();
   }
 

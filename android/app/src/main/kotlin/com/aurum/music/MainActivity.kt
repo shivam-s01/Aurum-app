@@ -117,6 +117,28 @@ class MainActivity : FlutterActivity() {
                             result.success(null)
                         }
                     }
+                    "setStopOnTaskRemoved" -> {
+                        // Mirrors AudioPrefs.stopOnSwipeNotifier so the native
+                        // onTaskRemoved callback (a pure-Kotlin lifecycle hook
+                        // with no Dart running when it actually fires) can
+                        // honor the Settings → "Stop on Swipe from Recents"
+                        // toggle. Written straight to the same SharedPreferences
+                        // store Flutter uses (flutter.<key> prefix is how the
+                        // shared_preferences plugin namespaces its keys) so
+                        // AurumMediaSessionService can read it independently,
+                        // even if this Activity's process was already killed.
+                        try {
+                            val value = call.argument<Boolean>("value") ?: false
+                            getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                                .edit()
+                                .putBoolean("flutter.stop_on_swipe", value)
+                                .apply()
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "setStopOnTaskRemoved error", e)
+                            result.success(null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
