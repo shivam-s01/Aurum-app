@@ -204,7 +204,7 @@ class LibraryScreen extends StatelessWidget {
         physics: const NeverScrollableScrollPhysics(),
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
-        childAspectRatio: 3.1,
+        childAspectRatio: 2.6,
         children: items.map((item) => _CollectionCard(item: item)).toList(),
       ),
     );
@@ -2324,11 +2324,17 @@ class _FollowedArtistTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
-          onTap: () => AurumPageRoute.to(
-            context,
-            ArtistScreen(artistId: id, artistName: name),
-          ),
-          onLongPress: () => _showUnfollowSheet(context, id, name, imageUrl),
+          onTap: () {
+            HapticFeedback.selectionClick();
+            AurumPageRoute.to(
+              context,
+              ArtistScreen(artistId: id, artistName: name),
+            );
+          },
+          onLongPress: () {
+            HapticFeedback.mediumImpact();
+            _showUnfollowSheet(context, id, name, imageUrl);
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
             child: Row(

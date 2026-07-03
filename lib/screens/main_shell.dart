@@ -196,60 +196,147 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             mainAxisSize: MainAxisSize.min,
             children: [
               const MiniPlayer(),
-              Container(
-                decoration: BoxDecoration(
-                  color: AurumTheme.bgCardOf(context),
-                  border: Border(
-                      top: BorderSide(
-                          color: AurumTheme.dividerOf(context), width: 0.5)),
-                ),
-                child: BottomNavigationBar(
-                  currentIndex: _tab,
-                  onTap: (i) {
-                    // FIX: SearchScreen lives inside an IndexedStack — never
-                    // disposed, just hidden. Unfocus on EVERY tab tap (not
-                    // just when leaving search) so the keyboard never bleeds
-                    // through to other screens. The primary keyboard issue was:
-                    // user opens search → types → switches tab → keyboard hides
-                    // visually but focus is still held by the TextField → any
-                    // rebuild (song change, mini-player update) causes Android
-                    // to resurface the keyboard. Calling primaryFocus?.unfocus()
-                    // with UnfocusDisposition.scope drops focus from the entire
-                    // widget tree, not just the current scope — this is more
-                    // aggressive than FocusScope.of(context).unfocus() and
-                    // correctly handles the case where focus is held by a
-                    // widget in a different branch of the tree (IndexedStack).
-                    primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
-                    // OS-level keyboard kill — most reliable way to ensure
-                    // keyboard never bleeds through from IndexedStack branches.
-                    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-                    setState(() => _tab = i);
-                  },
-                  backgroundColor: Colors.transparent,
-                  elevation: 0,
-                  selectedLabelStyle: const TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w600),
-                  unselectedLabelStyle: const TextStyle(fontSize: 11),
-                  items: const [
-                    BottomNavigationBarItem(
-                        icon: Icon(Icons.home_outlined),
-                        activeIcon: Icon(Icons.home_rounded),
-                        label: 'Home'),
-                    BottomNavigationBarItem(
-                        icon: Icon(Icons.search_outlined),
-                        activeIcon: Icon(Icons.search_rounded),
-                        label: 'Search'),
-                    BottomNavigationBarItem(
-                        icon: Icon(Icons.library_music_outlined),
-                        activeIcon: Icon(Icons.library_music_rounded),
-                        label: 'Library'),
-                  ],
-                ),
+              _AurumBottomNavBar(
+                currentIndex: _tab,
+                onTap: (i) {
+                  // FIX: SearchScreen lives inside an IndexedStack — never
+                  // disposed, just hidden. Unfocus on EVERY tab tap (not
+                  // just when leaving search) so the keyboard never bleeds
+                  // through to other screens. The primary keyboard issue was:
+                  // user opens search → types → switches tab → keyboard hides
+                  // visually but focus is still held by the TextField → any
+                  // rebuild (song change, mini-player update) causes Android
+                  // to resurface the keyboard. Calling primaryFocus?.unfocus()
+                  // with UnfocusDisposition.scope drops focus from the entire
+                  // widget tree, not just the current scope — this is more
+                  // aggressive than FocusScope.of(context).unfocus() and
+                  // correctly handles the case where focus is held by a
+                  // widget in a different branch of the tree (IndexedStack).
+                  primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+                  // OS-level keyboard kill — most reliable way to ensure
+                  // keyboard never bleeds through from IndexedStack branches.
+                  SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+                  setState(() => _tab = i);
+                },
               ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// AURUM BOTTOM NAV BAR — branded replacement for the stock Material
+// BottomNavigationBar. A sliding gold-gradient glow pill sits behind
+// the active tab, icons/labels smoothly cross-fade weight + color, and
+// a haptic tick fires on switch — matches the premium search bar /
+// tab bar / pull-to-refresh polish already used elsewhere in the app,
+// instead of looking like a stock Flutter default.
+// ══════════════════════════════════════════════════════════════════
+class _AurumBottomNavBar extends StatelessWidget {
+  const _AurumBottomNavBar({required this.currentIndex, required this.onTap});
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+
+  static const _items = [
+    (outline: Icons.home_outlined, filled: Icons.home_rounded, label: 'Home'),
+    (outline: Icons.search_outlined, filled: Icons.search_rounded, label: 'Search'),
+    (outline: Icons.library_music_outlined, filled: Icons.library_music_rounded, label: 'Library'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AurumTheme.bgCardOf(context),
+        border: Border(
+            top: BorderSide(color: AurumTheme.dividerOf(context), width: 0.5)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 58,
+          child: Row(
+            children: List.generate(_items.length, (i) {
+              final item = _items[i];
+              final selected = i == currentIndex;
+              return Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    if (!selected) HapticFeedback.selectionClick();
+                    onTap(i);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 260),
+                          curve: Curves.easeOutCubic,
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            gradient: selected
+                                ? LinearGradient(
+                                    colors: [
+                                      AurumTheme.gold.withOpacity(0.22),
+                                      AurumTheme.gold.withOpacity(0.08),
+                                    ],
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                  )
+                                : null,
+                            boxShadow: selected
+                                ? [
+                                    BoxShadow(
+                                      color: AurumTheme.gold.withOpacity(0.22),
+                                      blurRadius: 14,
+                                      spreadRadius: -2,
+                                    ),
+                                  ]
+                                : const [],
+                          ),
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 200),
+                            transitionBuilder: (child, anim) => ScaleTransition(
+                              scale: anim,
+                              child: FadeTransition(opacity: anim, child: child),
+                            ),
+                            child: Icon(
+                              selected ? item.filled : item.outline,
+                              key: ValueKey(selected),
+                              size: 23,
+                              color: selected
+                                  ? AurumTheme.gold
+                                  : AurumTheme.textMutedOf(context),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 220),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                            color: selected
+                                ? AurumTheme.gold
+                                : AurumTheme.textMutedOf(context),
+                          ),
+                          child: Text(item.label),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+      ),
     );
   }
 }

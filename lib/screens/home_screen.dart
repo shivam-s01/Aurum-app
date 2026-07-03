@@ -128,13 +128,29 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
 
     if (n is ScrollUpdateNotification) {
       final metrics = n.metrics;
-      if (metrics.pixels < 0) {
+      // Only react when the list is actually AT its top edge and being
+      // pulled further past it. Previously this fired on any
+      // metrics.pixels < 0, which also happens from the natural bounce-back
+      // of a fast fling anywhere in the list (BouncingScrollPhysics briefly
+      // overshoots past 0 as it settles) — that made the loader flash in
+      // "for no reason" during normal scrolling instead of only on a real,
+      // deliberate downward pull from the top. Requiring atEdge means the
+      // scroll position has to have actually reached the top boundary
+      // first, so a mid-list fling that merely bounces at the end never
+      // triggers it.
+      if (metrics.atEdge && metrics.pixels <= 0) {
         _dragging = true;
         setState(() {
           // Rubber-band: diminishing returns the further you pull.
           final raw = -metrics.pixels;
           _pullDistance = _maxReveal * (1 - math.exp(-raw / _maxReveal));
         });
+      } else if (_dragging && metrics.pixels > 0) {
+        // Finger moved back past the top edge (still down, scrolled back
+        // into content) — cancel the in-progress pull cleanly instead of
+        // leaving a stale reveal hanging.
+        _dragging = false;
+        _animateTo(0.0);
       }
     } else if (n is ScrollEndNotification) {
       // BUGFIX (2026-07-02): "pull-to-refresh kabhi kaam karta hai kabhi
@@ -170,15 +186,52 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
     return false;
   }
 
+  // Minimum time the branded loader stays visible once triggered. A refresh
+  // that completes in 400ms (cached/fast network) used to snap the loader
+  // away almost instantly — felt cheap/glitchy rather than intentional.
+  // Real premium apps (Spotify/Apple Music) always hold the refresh
+  // animation for a deliberate beat regardless of actual fetch speed. We
+  // pick a random point in the 3.0-4.5s window each time so it doesn't feel
+  // robotic/identical on every pull, but never drags past ~6s even if the
+  // real fetch is slow (the real fetch's own 25s timeout still governs
+  // actual data loading — this only paces the VISIBLE loader).
+  static const Duration _minRefreshVisible = Duration(milliseconds: 3000);
+  static const Duration _maxRefreshVisible = Duration(milliseconds: 4500);
+
+  bool _justCompleted = false; // triggers the success pop, then clears itself
+
   Future<void> _startRefresh() async {
     HapticFeedback.mediumImpact();
     setState(() => _refreshing = true);
     _animateTo(_triggerDistance * 0.72);
+
+    final targetVisible = _minRefreshVisible +
+        Duration(
+          milliseconds:
+              math.Random().nextInt((_maxRefreshVisible - _minRefreshVisible).inMilliseconds),
+        );
+    final stopwatch = Stopwatch()..start();
+
     try {
       await widget.onRefresh();
     } finally {
+      final elapsed = stopwatch.elapsed;
+      if (elapsed < targetVisible) {
+        await Future.delayed(targetVisible - elapsed);
+      }
       if (mounted) {
-        setState(() => _refreshing = false);
+        HapticFeedback.lightImpact();
+        // Premium completion beat: a quick gold "success pop" (scale +
+        // brighten) before the loader retracts — makes the finish feel
+        // like a deliberate, designed moment instead of the loader just
+        // abruptly vanishing the instant data arrives.
+        setState(() {
+          _refreshing = false;
+          _justCompleted = true;
+        });
+        await Future.delayed(const Duration(milliseconds: 180));
+        if (!mounted) return;
+        setState(() => _justCompleted = false);
         _animateTo(0.0);
       }
     }
@@ -211,8 +264,10 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 150),
                   opacity: _pullDistance > 4 ? 1.0 : 0.0,
-                  child: Transform.scale(
-                    scale: 0.55 + (0.45 * progress),
+                  child: AnimatedScale(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutBack,
+                    scale: (0.55 + (0.45 * progress)) * (_justCompleted ? 1.18 : 1.0),
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
@@ -224,13 +279,27 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
                             blurRadius: 12,
                             offset: const Offset(0, 4),
                           ),
+                          if (_refreshing || _justCompleted)
+                            BoxShadow(
+                              color: AurumTheme.gold.withOpacity(_justCompleted ? 0.5 : 0.28),
+                              blurRadius: _justCompleted ? 24 : 16,
+                              spreadRadius: _justCompleted ? 2 : 1,
+                            ),
                         ],
                       ),
-                      child: AurumMorphLoader(
-                        size: 26,
-                        rotateDuration: _refreshing
-                            ? const Duration(milliseconds: 900)
-                            : Duration(milliseconds: (4000 - (2800 * progress)).round()),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 160),
+                        transitionBuilder: (child, anim) =>
+                            ScaleTransition(scale: anim, child: FadeTransition(opacity: anim, child: child)),
+                        child: _justCompleted
+                            ? Icon(Icons.check_rounded, key: const ValueKey('done'), color: AurumTheme.gold, size: 22)
+                            : AurumMorphLoader(
+                                key: const ValueKey('spin'),
+                                size: 26,
+                                rotateDuration: _refreshing
+                                    ? const Duration(milliseconds: 900)
+                                    : Duration(milliseconds: (4000 - (2800 * progress)).round()),
+                              ),
                       ),
                     ),
                   ),
@@ -447,8 +516,8 @@ class _HomeScreenState extends State<HomeScreen> {
         statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
         statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
       ),
-      title: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+      title: AurumPressable(
+        scaleAmount: 0.95,
         onTap: () => Navigator.of(context).push(
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 380),
@@ -652,7 +721,8 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
-      child: GestureDetector(
+      child: AurumPressable(
+        scaleAmount: 0.97,
         onTap: _openFullPlayer,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(24),
@@ -1074,11 +1144,9 @@ class _OnlineContent extends StatelessWidget {
                   letterSpacing: -0.2,
                 ),
               ),
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  _showAllSongs(context, section);
-                },
+              AurumPressable(
+                scaleAmount: 0.92,
+                onTap: () => _showAllSongs(context, section),
                 child: Padding(
                   padding: const EdgeInsets.only(left: 12),
                   child: Text(
@@ -1400,7 +1468,8 @@ class _ProfileAvatarButton extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(right: 16, left: 4),
-      child: GestureDetector(
+      child: AurumPressable(
+        scaleAmount: 0.90,
         onTap: () => _openProfile(context),
         child: Container(
           width: 34, height: 34,
@@ -1882,9 +1951,9 @@ class _ArtistChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return AurumPressable(
+      scaleAmount: 0.93,
       onTap: () async {
-        HapticFeedback.selectionClick();
         final id = artist.id.isNotEmpty
             ? artist.id
             : await ApiService.searchArtistByName(artist.name);
@@ -2296,11 +2365,9 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-      child: GestureDetector(
-        onTap: () {
-          HapticFeedback.selectionClick();
-          AurumPageRoute.to(context, const PremiumScreen());
-        },
+      child: AurumPressable(
+        scaleAmount: 0.97,
+        onTap: () => AurumPageRoute.to(context, const PremiumScreen()),
         child: AnimatedBuilder(
           animation: _shimmer,
           builder: (_, __) {

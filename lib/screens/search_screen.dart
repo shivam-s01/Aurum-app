@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import '../widgets/aurum_pressable.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
@@ -516,22 +517,30 @@ class _SearchScreenState extends State<SearchScreen>
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Container(
-        height: 36,
+        height: 38,
         decoration: BoxDecoration(
           color: AurumTheme.bgCardOf(context),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.6),
         ),
         child: TabBar(
           controller: _tabController,
           indicator: BoxDecoration(
-            color: AurumTheme.gold,
+            gradient: AurumTheme.goldGradient,
             borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: AurumTheme.gold.withOpacity(0.35),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           indicatorSize: TabBarIndicatorSize.tab,
           dividerColor: Colors.transparent,
           labelColor: Colors.black,
           unselectedLabelColor: AurumTheme.textSecondaryOf(context),
-          labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
           unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
           padding: const EdgeInsets.all(3),
           tabs: const [
@@ -539,6 +548,7 @@ class _SearchScreenState extends State<SearchScreen>
             Tab(text: 'Browse'),
           ],
           onTap: (i) {
+            if (i != _tabController.index) HapticFeedback.selectionClick();
             if (i == 1 && _controller.text.trim().isNotEmpty) {
               _fetchBrowse(_controller.text.trim());
             }
@@ -549,7 +559,7 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _buildBody(BuildContext context) {
-    if (_loading) return const Center(key: ValueKey('loading'), child: AurumMorphLoader());
+    if (_loading) return ColoredBox(color: AurumTheme.bgOf(context), child: const Center(key: ValueKey('loading'), child: AurumMorphLoader()));
     if (_results.isNotEmpty) return _buildResults();
     if (_controller.text.trim().isNotEmpty) return _buildLivePanel(context);
     if (_showHistory && _history.isNotEmpty) return _buildHistory(context);
@@ -562,38 +572,52 @@ class _SearchScreenState extends State<SearchScreen>
       child: Row(children: [
         ShaderMask(
           shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
-          child: const Text('Search', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: Colors.white)),
+          child: const Text('Search', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.2)),
         ),
       ]),
     );
   }
 
   Widget _buildSearchBar(BuildContext context) {
+    final focused = _focusNode.hasFocus;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
         decoration: BoxDecoration(
           color: AurumTheme.bgCardOf(context),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: _focusNode.hasFocus
-                ? AurumTheme.gold.withOpacity(0.45)
+            color: focused
+                ? AurumTheme.gold.withOpacity(0.6)
                 : AurumTheme.dividerOf(context),
-            width: _focusNode.hasFocus ? 1.2 : 0.5,
+            width: focused ? 1.3 : 0.5,
           ),
+          boxShadow: focused
+              ? [
+                  BoxShadow(
+                    color: AurumTheme.gold.withOpacity(0.16),
+                    blurRadius: 18,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : const [],
         ),
         child: TextField(
           controller: _controller,
           focusNode: _focusNode,
           onChanged: _onChanged,
           onSubmitted: _search,
-          style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14),
+          style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500),
           decoration: InputDecoration(
             hintText: 'Songs, artists, albums...',
             hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
-            prefixIcon: Icon(Icons.search_rounded, color: AurumTheme.textMutedOf(context), size: 20),
+            prefixIcon: Icon(Icons.search_rounded,
+                color: focused ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 20),
             suffixIcon: _controller.text.isNotEmpty
-                ? GestureDetector(
+                ? AurumPressable(
+                    scaleAmount: 0.82,
                     onTap: _clearSearch,
                     child: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 18),
                   )
@@ -610,7 +634,9 @@ class _SearchScreenState extends State<SearchScreen>
   // ── History UI ───────────────────────────────────────────────
 
   Widget _buildHistory(BuildContext context) {
-    return Column(
+    return ColoredBox(
+      color: AurumTheme.bgOf(context),
+      child: Column(
       key: const ValueKey('history'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -641,11 +667,13 @@ class _SearchScreenState extends State<SearchScreen>
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    GestureDetector(
+                    AurumPressable(
+                      scaleAmount: 0.80,
                       onTap: () { _controller.text = item; _controller.selection = TextSelection.fromPosition(TextPosition(offset: item.length)); _onChanged(item); },
                       child: Padding(padding: const EdgeInsets.all(8), child: Icon(Icons.north_west_rounded, color: AurumTheme.textMutedOf(context), size: 16)),
                     ),
-                    GestureDetector(
+                    AurumPressable(
+                      scaleAmount: 0.80,
                       onTap: () => _removeFromHistory(item),
                       child: Padding(padding: const EdgeInsets.all(8), child: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 16)),
                     ),
@@ -658,6 +686,7 @@ class _SearchScreenState extends State<SearchScreen>
           ),
         ),
       ],
+      ),
     );
   }
 
@@ -695,7 +724,10 @@ class _SearchScreenState extends State<SearchScreen>
       );
     }
 
-    return KeyedSubtree(key: const ValueKey('live'), child: content);
+    return ColoredBox(
+      color: AurumTheme.bgOf(context),
+      child: KeyedSubtree(key: const ValueKey('live'), child: content),
+    );
   }
 
   Widget _buildLiveProgressBar(BuildContext context) {
@@ -733,7 +765,9 @@ class _SearchScreenState extends State<SearchScreen>
       key: ValueKey('sugg_$s'),
       leading: Icon(Icons.search_rounded, color: AurumTheme.textMutedOf(context), size: 18),
       title: Text(s, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: GestureDetector(
+      trailing: AurumPressable(
+        scaleAmount: 0.80,
+        haptic: false, // custom lightImpact below instead of default selectionClick
         onTap: () { HapticFeedback.lightImpact(); _controller.text = s; _controller.selection = TextSelection.fromPosition(TextPosition(offset: s.length)); _onChanged(s); },
         child: Padding(padding: const EdgeInsets.all(8), child: Icon(Icons.north_west_rounded, color: AurumTheme.textMutedOf(context), size: 16)),
       ),
@@ -779,13 +813,43 @@ class _SearchScreenState extends State<SearchScreen>
   // ── Empty state ──────────────────────────────────────────────
 
   Widget _buildEmpty(BuildContext context) {
-    return Center(
-      key: const ValueKey('empty'),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(Icons.music_note_rounded, color: AurumTheme.gold.withOpacity(0.2), size: 64),
-        const SizedBox(height: 16),
-        Text('Search for your favourite songs', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14)),
-      ]),
+    return ColoredBox(
+      color: AurumTheme.bgOf(context),
+      child: Center(
+        key: const ValueKey('empty'),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Container(
+            width: 96,
+            height: 96,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  AurumTheme.gold.withOpacity(0.16),
+                  AurumTheme.gold.withOpacity(0.0),
+                ],
+              ),
+            ),
+            child: Center(
+              child: ShaderMask(
+                shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
+                child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 46),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text('Search for your favourite songs',
+              style: TextStyle(
+                  color: AurumTheme.textSecondaryOf(context),
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          Text('Songs, artists, albums — all in one place',
+              style: TextStyle(
+                  color: AurumTheme.textMutedOf(context),
+                  fontSize: 12.5)),
+        ]),
+      ),
     );
   }
 }

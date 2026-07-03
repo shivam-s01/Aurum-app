@@ -138,7 +138,18 @@ class _MiniPlayerState extends State<MiniPlayer>
     super.dispose();
   }
 
+  // Generation token — bumped every time a settle animation is started or
+  // interrupted. A completion callback only commits its result if the
+  // generation hasn't changed, so starting a NEW drag while a dismiss/
+  // springback animation is still finishing (which calls _settleCtrl.stop(),
+  // and .whenComplete() ALSO fires on stop(), not just natural completion)
+  // can no longer wrongly commit a pause/dismiss while the user is actively
+  // dragging again. This was the "mini player randomly vanishes mid-drag"
+  // bug.
+  int _settleGen = 0;
+
   void _onDragStart(DragStartDetails _) {
+    _settleGen++; // invalidate any in-flight settle completion
     _settleCtrl.stop();
     setState(() {
       _isDragging = true;
@@ -157,10 +168,17 @@ class _MiniPlayerState extends State<MiniPlayer>
     final velocity = details.primaryVelocity ?? 0;
     setState(() => _isDragging = false);
 
-    // Swipe UP → open full player
+    // Swipe UP → open full player immediately, snap drag offset back to 0
+    // with NO animation (we're navigating away, an animated springback here
+    // just races the route push and leaves _settleCtrl mid-flight for the
+    // next time this widget rebuilds — that stale animation state was the
+    // "stuck" feeling on the following swipe).
     if (_dragY < _openThreshold || velocity < -_velocityThreshold) {
       HapticFeedback.mediumImpact();
-      _springBack();
+      _settleGen++;
+      _settleCtrl.stop();
+      _settleCtrl.reset();
+      setState(() => _dragY = 0);
       _openFullPlayer();
       return;
     }
@@ -177,38 +195,49 @@ class _MiniPlayerState extends State<MiniPlayer>
   }
 
   void _springBack() {
+    _settleCtrl.stop();
+    final gen = ++_settleGen;
     final from = _dragY;
     _settleAnim = Tween<double>(begin: from, end: 0.0).animate(
       CurvedAnimation(parent: _settleCtrl, curve: Curves.easeOutCubic),
     );
-    _settleCtrl.forward(from: 0.0).then((_) {
-      if (mounted) setState(() => _dragY = 0);
+    _settleCtrl.forward(from: 0.0).whenComplete(() {
+      if (!mounted || gen != _settleGen) return;
       _settleCtrl.reset();
+      setState(() => _dragY = 0);
     });
   }
 
+
   void _dismissPlayer() {
+    _settleCtrl.stop();
+    final gen = ++_settleGen;
     final from = _dragY;
     _settleAnim = Tween<double>(begin: from, end: 200.0).animate(
       CurvedAnimation(parent: _settleCtrl, curve: Curves.easeInCubic),
     );
-    _settleCtrl.forward(from: 0.0).then((_) {
-      if (!mounted) return;
+    _settleCtrl.forward(from: 0.0).whenComplete(() {
+      if (!mounted || gen != _settleGen) return;
       final player = context.read<PlayerProvider>();
       final songId = player.currentSong?.id;
       player.pause(); // pause only — keeps queue, so user can resume later
+      _settleCtrl.reset();
       setState(() {
         _dismissed = true;
         _dismissedSongId = songId;
         _dragY = 0;
       });
-      _settleCtrl.reset();
     });
   }
 
+  bool _opening = false; // guards against double-push from tap+swipe firing together
+
   void _openFullPlayer() {
+    if (_opening) return;
+    _opening = true;
     setState(() => _dragY = 0);
-    Navigator.of(context).push(
+    Navigator.of(context)
+        .push(
       PageRouteBuilder(
         // FIX: opaque:false caused the screen underneath (Home/Search/
         // Library) to freeze while the full player was open — Flutter
@@ -232,7 +261,10 @@ class _MiniPlayerState extends State<MiniPlayer>
         transitionDuration: const Duration(milliseconds: 320),
         reverseTransitionDuration: const Duration(milliseconds: 260),
       ),
-    );
+    )
+        .then((_) {
+      _opening = false; // route closed — allow opening again
+    });
   }
 
   @override
