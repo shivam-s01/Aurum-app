@@ -653,6 +653,19 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   late final AnimationController _breatheCtrl;
   String? _lastUrl;
 
+  // ── Left/right swipe → prev/next song ──
+  double _dragX = 0;
+  bool _isDraggingX = false;
+  int _swipeDir = 0;
+  String? _lastSongId;
+  static const double _swipeThreshold = 70.0;
+  static const double _swipeVelocityThreshold = 500.0;
+
+  late final AnimationController _swipeCtrl;
+  Animation<double> _swipeAnim = const AlwaysStoppedAnimation(0.0);
+  late final AnimationController _slideInCtrl;
+  late Animation<double> _slideInAnim;
+
   @override
   void initState() {
     super.initState();
@@ -661,12 +674,84 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
       vsync: this,
       duration: const Duration(milliseconds: 20000),
     )..repeat(reverse: true);
+
+    _swipeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
+    _slideInCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 340),
+    );
+    _slideInAnim =
+        CurvedAnimation(parent: _slideInCtrl, curve: Curves.easeOutCubic);
   }
 
   @override
   void dispose() {
     _breatheCtrl.dispose();
+    _swipeCtrl.dispose();
+    _slideInCtrl.dispose();
     super.dispose();
+  }
+
+  void _onDragStartX(DragStartDetails _) {
+    _swipeCtrl.stop();
+    setState(() => _isDraggingX = true);
+  }
+
+  void _onDragUpdateX(DragUpdateDetails details) {
+    setState(() {
+      _dragX = (_dragX + details.delta.dx).clamp(-160.0, 160.0);
+    });
+  }
+
+  void _onDragEndX(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    setState(() => _isDraggingX = false);
+
+    final commitNext =
+        _dragX < -_swipeThreshold || velocity < -_swipeVelocityThreshold;
+    final commitPrev =
+        _dragX > _swipeThreshold || velocity > _swipeVelocityThreshold;
+
+    if (commitNext) {
+      HapticFeedback.mediumImpact();
+      _commitSwipe(next: true);
+    } else if (commitPrev) {
+      HapticFeedback.mediumImpact();
+      _commitSwipe(next: false);
+    } else {
+      _springBackX();
+    }
+  }
+
+  void _springBackX() {
+    _swipeCtrl.stop();
+    _swipeAnim = Tween<double>(begin: _dragX, end: 0.0).animate(
+      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
+    );
+    _swipeCtrl.forward(from: 0.0).whenComplete(() {
+      if (!mounted) return;
+      _swipeCtrl.reset();
+      setState(() => _dragX = 0);
+    });
+  }
+
+  void _commitSwipe({required bool next}) {
+    _swipeCtrl.stop();
+    _swipeAnim =
+        Tween<double>(begin: _dragX, end: next ? -220.0 : 220.0).animate(
+      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeInCubic),
+    );
+    _swipeDir = next ? -1 : 1;
+    _swipeCtrl.forward(from: 0.0).whenComplete(() {
+      if (!mounted) return;
+      final player = context.read<PlayerProvider>();
+      next ? player.skipNext() : player.skipPrev();
+      _swipeCtrl.reset();
+      setState(() => _dragX = 0);
+    });
   }
 
   void _openFullPlayer() {
@@ -732,7 +817,49 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
           borderRadius: BorderRadius.circular(24),
           child: SizedBox(
             height: 168,
-            child: Stack(fit: StackFit.expand, children: [
+            child: GestureDetector(
+              onHorizontalDragStart: _onDragStartX,
+              onHorizontalDragUpdate: _onDragUpdateX,
+              onHorizontalDragEnd: _onDragEndX,
+              child: AnimatedBuilder(
+                animation: Listenable.merge([_swipeCtrl, _slideInCtrl]),
+                builder: (_, child) {
+                  if (song.id != _lastSongId) {
+                    final isFirst = _lastSongId == null;
+                    _lastSongId = song.id;
+                    if (!isFirst) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) _slideInCtrl.forward(from: 0.0);
+                      });
+                    }
+                  }
+                  final swipeX =
+                      _swipeCtrl.isAnimating ? _swipeAnim.value : _dragX;
+                  final frac = (swipeX.abs() / 160.0).clamp(0.0, 1.0);
+                  final swipeOpacity = (1.0 - frac * 0.7).clamp(0.0, 1.0);
+                  final swipeScale = (1.0 - frac * 0.05).clamp(0.92, 1.0);
+
+                  final slideInOffset = _slideInCtrl.isAnimating
+                      ? (1.0 - _slideInAnim.value) * (_swipeDir * -140.0)
+                      : 0.0;
+                  final slideInOpacity = _slideInCtrl.isAnimating
+                      ? Curves.easeOut.transform(_slideInAnim.value)
+                      : 1.0;
+
+                  final totalX = swipeX + slideInOffset;
+                  final totalOpacity = (swipeOpacity *
+                          (_slideInCtrl.isAnimating ? slideInOpacity : 1.0))
+                      .clamp(0.0, 1.0);
+
+                  return Transform.translate(
+                    offset: Offset(totalX, 0),
+                    child: Transform.scale(
+                      scale: swipeScale,
+                      child: Opacity(opacity: totalOpacity, child: child),
+                    ),
+                  );
+                },
+                child: Stack(fit: StackFit.expand, children: [
               // ── Hero background: blurred artwork, breathing scale ──
               RepaintBoundary(
                 child: AnimatedBuilder(
@@ -838,6 +965,8 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                 ),
               ),
             ]),
+              ),
+            ),
           ),
         ),
       ),

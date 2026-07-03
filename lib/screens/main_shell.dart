@@ -258,7 +258,7 @@ class _AurumBottomNavBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 58,
+          height: 64,
           child: Row(
             children: List.generate(_items.length, (i) {
               final item = _items[i];
@@ -269,61 +269,39 @@ class _AurumBottomNavBar extends StatelessWidget {
                     if (!selected) HapticFeedback.selectionClick();
                     onTap(i);
                   },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: SizedBox.expand(
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 260),
-                          curve: Curves.easeOutCubic,
-                          padding: const EdgeInsets.all(9),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: selected
-                                ? AurumTheme.gold.withOpacity(0.16)
-                                : Colors.transparent,
-                          ),
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 200),
-                            transitionBuilder: (child, anim) => ScaleTransition(
-                              scale: anim,
-                              child: FadeTransition(opacity: anim, child: child),
-                            ),
-                            child: Icon(
-                              selected ? item.filled : item.outline,
-                              key: ValueKey(selected),
-                              size: 23,
-                              color: selected
-                                  ? AurumTheme.gold
-                                  : AurumTheme.textMutedOf(context),
-                            ),
-                          ),
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        transitionBuilder: (child, anim) => ScaleTransition(
+                          scale: anim,
+                          child: FadeTransition(opacity: anim, child: child),
                         ),
-                        const SizedBox(height: 3),
-                        AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 220),
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                            color: selected
-                                ? AurumTheme.gold
-                                : AurumTheme.textMutedOf(context),
-                          ),
-                          child: Text(item.label),
+                        child: Icon(
+                          selected ? item.filled : item.outline,
+                          key: ValueKey(selected),
+                          size: 24,
+                          color: selected
+                              ? AurumTheme.gold
+                              : AurumTheme.textMutedOf(context),
                         ),
-                        const SizedBox(height: 2),
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeOutCubic,
-                          width: selected ? 4 : 0,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: AurumTheme.gold,
-                            shape: BoxShape.circle,
-                          ),
+                      ),
+                      const SizedBox(height: 4),
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 220),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                          color: selected
+                              ? AurumTheme.gold
+                              : AurumTheme.textMutedOf(context),
                         ),
-                      ],
+                        child: Text(item.label),
+                      ),
+                    ],
                     ),
                   ),
                 ),

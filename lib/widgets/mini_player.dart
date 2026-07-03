@@ -65,6 +65,26 @@ class _MiniPlayerState extends State<MiniPlayer>
   bool _dismissed = false;
   String? _dismissedSongId; // track which song was dismissed
 
+  // ── Horizontal swipe (left/right) → prev/next song ──────────────────────
+  double _dragX = 0;
+  bool _isDraggingX = false;
+  static const double _swipeXThreshold = 70.0;
+  static const double _swipeXVelocityThreshold = 500.0;
+
+  // Direction of the committed swipe: -1 = went to next (content exits left),
+  // +1 = went to prev (content exits right). Drives the settle-out animation
+  // and the following slide-in animation for the new song.
+  int _swipeDir = 0;
+
+  late final AnimationController _swipeCtrl;
+  Animation<double> _swipeAnim = const AlwaysStoppedAnimation(0.0);
+
+  // Plays once per song change: new content slides in from the direction
+  // opposite the swipe, so it feels like the old song was pushed off and
+  // the new one pulled into place — one continuous motion, not two.
+  late final AnimationController _slideInCtrl;
+  late Animation<double> _slideInAnim;
+
   // 'Capsule' = original floating glass pill. 'Compact Bar' = new premium
   // edge-to-edge bar style, selectable from Settings → Appearance.
   static const String prefsKeyMiniPlayerStyle = 'mini_player_style';
@@ -109,6 +129,19 @@ class _MiniPlayerState extends State<MiniPlayer>
     _entryScale = Tween<double>(begin: 0.88, end: 1.0).animate(
       CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutBack),
     );
+
+    _swipeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
+
+    _slideInCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 340),
+    );
+    _slideInAnim = CurvedAnimation(
+        parent: _slideInCtrl, curve: Curves.easeOutCubic);
+
     _loadStyle();
     MiniPlayer.styleNotifier.addListener(_onStyleChanged);
     MiniPlayer.heroVisibleNotifier.addListener(_onHeroVisibilityChanged);
@@ -135,6 +168,8 @@ class _MiniPlayerState extends State<MiniPlayer>
     MiniPlayer.heroVisibleNotifier.removeListener(_onHeroVisibilityChanged);
     _settleCtrl.dispose();
     _entryCtrl.dispose();
+    _swipeCtrl.dispose();
+    _slideInCtrl.dispose();
     super.dispose();
   }
 
@@ -230,6 +265,79 @@ class _MiniPlayerState extends State<MiniPlayer>
     });
   }
 
+  // ── Horizontal drag handlers ─────────────────────────────────────────
+  void _onDragStartX(DragStartDetails _) {
+    _swipeCtrl.stop();
+    setState(() => _isDraggingX = true);
+  }
+
+  void _onDragUpdateX(DragUpdateDetails details) {
+    setState(() {
+      _dragX += details.delta.dx;
+      _dragX = _dragX.clamp(-160.0, 160.0);
+    });
+  }
+
+  void _onDragEndX(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    setState(() => _isDraggingX = false);
+
+    final commitNext =
+        _dragX < -_swipeXThreshold || velocity < -_swipeXVelocityThreshold;
+    final commitPrev =
+        _dragX > _swipeXThreshold || velocity > _swipeXVelocityThreshold;
+
+    if (commitNext) {
+      HapticFeedback.mediumImpact();
+      _commitSwipe(next: true);
+      return;
+    }
+    if (commitPrev) {
+      HapticFeedback.mediumImpact();
+      _commitSwipe(next: false);
+      return;
+    }
+
+    _springBackX();
+  }
+
+  void _springBackX() {
+    _swipeCtrl.stop();
+    final from = _dragX;
+    _swipeAnim = Tween<double>(begin: from, end: 0.0).animate(
+      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
+    );
+    _swipeCtrl.forward(from: 0.0).whenComplete(() {
+      if (!mounted) return;
+      _swipeCtrl.reset();
+      setState(() => _dragX = 0);
+    });
+  }
+
+  // Animates the CURRENT content the rest of the way off-screen, then
+  // switches the song (build()'s songId-change check triggers slide-in for
+  // the new content).
+  void _commitSwipe({required bool next}) {
+    _swipeCtrl.stop();
+    final from = _dragX;
+    final exitTo = next ? -220.0 : 220.0;
+    _swipeAnim = Tween<double>(begin: from, end: exitTo).animate(
+      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeInCubic),
+    );
+    _swipeDir = next ? -1 : 1;
+    _swipeCtrl.forward(from: 0.0).whenComplete(() {
+      if (!mounted) return;
+      final player = context.read<PlayerProvider>();
+      if (next) {
+        player.skipNext();
+      } else {
+        player.skipPrev();
+      }
+      _swipeCtrl.reset();
+      setState(() => _dragX = 0);
+    });
+  }
+
   bool _opening = false; // guards against double-push from tap+swipe firing together
 
   void _openFullPlayer() {
@@ -297,10 +405,17 @@ class _MiniPlayerState extends State<MiniPlayer>
         // Trigger entry animation when song first appears or changes
         final songId = player.currentSong?.id;
         if (songId != _lastSongId) {
+          final isFirstSong = _lastSongId == null;
           _lastSongId = songId;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
+            if (!mounted) return;
+            if (isFirstSong) {
+              // First-ever appearance keeps the original bottom-up entry.
               _entryCtrl.forward(from: 0.0);
+            } else {
+              // Song changed via swipe (or skip buttons) — slide the new
+              // content in from the side, continuing the swipe's motion.
+              _slideInCtrl.forward(from: 0.0);
             }
           });
         }
@@ -359,11 +474,46 @@ class _MiniPlayerState extends State<MiniPlayer>
         onVerticalDragStart: _onDragStart,
         onVerticalDragUpdate: _onDragUpdate,
         onVerticalDragEnd: _onDragEnd,
-        child: _MiniPlayerContent(
-          player: player,
-          isDragging: _isDragging,
-          dragY: _dragY,
-          style: _style,
+        onHorizontalDragStart: _onDragStartX,
+        onHorizontalDragUpdate: _onDragUpdateX,
+        onHorizontalDragEnd: _onDragEndX,
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_swipeCtrl, _slideInCtrl]),
+          builder: (_, child) {
+            final swipeX = _swipeCtrl.isAnimating ? _swipeAnim.value : _dragX;
+            final swipeFrac = (swipeX.abs() / 160.0).clamp(0.0, 1.0);
+            final swipeOpacity = (1.0 - swipeFrac * 0.7).clamp(0.0, 1.0);
+            final swipeScale = (1.0 - swipeFrac * 0.06).clamp(0.9, 1.0);
+
+            final slideInOffset = _slideInCtrl.isAnimating
+                ? (1.0 - _slideInAnim.value) * (_swipeDir * -140.0)
+                : 0.0;
+            final slideInOpacity = _slideInCtrl.isAnimating
+                ? Curves.easeOut.transform(_slideInAnim.value)
+                : 1.0;
+
+            final totalX = swipeX + slideInOffset;
+            final totalOpacity = (swipeOpacity *
+                    (_slideInCtrl.isAnimating ? slideInOpacity : 1.0))
+                .clamp(0.0, 1.0);
+
+            return Transform.translate(
+              offset: Offset(totalX, 0),
+              child: Transform.scale(
+                scale: swipeScale,
+                child: Opacity(
+                  opacity: totalOpacity,
+                  child: child,
+                ),
+              ),
+            );
+          },
+          child: _MiniPlayerContent(
+            player: player,
+            isDragging: _isDragging,
+            dragY: _dragY,
+            style: _style,
+          ),
         ),
       ),
     );
