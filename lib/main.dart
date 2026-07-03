@@ -50,16 +50,19 @@ Future<void> main() async {
   // like camera or location. Without this being granted, the system can
   // suppress AurumMediaSessionService's foreground notification entirely,
   // which in turn makes Android treat the service as a low-priority
-  // "invisible" background process and kill it far more aggressively —
-  // this was the root cause of playback dying in the background even
-  // after the MediaSessionService lifecycle itself was fixed. Requested
-  // as early as possible (right after Flutter's binding is ready, before
-  // any other init) so the OS prompt appears on first launch rather than
-  // silently failing the first time a song is played. Wrapped in a
-  // try/catch and never awaited-blocking on the result: if the user
-  // denies it, the app must keep working (foreground playback still
-  // works fine; only the background/lock-screen notification is
-  // affected), never gate app startup behind this.
+  // "invisible" background process and kill it far more aggressively.
+  // Requested here (pre-UI) because it's a lightweight, well-behaved
+  // permission_handler call with no known crash history.
+  //
+  // Storage/audio and battery-optimization permissions are intentionally
+  // NOT requested here anymore — they're requested from MainShell's first
+  // frame instead (see main_shell.dart), fully inside the widget tree
+  // after the splash animation and Flutter UI are actually up. Firing
+  // multiple permission_handler system dialogs this early, before
+  // Flutter's first frame has even been drawn, was the likely source of
+  // the crash-on-launch some devices hit — permission_handler's platform
+  // channel can be fragile if invoked before the Activity is fully
+  // attached/resumed.
   try {
     await Permission.notification.request();
   } catch (_) {}

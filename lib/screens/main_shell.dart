@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/mini_player.dart';
 import '../models/song.dart';
@@ -41,10 +42,50 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         await UpdateService.checkForUpdate(context);
       }
 
+      // THE crash-safe home for storage + battery-optimization permission
+      // requests. Previously these were fired from main() before Flutter's
+      // first frame had even been drawn — permission_handler's platform
+      // channel needs a fully attached/resumed Activity, and calling it
+      // that early was the likely source of the crash-on-launch some
+      // devices hit. Here, we're safely past the splash animation, inside
+      // the widget tree, on the very first frame of the real UI — the
+      // same timing UpdateService.checkForUpdate above already uses
+      // without issue.
+      //
+      // Gated by a one-time SharedPreferences flag so returning users
+      // aren't nagged with the same dialogs on every launch — only once,
+      // ever, per install (re-requesting a permanently-denied permission
+      // silently no-ops anyway on Android, so this flag is purely to avoid
+      // re-showing dialogs for permissions the user already answered).
+      final askedPermissions = prefs.getBool('asked_launch_permissions') ?? false;
+      if (!askedPermissions && mounted) {
+        await _requestLaunchPermissions();
+        await prefs.setBool('asked_launch_permissions', true);
+      }
+
       // Keep Queue restore disabled — app opens clean, nothing shows until
       // the user explicitly plays a song.
       // await _restoreQueueIfNeeded();
     });
+  }
+
+  /// Storage/audio access (so Downloads and the Offline library work
+  /// without a jarring mid-scan permission popup later) and battery
+  /// optimization exemption (THE fix for aggressive OEM skins —
+  /// Realme/ColorOS, MIUI, etc. — killing background playback within
+  /// minutes regardless of everything else being correctly wired). Each
+  /// request is independently try/caught: a denial of one never blocks or
+  /// crashes the rest of the app, it just degrades that specific feature.
+  Future<void> _requestLaunchPermissions() async {
+    try {
+      final audio = await Permission.audio.request();
+      if (!audio.isGranted) await Permission.storage.request();
+    } catch (_) {}
+
+    if (!mounted) return;
+    try {
+      await Permission.ignoreBatteryOptimizations.request();
+    } catch (_) {}
   }
 
   @override
