@@ -200,8 +200,25 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
         }
     }
 
+    /**
+     * Called from MainActivity.onDestroy(). THE actual fix for
+     * "background/lock-screen band ho jaata hai": this used to call
+     * engine.release(), which calls player.release() on the SAME ExoPlayer
+     * instance AurumMediaSessionService's MediaSession is built on (they
+     * share one AurumAudioEngine — see sharedEngine). MainActivity gets
+     * destroyed far more often than people expect (recents swipe, screen
+     * rotation edge cases, OS reclaiming the activity while the process
+     * stays alive) — every one of those was silently killing playback and
+     * tearing down the MediaSession, even mid-song.
+     *
+     * The Activity does not own the engine's lifecycle; the foreground
+     * service does. All this should do is stop forwarding state to a
+     * now-dead Dart EventChannel sink. The engine/player stays alive and
+     * keeps playing in the background; AurumMediaSessionService.onTaskRemoved
+     * already contains the correct logic for stopping the player when
+     * that's actually appropriate (nothing queued / not playing).
+     */
     fun release() {
         stateJob?.cancel()
-        engine.release()
     }
 }
