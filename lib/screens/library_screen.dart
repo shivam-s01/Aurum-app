@@ -128,18 +128,25 @@ class LibraryScreen extends StatelessWidget {
   }
 
   Widget _buildSectionTitle(BuildContext context, String title) {
-    // The gap under this title always looked bigger than the 12px bottom
-    // padding here implied. Root cause: Flutter reserves extra vertical
-    // space above/below the glyphs based on the font's built-in line-height
-    // metrics (ascent/descent), not just the literal fontSize — for most
-    // fonts that "leading" adds roughly another 8-10px beyond the 11px
-    // fontSize before any padding is even applied. Setting `height: 1.0` on
-    // the TextStyle (plus a matching StrutStyle so the line box itself,
-    // not just where the glyph is drawn, actually shrinks) removes that
-    // invisible reserved space, so the 12px padding here is now the ONLY
-    // gap between the title and the grid below it — no more phantom space.
+    // Flutter reserves extra vertical space above/below the glyphs based on
+    // the font's built-in line-height metrics (ascent/descent), not just
+    // the literal fontSize — for most fonts that "leading" adds roughly
+    // another 8-10px beyond the 11px fontSize before any padding is even
+    // applied. `height: 1.0` + a matching StrutStyle (forceStrutHeight)
+    // removes that invisible reserved space so the line box tightly wraps
+    // the glyphs.
+    //
+    // REGRESSION: that strip-the-leading fix was correct on its own, but
+    // the bottom padding here was left at the OLD value (12px) that had
+    // been tuned back when ~8-10px of invisible font leading was still
+    // silently padding things out underneath it. With that leading now
+    // actually gone, 12px alone reads as too tight/cramped against the
+    // grid below — the "awkward gap" the strut fix introduced. Bumping
+    // the bottom padding to 20px restores a deliberate, correct-looking
+    // gap that's now controlled entirely by explicit padding instead of
+    // an accidental font-metric side effect.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
       child: Text(title,
           strutStyle: const StrutStyle(height: 1.0, forceStrutHeight: true),
           style: TextStyle(

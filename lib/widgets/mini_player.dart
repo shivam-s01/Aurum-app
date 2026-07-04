@@ -120,6 +120,30 @@ class _MiniPlayerState extends State<MiniPlayer>
   static const double _openThreshold = -60.0;
   static const double _velocityThreshold = 400.0;
 
+  // ROOT CAUSE of the "white/stray line" bug: before a song plays, build()
+  // returns `const SizedBox.shrink()` (see the `!player.hasSong` check
+  // below) — a completely different widget, outside the AnimatedSize used
+  // for hero-visibility below. So the very first time a song starts,
+  // AnimatedSize is freshly created with NO previous size to hold onto,
+  // meaning IT animates its own height from 0 -> full (~76px) over 200ms.
+  // But the capsule/bar inside has a hard-coded fixed height (68 for
+  // Capsule, 64 for Compact Bar) that is NOT what's shrinking — only the
+  // AnimatedSize/ClipRect window around it is. For ~200ms the full-height
+  // capsule (with its rounded border, BackdropFilter blur, and top
+  // progress-bar sliver) is sliced by a shorter, growing clip window
+  // anchored at bottomCenter, so only a thin, arbitrarily-cut band of it
+  // (its blurred edge / gold border) is visible for a couple of frames
+  // before the rest pops in — that's the "stray line". Tab switches never
+  // hit this because the widget is already mounted at full size there;
+  // only hero-visibility toggles run through this path, which SHOULD
+  // animate.
+  //
+  // Fix: give AnimatedSize a duration of zero for this one specific
+  // transition (first mount / reappearing after being fully absent from
+  // the tree), so it snaps to full size instantly instead of growing from
+  // 0. Hero-visibility collapses still get the normal animated duration.
+  bool _skipSizeAnim = true;
+
   @override
   void initState() {
     super.initState();
@@ -427,8 +451,19 @@ class _MiniPlayerState extends State<MiniPlayer>
           });
         }
 
-        if (!player.hasSong) return const SizedBox.shrink();
-        if (_dismissed) return const SizedBox.shrink();
+        // Whenever this widget is about to render nothing, the AnimatedSize
+        // subtree below is torn down entirely (not just collapsed) — so
+        // the NEXT time it appears, it's a fresh AnimatedSize with no prior
+        // size again. Arm _skipSizeAnim here (guarded so it doesn't spam
+        // setState every build while already hidden).
+        if (!player.hasSong || _dismissed) {
+          if (!_skipSizeAnim) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _skipSizeAnim = true);
+            });
+          }
+          return const SizedBox.shrink();
+        }
 
         // Trigger entry animation when song first appears or changes
         final songId = player.currentSong?.id;
@@ -452,6 +487,16 @@ class _MiniPlayerState extends State<MiniPlayer>
         // via ValueListenableBuilder (not a raw .value read + hard return)
         // so crossing the hero-scroll boundary is a smooth 220ms transition
         // instead of an instant pop that reads as "stuck"/glitchy.
+        // Clear the skip-animation flag one frame after mounting, so this
+        // ONLY suppresses the 0->full grow on the frame the mini player
+        // (re)appears from nothing — every subsequent hero-visibility
+        // toggle still animates normally.
+        if (_skipSizeAnim) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _skipSizeAnim = false);
+          });
+        }
+
         return ValueListenableBuilder<bool>(
           valueListenable: MiniPlayer.heroVisibleNotifier,
           builder: (context, heroVisible, _) {
@@ -460,8 +505,16 @@ class _MiniPlayerState extends State<MiniPlayer>
             // (which left a blank gap the height of the mini player, since
             // the widget was still taking up space in the Column even while
             // invisible/ignored).
+            //
+            // duration: Duration.zero on first mount only — see
+            // _skipSizeAnim above. Without this, AnimatedSize animates its
+            // own height from 0 on every fresh appearance, clipping the
+            // fixed-height capsule mid-shape and showing a stray sliver of
+            // its blurred/bordered edge for a couple of frames.
             return AnimatedSize(
-              duration: const Duration(milliseconds: 200),
+              duration: _skipSizeAnim
+                  ? Duration.zero
+                  : const Duration(milliseconds: 200),
               curve: Curves.easeOutCubic,
               alignment: Alignment.bottomCenter,
               child: ClipRect(

@@ -570,13 +570,33 @@ class ApiService {
   // ===========================================================================
   // PLAYLIST CARD SONGS — used by home screen playlist cards (art + tap-to-play)
   // ===========================================================================
+  //
+  // ROOT CAUSE of "pull-to-refresh does nothing" (this was the actual, most
+  // visible culprit — the "Trending Playlists" row is the very first thing
+  // on the home screen): this used _searchSaavn, a single deterministic
+  // search call with NO shuffling and NO random seed at all. For a fixed
+  // query string like 'bollywood songs 2026', the backend returns its top-N
+  // results in the exact same order on every single call. The card widget
+  // WAS being recreated each refresh (via the ValueKey('${name}_$refreshKey')
+  // in _CuratedPlaylistsSection) and WAS making a genuine new network
+  // request — but since the request and the server's ranking were both
+  // deterministic, songs.first (which drives both the card's artwork AND
+  // its underlying tracklist) came back identical every time. The
+  // home-feed sections further down the page DO already shuffle
+  // client-side (see _saavnSectionV4), so this top row was the one part of
+  // the page that visibly never changed.
+  //
+  // Fix: shuffle the merged/deduped results with a genuinely random seed
+  // before slicing to `limit`, exactly like _saavnSectionV4 already does.
   static Future<List<Song>> fetchPlaylistSongs(String query, {int limit = 30}) async {
     final songs = await _searchSaavn(query, limit: limit);
     if (songs.isEmpty) return [];
+    final seed = query.hashCode ^ DateTime.now().millisecondsSinceEpoch ^ math.Random().nextInt(1000000);
+    final shuffled = List<Song>.from(songs)..shuffle(math.Random(seed));
     final seenIds = <String>{};
     final seenTitles = <String>{};
     final result = <Song>[];
-    for (final s in songs) {
+    for (final s in shuffled) {
       if (!seenIds.add(s.id)) continue;
       if (RecommendationEngine.isInherentVariant(s.title)) continue;
       final tk = _normTitle(s.title);
