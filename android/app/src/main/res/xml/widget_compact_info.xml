@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Compact Aurum widget metadata. Sized around a 2x2 cell (roughly
+  110x110dp on a standard 5-column launcher grid) so it matches the
+  "small" widget tier shown in the OS widget picker (see screenshot: the
+  2x2 "scan any QR"-style tile), while still being wide-resizable down to
+  a slim 4x1 bar if the user prefers that shape.
+  minResizeWidth/Height let the user shrink or stretch it on launchers
+  that support live resize (most do on Android 12+).
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="60dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_compact"
+    android:previewLayout="@layout/widget_compact"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_compact_description"/>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget transport control — play. Flat silhouette, tinted via
+     RemoteViews.setInt(..., "setColorFilter", ...) at runtime so it can
+     follow the artwork-derived accent instead of being hardcoded here. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M8,5v14l11,-7z"/>
+</vector>

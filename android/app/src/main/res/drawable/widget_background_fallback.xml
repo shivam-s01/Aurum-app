@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget outer container background. Plain solid fallback fill — the
+  blurred-artwork bitmap (built at runtime in AurumWidgetProvider) is what
+  actually renders visually; this shape only matters as the base/fallback
+  before any artwork has loaded, and as the rounding mask via
+  android:outline on API 31+ launchers that clip widgets to this shape.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#0F0F14"/>
+    <corners android:radius="20dp"/>
+</shape>

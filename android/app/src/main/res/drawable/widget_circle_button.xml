@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Play/pause button background — solid accent-tinted circle so the
+  control reads clearly on top of any artwork, matching the app's
+  gold/purple accent (AurumTheme.gold = 0xFF9B7EDE) used for the resume
+  button on the in-app hero card.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#9B7EDE"/>
+</shape>

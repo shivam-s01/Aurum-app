@@ -239,11 +239,30 @@ class AurumMediaSessionService : MediaSessionService() {
         // very button). Re-pushing the custom layout on every playback
         // state change would be wasteful, so we piggyback on the existing
         // player listener instead of polling.
+        //
+        // Also drives the home-screen widget (AurumWidgetProvider):
+        // metadata changes cover track switches (title/artist/artwork),
+        // and isPlaying changes cover the play/pause icon toggling —
+        // both read straight from this same engine.player, so the widget
+        // always mirrors exactly what the lock screen/notification show.
         engine.player.addListener(object : Player.Listener {
             override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
                 refreshLikeButton(engine)
+                AurumWidgetProvider.refreshAll(this@AurumMediaSessionService)
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                AurumWidgetProvider.refreshAll(this@AurumMediaSessionService)
             }
         })
+
+        // Covers the case where a widget was already placed on the home
+        // screen before this session existed (e.g. app was killed, then
+        // relaunched by tapping a notification) — without this, such a
+        // widget would keep showing stale "Tap to play something" /
+        // last-known-track text until the next metadata/play-state change
+        // happened to fire naturally.
+        AurumWidgetProvider.refreshAll(this)
     }
 
     private fun createNotificationChannelIfNeeded() {
