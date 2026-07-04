@@ -43,7 +43,7 @@ import java.net.URL
  * Activity isn't currently running, exactly like the lock-screen
  * notification already does.
  */
-class AurumWidgetProvider : AppWidgetProvider() {
+open class AurumWidgetProvider : AppWidgetProvider() {
 
     companion object {
         private const val TAG = "AurumWidget"
