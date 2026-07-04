@@ -8,6 +8,20 @@
 //   ✅ Mosaic / single cover art
 //   ✅ Play All / Shuffle inside playlist
 //   ✅ Zero feature removal — all existing screens intact
+//
+// v2 CHANGES (this pass):
+//   • _CoverFan empty state: replaced the sparkle/"AI-generated" glyph
+//     (Icons.auto_awesome_rounded) with a plain white music-note icon —
+//     matches the app's own logo mark instead of reading as a generic
+//     AI-tool placeholder.
+//   • Identity header card gets an actual glass surface (gradient +
+//     border + soft shadow) instead of floating flat on the page
+//     background, so "Your collection" reads as a designed module, not
+//     a stray row of text.
+//   • Collection rows: replaced the flat text-on-transparent list with
+//     tonal glass cards (subtle gradient fill, hairline border, soft
+//     shadow) — same information density, more depth so it reads like a
+//     shelf of premium tiles rather than a plain settings-style list.
 // =============================================================================
 
 import 'dart:math' as math;
@@ -101,12 +115,12 @@ class LibraryScreen extends StatelessWidget {
   }
 
   // ── Identity header ──────────────────────────────────────────────────────
-  // Signature element: a small fanned-out collage of the last few played
-  // covers, sitting beside a single inline stat line. Replaces the old
-  // "Liked Songs / Playlists / ..." boxes at the top, which just repeated
-  // rows that already exist below — this instead answers "what's actually
-  // in here" at a glance, the way a shelf of records tells you something
-  // a spec sheet can't.
+  // A small fanned-out collage of the last few played covers, sitting on
+  // a proper glass surface (gradient fill + hairline border + soft
+  // shadow) beside a single inline stat line. Wrapping this in an actual
+  // "card" — instead of letting the cover fan + text float directly on
+  // the page background — is what makes this read as a designed module
+  // rather than a stray header row.
   Widget _buildIdentityHeader(BuildContext context) {
     final history = context.watch<RecentlyPlayedProvider>().history;
     final favCount = context.watch<FavoritesProvider>().favorites.length;
@@ -118,41 +132,72 @@ class LibraryScreen extends StatelessWidget {
 
     final totalTracked = favCount + localCount + history.length;
     final covers = history.take(4).toList();
+    final isLight = Theme.of(context).brightness == Brightness.light;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          _CoverFan(covers: covers),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  totalTracked == 0 ? 'Nothing here yet' : 'Your collection',
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _statLine(favCount, plCount, followedCount, localCount),
-                  style: TextStyle(
-                    color: AurumTheme.textMutedOf(context),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
-                    height: 1.3,
-                  ),
-                ),
-              ],
-            ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: isLight
+                ? [
+                    AurumTheme.gold.withOpacity(0.10),
+                    Colors.purpleAccent.withOpacity(0.05),
+                  ]
+                : [
+                    AurumTheme.gold.withOpacity(0.08),
+                    Colors.purpleAccent.withOpacity(0.06),
+                  ],
           ),
-        ],
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: AurumTheme.gold.withOpacity(isLight ? 0.16 : 0.14),
+            width: 0.8,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isLight ? 0.04 : 0.18),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _CoverFan(covers: covers),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    totalTracked == 0 ? 'Nothing here yet' : 'Your collection',
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _statLine(favCount, plCount, followedCount, localCount),
+                    style: TextStyle(
+                      color: AurumTheme.textMutedOf(context),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -209,10 +254,10 @@ class LibraryScreen extends StatelessWidget {
   }
 
   // ── Collection list ──────────────────────────────────────────────────────
-  // Slim editorial rows instead of the old 2-column boxy grid: a 3px
-  // colour bar on the left (not a boxed icon chip), label + trailing count,
-  // a hairline divider between rows, and a chevron. Denser, quieter, reads
-  // like a curated index rather than a dashboard of app-store tiles.
+  // Tonal glass cards instead of a flat text-on-transparent list — each
+  // row is its own subtle surface (gradient wash in the row's accent
+  // colour + hairline border + soft shadow), so this reads like a shelf
+  // of premium tiles rather than a plain settings-style list.
   Widget _buildCollectionList(BuildContext context) {
     final favCount = context.watch<FavoritesProvider>().favorites.length;
     final lib = context.watch<LibraryProvider>();
@@ -267,9 +312,9 @@ class LibraryScreen extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         children: List.generate(items.length, (i) {
-          return _CollectionRow(
-            item: items[i],
-            showDivider: i != items.length - 1,
+          return Padding(
+            padding: EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 10),
+            child: _CollectionRow(item: items[i]),
           );
         }),
       ),
@@ -2663,10 +2708,14 @@ class _CollectionItem {
       this.onTap});
 }
 
+// Tonal glass card — each collection row now sits on its own subtle
+// surface (gradient wash in the item's accent colour, hairline border,
+// soft shadow) rather than sitting flat on the page background with only
+// a divider line beneath it. This is what gives the "shelf of premium
+// tiles" feel instead of a plain settings list.
 class _CollectionRow extends StatefulWidget {
   final _CollectionItem item;
-  final bool showDivider;
-  const _CollectionRow({required this.item, this.showDivider = true});
+  const _CollectionRow({required this.item});
 
   @override
   State<_CollectionRow> createState() => _CollectionRowState();
@@ -2682,6 +2731,8 @@ class _CollectionRowState extends State<_CollectionRow> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (_) => _setPressed(true),
@@ -2695,68 +2746,67 @@ class _CollectionRowState extends State<_CollectionRow> {
         scale: _pressed ? 0.975 : 1.0,
         duration: const Duration(milliseconds: 120),
         curve: Curves.easeOut,
-        child: Column(
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              curve: Curves.easeOut,
-              padding:
-                  const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
-              decoration: BoxDecoration(
-                // Subtle tonal wash in the row's own accent colour on
-                // press — reinforces which item is being tapped instead
-                // of a generic grey ripple, and fades back out on release.
-                color: _pressed
-                    ? item.color.withOpacity(0.06)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  // 3px colour bar — replaces the boxed icon chip. Reads as
-                  // an index tab, not a dashboard tile.
-                  Container(
-                    width: 3,
-                    height: 22,
-                    decoration: BoxDecoration(
-                      color: item.color,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Icon(item.icon, color: item.color, size: 19),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(item.label,
-                        style: TextStyle(
-                            color: AurumTheme.textPrimaryOf(context),
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.1),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                  ),
-                  if (item.subtitle.isNotEmpty) ...[
-                    Text(item.subtitle,
-                        style: TextStyle(
-                            color: AurumTheme.textMutedOf(context),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500)),
-                    const SizedBox(width: 8),
-                  ],
-                  Icon(Icons.chevron_right_rounded,
-                      color:
-                          AurumTheme.textMutedOf(context).withOpacity(0.5),
-                      size: 19),
-                ],
-              ),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 14),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                item.color.withOpacity(_pressed ? 0.14 : (isLight ? 0.07 : 0.09)),
+                item.color.withOpacity(_pressed ? 0.05 : 0.02),
+              ],
             ),
-            if (widget.showDivider)
-              Container(
-                height: 1,
-                color: AurumTheme.textMutedOf(context).withOpacity(0.08),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: item.color.withOpacity(isLight ? 0.14 : 0.16),
+              width: 0.8,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isLight ? 0.03 : 0.14),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
               ),
-          ],
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: item.color.withOpacity(isLight ? 0.14 : 0.16),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(item.icon, color: item.color, size: 19),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Text(item.label,
+                    style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.1),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ),
+              if (item.subtitle.isNotEmpty) ...[
+                Text(item.subtitle,
+                    style: TextStyle(
+                        color: AurumTheme.textMutedOf(context),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(width: 8),
+              ],
+              Icon(Icons.chevron_right_rounded,
+                  color: AurumTheme.textMutedOf(context).withOpacity(0.5),
+                  size: 19),
+            ],
+          ),
         ),
       ),
     );
@@ -2767,8 +2817,14 @@ class _CollectionRowState extends State<_CollectionRow> {
 // Small fanned stack of the last few played covers — the one deliberately
 // "alive" element on this screen. Each tile is rotated a few degrees off
 // the last so it reads as a loosely-thrown handful of records, not a
-// perfectly stacked app icon. Falls back to a plain vault-glyph tile when
-// there's no history yet, so the layout never looks broken for a new user.
+// perfectly stacked app icon.
+//
+// Empty state: previously used Icons.auto_awesome_rounded (a sparkle
+// glyph), which reads as a generic "AI-generated content" placeholder —
+// exactly the look we don't want. Replaced with a plain white
+// Icons.music_note_rounded, matching Aurum's own logo mark, so a brand-
+// new user with no history yet still sees something that looks like it
+// belongs to this app specifically, not a stock AI-tool icon.
 class _CoverFan extends StatelessWidget {
   final List<Song> covers;
   const _CoverFan({required this.covers});
@@ -2783,11 +2839,18 @@ class _CoverFan extends StatelessWidget {
         width: size,
         height: size,
         decoration: BoxDecoration(
-          color: AurumTheme.gold.withOpacity(0.10),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AurumTheme.gold.withOpacity(0.22),
+              Colors.purpleAccent.withOpacity(0.18),
+            ],
+          ),
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Icon(Icons.auto_awesome_rounded,
-            color: AurumTheme.gold.withOpacity(0.6), size: 24),
+        child: const Icon(Icons.music_note_rounded,
+            color: Colors.white, size: 26),
       );
     }
 

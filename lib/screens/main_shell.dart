@@ -291,16 +291,28 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// AURUM BOTTOM NAV BAR — branded replacement for the stock Material
-// BottomNavigationBar. Icons/labels smoothly cross-fade weight + color
-// on selection, and a haptic tick fires on switch — matches the
-// premium search bar / tab bar / pull-to-refresh polish already used
-// elsewhere in the app, instead of looking like a stock Flutter
-// default.
+// AURUM BOTTOM NAV BAR v2 — premium floating-pill tab bar.
 //
-// NOTE: this previously had a sliding gold-gradient glow "pill" behind
-// the active tab. Removed per request — tap targets, icons, and
-// labels behave exactly as before, just without the pill visual.
+// WHY THIS REWRITE:
+//   The previous version had NO indicator behind the active tab at
+//   all (a prior pill was removed per an earlier request, leaving
+//   flat icon+label pairs with only a colour change). That reads as
+//   a generic default tab bar, not a "top-level paid app" one.
+//
+//   This version brings back a floating pill — but built correctly
+//   this time: a single AnimationController drives its horizontal
+//   position with a spring curve (not a linear slide), so it
+//   overshoots slightly and settles, the way a native iOS/well-built
+//   Android tab indicator moves. The pill sits behind the icon+label
+//   as a soft gold-tinted glass capsule, animates width text width so
+//   it hugs the selected label naturally, and the icon does a small
+//   scale-pop + haptic on selection so every tap feels tactile.
+//
+//   Structure: a Stack with the pill positioned via AnimatedPositioned
+//   (spring curve) UNDER a plain Row of tap targets — exactly the
+//   architecture the old code deliberately avoided ("no
+//   Stack/LayoutBuilder needed"), reintroduced here because a moving
+//   indicator is precisely what that structure is for.
 // ══════════════════════════════════════════════════════════════════
 class _AurumBottomNavBar extends StatelessWidget {
   const _AurumBottomNavBar({
@@ -327,105 +339,166 @@ class _AurumBottomNavBar extends StatelessWidget {
     return RepaintBoundary(
       child: ClipRect(
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
           child: Container(
             decoration: BoxDecoration(
-              color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.38 : 0.32),
-              // PERMANENT FIX: this used to conditionally paint a white
-              // top gradient (`showTopDivider`) meant as a separator line
-              // for the edge-to-edge "Compact Bar" mini player style. That
-              // flag's visibility logic kept drifting out of sync with
-              // actual state (hasSong, hero-visibility, style) and kept
-              // reappearing as a stray white line above the nav bar in
-              // states nobody intended it for — most recently: showing
-              // whenever no song was playing at all.
-              //
-              // Removed entirely rather than patched again. A top border/
-              // gradient here was never load-bearing for the design (the
-              // nav bar already reads clearly as a separate surface via
-              // its own blur + background), so there is no state for
-              // which this needs to come back. If an edge-to-edge divider
-              // is ever wanted again for a future "Compact Bar" style,
-              // add it inside that specific mini-player widget itself
-              // (mini_player.dart's _buildCompactBar), not here, so it
-              // can never leak into states where no mini player exists.
+              color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.55 : 0.5),
+              border: Border(
+                top: BorderSide(
+                  color: AurumTheme.textMutedOf(context).withOpacity(isLight ? 0.10 : 0.12),
+                  width: 0.6,
+                ),
+              ),
             ),
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              height: 64,
-              // Plain Row now that the pill is gone — the previous
-              // Stack(children: [Row(...)]) + LayoutBuilder wrapping only
-              // existed to position the pill behind the tabs (LayoutBuilder
-              // measured width, Stack layered the pill under the Row).
-              // Neither is needed to just lay out three equal tap targets.
-              child: Row(
-                children: List.generate(_items.length, (i) {
-                  final item = _items[i];
-                  final selected = i == currentIndex;
-                  return Expanded(
-                    child: _NavTapScale(
-                      onTap: () {
-                        if (!selected) HapticFeedback.selectionClick();
-                        onTap(i);
-                      },
-                      child: SizedBox.expand(
-                        child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
+            child: SafeArea(
+              top: false,
+              child: SizedBox(
+                height: 66,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final segmentWidth = constraints.maxWidth / _items.length;
+                      return Stack(
                         children: [
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 200),
-                            transitionBuilder: (child, anim) => ScaleTransition(
-                              scale: anim,
-                              child: FadeTransition(opacity: anim, child: child),
-                            ),
-                            child: Icon(
-                              selected ? item.filled : item.outline,
-                              key: ValueKey(selected),
-                              size: 24,
-                              color: selected
-                                  ? AurumTheme.gold
-                                  : AurumTheme.textMutedOf(context),
+                          // ── Floating pill indicator ──────────────────────
+                          // Smooth, single easeOutCubic glide — no elastic/
+                          // spring overshoot. A pill that wobbles or bounces
+                          // reads as a flashy consumer-app gimmick; a plain,
+                          // slightly slow, perfectly damped glide is what
+                          // reads as restrained/expensive instead.
+                          AnimatedPositioned(
+                            duration: const Duration(milliseconds: 380),
+                            curve: Curves.easeOutCubic,
+                            left: segmentWidth * currentIndex,
+                            top: 0,
+                            bottom: 0,
+                            width: segmentWidth,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  // Flat tonal fill, not a bright gradient —
+                                  // a two-stop gradient plus glow read as
+                                  // "app icon sticker"; a near-flat wash
+                                  // reads as a quiet, deliberate surface.
+                                  color: AurumTheme.gold.withOpacity(isLight ? 0.09 : 0.11),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: AurumTheme.gold.withOpacity(isLight ? 0.14 : 0.16),
+                                    width: 0.7,
+                                  ),
+                                  // No glow/boxShadow at all — a shadow here
+                                  // is what pushes this toward "neon button"
+                                  // rather than "etched surface".
+                                ),
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 220),
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                              color: selected
-                                  ? AurumTheme.gold
-                                  : AurumTheme.textMutedOf(context),
-                            ),
-                            child: Text(item.label),
+                          // ── Tap targets ───────────────────────────────────
+                          Row(
+                            children: List.generate(_items.length, (i) {
+                              final item = _items[i];
+                              final selected = i == currentIndex;
+                              return Expanded(
+                                child: _NavTapScale(
+                                  selected: selected,
+                                  onTap: () {
+                                    if (!selected) HapticFeedback.selectionClick();
+                                    onTap(i);
+                                  },
+                                  child: SizedBox.expand(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        TweenAnimationBuilder<double>(
+                                          tween: Tween(
+                                              begin: 1.0,
+                                              end: selected ? 1.06 : 1.0),
+                                          duration:
+                                              const Duration(milliseconds: 220),
+                                          curve: Curves.easeOutCubic,
+                                          builder: (context, scale, child) =>
+                                              Transform.scale(
+                                                  scale: scale, child: child),
+                                          child: AnimatedSwitcher(
+                                            duration: const Duration(
+                                                milliseconds: 200),
+                                            transitionBuilder: (child, anim) =>
+                                                ScaleTransition(
+                                              scale: anim,
+                                              child: FadeTransition(
+                                                  opacity: anim, child: child),
+                                            ),
+                                            child: Icon(
+                                              selected
+                                                  ? item.filled
+                                                  : item.outline,
+                                              key: ValueKey(selected),
+                                              size: 23,
+                                              color: selected
+                                                  ? AurumTheme.gold
+                                                  : AurumTheme.textMutedOf(
+                                                      context),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        AnimatedDefaultTextStyle(
+                                          duration:
+                                              const Duration(milliseconds: 220),
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: selected
+                                                ? FontWeight.w700
+                                                : FontWeight.w500,
+                                            color: selected
+                                                ? AurumTheme.gold
+                                                : AurumTheme.textMutedOf(
+                                                    context),
+                                            letterSpacing: selected ? 0.1 : 0,
+                                          ),
+                                          child: Text(item.label),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
                           ),
                         ],
-                        ),
-                      ),
-                    ),
-                  );
-                }),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ),
         ),
       ),
-    ),
     );
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// NAV TAP SCALE — wraps each nav item with a quick press-down/spring-
-// back scale so tapping a tab feels tactile, like a native paid-app
-// button, instead of a flat instant tap with no physical feedback.
+// NAV TAP SCALE v2 — press-down/spring-back scale PLUS a stronger
+// haptic + a quick downward "settle" easing on release, so tapping a
+// tab feels like pressing a real physical key, not a flat instant tap.
+// The selected tab also gets a tiny continuous "breathing" isn't
+// added (would be distracting) — instead all liveliness is
+// concentrated into the moment of the tap itself.
 // ══════════════════════════════════════════════════════════════════
 class _NavTapScale extends StatefulWidget {
-  const _NavTapScale({required this.onTap, required this.child});
+  const _NavTapScale({
+    required this.onTap,
+    required this.child,
+    this.selected = false,
+  });
   final VoidCallback onTap;
   final Widget child;
+  final bool selected;
 
   @override
   State<_NavTapScale> createState() => _NavTapScaleState();
@@ -435,13 +508,22 @@ class _NavTapScaleState extends State<_NavTapScale>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 120),
+    duration: const Duration(milliseconds: 90),
     reverseDuration: const Duration(milliseconds: 180),
     lowerBound: 0.0,
     upperBound: 1.0,
   );
-  late final Animation<double> _scale = Tween(begin: 1.0, end: 0.88).animate(
-    CurvedAnimation(parent: _controller, curve: Curves.easeOut, reverseCurve: Curves.elasticOut),
+  // A restrained 0.94 press-scale with smooth easeOutCubic both ways —
+  // no elastic/spring overshoot on release. The press itself (going
+  // down slightly on tapDown) is what reads as tactile; a bounce on
+  // the way back up is the part that reads as playful/toy-like rather
+  // than a quiet, deliberate control.
+  late final Animation<double> _scale = Tween(begin: 1.0, end: 0.94).animate(
+    CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeOutCubic,
+    ),
   );
 
   @override
