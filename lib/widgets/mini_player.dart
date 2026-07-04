@@ -53,6 +53,17 @@ import '../screens/full_player_screen.dart';
 //   so the transition FROM "faded out, zero height" TO "gone" is
 //   visually a no-op, and the transition back is a plain instant
 //   fade+slide-in (the existing `_entryCtrl`), never a height grow.
+//
+//   v3.1 FIX (glow-bleed while hero-hidden): the capsule's box-shadow
+//   used to include a second, gold-tinted BoxShadow with a 12px blur
+//   radius. AnimatedOpacity fades pixel alpha, but a wide-blur shadow
+//   still paints (faintly, then more visibly during the entry/slide
+//   transform) outside the capsule's own clipped bounds — which read as
+//   a stray purple glow sitting exactly where the capsule reappears,
+//   even while `heroVisible` was mid-transition. The gold BoxShadow has
+//   been removed entirely; only a plain black drop-shadow remains, and
+//   its blur radius stays inside the capsule's own margin so nothing
+//   leaks above the intended card bounds.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class MiniPlayer extends StatefulWidget {
@@ -593,16 +604,20 @@ class _MiniPlayerContent extends StatelessWidget {
                 : AurumTheme.gold.withAlpha(isDark ? 35 : 50),
             width: 0.8,
           ),
+          // FIX (glow-bleed): this used to carry a second BoxShadow tinted
+          // with AurumTheme.gold at a 12px blur radius. That shadow paints
+          // outside the capsule's own ClipRRect bounds — since Container's
+          // boxShadow is drawn on the *undecorated* box before children are
+          // clipped, a wide, colored blur there reads as a stray purple/
+          // gold glow sitting above/around the capsule, most noticeable
+          // during the hero-hide/reappear transform on Home. A single
+          // plain black drop-shadow is enough for depth; removing the
+          // tinted one eliminates the bleed entirely.
           boxShadow: [
             BoxShadow(
               color: Colors.black.withAlpha(isDark ? 100 : 30),
-              blurRadius: isDragging ? 28 : 20,
+              blurRadius: isDragging ? 20 : 14,
               offset: const Offset(0, 4),
-            ),
-            BoxShadow(
-              color: AurumTheme.gold.withAlpha(isDragging ? 20 : 10),
-              blurRadius: 12,
-              offset: const Offset(0, 2),
             ),
           ],
         );
