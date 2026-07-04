@@ -13,27 +13,46 @@ import 'aurum_pressable.dart';
 import '../screens/full_player_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MiniPlayer v2.1 — Fautune-style Premium
+// MiniPlayer v3.0 — Fautune-style Premium (rewrite)
 // • Swipe UP  → open FullPlayerScreen (smooth slide)
 // • Swipe DOWN → stop music + dismiss with fade+scale out
 // • Drag tracking: real-time translate + opacity + scale
 // • Spring-settle back if drag cancelled
 // • Gold progress bar, glassmorphism, haptics
 //
-// FIXES vs v2.0:
-//   FIX 1: opaque:false -> opaque:true on FullPlayerScreen push. opaque:false
-//      made Flutter stop fully repainting the screen underneath (Home/
-//      Search/Library) while the full player was open, leaving a stale
-//      frozen frame behind after closing it. FullPlayerScreen already
-//      paints its own full opaque background, so opaque:true changes
-//      nothing visually and fixes the freeze.
-//   FIX 2: _dismissed reset now tracks the dismissed song's id instead of
-//      only resetting on `!player.hasSong`. Previously, swiping the mini
-//      player down only paused playback (didn't clear the queue), so
-//      `hasSong` stayed true forever -- meaning `_dismissed` never reset
-//      and the mini player stayed permanently hidden even after resuming/
-//      playing again. Now it reappears as soon as a different song starts,
-//      or playback resumes on the same song.
+// WHY THIS REWRITE EXISTS (v2.1 → v3.0):
+//   v2.1 wrapped the whole capsule in `AnimatedSize`, so that when the
+//   mini player needed to disappear (hero section visible on Home, or
+//   swipe-to-dismiss), the RESERVED LAYOUT SPACE would shrink to zero
+//   instead of leaving a blank gap in the Column.
+//
+//   The problem: `AnimatedSize` animates height 0 -> full (or full -> 0)
+//   over real time. The capsule/bar inside has a HARD-CODED fixed height
+//   (68 or 64). During every one of those height transitions, the fixed-
+//   height child was being sliced by a shorter/taller *growing* clip
+//   window — for a couple of frames you'd see a raw, arbitrarily-cut
+//   band of the capsule's blurred edge/border, which read as a stray
+//   white (light theme) or dark (dark theme) "patti" cutting across the
+//   screen. This happened on: first mount, hero-visibility toggles while
+//   scrolling Home, AND swipe-down-dismiss -> reappear — three different
+//   triggers, all hitting the same structural flaw. Patching each
+//   trigger individually (a `_skipSizeAnim` one-shot flag, postFrame
+//   callbacks, generation counters) kept fixing one path while leaving
+//   the others exposed, because the root cause was architectural: a
+//   height animation wrapped around a fixed-height child.
+//
+//   THE FIX: there is no more height animation anywhere in this widget.
+//   The mini player's slot in the Column is ALWAYS either the full fixed
+//   height or complexly-absent (`SizedBox.shrink()`) — never mid-grow.
+//   Visibility for hero-scroll is handled purely with `AnimatedOpacity` +
+//   `AnimatedSlide` (transform-only, doesn't touch layout size, so there
+//   is never a clip window to cut the capsule mid-frame). Swipe-down
+//   dismiss uses the same fade+slide-away transform it already had via
+//   `_settleCtrl`, and simply flips `_dismissed` at the END of that
+//   animation, at which point the widget is already fully faded out —
+//   so the transition FROM "faded out, zero height" TO "gone" is
+//   visually a no-op, and the transition back is a plain instant
+//   fade+slide-in (the existing `_entryCtrl`), never a height grow.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class MiniPlayer extends StatefulWidget {
@@ -41,32 +60,13 @@ class MiniPlayer extends StatefulWidget {
 
   /// Broadcasts the current mini-player style ('Capsule' / 'Compact Bar') so
   /// any live MiniPlayer instance updates INSTANTLY when the setting is
-  /// changed in Settings → Appearance, without depending on
-  /// didChangeDependencies (which does NOT fire just from a child route
-  /// popping back to a persistent shell widget like this one — that was the
-  /// root cause of the style not visibly updating after picking it in
-  /// Settings, even though it was being saved to SharedPreferences correctly).
+  /// changed in Settings → Appearance.
   static final ValueNotifier<String> styleNotifier =
       ValueNotifier<String>('Capsule');
 
   /// When home screen's hero card is visible, mini player hides.
   /// Home screen updates this via scroll while it is the ACTIVE tab.
-  ///
-  /// IMPORTANT: MainShell keeps all 3 tabs alive at once inside an
-  /// IndexedStack (for instant tab switching), so HomeScreen's dispose()
-  /// never runs on a tab switch — only when the app itself is killed.
-  /// That made this notifier "stick" at whatever value HomeScreen's
-  /// scroll listener last set, even after navigating to Search/Library,
-  /// since nothing reset it. A stale `true` (hero "visible") value is
-  /// what caused the mini player to stay invisible/collapsed outside
-  /// Home (AnimatedSize + AnimatedOpacity both key off this flag),
-  /// showing only a sliver of its decoration mid-collapse — the
-  /// "white/stray line" bug.
-  ///
-  /// Fix: MainShell (the one place that actually knows the active tab)
-  /// now explicitly sets this to `false` whenever the active tab isn't
-  /// Home, on every tab switch. HomeScreen's scroll listener still owns
-  /// the value while Home IS active.
+  /// MainShell resets this to `false` whenever the active tab isn't Home.
   static final ValueNotifier<bool> heroVisibleNotifier =
       ValueNotifier<bool>(false);
 
@@ -88,16 +88,12 @@ class _MiniPlayerState extends State<MiniPlayer>
   static const double _swipeXVelocityThreshold = 500.0;
 
   // Direction of the committed swipe: -1 = went to next (content exits left),
-  // +1 = went to prev (content exits right). Drives the settle-out animation
-  // and the following slide-in animation for the new song.
+  // +1 = went to prev (content exits right).
   int _swipeDir = 0;
 
   late final AnimationController _swipeCtrl;
   Animation<double> _swipeAnim = const AlwaysStoppedAnimation(0.0);
 
-  // Plays once per song change: new content slides in from the direction
-  // opposite the swipe, so it feels like the old song was pushed off and
-  // the new one pulled into place — one continuous motion, not two.
   late final AnimationController _slideInCtrl;
   late Animation<double> _slideInAnim;
 
@@ -109,7 +105,8 @@ class _MiniPlayerState extends State<MiniPlayer>
   late final AnimationController _settleCtrl;
   late Animation<double> _settleAnim;
 
-  // Entry animation — plays once when mini player first appears or song changes
+  // Entry animation — plays once when mini player first appears, on song
+  // change, and whenever it reappears after being dismissed.
   late final AnimationController _entryCtrl;
   late final Animation<double> _entrySlide;
   late final Animation<double> _entryOpacity;
@@ -120,30 +117,6 @@ class _MiniPlayerState extends State<MiniPlayer>
   static const double _openThreshold = -60.0;
   static const double _velocityThreshold = 400.0;
 
-  // ROOT CAUSE of the "white/stray line" bug: before a song plays, build()
-  // returns `const SizedBox.shrink()` (see the `!player.hasSong` check
-  // below) — a completely different widget, outside the AnimatedSize used
-  // for hero-visibility below. So the very first time a song starts,
-  // AnimatedSize is freshly created with NO previous size to hold onto,
-  // meaning IT animates its own height from 0 -> full (~76px) over 200ms.
-  // But the capsule/bar inside has a hard-coded fixed height (68 for
-  // Capsule, 64 for Compact Bar) that is NOT what's shrinking — only the
-  // AnimatedSize/ClipRect window around it is. For ~200ms the full-height
-  // capsule (with its rounded border, BackdropFilter blur, and top
-  // progress-bar sliver) is sliced by a shorter, growing clip window
-  // anchored at bottomCenter, so only a thin, arbitrarily-cut band of it
-  // (its blurred edge / gold border) is visible for a couple of frames
-  // before the rest pops in — that's the "stray line". Tab switches never
-  // hit this because the widget is already mounted at full size there;
-  // only hero-visibility toggles run through this path, which SHOULD
-  // animate.
-  //
-  // Fix: give AnimatedSize a duration of zero for this one specific
-  // transition (first mount / reappearing after being fully absent from
-  // the tree), so it snaps to full size instantly instead of growing from
-  // 0. Hero-visibility collapses still get the normal animated duration.
-  bool _skipSizeAnim = true;
-
   @override
   void initState() {
     super.initState();
@@ -151,7 +124,7 @@ class _MiniPlayerState extends State<MiniPlayer>
       vsync: this,
       duration: const Duration(milliseconds: 220),
     );
-    _settleAnim = AlwaysStoppedAnimation(0.0);
+    _settleAnim = const AlwaysStoppedAnimation(0.0);
 
     _entryCtrl = AnimationController(
       vsync: this,
@@ -179,8 +152,8 @@ class _MiniPlayerState extends State<MiniPlayer>
       vsync: this,
       duration: const Duration(milliseconds: 220),
     );
-    _slideInAnim = CurvedAnimation(
-        parent: _slideInCtrl, curve: Curves.easeOutCubic);
+    _slideInAnim =
+        CurvedAnimation(parent: _slideInCtrl, curve: Curves.easeOutCubic);
 
     _loadStyle();
     MiniPlayer.styleNotifier.addListener(_onStyleChanged);
@@ -214,17 +187,13 @@ class _MiniPlayerState extends State<MiniPlayer>
   }
 
   // Generation token — bumped every time a settle animation is started or
-  // interrupted. A completion callback only commits its result if the
-  // generation hasn't changed, so starting a NEW drag while a dismiss/
-  // springback animation is still finishing (which calls _settleCtrl.stop(),
-  // and .whenComplete() ALSO fires on stop(), not just natural completion)
-  // can no longer wrongly commit a pause/dismiss while the user is actively
-  // dragging again. This was the "mini player randomly vanishes mid-drag"
-  // bug.
+  // interrupted, so a stale completion callback from an interrupted
+  // animation can never wrongly commit a pause/dismiss while the user is
+  // actively dragging again.
   int _settleGen = 0;
 
   void _onDragStart(DragStartDetails _) {
-    _settleGen++; // invalidate any in-flight settle completion
+    _settleGen++;
     _settleCtrl.stop();
     setState(() {
       _isDragging = true;
@@ -234,7 +203,6 @@ class _MiniPlayerState extends State<MiniPlayer>
   void _onDragUpdate(DragUpdateDetails details) {
     setState(() {
       _dragY += details.delta.dy;
-      // Allow both up and down with resistance
       _dragY = _dragY.clamp(-120.0, 160.0);
     });
   }
@@ -244,10 +212,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     setState(() => _isDragging = false);
 
     // Swipe UP → open full player immediately, snap drag offset back to 0
-    // with NO animation (we're navigating away, an animated springback here
-    // just races the route push and leaves _settleCtrl mid-flight for the
-    // next time this widget rebuilds — that stale animation state was the
-    // "stuck" feeling on the following swipe).
+    // with no animation (navigating away).
     if (_dragY < _openThreshold || velocity < -_velocityThreshold) {
       HapticFeedback.mediumImpact();
       _settleGen++;
@@ -283,11 +248,15 @@ class _MiniPlayerState extends State<MiniPlayer>
     });
   }
 
-
   void _dismissPlayer() {
     _settleCtrl.stop();
     final gen = ++_settleGen;
     final from = _dragY;
+    // Animate fully off-screen + faded out FIRST. Only once that's fully
+    // complete (widget is already invisible) do we flip `_dismissed` and
+    // pause playback. This guarantees there is never a frame where the
+    // widget goes from "mid-drag visible" straight to "gone" — it always
+    // fades/slides out first, exactly like the hero-hide transition does.
     _settleAnim = Tween<double>(begin: from, end: 200.0).animate(
       CurvedAnimation(parent: _settleCtrl, curve: Curves.easeInCubic),
     );
@@ -306,17 +275,10 @@ class _MiniPlayerState extends State<MiniPlayer>
   }
 
   // Generation token for horizontal swipes — same pattern as _settleGen.
-  // Without this, spamming left/right swipes super fast leaves multiple
-  // .whenComplete() callbacks from interrupted animations still pending;
-  // each one still fires (stop() doesn't cancel whenComplete, only natural
-  // completion vs interruption changes), so stale callbacks were calling
-  // skipNext()/skipPrev() out of order — extra/wrong skips under rapid
-  // input. Now only the LATEST swipe's callback is allowed to commit.
   int _swipeGen = 0;
 
-  // ── Horizontal drag handlers ─────────────────────────────────────────
   void _onDragStartX(DragStartDetails _) {
-    _swipeGen++; // invalidate any in-flight swipe completion
+    _swipeGen++;
     _swipeCtrl.stop();
     setState(() => _isDraggingX = true);
   }
@@ -365,9 +327,6 @@ class _MiniPlayerState extends State<MiniPlayer>
     });
   }
 
-  // Animates the CURRENT content the rest of the way off-screen, then
-  // switches the song (build()'s songId-change check triggers slide-in for
-  // the new content).
   void _commitSwipe({required bool next}) {
     _swipeCtrl.stop();
     final gen = ++_swipeGen;
@@ -399,21 +358,8 @@ class _MiniPlayerState extends State<MiniPlayer>
     Navigator.of(context)
         .push(
       PageRouteBuilder(
-        // FIX: opaque:false caused the screen underneath (Home/Search/
-        // Library) to freeze while the full player was open — Flutter
-        // skips repainting routes it thinks may still be partially
-        // visible. FullPlayerScreen paints its own full background, so
-        // opaque:true is visually identical and fixes the freeze.
         opaque: true,
         pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-        // FullPlayerScreen already runs its own polished entry animation
-        // internally (_entryCtrl: slide-up + fade + staggered content +
-        // Hero artwork flight). Wrapping the route in a SECOND
-        // SlideTransition here made two slide animations run at once,
-        // fighting each other — that's what made open/close feel janky
-        // instead of premium. The route transition is now just a quick
-        // fade so the Hero flight + FullPlayerScreen's own entry motion
-        // reads as one continuous, intentional movement.
         transitionsBuilder: (_, anim, __, child) => FadeTransition(
           opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
           child: child,
@@ -423,7 +369,7 @@ class _MiniPlayerState extends State<MiniPlayer>
       ),
     )
         .then((_) {
-      _opening = false; // route closed — allow opening again
+      _opening = false;
     });
   }
 
@@ -432,10 +378,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     return Consumer<PlayerProvider>(
       builder: (context, player, _) {
         // Reset dismissed when a DIFFERENT song starts playing, OR when
-        // playback resumes on the SAME song (e.g. user hits play again
-        // from elsewhere). Must use postFrameCallback — mutating state
-        // inside build() causes Flutter to skip renders, making the mini
-        // player disappear.
+        // playback resumes on the SAME song.
         final shouldReappear = _dismissed &&
             player.hasSong &&
             (player.currentSong?.id != _dismissedSongId || player.isPlaying);
@@ -451,21 +394,16 @@ class _MiniPlayerState extends State<MiniPlayer>
           });
         }
 
-        // Whenever this widget is about to render nothing, the AnimatedSize
-        // subtree below is torn down entirely (not just collapsed) — so
-        // the NEXT time it appears, it's a fresh AnimatedSize with no prior
-        // size again. Arm _skipSizeAnim here (guarded so it doesn't spam
-        // setState every build while already hidden).
+        // No song, or currently dismissed → render NOTHING. There is no
+        // height animation guarding this transition; the widget is simply
+        // absent from the tree. Nothing here ever mid-animates a height,
+        // so there is no clip window that can slice a fixed-height child.
         if (!player.hasSong || _dismissed) {
-          if (!_skipSizeAnim) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => _skipSizeAnim = true);
-            });
-          }
           return const SizedBox.shrink();
         }
 
-        // Trigger entry animation when song first appears or changes
+        // Trigger entry animation when song first appears, changes, or the
+        // mini player reappears after a dismiss.
         final songId = player.currentSong?.id;
         if (songId != _lastSongId) {
           final isFirstSong = _lastSongId == null;
@@ -473,57 +411,28 @@ class _MiniPlayerState extends State<MiniPlayer>
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             if (isFirstSong) {
-              // First-ever appearance keeps the original bottom-up entry.
               _entryCtrl.forward(from: 0.0);
             } else {
-              // Song changed via swipe (or skip buttons) — slide the new
-              // content in from the side, continuing the swipe's motion.
               _slideInCtrl.forward(from: 0.0);
             }
           });
         }
 
-        // Hide mini player when home hero is visible — animated fade+slide
-        // via ValueListenableBuilder (not a raw .value read + hard return)
-        // so crossing the hero-scroll boundary is a smooth 220ms transition
-        // instead of an instant pop that reads as "stuck"/glitchy.
-        // Clear the skip-animation flag one frame after mounting, so this
-        // ONLY suppresses the 0->full grow on the frame the mini player
-        // (re)appears from nothing — every subsequent hero-visibility
-        // toggle still animates normally.
-        if (_skipSizeAnim) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) setState(() => _skipSizeAnim = false);
-          });
-        }
-
+        // Hide mini player when home hero is visible. Pure transform +
+        // opacity — NEVER touches layout size, so there is no clip window
+        // and no growing/shrinking box to slice a fixed-height capsule.
+        // The Column this sits in always reserves the mini player's full
+        // height; when "hidden" it's just faded out and slid down in
+        // place, with IgnorePointer so it doesn't intercept taps.
         return ValueListenableBuilder<bool>(
           valueListenable: MiniPlayer.heroVisibleNotifier,
           builder: (context, heroVisible, _) {
-            // AnimatedSize collapses the widget's reserved layout space to
-            // zero when the hero is visible, instead of just fading opacity
-            // (which left a blank gap the height of the mini player, since
-            // the widget was still taking up space in the Column even while
-            // invisible/ignored).
-            //
-            // duration: Duration.zero on first mount only — see
-            // _skipSizeAnim above. Without this, AnimatedSize animates its
-            // own height from 0 on every fresh appearance, clipping the
-            // fixed-height capsule mid-shape and showing a stray sliver of
-            // its blurred/bordered edge for a couple of frames.
-            return AnimatedSize(
-              duration: _skipSizeAnim
-                  ? Duration.zero
-                  : const Duration(milliseconds: 200),
+            return AnimatedSlide(
+              duration: const Duration(milliseconds: 180),
               curve: Curves.easeOutCubic,
-              alignment: Alignment.bottomCenter,
-              child: ClipRect(
-                child: AnimatedSlide(
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOutCubic,
-              offset: heroVisible ? const Offset(0, 0.5) : Offset.zero,
+              offset: heroVisible ? const Offset(0, 0.6) : Offset.zero,
               child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 140),
+                duration: const Duration(milliseconds: 160),
                 curve: Curves.easeOut,
                 opacity: heroVisible ? 0.0 : 1.0,
                 child: IgnorePointer(
@@ -547,8 +456,6 @@ class _MiniPlayerState extends State<MiniPlayer>
                   ),
                 ),
               ),
-            ),
-              ),
             );
           },
         );
@@ -557,10 +464,6 @@ class _MiniPlayerState extends State<MiniPlayer>
   }
 
   Widget _buildInner(BuildContext context, PlayerProvider player) {
-    // Calculate visual transforms
-    final currentY = _settleCtrl.isAnimating ? _settleAnim.value : _dragY;
-    final dragFraction = (currentY.abs() / 160.0).clamp(0.0, 1.0);
-
     return AnimatedBuilder(
       animation: _settleCtrl,
       builder: (_, child) {
@@ -588,43 +491,39 @@ class _MiniPlayerState extends State<MiniPlayer>
             onVerticalDragStart: _onDragStart,
             onVerticalDragUpdate: _onDragUpdate,
             onVerticalDragEnd: _onDragEnd,
-            // Respect Settings → Player & Audio → "Swipe to Change Song".
-            // When off, these handlers are null so GestureDetector doesn't
-            // register horizontal drags at all — vertical dismiss/open-
-            // player swipe still works either way.
             onHorizontalDragStart: swipeEnabled ? _onDragStartX : null,
             onHorizontalDragUpdate: swipeEnabled ? _onDragUpdateX : null,
             onHorizontalDragEnd: swipeEnabled ? _onDragEndX : null,
             child: AnimatedBuilder(
               animation: Listenable.merge([_swipeCtrl, _slideInCtrl]),
               builder: (_, child) {
-            final swipeX = _swipeCtrl.isAnimating ? _swipeAnim.value : _dragX;
-            final swipeFrac = (swipeX.abs() / 160.0).clamp(0.0, 1.0);
-            final swipeOpacity = (1.0 - swipeFrac * 0.7).clamp(0.0, 1.0);
-            final swipeScale = (1.0 - swipeFrac * 0.06).clamp(0.9, 1.0);
+                final swipeX = _swipeCtrl.isAnimating ? _swipeAnim.value : _dragX;
+                final swipeFrac = (swipeX.abs() / 160.0).clamp(0.0, 1.0);
+                final swipeOpacity = (1.0 - swipeFrac * 0.7).clamp(0.0, 1.0);
+                final swipeScale = (1.0 - swipeFrac * 0.06).clamp(0.9, 1.0);
 
-            final slideInOffset = _slideInCtrl.isAnimating
-                ? (1.0 - _slideInAnim.value) * (_swipeDir * -140.0)
-                : 0.0;
-            final slideInOpacity = _slideInCtrl.isAnimating
-                ? Curves.easeOut.transform(_slideInAnim.value)
-                : 1.0;
+                final slideInOffset = _slideInCtrl.isAnimating
+                    ? (1.0 - _slideInAnim.value) * (_swipeDir * -140.0)
+                    : 0.0;
+                final slideInOpacity = _slideInCtrl.isAnimating
+                    ? Curves.easeOut.transform(_slideInAnim.value)
+                    : 1.0;
 
-            final totalX = swipeX + slideInOffset;
-            final totalOpacity = (swipeOpacity *
-                    (_slideInCtrl.isAnimating ? slideInOpacity : 1.0))
-                .clamp(0.0, 1.0);
+                final totalX = swipeX + slideInOffset;
+                final totalOpacity = (swipeOpacity *
+                        (_slideInCtrl.isAnimating ? slideInOpacity : 1.0))
+                    .clamp(0.0, 1.0);
 
-            return Transform.translate(
-              offset: Offset(totalX, 0),
-              child: Transform.scale(
-                scale: swipeScale,
-                child: Opacity(
-                  opacity: totalOpacity,
-                  child: child,
-                ),
-              ),
-            );
+                return Transform.translate(
+                  offset: Offset(totalX, 0),
+                  child: Transform.scale(
+                    scale: swipeScale,
+                    child: Opacity(
+                      opacity: totalOpacity,
+                      child: child,
+                    ),
+                  ),
+                );
               },
               child: _MiniPlayerContent(
                 player: player,
@@ -659,15 +558,10 @@ class _MiniPlayerContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final song = player.currentSong;
-    // FIX: this used to force-unwrap (`player.currentSong!`). The parent
-    // Consumer guards on `player.hasSong` one frame before this widget
-    // builds, but currentSong is also re-read live inside AnimatedBuilder's
-    // child (rebuilt independently of the Consumer on every settle-animation
-    // tick) — if the queue resolve fails and clears the song in between
-    // those two reads, the `!` throws here and crashes the whole app to a
-    // blank white screen, which is exactly what was happening intermittently
-    // on local/offline playback. Render nothing instead; the parent's
-    // hasSong guard will hide this widget on the very next frame anyway.
+    // Guard against a race between the parent's hasSong check and a live
+    // rebuild here (e.g. mid settle-animation) clearing the song in
+    // between — render nothing instead of force-unwrapping, the parent's
+    // hasSong guard hides this widget on the very next frame anyway.
     if (song == null) return const SizedBox.shrink();
 
     if (style == 'Compact Bar') {
@@ -679,7 +573,6 @@ class _MiniPlayerContent extends StatelessWidget {
   Widget _buildCapsule(BuildContext context, dynamic song) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Hint: show up/down arrows while dragging
     final showUpHint = dragY < -20;
     final showDownHint = dragY > 20;
 
@@ -696,8 +589,8 @@ class _MiniPlayerContent extends StatelessWidget {
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isDragging
-              ? AurumTheme.gold.withAlpha(60)
-              : AurumTheme.gold.withAlpha(isDark ? 35 : 50),
+                ? AurumTheme.gold.withAlpha(60)
+                : AurumTheme.gold.withAlpha(isDark ? 35 : 50),
             width: 0.8,
           ),
           boxShadow: [
@@ -717,11 +610,10 @@ class _MiniPlayerContent extends StatelessWidget {
         Widget capsuleBody = AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           decoration: capsuleDecoration,
-          child: _miniPlayerCapsuleContent(context, song, showUpHint, showDownHint),
+          child:
+              _miniPlayerCapsuleContent(context, song, showUpHint, showDownHint),
         );
 
-        // "Solid" skips the BackdropFilter blur entirely — cheaper to
-        // render and gives a flat, opaque card look.
         if (!isSolid) {
           capsuleBody = BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
@@ -732,15 +624,10 @@ class _MiniPlayerContent extends StatelessWidget {
         return Container(
           margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
           height: 68,
-          // RepaintBoundary forces this blur onto its OWN compositing layer.
-          // FIX: without this, having multiple BackdropFilters active at once
-          // (mini player + anything else mounted underneath, e.g. right as a
-          // song starts and the mini player appears) can make some Android
-          // GPU/Skia configs blur the entire shared backdrop layer instead of
-          // just this clipped capsule — which is what was making the WHOLE
-          // Home screen appear blurred the instant the mini player showed up,
-          // and fixing itself the moment the mini player (and its filter) was
-          // removed via swipe-down dismiss.
+          // RepaintBoundary forces this blur onto its own compositing
+          // layer so it can never bleed into/from sibling BackdropFilters
+          // (e.g. the bottom nav bar's own blur) on Android's Skia
+          // backend.
           child: RepaintBoundary(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
@@ -752,147 +639,124 @@ class _MiniPlayerContent extends StatelessWidget {
     );
   }
 
-  Widget _miniPlayerCapsuleContent(BuildContext context, dynamic song, bool showUpHint, bool showDownHint) {
+  Widget _miniPlayerCapsuleContent(
+      BuildContext context, dynamic song, bool showUpHint, bool showDownHint) {
     return Stack(
-              children: [
-                // Main row
-                //
-                // ROOT CAUSE of the mini player "white/stray line" bug: this
-                // Column was `mainAxisSize: MainAxisSize.min` while containing
-                // an `Expanded` child below (the song info + controls row).
-                // `Expanded` requires a bounded/definite height from its
-                // parent to distribute space, but `MainAxisSize.min` tells
-                // the Column to shrink-wrap to its children's intrinsic
-                // size — a direct contradiction. Inside a `Stack` (which
-                // gives non-positioned children loose constraints sized to
-                // fill the stack) this produced inconsistent/degenerate
-                // layout: often only the 2px LinearProgressIndicator at the
-                // top painted reliably, while the row beneath it collapsed
-                // or rendered incorrectly — exactly the "white/stray line".
-                //
-                // Fix: MainAxisSize.max lets the Column fill the height the
-                // Stack hands it (ultimately bounded by the outer
-                // Container(height: 68)), giving Expanded a legitimate
-                // bounded height to work with.
-                Column(
-                  mainAxisSize: MainAxisSize.max,
+      children: [
+        // MainAxisSize.max: this Column contains an Expanded child, which
+        // needs a bounded height from its parent to distribute space.
+        // Inside a Stack (which gives non-positioned children loose
+        // constraints sized to fill the stack), MainAxisSize.min here
+        // would contradict Expanded and produce degenerate layout.
+        Column(
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              child: LinearProgressIndicator(
+                value: player.progress,
+                backgroundColor: Colors.transparent,
+                valueColor: const AlwaysStoppedAnimation<Color>(AurumTheme.gold),
+                minHeight: 2,
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
                   children: [
-                    // Progress bar at top
-                    ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(20)),
-                      child: LinearProgressIndicator(
-                        value: player.progress,
-                        backgroundColor: Colors.transparent,
-                        valueColor:
-                            const AlwaysStoppedAnimation<Color>(AurumTheme.gold),
-                        minHeight: 2,
+                    Hero(
+                      tag: 'aurum_artwork',
+                      flightShuttleBuilder: (ctx, anim, dir, from, to) =>
+                          ScaleTransition(scale: anim, child: to.widget),
+                      child: AurumArtwork(
+                        url: song.artworkUrl,
+                        size: 44,
+                        borderRadius: 10,
                       ),
                     ),
+                    const SizedBox(width: 12),
                     Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Row(
-                          children: [
-                            // Artwork
-                            Hero(
-                              tag: 'aurum_artwork',
-                              flightShuttleBuilder:
-                                  (ctx, anim, dir, from, to) =>
-                                      ScaleTransition(
-                                          scale: anim, child: to.widget),
-                              child: AurumArtwork(
-                                url: song.artworkUrl,
-                                size: 44,
-                                borderRadius: 10,
-                              ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            song.title,
+                            style: TextStyle(
+                              color: AurumTheme.textPrimaryOf(context),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
                             ),
-                            const SizedBox(width: 12),
-                            // Song info
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    song.title,
-                                    style: TextStyle(
-                                      color: AurumTheme.textPrimaryOf(context),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    song.artist,
-                                    style: TextStyle(
-                                      color: AurumTheme.textSecondaryOf(context),
-                                      fontSize: 11,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            song.artist,
+                            style: TextStyle(
+                              color: AurumTheme.textSecondaryOf(context),
+                              fontSize: 11,
                             ),
-                            const SizedBox(width: 8),
-                            // Controls
-                            _ControlBtn(
-                                icon: Icons.skip_previous_rounded,
-                                onTap: () {
-                                  HapticFeedback.selectionClick();
-                                  player.skipPrev();
-                                },
-                                size: 22,
-                                context: context),
-                            const SizedBox(width: 4),
-                            _PlayBtn(player: player),
-                            const SizedBox(width: 4),
-                            _ControlBtn(
-                                icon: Icons.skip_next_rounded,
-                                onTap: () {
-                                  HapticFeedback.selectionClick();
-                                  player.skipNext();
-                                },
-                                size: 22,
-                                context: context),
-                          ],
-                        ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    _ControlBtn(
+                        icon: Icons.skip_previous_rounded,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          player.skipPrev();
+                        },
+                        size: 22,
+                        context: context),
+                    const SizedBox(width: 4),
+                    _PlayBtn(player: player),
+                    const SizedBox(width: 4),
+                    _ControlBtn(
+                        icon: Icons.skip_next_rounded,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          player.skipNext();
+                        },
+                        size: 22,
+                        context: context),
                   ],
                 ),
-
-                // Drag hint overlay
-                if (showUpHint || showDownHint)
-                  Positioned.fill(
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 150),
-                      opacity: (dragY.abs() / 60.0).clamp(0.0, 0.85),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: showDownHint
-                              ? Colors.red.withAlpha(30)
-                              : Colors.white.withAlpha(10),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Center(
-                          child: Icon(
-                            showDownHint
-                                ? Icons.stop_circle_outlined
-                                : Icons.keyboard_arrow_up_rounded,
-                            color: showDownHint
-                                ? Colors.red.withAlpha(180)
-                                : Colors.white.withAlpha(150),
-                            size: 28,
-                          ),
-                        ),
-                      ),
-                    ),
+              ),
+            ),
+          ],
+        ),
+        if (showUpHint || showDownHint)
+          Positioned.fill(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 150),
+              opacity: (dragY.abs() / 60.0).clamp(0.0, 0.85),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: showDownHint
+                      ? Colors.red.withAlpha(30)
+                      : Colors.white.withAlpha(10),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Center(
+                  child: Icon(
+                    showDownHint
+                        ? Icons.stop_circle_outlined
+                        : Icons.keyboard_arrow_up_rounded,
+                    color: showDownHint
+                        ? Colors.red.withAlpha(180)
+                        : Colors.white.withAlpha(150),
+                    size: 28,
                   ),
-              ],
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -905,161 +769,146 @@ class _MiniPlayerContent extends StatelessWidget {
     return RepaintBoundary(
       child: ClipRect(
         child: Container(
-        height: 64,
-        decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(
-              color: isDragging
-                  ? AurumTheme.gold.withAlpha(70)
-                  : AurumTheme.gold.withAlpha(isDark ? 30 : 45),
-              width: 0.6,
+          height: 64,
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: isDragging
+                    ? AurumTheme.gold.withAlpha(70)
+                    : AurumTheme.gold.withAlpha(isDark ? 30 : 45),
+                width: 0.6,
+              ),
             ),
           ),
-        ),
-        child: BackdropFilter(
+          child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withAlpha(isDragging ? 16 : 11)
-                  : Colors.black.withAlpha(isDragging ? 14 : 9),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(isDark ? 90 : 26),
-                  blurRadius: isDragging ? 22 : 16,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Stack(
-              children: [
-                // Same root cause and fix as _miniPlayerCapsuleContent's
-                // Column above: MainAxisSize.min contradicted the Expanded
-                // child right below it, which could degenerate into the
-                // same "stray line" symptom whenever this Compact Bar
-                // style was selected in Settings → Appearance.
-                //
-                // Fix: MainAxisSize.max lets this Column fill the bounded
-                // height coming from the outer Container(height: 64), so
-                // Expanded gets a legitimate height to distribute.
-                Column(
-                  mainAxisSize: MainAxisSize.max,
-                  children: [
-                  // Edge-to-edge progress line
-                  LinearProgressIndicator(
-                    value: player.progress,
-                    backgroundColor: Colors.transparent,
-                    valueColor: const AlwaysStoppedAnimation<Color>(
-                        AurumTheme.gold),
-                    minHeight: 2,
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 14),
-                      child: Row(
-                        children: [
-                          // Square-ish artwork, slightly smaller than capsule
-                          Hero(
-                            tag: 'aurum_artwork',
-                            flightShuttleBuilder:
-                                (ctx, anim, dir, from, to) =>
-                                    ScaleTransition(
-                                        scale: anim, child: to.widget),
-                            child: AurumArtwork(
-                              url: song.artworkUrl,
-                              size: 40,
-                              borderRadius: 8,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                              mainAxisAlignment:
-                                  MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  song.title,
-                                  style: TextStyle(
-                                    color:
-                                        AurumTheme.textPrimaryOf(context),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  song.artist,
-                                  style: TextStyle(
-                                    color: AurumTheme.textSecondaryOf(
-                                        context),
-                                    fontSize: 11,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          _ControlBtn(
-                              icon: Icons.skip_previous_rounded,
-                              onTap: () {
-                                HapticFeedback.selectionClick();
-                                player.skipPrev();
-                              },
-                              size: 20,
-                              context: context),
-                          const SizedBox(width: 2),
-                          _PlayBtn(player: player),
-                          const SizedBox(width: 2),
-                          _ControlBtn(
-                              icon: Icons.skip_next_rounded,
-                              onTap: () {
-                                HapticFeedback.selectionClick();
-                                player.skipNext();
-                              },
-                              size: 20,
-                              context: context),
-                        ],
-                      ),
-                    ),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withAlpha(isDragging ? 16 : 11)
+                    : Colors.black.withAlpha(isDragging ? 14 : 9),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withAlpha(isDark ? 90 : 26),
+                    blurRadius: isDragging ? 22 : 16,
+                    offset: const Offset(0, -2),
                   ),
                 ],
               ),
-              if (showUpHint || showDownHint)
-                Positioned.fill(
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 150),
-                    opacity: (dragY.abs() / 60.0).clamp(0.0, 0.85),
-                    child: Container(
-                      color: showDownHint
-                          ? Colors.red.withAlpha(30)
-                          : Colors.white.withAlpha(10),
-                      child: Center(
-                        child: Icon(
-                          showDownHint
-                              ? Icons.stop_circle_outlined
-                              : Icons.keyboard_arrow_up_rounded,
+              child: Stack(
+                children: [
+                  // Same reasoning as the Capsule variant above:
+                  // MainAxisSize.max so the Expanded child gets a real
+                  // bounded height from this Column.
+                  Column(
+                    mainAxisSize: MainAxisSize.max,
+                    children: [
+                      LinearProgressIndicator(
+                        value: player.progress,
+                        backgroundColor: Colors.transparent,
+                        valueColor:
+                            const AlwaysStoppedAnimation<Color>(AurumTheme.gold),
+                        minHeight: 2,
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          child: Row(
+                            children: [
+                              Hero(
+                                tag: 'aurum_artwork',
+                                flightShuttleBuilder: (ctx, anim, dir, from, to) =>
+                                    ScaleTransition(scale: anim, child: to.widget),
+                                child: AurumArtwork(
+                                  url: song.artworkUrl,
+                                  size: 40,
+                                  borderRadius: 8,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      song.title,
+                                      style: TextStyle(
+                                        color: AurumTheme.textPrimaryOf(context),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      song.artist,
+                                      style: TextStyle(
+                                        color: AurumTheme.textSecondaryOf(context),
+                                        fontSize: 11,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              _ControlBtn(
+                                  icon: Icons.skip_previous_rounded,
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    player.skipPrev();
+                                  },
+                                  size: 20,
+                                  context: context),
+                              const SizedBox(width: 2),
+                              _PlayBtn(player: player),
+                              const SizedBox(width: 2),
+                              _ControlBtn(
+                                  icon: Icons.skip_next_rounded,
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    player.skipNext();
+                                  },
+                                  size: 20,
+                                  context: context),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (showUpHint || showDownHint)
+                    Positioned.fill(
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 150),
+                        opacity: (dragY.abs() / 60.0).clamp(0.0, 0.85),
+                        child: Container(
                           color: showDownHint
-                              ? Colors.red.withAlpha(180)
-                              : Colors.white.withAlpha(150),
-                          size: 26,
+                              ? Colors.red.withAlpha(30)
+                              : Colors.white.withAlpha(10),
+                          child: Center(
+                            child: Icon(
+                              showDownHint
+                                  ? Icons.stop_circle_outlined
+                                  : Icons.keyboard_arrow_up_rounded,
+                              color: showDownHint
+                                  ? Colors.red.withAlpha(180)
+                                  : Colors.white.withAlpha(150),
+                              size: 26,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-            ],
+                ],
+              ),
+            ),
           ),
         ),
-      ),
-      ),
       ),
     );
   }
@@ -1079,7 +928,8 @@ class _PlayBtn extends StatelessWidget {
       return Opacity(
         opacity: 0.35,
         child: SizedBox(
-          width: 36, height: 36,
+          width: 36,
+          height: 36,
           child: Icon(Icons.play_arrow_rounded, color: accent, size: 26),
         ),
       );
