@@ -4,7 +4,6 @@ import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:provider/provider.dart';
@@ -77,242 +76,22 @@ class _PlaylistMeta {
 // random tracklist looked broken/cheap, not premium.
 
 // ══════════════════════════════════════════════════════════════════
-// HERO PULL-TO-REFRESH — the reveal happens INSIDE the hero "Now
-// Playing" card's own space, not floating over the status bar. Pulling
-// down pushes the hero card downward (via a growing gap above it,
-// clipped to the same rounded shape) and a Chrome-style circular
-// progress ring grows out of that gap, tracking the pull distance
-// exactly like Chrome/Android's native pull-to-refresh — a plain ring
-// that fills as you pull, then spins once the trigger point is passed.
-// ══════════════════════════════════════════════════════════════════
-class _HeroPullToRefresh extends StatefulWidget {
-  const _HeroPullToRefresh({required this.onRefresh, required this.child});
-  final Future<void> Function() onRefresh;
-  final Widget child;
-
-  @override
-  State<_HeroPullToRefresh> createState() => _HeroPullToRefreshState();
-}
-
-class _HeroPullToRefreshState extends State<_HeroPullToRefresh>
-    with SingleTickerProviderStateMixin {
-  static const double _triggerDistance = 72.0;
-  static const double _maxReveal = 96.0;
-  // Small dead zone so incidental scroll-bounce/overscroll jitter at the
-  // top doesn't twitch the ring open — only a real, sustained pull does.
-  static const double _deadZone = 18.0;
-
-  double _pullDistance = 0.0;
-  bool _refreshing = false;
-  bool _dragging = false;
-
-  late final AnimationController _settleCtrl;
-  Animation<double>? _settleAnim;
-
-  // Continuous spin while actively refreshing (Chrome-style — the ring
-  // keeps rotating smoothly rather than a discrete morph animation).
-  late final AnimationController _spinCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _settleCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 280),
-    );
-    _spinCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 850),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _settleCtrl.dispose();
-    _spinCtrl.dispose();
-    super.dispose();
-  }
-
-  void _animateTo(double target, {VoidCallback? onDone, Curve curve = Curves.easeOutCubic}) {
-    _settleAnim = Tween<double>(begin: _pullDistance, end: target)
-        .animate(CurvedAnimation(parent: _settleCtrl, curve: curve))
-      ..addListener(() => setState(() => _pullDistance = _settleAnim!.value));
-    _settleCtrl.forward(from: 0).whenComplete(() => onDone?.call());
-  }
-
-  bool _onNotification(ScrollNotification n) {
-    if (_refreshing) return false;
-
-    final metrics = n.metrics;
-    final atTop = metrics.pixels <= 0;
-
-    if (n is ScrollUpdateNotification || n is OverscrollNotification) {
-      if (atTop) {
-        _dragging = true;
-        final raw = -metrics.pixels;
-        setState(() {
-          if (raw <= _deadZone) {
-            _pullDistance = 0.0;
-          } else {
-            final effective = raw - _deadZone;
-            // Same rubber-band falloff as the old indicator so it never
-            // feels like it can be pulled forever, but stays snappier
-            // (smaller _maxReveal) since it now lives inside the card.
-            _pullDistance = _maxReveal * (1 - math.exp(-effective / _maxReveal));
-          }
-        });
-      } else if (_dragging) {
-        _dragging = false;
-        _animateTo(0.0);
-      }
-    } else if (n is ScrollEndNotification ||
-        (n is UserScrollNotification && n.direction == ScrollDirection.idle)) {
-      if (_dragging) {
-        _dragging = false;
-        if (_pullDistance >= _triggerDistance * 0.78) {
-          _startRefresh();
-        } else if (_pullDistance > 0) {
-          _animateTo(0.0);
-        }
-      }
-    }
-    return false;
-  }
-
-  Future<void> _startRefresh() async {
-    HapticFeedback.mediumImpact();
-    setState(() => _refreshing = true);
-    _animateTo(_triggerDistance * 0.78);
-    try {
-      await widget.onRefresh();
-    } finally {
-      if (mounted) {
-        HapticFeedback.lightImpact();
-        setState(() => _refreshing = false);
-        _animateTo(0.0, curve: Curves.easeOutQuart);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = (_pullDistance / _triggerDistance).clamp(0.0, 1.0);
-    final ringSize = 30.0;
-
-    return NotificationListener<ScrollNotification>(
-      onNotification: _onNotification,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          // The child (hero card + rest of the scroll content) shifts
-          // down to reveal a real gap above it — the ring physically
-          // lives IN that gap, right above the hero card's top edge,
-          // rather than floating on a separate layer over the page.
-          Transform.translate(
-            offset: Offset(0, _pullDistance),
-            child: widget.child,
-          ),
-          Positioned(
-            top: MediaQuery.of(context).padding.top +
-                kToolbarHeight -
-                ringSize / 2,
-            left: 0,
-            right: 0,
-            child: IgnorePointer(
-              child: Center(
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 120),
-                  opacity: _pullDistance > 2 ? 1.0 : 0.0,
-                  child: Transform.translate(
-                    // Rides down with the pull so it always sits right
-                    // above the hero card's (now-shifted) top edge,
-                    // instead of staying pinned near the status bar.
-                    offset: Offset(0, _pullDistance * 0.55),
-                    child: SizedBox(
-                      width: ringSize,
-                      height: ringSize,
-                      child: AnimatedBuilder(
-                        animation: _spinCtrl,
-                        builder: (context, _) {
-                          return Transform.rotate(
-                            // Chrome/Android-style: the ring itself only
-                            // spins once actively refreshing; while just
-                            // being pulled, it stays still and simply
-                            // fills in as an arc tracking pull progress.
-                            angle: _refreshing ? _spinCtrl.value * 6.28319 : 0,
-                            child: CustomPaint(
-                              painter: _RingPainter(
-                                progress: _refreshing ? 0.75 : progress,
-                                color: AurumTheme.gold,
-                                trackColor: AurumTheme.gold.withOpacity(0.15),
-                                strokeWidth: 2.6,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// Plain circular progress ring — a filled arc that grows with `progress`
-// (0.0-1.0), on top of a faint full-circle track. This is the actual
-// Chrome/native-Android pull-to-refresh look: no icon, no card, no
-// shadow — just a clean ring.
-class _RingPainter extends CustomPainter {
-  final double progress;
-  final Color color;
-  final Color trackColor;
-  final double strokeWidth;
-
-  _RingPainter({
-    required this.progress,
-    required this.color,
-    required this.trackColor,
-    required this.strokeWidth,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = (size.width - strokeWidth) / 2;
-
-    final trackPaint = Paint()
-      ..color = trackColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-    canvas.drawCircle(center, radius, trackPaint);
-
-    final arcPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-    final sweep = 6.28319 * progress.clamp(0.0, 1.0);
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -1.5708, // start at 12 o'clock
-      sweep,
-      false,
-      arcPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter oldDelegate) =>
-      oldDelegate.progress != progress ||
-      oldDelegate.color != color ||
-      oldDelegate.trackColor != trackColor;
-}
+// NOTE: the previous hand-rolled `_HeroPullToRefresh` + `_RingPainter`
+// (custom NotificationListener-based pull gesture) has been removed.
+// ROOT CAUSE of "refresh hota hi nahi": that custom gesture detector sat
+// directly above `_HeroNowPlaying`, which has its own horizontal-drag
+// GestureDetector for song swipe. Flutter's gesture arbitration between
+// the two competed for the same touch sequence, and a plain vertical
+// pull starting at the very top of the list (pixels == 0, right where
+// SliverAppBar's floating/snap behavior also has its own claim on the
+// first bit of scroll delta) frequently lost that arbitration silently
+// — no ring, no refresh, no error.
+//
+// Fixed by switching to Flutter's own `RefreshIndicator` (wired directly
+// in HomeScreen.build() below), which owns gesture arbitration correctly
+// against sibling GestureDetectors out of the box. Styled with the app's
+// gold accent so it still matches the rest of Aurum instead of looking
+// like a stock Material widget.
 
 class _HomeScreenState extends State<HomeScreen> {
   List<SongSection> _onlineSections = [];
@@ -448,7 +227,18 @@ class _HomeScreenState extends State<HomeScreen> {
           const _TopAmbientGlow(),
 
           // ── Main scroll content ──
-          _HeroPullToRefresh(
+          // Native RefreshIndicator — see the note above _TopAmbientGlow's
+          // old _HeroPullToRefresh definition for why the custom gesture
+          // detector was replaced. This owns gesture arbitration against
+          // the hero's horizontal swipe detector correctly out of the box,
+          // so a plain downward pull at the top of the list reliably
+          // triggers a refresh every time. Styled gold/dark to match the
+          // rest of Aurum rather than looking like a stock widget.
+          RefreshIndicator(
+            color: AurumTheme.gold,
+            backgroundColor: AurumTheme.bgCardOf(context),
+            strokeWidth: 2.6,
+            displacement: 48,
             onRefresh: () => isOnline
                 ? Future.wait([_loadOnline(), _loadArtists()])
                 : context.read<LibraryProvider>().refresh(),
@@ -789,14 +579,26 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     final song = context.select<PlayerProvider, Song?>((p) => p.currentSong);
     final isLight = Theme.of(context).brightness == Brightness.light;
 
-    // AnimatedSize + AnimatedSwitcher: the hero smoothly grows/shrinks and
-    // crossfades between the "no song" prompt (86px) and the full playing
-    // card (168px) instead of snapping instantly between two hard-coded
-    // layouts — that instant jump was the "atak jaana" glitch on home.
+    // FIX: a persistent hairline seam (page's cream/`bgOf` background
+    // peeking through) was showing along the hero's bottom edge in every
+    // state, not just mid-transition. Root cause: AnimatedSize recomputes
+    // its layout size from its child's intrinsic size every frame, and
+    // that computed size can be a sub-pixel off from the child's actual
+    // painted bounds due to rounding — normally invisible, but here the
+    // full-bleed hero (no margin/card color of its own to plug the gap,
+    // unlike the old padded/boxed design) sits directly on the page
+    // background, so that fractional gap exposed it as a visible seam.
+    //
+    // Fix: `clipBehavior: Clip.hardEdge` on AnimatedSize clips content to
+    // its own computed bounds rather than letting a rounding mismatch
+    // show whatever's behind it. This addresses the actual rendering
+    // artifact directly, rather than trying to paint over a gap that
+    // shouldn't be visible in the first place.
     return AnimatedSize(
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
       alignment: Alignment.topCenter,
+      clipBehavior: Clip.hardEdge,
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 200),
         switchInCurve: Curves.easeOutCubic,
@@ -817,28 +619,30 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
 
   Widget _buildEmptyPrompt(BuildContext context) {
     // Lightweight static prompt — no blur, no animation, theme-safe.
+    // Kept a small side margin here (unlike the playing card below) since
+    // there's no artwork to bleed edge-to-edge — a floating pill reads
+    // better than a full-width empty bar.
     return Padding(
       key: const ValueKey('hero_empty'),
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 22),
       child: Container(
-        height: 86,
+        height: 64,
         padding: const EdgeInsets.symmetric(horizontal: 18),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
           color: AurumTheme.bgCardOf(context),
-          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.8),
         ),
         child: Row(
           children: [
             Icon(Icons.graphic_eq_rounded,
-                color: AurumTheme.gold.withOpacity(0.85), size: 22),
-            const SizedBox(width: 14),
+                color: AurumTheme.gold.withOpacity(0.85), size: 20),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 'Pick something to play',
                 style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 15,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -849,172 +653,170 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     );
   }
 
+  // ── Playing card — "now playing stage" ──────────────────────────────────
+  // Redesigned as a full-bleed panel (no side margins, no rounded card
+  // floating on the page background, no outer border) so it reads as the
+  // top of a continuous surface that the rest of the page descends from,
+  // rather than a separate boxed widget sitting on top of the scaffold.
+  // All gesture/animation logic below (swipe-to-skip, breathing scale,
+  // slide-in on song change) is unchanged from before — only the outer
+  // shape/spacing changed.
   Widget _buildPlayingCard(BuildContext context, Song song, bool isLight) {
     return Padding(
       key: const ValueKey('hero_playing'),
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+      padding: EdgeInsets.zero,
       child: AurumPressable(
-        scaleAmount: 0.97,
+        scaleAmount: 0.99,
         onTap: _openFullPlayer,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: SizedBox(
-            height: 168,
-            child: ValueListenableBuilder<bool>(
-              valueListenable: AudioPrefs.swipeToChangeNotifier,
-              builder: (context, swipeEnabled, _) {
-                return GestureDetector(
-              onHorizontalDragStart: swipeEnabled ? _onDragStartX : null,
-              onHorizontalDragUpdate: swipeEnabled ? _onDragUpdateX : null,
-              onHorizontalDragEnd: swipeEnabled ? _onDragEndX : null,
-              child: AnimatedBuilder(
-                animation: Listenable.merge([_swipeCtrl, _slideInCtrl]),
-                builder: (_, child) {
-                  if (song.id != _lastSongId) {
-                    final isFirst = _lastSongId == null;
-                    _lastSongId = song.id;
-                    if (!isFirst) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) _slideInCtrl.forward(from: 0.0);
-                      });
-                    }
+        child: SizedBox(
+          height: 210,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: AudioPrefs.swipeToChangeNotifier,
+            builder: (context, swipeEnabled, _) {
+              return GestureDetector(
+            onHorizontalDragStart: swipeEnabled ? _onDragStartX : null,
+            onHorizontalDragUpdate: swipeEnabled ? _onDragUpdateX : null,
+            onHorizontalDragEnd: swipeEnabled ? _onDragEndX : null,
+            child: AnimatedBuilder(
+              animation: Listenable.merge([_swipeCtrl, _slideInCtrl]),
+              builder: (_, child) {
+                if (song.id != _lastSongId) {
+                  final isFirst = _lastSongId == null;
+                  _lastSongId = song.id;
+                  if (!isFirst) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) _slideInCtrl.forward(from: 0.0);
+                    });
                   }
-                  final swipeX =
-                      _swipeCtrl.isAnimating ? _swipeAnim.value : _dragX;
-                  final frac = (swipeX.abs() / 160.0).clamp(0.0, 1.0);
-                  final swipeOpacity = (1.0 - frac * 0.7).clamp(0.0, 1.0);
-                  final swipeScale = (1.0 - frac * 0.05).clamp(0.92, 1.0);
+                }
+                final swipeX =
+                    _swipeCtrl.isAnimating ? _swipeAnim.value : _dragX;
+                final frac = (swipeX.abs() / 160.0).clamp(0.0, 1.0);
+                final swipeOpacity = (1.0 - frac * 0.7).clamp(0.0, 1.0);
+                final swipeScale = (1.0 - frac * 0.05).clamp(0.92, 1.0);
 
-                  final slideInOffset = _slideInCtrl.isAnimating
-                      ? (1.0 - _slideInAnim.value) * (_swipeDir * -140.0)
-                      : 0.0;
-                  final slideInOpacity = _slideInCtrl.isAnimating
-                      ? Curves.easeOut.transform(_slideInAnim.value)
-                      : 1.0;
+                final slideInOffset = _slideInCtrl.isAnimating
+                    ? (1.0 - _slideInAnim.value) * (_swipeDir * -140.0)
+                    : 0.0;
+                final slideInOpacity = _slideInCtrl.isAnimating
+                    ? Curves.easeOut.transform(_slideInAnim.value)
+                    : 1.0;
 
-                  final totalX = swipeX + slideInOffset;
-                  final totalOpacity = (swipeOpacity *
-                          (_slideInCtrl.isAnimating ? slideInOpacity : 1.0))
-                      .clamp(0.0, 1.0);
+                final totalX = swipeX + slideInOffset;
+                final totalOpacity = (swipeOpacity *
+                        (_slideInCtrl.isAnimating ? slideInOpacity : 1.0))
+                    .clamp(0.0, 1.0);
 
-                  return Transform.translate(
-                    offset: Offset(totalX, 0),
-                    child: Transform.scale(
-                      scale: swipeScale,
-                      child: Opacity(opacity: totalOpacity, child: child),
-                    ),
+                return Transform.translate(
+                  offset: Offset(totalX, 0),
+                  child: Transform.scale(
+                    scale: swipeScale,
+                    child: Opacity(opacity: totalOpacity, child: child),
+                  ),
+                );
+              },
+              child: Stack(fit: StackFit.expand, children: [
+            // ── Stage background: blurred artwork, breathing scale ──
+            RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: _breatheCtrl,
+                builder: (_, child) {
+                  final b = Curves.easeInOut.transform(_breatheCtrl.value);
+                  return Transform.scale(
+                    scale: 1.0 + (b * 0.015), // 1.00 -> 1.015: alive, not animated
+                    child: child,
                   );
                 },
-                child: Stack(fit: StackFit.expand, children: [
-              // ── Hero background: blurred artwork, breathing scale ──
-              RepaintBoundary(
-                child: AnimatedBuilder(
-                  animation: _breatheCtrl,
-                  builder: (_, child) {
-                    final b = Curves.easeInOut.transform(_breatheCtrl.value);
-                    return Transform.scale(
-                      scale: 1.0 + (b * 0.015), // 1.00 -> 1.015: alive, not animated
-                      child: child,
-                    );
-                  },
-                  child: ImageFiltered(
-                    imageFilter: ImageFilter.blur(
-                      sigmaX: isLight ? 5 : 4,
-                      sigmaY: isLight ? 5 : 4,
-                      tileMode: TileMode.clamp,
-                    ),
-                    child: AurumArtwork(
-                      url: song.artworkUrl,
-                      size: double.infinity,
-                      borderRadius: 0,
-                    ),
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(
+                    sigmaX: isLight ? 6 : 5,
+                    sigmaY: isLight ? 6 : 5,
+                    tileMode: TileMode.clamp,
+                  ),
+                  child: AurumArtwork(
+                    url: song.artworkUrl,
+                    size: double.infinity,
+                    borderRadius: 0,
                   ),
                 ),
               ),
-              // ── Scrim for legibility — lighter in light mode (showcase), ──
-              // ── stronger/flatter in dark mode (perf + readability)      ──
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: isLight
-                        ? [
-                            Colors.white.withOpacity(0.10),
-                            Colors.black.withOpacity(0.32),
-                          ]
-                        : [
-                            Colors.black.withOpacity(0.45),
-                            Colors.black.withOpacity(0.78),
-                          ],
-                  ),
-                ),
-              ),
-              // ── Floating glass-look now-playing card (no real backdrop blur) ──
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.28),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: Colors.white.withOpacity(0.16),
-                            width: 0.8,
-                          ),
-                        ),
-                        child: Row(children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: AurumArtwork(
-                                url: song.artworkUrl, size: 48, borderRadius: 12),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  song.title,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  song.artist,
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.7),
-                                    fontSize: 12,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          _ResumeButton(onTap: _openFullPlayer),
-                        ]),
-                    ),
-                  ),
-                ),
-              ),
-            ]),
-              ),
-            );
-              },
             ),
+            // ── Scrim: now fades from fully transparent at the very top
+            // (so it visually joins the appbar behind it, reinforcing the
+            // "one continuous stage" read) down to a strong dark base
+            // where the track info sits, for legibility.
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: isLight
+                      ? [
+                          Colors.white.withOpacity(0.0),
+                          Colors.white.withOpacity(0.06),
+                          Colors.black.withOpacity(0.46),
+                        ]
+                      : [
+                          Colors.black.withOpacity(0.05),
+                          Colors.black.withOpacity(0.35),
+                          Colors.black.withOpacity(0.86),
+                        ],
+                  stops: const [0.0, 0.45, 1.0],
+                ),
+              ),
+            ),
+            // ── Track info + resume — sits directly on the stage now,
+            // no floating glass card/border. Full-width, edge-aligned
+            // with the rest of the page's 20px gutter.
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+                child: Row(children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: AurumArtwork(
+                        url: song.artworkUrl, size: 52, borderRadius: 12),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          song.title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.2,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          song.artist,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.68),
+                            fontSize: 13,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  _ResumeButton(onTap: _openFullPlayer),
+                ]),
+              ),
+            ),
+          ]),
+            ),
+          );
+            },
           ),
         ),
       ),
@@ -2432,10 +2234,6 @@ class _PlaylistCardState extends State<_PlaylistCard> {
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.08),
-              width: 0.8,
-            ),
           ),
           child: Stack(fit: StackFit.expand, children: [
             // Base layer: real album art once fetched, gradient fallback
