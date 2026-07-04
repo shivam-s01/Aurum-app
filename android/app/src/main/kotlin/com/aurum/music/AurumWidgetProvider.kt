@@ -21,6 +21,7 @@ import android.util.Log
 import android.widget.RemoteViews
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -190,10 +191,12 @@ open class AurumWidgetProvider : AppWidgetProvider() {
             scope.launch {
                 try {
                     val original = withContext(Dispatchers.IO) { downloadBitmap(url) } ?: return@launch
-                    val blurred = withContext(Dispatchers.Default) { blur(context, original, radius = 30f) }
-                    val thumb = withContext(Dispatchers.Default) {
+                    val blurredDeferred = async(Dispatchers.Default) { blur(context, original, radius = 30f) }
+                    val thumbDeferred = async(Dispatchers.Default) {
                         roundedCrop(original, sizePx = 200, cornerRadiusPx = 28f)
                     }
+                    val blurred = blurredDeferred.await()
+                    val thumb = thumbDeferred.await()
 
                     lastArtworkUrl = url
                     lastBlurredBitmap = blurred
@@ -233,15 +236,15 @@ open class AurumWidgetProvider : AppWidgetProvider() {
         private fun downloadBitmap(urlString: String): Bitmap? {
             return try {
                 val connection = URL(urlString).openConnection() as HttpURLConnection
-                connection.connectTimeout = 6000
-                connection.readTimeout = 6000
+                connection.connectTimeout = 3000
+                connection.readTimeout = 3000
                 connection.doInput = true
                 connection.connect()
                 connection.inputStream.use { stream ->
                     // Downsample — the widget never needs full-resolution
                     // artwork, and decoding at full size just to blur/
                     // shrink it afterward wastes memory on low-RAM devices.
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
                     BitmapFactory.decodeStream(stream, null, opts)
                 }
             } catch (e: Exception) {

@@ -90,7 +90,7 @@
              already does. See AurumWidgetProvider.kt. -->
         <receiver
             android:name=".AurumWidgetProvider"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
                 <action android:name="com.aurum.music.widget.ACTION_PLAY_PAUSE"/>
@@ -105,7 +105,7 @@
 
         <receiver
             android:name=".AurumWidgetProviderFull"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
             </intent-filter>
