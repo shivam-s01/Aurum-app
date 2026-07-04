@@ -76,7 +76,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                 if (fullIds.isNotEmpty()) {
                     updateWidgets(appContext, manager, fullIds, isCompact = false)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "refreshAll crashed: ${e.message}", e)
             }
         }
@@ -90,7 +90,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
             for (id in ids) {
                 try {
                     updateSingleWidget(context, manager, id, isCompact)
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.e(TAG, "updateSingleWidget failed for id=$id: ${e.message}", e)
                     try {
                         val safeViews = RemoteViews(
@@ -103,7 +103,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                         safeViews.setImageViewResource(R.id.widget_bg_image, R.drawable.widget_background_fallback)
                         safeViews.setImageViewResource(R.id.widget_artwork_thumb, R.drawable.widget_thumb_mask)
                         manager.updateAppWidget(id, safeViews)
-                    } catch (fatal: Exception) {
+                    } catch (fatal: Throwable) {
                         Log.e(TAG, "Fallback render also failed for id=$id: ${fatal.message}", fatal)
                     }
                 }
@@ -169,7 +169,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                     )
                     views.setOnClickPendingIntent(R.id.widget_root_tap, openAppPending)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.w(TAG, "openApp PendingIntent failed: ${e.message}")
             }
 
@@ -208,7 +208,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                     val blurredDeferred = async(Dispatchers.Default) {
                         try {
                             blur(original, radius = 14)
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
                             Log.w(TAG, "blur failed, using unblurred: ${e.message}")
                             original
                         }
@@ -216,7 +216,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                     val thumbDeferred = async(Dispatchers.Default) {
                         try {
                             roundedCrop(original, sizePx = 200, cornerRadiusPx = 28f)
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
                             Log.w(TAG, "roundedCrop failed: ${e.message}")
                             null
                         }
@@ -249,7 +249,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                     views.setImageViewBitmap(R.id.widget_bg_image, blurred)
                     views.setImageViewBitmap(R.id.widget_artwork_thumb, thumb)
                     manager.updateAppWidget(widgetId, views)
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.w(TAG, "Artwork load/blur failed for $url: ${e.message}")
                 }
             }
@@ -263,10 +263,10 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                 connection.doInput = true
                 connection.connect()
                 connection.inputStream.use { stream ->
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 8 }
                     BitmapFactory.decodeStream(stream, null, opts)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.w(TAG, "downloadBitmap failed: ${e.message}")
                 null
             }
@@ -347,7 +347,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
         try {
             val isCompact = this !is AurumWidgetProviderFull
             updateWidgets(context, appWidgetManager, appWidgetIds, isCompact)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "onUpdate crashed: ${e.message}", e)
         }
     }
@@ -372,7 +372,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                 }
                 ACTION_REFRESH -> refreshAll(context)
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "onReceive crashed for action=${intent.action}: ${e.message}", e)
         }
     }
@@ -382,7 +382,7 @@ class AurumWidgetProviderFull : AurumWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         try {
             AurumWidgetProvider.updateWidgets(context, appWidgetManager, appWidgetIds, isCompact = false)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("AurumWidget", "Full onUpdate crashed: ${e.message}", e)
         }
     }
