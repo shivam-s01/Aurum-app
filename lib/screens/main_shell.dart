@@ -79,6 +79,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startShakeListener();
+    // Same reasoning as the nav bar onTap fix below: ensure the mini
+    // player isn't hidden by a stale hero-visible flag if _tab doesn't
+    // start on Home (defensive — currently _tab always starts at 0, but
+    // this keeps the two in sync if that ever changes).
+    if (_tab != 0) {
+      MiniPlayer.heroVisibleNotifier.value = false;
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Update check
@@ -261,6 +268,16 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 onTap: (i) {
                   primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
                   SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+                  // Leaving Home (index 0): force hero-visible flag off.
+                  // HomeScreen never gets disposed on a tab switch (it's
+                  // kept alive in IndexedStack), so its own scroll
+                  // listener can't reset this itself — MainShell is the
+                  // only place that reliably knows the tab changed. This
+                  // is what actually fixes the mini player permanently
+                  // vanishing / showing a stray line on Search & Library.
+                  if (i != 0) {
+                    MiniPlayer.heroVisibleNotifier.value = false;
+                  }
                   setState(() => _tab = i);
                 },
               ),

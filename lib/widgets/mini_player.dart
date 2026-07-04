@@ -50,7 +50,23 @@ class MiniPlayer extends StatefulWidget {
       ValueNotifier<String>('Capsule');
 
   /// When home screen's hero card is visible, mini player hides.
-  /// Home screen updates this via scroll; other screens leave it true.
+  /// Home screen updates this via scroll while it is the ACTIVE tab.
+  ///
+  /// IMPORTANT: MainShell keeps all 3 tabs alive at once inside an
+  /// IndexedStack (for instant tab switching), so HomeScreen's dispose()
+  /// never runs on a tab switch — only when the app itself is killed.
+  /// That made this notifier "stick" at whatever value HomeScreen's
+  /// scroll listener last set, even after navigating to Search/Library,
+  /// since nothing reset it. A stale `true` (hero "visible") value is
+  /// what caused the mini player to stay invisible/collapsed outside
+  /// Home (AnimatedSize + AnimatedOpacity both key off this flag),
+  /// showing only a sliver of its decoration mid-collapse — the
+  /// "white/stray line" bug.
+  ///
+  /// Fix: MainShell (the one place that actually knows the active tab)
+  /// now explicitly sets this to `false` whenever the active tab isn't
+  /// Home, on every tab switch. HomeScreen's scroll listener still owns
+  /// the value while Home IS active.
   static final ValueNotifier<bool> heroVisibleNotifier =
       ValueNotifier<bool>(false);
 

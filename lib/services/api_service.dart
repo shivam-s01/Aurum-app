@@ -318,9 +318,13 @@ class ApiService {
     final rng = math.Random(hourSeed ^ refreshSalt);
     final shuffledPool = List<_PoolEntry>.from(_pool)..shuffle(rng);
 
-    final affinityArtists = _filterMainstream(RecommendationEngine.topAffinityArtists(count: 8));
+    final affinityArtists = _filterMainstream(
+      RecommendationEngine.rotatingAffinityArtists(count: 4, seed: refreshSalt),
+    );
     final personalArtists = affinityArtists.isNotEmpty ? affinityArtists : _filterMainstream(topArtists);
-    final topGenres = _filterHomeGenres(RecommendationEngine.topAffinityGenres(count: 3));
+    final topGenres = _filterHomeGenres(
+      RecommendationEngine.rotatingAffinityGenres(count: 3, seed: refreshSalt ^ 0x9E3779B9),
+    );
 
     final slot = RecommendationEngine.currentTimeSlot();
     final timeMoodQuery = _timeMoodQuery(slot);
@@ -491,9 +495,13 @@ class ApiService {
     final rng = math.Random(hourSeed ^ refreshSalt);
     final shuffledPool = List<_PoolEntry>.from(_pool)..shuffle(rng);
 
-    final affinityArtists = _filterMainstream(RecommendationEngine.topAffinityArtists(count: 8));
+    final affinityArtists = _filterMainstream(
+      RecommendationEngine.rotatingAffinityArtists(count: 4, seed: refreshSalt),
+    );
     final personalArtists = affinityArtists.isNotEmpty ? affinityArtists : _filterMainstream(topArtists);
-    final topGenres = _filterHomeGenres(RecommendationEngine.topAffinityGenres(count: 3));
+    final topGenres = _filterHomeGenres(
+      RecommendationEngine.rotatingAffinityGenres(count: 3, seed: refreshSalt ^ 0x9E3779B9),
+    );
 
     final slot = RecommendationEngine.currentTimeSlot();
     final timeMoodQuery = _timeMoodQuery(slot);

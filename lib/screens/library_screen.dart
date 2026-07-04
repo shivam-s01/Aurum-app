@@ -128,12 +128,24 @@ class LibraryScreen extends StatelessWidget {
   }
 
   Widget _buildSectionTitle(BuildContext context, String title) {
+    // The gap under this title always looked bigger than the 12px bottom
+    // padding here implied. Root cause: Flutter reserves extra vertical
+    // space above/below the glyphs based on the font's built-in line-height
+    // metrics (ascent/descent), not just the literal fontSize — for most
+    // fonts that "leading" adds roughly another 8-10px beyond the 11px
+    // fontSize before any padding is even applied. Setting `height: 1.0` on
+    // the TextStyle (plus a matching StrutStyle so the line box itself,
+    // not just where the glyph is drawn, actually shrinks) removes that
+    // invisible reserved space, so the 12px padding here is now the ONLY
+    // gap between the title and the grid below it — no more phantom space.
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       child: Text(title,
+          strutStyle: const StrutStyle(height: 1.0, forceStrutHeight: true),
           style: TextStyle(
               color: AurumTheme.textMutedOf(context),
               fontSize: 11,
+              height: 1.0,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.5)),
     );

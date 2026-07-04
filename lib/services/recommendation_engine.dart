@@ -988,12 +988,49 @@ class RecommendationEngine {
     return sorted.where((e) => e.value > 0.5).take(count).map((e) => e.key).toList();
   }
 
+  /// Same ranking as [topAffinityArtists] but pulls `count` artists from a
+  /// wider top-N pool (default 12) and shuffles with the given seed, instead
+  /// of always returning the exact same top-`count` in the exact same order.
+  ///
+  /// WHY THIS EXISTS: pull-to-refresh on Home was feeding [topAffinityArtists]
+  /// straight into the "Made for You · <artist>" section queries. Since that
+  /// method deterministically returns the SAME top artists by weight every
+  /// single call (weights only change from actual new listening activity),
+  /// those sections — along with the equivalent genre sections — never
+  /// varied between pulls. Only the unrelated filler pool at the bottom of
+  /// the feed rotated, so most of the visible feed looked frozen/unchanged
+  /// after a refresh even though a real network fetch (with a random seed)
+  /// was happening underneath. This keeps personalization (still only real
+  /// affinity artists, never a random stranger) while actually rotating
+  /// which of the person's top artists get featured each pull.
+  static List<String> rotatingAffinityArtists({int count = 4, int? seed}) {
+    if (!_loaded) return [];
+    final sorted = _artistW.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final pool = sorted.where((e) => e.value > 0.5).take(12).map((e) => e.key).toList();
+    if (pool.length <= count) return pool;
+    pool.shuffle(math.Random(seed));
+    return pool.take(count).toList();
+  }
+
   /// Top genres by user affinity. Used for home feed section ordering.
   static List<String> topAffinityGenres({int count = 3}) {
     if (!_loaded) return [];
     final sorted = _genreW.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     return sorted.where((e) => e.value > 0.5).take(count).map((e) => e.key).toList();
+  }
+
+  /// Rotating counterpart to [topAffinityGenres] — see [rotatingAffinityArtists]
+  /// for why this exists (same pull-to-refresh staleness fix).
+  static List<String> rotatingAffinityGenres({int count = 3, int? seed}) {
+    if (!_loaded) return [];
+    final sorted = _genreW.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final pool = sorted.where((e) => e.value > 0.5).take(8).map((e) => e.key).toList();
+    if (pool.length <= count) return pool;
+    pool.shuffle(math.Random(seed));
+    return pool.take(count).toList();
   }
 
   /// Top languages by user affinity. Used for home feed and query building.
