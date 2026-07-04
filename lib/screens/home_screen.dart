@@ -103,7 +103,7 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
   // drag) are fully absorbed and the loader stays completely hidden —
   // only a real, sustained pull past this point starts to show anything,
   // matching how a browser's pull-to-refresh ignores minor overscroll.
-  static const double _deadZone = 26.0;
+  static const double _deadZone = 55.0;
 
   double _pullDistance = 0.0;
   bool _refreshing = false;
@@ -235,13 +235,8 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
             child: widget.child,
           ),
           Positioned(
-            // Was a fixed `top: 18` measured from the very edge of the
-            // screen — on phones with a tall status bar / camera cutout,
-            // that put the loader circle partly or fully behind the
-            // cutout, making pull-to-refresh look like it wasn't
-            // triggering even though it was. Anchoring to the safe-area
-            // inset (status bar height) instead keeps it clear on every
-            // device.
+            // Anchored to the safe-area inset (status bar height) — this
+            // was already correct/working; not touching this value again.
             top: MediaQuery.of(context).padding.top + 8,
             left: 0,
             right: 0,
@@ -378,31 +373,29 @@ class _HomeScreenState extends State<HomeScreen> {
       _onlineLoading = true;
       _onlineError = null;
       _playlistRefreshKey++;
-      _onlineSections = []; // clear stale sections so new ones stream in fresh
+      _onlineSections = []; // cleared until the full batch is ready
     });
     try {
       final topArtists  = context.read<RecentlyPlayedProvider>().topArtists(count: 3);
       final recentSongs = context.read<RecentlyPlayedProvider>().history.take(10).toList();
-      bool firstSectionIn = false;
+      // Collect every section locally as it streams in from the API, but
+      // don't touch UI state per-section anymore — the user wants the
+      // whole home page to appear at once instead of sections trickling
+      // in one by one. setState only fires once, after everything is in.
+      final collected = <SongSection>[];
       await ApiService.fetchHomeStreaming(
         topArtists: topArtists,
         recentlyPlayed: recentSongs,
         onSection: (section) {
-          if (!mounted) return;
-          setState(() {
-            _onlineSections = [..._onlineSections, section];
-            // Turn off the full-screen loader the instant the first
-            // section lands — usually ~1-2s — so the user sees real
-            // content fast instead of a spinner for the full ~10-15s
-            // it'd otherwise take for every section to finish.
-            if (!firstSectionIn) {
-              firstSectionIn = true;
-              _onlineLoading = false;
-            }
-          });
+          collected.add(section);
         },
       ).timeout(const Duration(seconds: 25));
-      if (mounted) setState(() => _onlineLoading = false);
+      if (mounted) {
+        setState(() {
+          _onlineSections = collected;
+          _onlineLoading = false;
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -428,7 +421,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // ── Main scroll content ──
           _AurumPullToRefresh(
             onRefresh: () => isOnline
-                ? _loadOnline()
+                ? Future.wait([_loadOnline(), _loadArtists()])
                 : context.read<LibraryProvider>().refresh(),
             child: CustomScrollView(
               controller: _scrollCtrl,
@@ -2293,10 +2286,12 @@ class _PlaylistCardState extends State<_PlaylistCard> {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       if (songs.isEmpty) return;
 
-      // Play the whole playlist as a queue
-      context.read<PlayerProvider>().playSong(songs.first, queue: songs, index: 0);
-
-      // Show bottom sheet with song list
+      // FIX: tapping the card used to immediately start playback of the
+      // first song before the sheet even opened — jarring if the user
+      // just wanted to browse the playlist first. Now tapping only opens
+      // the song list; playback starts only when the user taps an
+      // individual song inside it (each SongTile below already handles
+      // that itself via its own onTap).
       showModalBottomSheet(
         context: context,
         backgroundColor: AurumTheme.bgCardOf(context),

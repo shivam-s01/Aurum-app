@@ -204,7 +204,7 @@ class LibraryScreen extends StatelessWidget {
         physics: const NeverScrollableScrollPhysics(),
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
-        childAspectRatio: 2.6,
+        childAspectRatio: 3.4,
         children: items.map((item) => _CollectionCard(item: item)).toList(),
       ),
     );

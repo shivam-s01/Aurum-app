@@ -127,9 +127,17 @@ class AurumAudioEngine(
     private var stopAfterCurrentSong = false
 
     companion object {
-        private const val PRIORITY_FORWARD_WINDOW = 3
-        private const val PRIORITY_BACKWARD_WINDOW = 2
-        private const val PACED_RESOLVE_DELAY_MS = 900L
+        // FIX: was prewarming 3 songs ahead / 2 behind every 900ms — across
+        // a 50-80 song queue (typical home-feed section size) this kept
+        // resolving stream URLs for songs the user may never reach,
+        // burning mobile data in the background for no playback benefit.
+        // Trimmed to a tighter window (still covers "tap next twice
+        // quickly" instant-skip) with a longer pace, so background data
+        // use drops significantly without losing the instant-skip feel
+        // for the songs actually likely to be played next.
+        private const val PRIORITY_FORWARD_WINDOW = 1
+        private const val PRIORITY_BACKWARD_WINDOW = 1
+        private const val PACED_RESOLVE_DELAY_MS = 2500L
     }
 
     init {
@@ -454,9 +462,18 @@ class AurumAudioEngine(
 
         resolver.invalidate(songNow)
 
-        val freshUrl = try {
-            withTimeoutOrNull(15_000) { resolver.resolve(songNow, forceRefresh = true) }
-        } catch (e: Exception) { null }
+        // Same second-retry safety net as handleMidStreamIdle — a single
+        // transient background network failure shouldn't immediately be
+        // treated as a dead song.
+        var freshUrl: String? = null
+        for (attempt in 0 until 2) {
+            if (sessionAtIdle != playSessionId) return
+            freshUrl = try {
+                withTimeoutOrNull(15_000) { resolver.resolve(songNow, forceRefresh = true) }
+            } catch (e: Exception) { null }
+            if (freshUrl != null) break
+            if (attempt == 0) delay(1500)
+        }
 
         if (freshUrl == null || sessionAtIdle != playSessionId) {
             if (sessionAtIdle != playSessionId) return
@@ -503,9 +520,23 @@ class AurumAudioEngine(
         resolver.invalidate(song)
         val sessionAtError = playSessionId
 
-        val freshUrl = try {
-            withTimeoutOrNull(12_000) { resolver.resolve(song, forceRefresh = true) }
-        } catch (e: Exception) { null }
+        // FIX: previously gave up and skipped the song after a single
+        // failed resolve attempt. In the background, a temporary network
+        // hiccup (Doze-mode throttling, brief connectivity drop while
+        // switching wifi/mobile data) can make one attempt fail even
+        // though the song itself is perfectly fine — that was showing up
+        // as "song randomly skips/changes while playing in background".
+        // One retry after a short pause absorbs those transient failures
+        // without meaningfully delaying genuine dead-link recovery.
+        var freshUrl: String? = null
+        for (attempt in 0 until 2) {
+            if (sessionAtError != playSessionId) return
+            freshUrl = try {
+                withTimeoutOrNull(12_000) { resolver.resolve(song, forceRefresh = true) }
+            } catch (e: Exception) { null }
+            if (freshUrl != null) break
+            if (attempt == 0) delay(1500)
+        }
 
         if (sessionAtError != playSessionId) return
         if (!stillOnThisSong()) return

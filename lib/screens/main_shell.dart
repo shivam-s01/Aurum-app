@@ -238,43 +238,34 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         return Scaffold(
           backgroundColor: AurumTheme.bgOf(context),
           body: IndexedStack(index: _tab, children: _screens),
-          bottomNavigationBar: Column(
+          bottomNavigationBar: Container(
+            // FIX: the MiniPlayer capsule has an 8px bottom margin (its
+            // rounded corners need breathing room above the nav bar). That
+            // 8px gap used to show the Scaffold's body background straight
+            // through — a plain white/cream strip on light theme, right
+            // where the capsule's rounded corner ends and the nav bar
+            // begins. Giving this wrapping Container the same background
+            // as the nav bar fills that gap with the correct color instead
+            // of leaking the page background behind it.
+            color: AurumTheme.bgCardOf(context),
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const MiniPlayer(),
-              // The nav bar's own top divider is meant for the edge-to-edge
-              // "Compact Bar" mini player style. With the floating "Capsule"
-              // style (rounded card, side margins) that divider is a straight
-              // full-width line sitting just past the capsule's rounded
-              // bottom corners — it reads as a stray white line under the
-              // mini player instead of a bar separator. Suppress it whenever
-              // a song is showing and the capsule style is active.
-              ValueListenableBuilder<bool>(
-                valueListenable: MiniPlayer.heroVisibleNotifier,
-                builder: (context, heroVisible, _) {
-                  return ValueListenableBuilder<String>(
-                    valueListenable: MiniPlayer.styleNotifier,
-                    builder: (context, miniPlayerStyle, _) {
-                      // Divider must hide both when there's no song AND when
-                      // the mini player is collapsed by the home hero scroll —
-                      // otherwise the capsule's border survives as a stray
-                      // white line after the mini player itself fades out.
-                      final hideDivider = (player.hasSong && miniPlayerStyle != 'Compact Bar')
-                          || heroVisible;
-                      return _AurumBottomNavBar(
-                        showTopDivider: !hideDivider,
-                        currentIndex: _tab,
-                        onTap: (i) {
-                          primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
-                          SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-                          setState(() => _tab = i);
-                        },
-                      );
-                    },
-                  );
+              // The nav bar no longer paints any top divider/gradient line
+              // (removed permanently in _AurumBottomNavBar — see the
+              // comment there). Just render it plainly; no style/song
+              // state can affect it anymore, so no listener is needed here.
+              _AurumBottomNavBar(
+                currentIndex: _tab,
+                onTap: (i) {
+                  primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+                  SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+                  setState(() => _tab = i);
                 },
               ),
             ],
+            ),
           ),
         );
       },
@@ -294,11 +285,9 @@ class _AurumBottomNavBar extends StatelessWidget {
   const _AurumBottomNavBar({
     required this.currentIndex,
     required this.onTap,
-    this.showTopDivider = true,
   });
   final int currentIndex;
   final ValueChanged<int> onTap;
-  final bool showTopDivider;
 
   static const _items = [
     (outline: PhosphorIconsRegular.houseSimple, filled: PhosphorIconsFill.houseSimple, label: 'Home'),
@@ -321,17 +310,24 @@ class _AurumBottomNavBar extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.38 : 0.32),
-              gradient: showTopDivider
-                  ? LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: const [0.0, 0.04],
-                      colors: [
-                        Colors.white.withOpacity(isLight ? 0.28 : 0.10),
-                        Colors.transparent,
-                      ],
-                    )
-                  : null,
+              // PERMANENT FIX: this used to conditionally paint a white
+              // top gradient (`showTopDivider`) meant as a separator line
+              // for the edge-to-edge "Compact Bar" mini player style. That
+              // flag's visibility logic kept drifting out of sync with
+              // actual state (hasSong, hero-visibility, style) and kept
+              // reappearing as a stray white line above the nav bar in
+              // states nobody intended it for — most recently: showing
+              // whenever no song was playing at all.
+              //
+              // Removed entirely rather than patched again. A top border/
+              // gradient here was never load-bearing for the design (the
+              // nav bar already reads clearly as a separate surface via
+              // its own blur + background), so there is no state for
+              // which this needs to come back. If an edge-to-edge divider
+              // is ever wanted again for a future "Compact Bar" style,
+              // add it inside that specific mini-player widget itself
+              // (mini_player.dart's _buildCompactBar), not here, so it
+              // can never leak into states where no mini player exists.
             ),
           child: SafeArea(
             top: false,

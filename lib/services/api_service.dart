@@ -398,22 +398,29 @@ class ApiService {
   // varied pool (e.g. home feed sections) so shuffling/filtering still leaves
   // 50-80 songs instead of collapsing to whatever a single page returned.
   static Future<List<Song>> _searchSaavnDeep(String query, {int limit = 40}) async {
-    final page1 = await _fetchSaavnPage(
-      '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
-      limit,
-    );
+    // FIX: pages were fetched sequentially (page1, then page2, then page3),
+    // tripling latency for every section that needed deep results. Fetching
+    // all three in parallel cuts this to roughly one request's round-trip
+    // time, since none of the pages depend on each other's results.
+    final results = await Future.wait([
+      _fetchSaavnPage(
+        '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+        limit,
+      ),
+      _fetchSaavnPage(
+        '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=2',
+        limit,
+      ).catchError((_) => <Song>[]),
+      _fetchSaavnPage(
+        '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=3',
+        limit,
+      ).catchError((_) => <Song>[]),
+    ]);
+    final page1 = results[0];
     if (page1.isEmpty) return _searchSaavn(query, limit: limit);
-    final page2 = await _fetchSaavnPage(
-      '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=2',
-      limit,
-    ).catchError((_) => <Song>[]);
-    final page3 = page2.isEmpty ? <Song>[] : await _fetchSaavnPage(
-      '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=3',
-      limit,
-    ).catchError((_) => <Song>[]);
     final seen = <String>{};
     final merged = <Song>[];
-    for (final s in [...page1, ...page2, ...page3]) {
+    for (final s in [...results[0], ...results[1], ...results[2]]) {
       if (seen.add(s.id)) merged.add(s);
     }
     return merged;
@@ -532,23 +539,22 @@ class ApiService {
 
     final globalSeenIds = <String>{};
     final seenTitles = <String>{};
-    const batchSize = 3;
-    for (int i = 0; i < queryList.length; i += batchSize) {
-      final batch = queryList.skip(i).take(batchSize).toList();
-      final batchResults = await Future.wait(
-        batch.map((sq) => sq.isSuggestion
-            ? _suggestionSection(sq.suggestionSongId!, sq.label)
-            : _saavnSectionV4(sq.query, sq.label)),
-      );
-      for (final s in batchResults.whereType<SongSection>()) {
-        if (!seenTitles.add(s.title)) continue;
-        final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
-        if (uniqueSongs.isNotEmpty) {
-          onSection(SongSection(title: s.title, songs: uniqueSongs));
-        }
-      }
-      if (i + batchSize < queryList.length) {
-        await Future.delayed(const Duration(milliseconds: 100));
+    // FIX: previously ran in batches of 3 with a 100ms gap between rounds
+    // — with 15+ queries that meant 5-6 sequential rounds, each waiting
+    // on the slowest request in its batch. Running everything in parallel
+    // (bounded only by network/server capacity) cuts total home-feed load
+    // time roughly to the time of the single slowest individual query,
+    // instead of the sum of every batch's slowest query.
+    final allResults = await Future.wait(
+      queryList.map((sq) => sq.isSuggestion
+          ? _suggestionSection(sq.suggestionSongId!, sq.label)
+          : _saavnSectionV4(sq.query, sq.label)),
+    );
+    for (final s in allResults.whereType<SongSection>()) {
+      if (!seenTitles.add(s.title)) continue;
+      final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
+      if (uniqueSongs.isNotEmpty) {
+        onSection(SongSection(title: s.title, songs: uniqueSongs));
       }
     }
   }
@@ -818,15 +824,16 @@ class ApiService {
     final saavnResults = both[0];
     final ytResults    = both[1];
 
-    final scored    = <_ScoredSong>[];
-    final saavnNorms = <String>{};
+    final saavnScored = <_ScoredSong>[];
+    final ytScored    = <_ScoredSong>[];
+    final saavnNorms  = <String>{};
 
     // ALL Saavn results go in — no aggressive dedup on Saavn side
     for (final song in saavnResults) {
       final score = _scoreSearchResult(song, q, wantsVariant);
       final norm  = _normTitle(song.title);
       saavnNorms.add(norm);
-      scored.add(_ScoredSong(song, score));
+      saavnScored.add(_ScoredSong(song, score));
     }
 
     // YT: only skip if title is near-identical to a Saavn result
@@ -834,12 +841,17 @@ class ApiService {
       final norm = _normTitle(song.title);
       if (!saavnNorms.contains(norm)) {
         final score = _scoreSearchResult(song, q, wantsVariant);
-        scored.add(_ScoredSong(song, score));
+        ytScored.add(_ScoredSong(song, score));
       }
     }
 
-    scored.sort((a, b) => b.score.compareTo(a.score));
-    final results = scored.map((s) => s.song).toList();
+    // Saavn songs are ranked strictly above every YT song — YT only ever
+    // fills in below Saavn's own results, never interleaves with them,
+    // so Saavn content always appears first no matter the individual
+    // match score.
+    saavnScored.sort((a, b) => b.score.compareTo(a.score));
+    ytScored.sort((a, b) => b.score.compareTo(a.score));
+    final results = [...saavnScored, ...ytScored].map((s) => s.song).toList();
 
     _writeSearchCache(cacheKey, results);
     _log('[search] "$q" → ${results.length} results '

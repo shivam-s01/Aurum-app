@@ -186,6 +186,7 @@ class AurumMediaSessionService : MediaSessionService() {
             .setContentText("Loading…")
             .setSmallIcon(R.drawable.ic_like_outline)
             .setOngoing(true)
+            .setVisibility(androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC)
             .setStyle(
                 androidx.media3.session.MediaStyleNotificationHelper
                     .MediaStyle(mediaSession!!)
@@ -254,6 +255,15 @@ class AurumMediaSessionService : MediaSessionService() {
             "Playback",
             NotificationManager.IMPORTANCE_LOW,
         )
+        // FIX: "notification shows in status bar but not on lock screen".
+        // Without an explicit lockscreenVisibility, Android can withhold
+        // full notification content (including a MediaStyle notification's
+        // transport controls) on the lock screen even though the same
+        // notification renders fine in the status bar / shade. Setting
+        // this to PUBLIC on the channel is what actually lets the
+        // play/pause/next/prev controls render on the lock screen itself,
+        // not just when the phone is unlocked.
+        channel.lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
         manager.createNotificationChannel(channel)
     }
 
