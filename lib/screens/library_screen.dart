@@ -10,6 +10,7 @@
 //   ✅ Zero feature removal — all existing screens intact
 // =============================================================================
 
+import 'dart:math' as math;
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -55,13 +56,15 @@ class LibraryScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 8),
+                _buildIdentityHeader(context),
+                const SizedBox(height: 18),
                 _buildQuickAccess(context),
-                const SizedBox(height: 16),
-                _buildSectionTitle(context, 'YOUR COLLECTION'),
-                _buildCollectionGrid(context),
                 const SizedBox(height: 20),
-                _buildSectionTitle(context, 'RECENTLY PLAYED'),
+                _buildSectionLabel(context, 'Collection'),
+                const SizedBox(height: 4),
+                _buildCollectionList(context),
+                const SizedBox(height: 26),
+                _buildSectionLabel(context, 'Recently Played'),
                 _buildRecentlyPlayed(context),
                 const SizedBox(height: 100),
               ],
@@ -74,7 +77,7 @@ class LibraryScreen extends StatelessWidget {
 
   Widget _buildAppBar(BuildContext context) {
     return SliverAppBar(
-      expandedHeight: 100,
+      expandedHeight: 90,
       floating: true,
       snap: true,
       backgroundColor: AurumTheme.bgOf(context),
@@ -87,19 +90,85 @@ class LibraryScreen extends StatelessWidget {
         ),
       ],
       flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.fromLTRB(20, 0, 0, 16),
+        titlePadding: const EdgeInsets.fromLTRB(20, 0, 0, 14),
         title: Text('Library',
             style: TextStyle(
                 color: AurumTheme.gold,
-                fontSize: 28,
+                fontSize: 25,
                 fontWeight: FontWeight.w800)),
       ),
     );
   }
 
+  // ── Identity header ──────────────────────────────────────────────────────
+  // Signature element: a small fanned-out collage of the last few played
+  // covers, sitting beside a single inline stat line. Replaces the old
+  // "Liked Songs / Playlists / ..." boxes at the top, which just repeated
+  // rows that already exist below — this instead answers "what's actually
+  // in here" at a glance, the way a shelf of records tells you something
+  // a spec sheet can't.
+  Widget _buildIdentityHeader(BuildContext context) {
+    final history = context.watch<RecentlyPlayedProvider>().history;
+    final favCount = context.watch<FavoritesProvider>().favorites.length;
+    final lib = context.watch<LibraryProvider>();
+    final plCount = context.watch<PlaylistProvider>().count;
+    final followedCount =
+        context.watch<FollowedArtistsProvider>().followed.length;
+    final localCount = lib.hasLoaded ? lib.allSongs.length : 0;
+
+    final totalTracked = favCount + localCount + history.length;
+    final covers = history.take(4).toList();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _CoverFan(covers: covers),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  totalTracked == 0 ? 'Nothing here yet' : 'Your collection',
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _statLine(favCount, plCount, followedCount, localCount),
+                  style: TextStyle(
+                    color: AurumTheme.textMutedOf(context),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _statLine(int fav, int pl, int artists, int local) {
+    final parts = <String>[];
+    parts.add('$fav liked');
+    parts.add('$pl ${pl == 1 ? 'playlist' : 'playlists'}');
+    parts.add('$artists ${artists == 1 ? 'artist' : 'artists'}');
+    if (local > 0) parts.add('$local on device');
+    return parts.join('  ·  ');
+  }
+
   Widget _buildQuickAccess(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
           _QuickChip(
@@ -108,14 +177,14 @@ class LibraryScreen extends StatelessWidget {
             color: Colors.pinkAccent,
             onTap: () => AurumPageRoute.to(context, const LikedScreen()),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           _QuickChip(
             icon: Icons.download_rounded,
             label: 'Downloads',
             color: AurumTheme.gold,
             onTap: () => AurumPageRoute.to(context, const DownloadsScreen()),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           _QuickChip(
             icon: Icons.history_rounded,
             label: 'History',
@@ -127,77 +196,63 @@ class LibraryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionTitle(BuildContext context, String title) {
-    // Flutter reserves extra vertical space above/below the glyphs based on
-    // the font's built-in line-height metrics (ascent/descent), not just
-    // the literal fontSize — for most fonts that "leading" adds roughly
-    // another 8-10px beyond the 11px fontSize before any padding is even
-    // applied. `height: 1.0` + a matching StrutStyle (forceStrutHeight)
-    // removes that invisible reserved space so the line box tightly wraps
-    // the glyphs.
-    //
-    // REGRESSION: that strip-the-leading fix was correct on its own, but
-    // the bottom padding here was left at the OLD value (12px) that had
-    // been tuned back when ~8-10px of invisible font leading was still
-    // silently padding things out underneath it. With that leading now
-    // actually gone, 12px alone reads as too tight/cramped against the
-    // grid below — the "awkward gap" the strut fix introduced. Bumping
-    // the bottom padding to 20px restores a deliberate, correct-looking
-    // gap that's now controlled entirely by explicit padding instead of
-    // an accidental font-metric side effect.
+  Widget _buildSectionLabel(BuildContext context, String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
       child: Text(title,
-          strutStyle: const StrutStyle(height: 1.0, forceStrutHeight: true),
           style: TextStyle(
-              color: AurumTheme.textMutedOf(context),
-              fontSize: 11,
-              height: 1.0,
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 17,
               fontWeight: FontWeight.w700,
-              letterSpacing: 1.5)),
+              letterSpacing: -0.3)),
     );
   }
 
-  Widget _buildCollectionGrid(BuildContext context) {
+  // ── Collection list ──────────────────────────────────────────────────────
+  // Slim editorial rows instead of the old 2-column boxy grid: a 3px
+  // colour bar on the left (not a boxed icon chip), label + trailing count,
+  // a hairline divider between rows, and a chevron. Denser, quieter, reads
+  // like a curated index rather than a dashboard of app-store tiles.
+  Widget _buildCollectionList(BuildContext context) {
     final favCount = context.watch<FavoritesProvider>().favorites.length;
     final lib = context.watch<LibraryProvider>();
     final plCount = context.watch<PlaylistProvider>().count;
-    final followedCount = context.watch<FollowedArtistsProvider>().followed.length;
+    final followedCount =
+        context.watch<FollowedArtistsProvider>().followed.length;
 
     final items = [
       _CollectionItem(
         icon: Icons.favorite_rounded,
         label: 'Liked Songs',
-        subtitle: '$favCount songs',
+        subtitle: '$favCount',
         color: Colors.pinkAccent,
         onTap: () => AurumPageRoute.to(context, const LikedScreen()),
       ),
       _CollectionItem(
         icon: Icons.queue_music_rounded,
         label: 'Playlists',
-        subtitle: plCount == 0 ? 'Create one' : '$plCount playlists',
+        subtitle: plCount == 0 ? '' : '$plCount',
         color: Colors.purpleAccent,
         onTap: () => AurumPageRoute.to(context, const PlaylistsScreen()),
       ),
       _CollectionItem(
         icon: Icons.album_rounded,
         label: 'Albums',
-        subtitle: 'Saved albums',
+        subtitle: '',
         color: Colors.deepPurple,
         onTap: () => AurumPageRoute.to(context, const _AlbumsScreen()),
       ),
       _CollectionItem(
         icon: Icons.person_rounded,
         label: 'Artists',
-        subtitle: followedCount == 0 ? 'Following' : '$followedCount following',
+        subtitle: followedCount == 0 ? '' : '$followedCount',
         color: Colors.blueAccent,
         onTap: () => AurumPageRoute.to(context, const _ArtistsScreen()),
       ),
       _CollectionItem(
         icon: Icons.folder_rounded,
         label: 'Local Files',
-        subtitle:
-            lib.hasLoaded ? '${lib.allSongs.length} songs' : 'On this device',
+        subtitle: lib.hasLoaded ? '${lib.allSongs.length}' : '',
         color: Colors.green,
         onTap: () async {
           if (!lib.hasLoaded) await lib.load();
@@ -206,25 +261,17 @@ class LibraryScreen extends StatelessWidget {
           }
         },
       ),
-      _CollectionItem(
-        icon: Icons.history_rounded,
-        label: 'Recently Played',
-        subtitle: 'Listen history',
-        color: Colors.orange,
-        onTap: () => AurumPageRoute.to(context, const _HistoryScreen()),
-      ),
     ];
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.count(
-        crossAxisCount: 2,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: 3.4,
-        children: items.map((item) => _CollectionCard(item: item)).toList(),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        children: List.generate(items.length, (i) {
+          return _CollectionRow(
+            item: items[i],
+            showDivider: i != items.length - 1,
+          );
+        }),
       ),
     );
   }
@@ -2582,19 +2629,18 @@ class _QuickChip extends StatelessWidget {
     return AurumPressable(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.3)),
+          color: color.withOpacity(0.11),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 16, color: color),
+          Icon(icon, size: 15, color: color),
           const SizedBox(width: 6),
           Text(label,
               style: TextStyle(
                   color: color,
-                  fontSize: 13,
+                  fontSize: 12.5,
                   fontWeight: FontWeight.w600)),
         ]),
       ),
@@ -2617,57 +2663,168 @@ class _CollectionItem {
       this.onTap});
 }
 
-class _CollectionCard extends StatelessWidget {
+class _CollectionRow extends StatefulWidget {
   final _CollectionItem item;
-  const _CollectionCard({required this.item});
+  final bool showDivider;
+  const _CollectionRow({required this.item, this.showDivider = true});
+
+  @override
+  State<_CollectionRow> createState() => _CollectionRowState();
+}
+
+class _CollectionRowState extends State<_CollectionRow> {
+  bool _pressed = false;
+
+  void _setPressed(bool v) {
+    if (_pressed != v) setState(() => _pressed = v);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return AurumPressable(
-      onTap: item.onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AurumTheme.bgCardOf(context),
-          borderRadius: BorderRadius.circular(14),
-          border:
-              Border.all(color: item.color.withOpacity(0.2), width: 0.8),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(children: [
-            Container(
-              width: 40,
-              height: 40,
+    final item = widget.item;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => _setPressed(true),
+      onTapCancel: () => _setPressed(false),
+      onTapUp: (_) => _setPressed(false),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        item.onTap?.call();
+      },
+      child: AnimatedScale(
+        scale: _pressed ? 0.975 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        child: Column(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              curve: Curves.easeOut,
+              padding:
+                  const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
               decoration: BoxDecoration(
-                  color: item.color.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(10)),
-              child: Icon(item.icon, color: item.color, size: 20),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
+                // Subtle tonal wash in the row's own accent colour on
+                // press — reinforces which item is being tapped instead
+                // of a generic grey ripple, and fades back out on release.
+                color: _pressed
+                    ? item.color.withOpacity(0.06)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
                 children: [
-                  Text(item.label,
-                      style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 2),
-                  Text(item.subtitle,
-                      style: TextStyle(
-                          color: AurumTheme.textMutedOf(context),
-                          fontSize: 11),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
+                  // 3px colour bar — replaces the boxed icon chip. Reads as
+                  // an index tab, not a dashboard tile.
+                  Container(
+                    width: 3,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: item.color,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Icon(item.icon, color: item.color, size: 19),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(item.label,
+                        style: TextStyle(
+                            color: AurumTheme.textPrimaryOf(context),
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.1),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                  if (item.subtitle.isNotEmpty) ...[
+                    Text(item.subtitle,
+                        style: TextStyle(
+                            color: AurumTheme.textMutedOf(context),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500)),
+                    const SizedBox(width: 8),
+                  ],
+                  Icon(Icons.chevron_right_rounded,
+                      color:
+                          AurumTheme.textMutedOf(context).withOpacity(0.5),
+                      size: 19),
                 ],
               ),
             ),
-          ]),
+            if (widget.showDivider)
+              Container(
+                height: 1,
+                color: AurumTheme.textMutedOf(context).withOpacity(0.08),
+              ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Cover fan ────────────────────────────────────────────────────────────
+// Small fanned stack of the last few played covers — the one deliberately
+// "alive" element on this screen. Each tile is rotated a few degrees off
+// the last so it reads as a loosely-thrown handful of records, not a
+// perfectly stacked app icon. Falls back to a plain vault-glyph tile when
+// there's no history yet, so the layout never looks broken for a new user.
+class _CoverFan extends StatelessWidget {
+  final List<Song> covers;
+  const _CoverFan({required this.covers});
+
+  static const List<double> _angles = [-10, 6, -4, 9];
+
+  @override
+  Widget build(BuildContext context) {
+    const double size = 62;
+    if (covers.isEmpty) {
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: AurumTheme.gold.withOpacity(0.10),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Icon(Icons.auto_awesome_rounded,
+            color: AurumTheme.gold.withOpacity(0.6), size: 24),
+      );
+    }
+
+    return SizedBox(
+      width: size + 14,
+      height: size,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: List.generate(covers.length, (i) {
+          final depth = covers.length - 1 - i; // draw back-to-front
+          final angle = _angles[depth % _angles.length] * (math.pi / 180);
+          return Positioned(
+            left: depth * 4.5,
+            top: 0,
+            child: Transform.rotate(
+              angle: angle,
+              alignment: Alignment.bottomLeft,
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.22),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: AurumArtwork(
+                  url: covers[depth].artworkUrl,
+                  size: size - 6,
+                  borderRadius: 12,
+                ),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }

@@ -756,8 +756,26 @@ class _MiniPlayerContent extends StatelessWidget {
     return Stack(
               children: [
                 // Main row
+                //
+                // ROOT CAUSE of the mini player "white/stray line" bug: this
+                // Column was `mainAxisSize: MainAxisSize.min` while containing
+                // an `Expanded` child below (the song info + controls row).
+                // `Expanded` requires a bounded/definite height from its
+                // parent to distribute space, but `MainAxisSize.min` tells
+                // the Column to shrink-wrap to its children's intrinsic
+                // size — a direct contradiction. Inside a `Stack` (which
+                // gives non-positioned children loose constraints sized to
+                // fill the stack) this produced inconsistent/degenerate
+                // layout: often only the 2px LinearProgressIndicator at the
+                // top painted reliably, while the row beneath it collapsed
+                // or rendered incorrectly — exactly the "white/stray line".
+                //
+                // Fix: MainAxisSize.max lets the Column fill the height the
+                // Stack hands it (ultimately bounded by the outer
+                // Container(height: 68)), giving Expanded a legitimate
+                // bounded height to work with.
                 Column(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisSize: MainAxisSize.max,
                   children: [
                     // Progress bar at top
                     ClipRRect(
@@ -916,8 +934,17 @@ class _MiniPlayerContent extends StatelessWidget {
             ),
             child: Stack(
               children: [
+                // Same root cause and fix as _miniPlayerCapsuleContent's
+                // Column above: MainAxisSize.min contradicted the Expanded
+                // child right below it, which could degenerate into the
+                // same "stray line" symptom whenever this Compact Bar
+                // style was selected in Settings → Appearance.
+                //
+                // Fix: MainAxisSize.max lets this Column fill the bounded
+                // height coming from the outer Container(height: 64), so
+                // Expanded gets a legitimate height to distribute.
                 Column(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisSize: MainAxisSize.max,
                   children: [
                   // Edge-to-edge progress line
                   LinearProgressIndicator(

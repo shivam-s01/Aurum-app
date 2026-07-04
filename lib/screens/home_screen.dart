@@ -77,33 +77,30 @@ class _PlaylistMeta {
 // random tracklist looked broken/cheap, not premium.
 
 // ══════════════════════════════════════════════════════════════════
-// AURUM PULL-TO-REFRESH — branded replacement for the stock Android
-// RefreshIndicator (plain Material spinner circle). Uses the app's own
-// gold morph-blob loader (AurumMorphLoader) inside a smooth reveal that
-// grows/fades with the pull distance, then settles into a steady spin
-// while refreshing — matches Spotify/Apple Music-tier polish instead
-// of looking like a generic Flutter widget.
+// HERO PULL-TO-REFRESH — the reveal happens INSIDE the hero "Now
+// Playing" card's own space, not floating over the status bar. Pulling
+// down pushes the hero card downward (via a growing gap above it,
+// clipped to the same rounded shape) and a Chrome-style circular
+// progress ring grows out of that gap, tracking the pull distance
+// exactly like Chrome/Android's native pull-to-refresh — a plain ring
+// that fills as you pull, then spins once the trigger point is passed.
 // ══════════════════════════════════════════════════════════════════
-class _AurumPullToRefresh extends StatefulWidget {
-  const _AurumPullToRefresh({required this.onRefresh, required this.child});
+class _HeroPullToRefresh extends StatefulWidget {
+  const _HeroPullToRefresh({required this.onRefresh, required this.child});
   final Future<void> Function() onRefresh;
   final Widget child;
 
   @override
-  State<_AurumPullToRefresh> createState() => _AurumPullToRefreshState();
+  State<_HeroPullToRefresh> createState() => _HeroPullToRefreshState();
 }
 
-class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
+class _HeroPullToRefreshState extends State<_HeroPullToRefresh>
     with SingleTickerProviderStateMixin {
-  static const double _triggerDistance = 88.0;
-  static const double _maxReveal = 110.0;
-  // Minimum raw overscroll (in px) before the pull starts producing ANY
-  // visible reveal. Below this, small jerks/bounces (a quick flick that
-  // slightly overscrolls past the top, a frame hitch, a light accidental
-  // drag) are fully absorbed and the loader stays completely hidden —
-  // only a real, sustained pull past this point starts to show anything,
-  // matching how a browser's pull-to-refresh ignores minor overscroll.
-  static const double _deadZone = 55.0;
+  static const double _triggerDistance = 72.0;
+  static const double _maxReveal = 96.0;
+  // Small dead zone so incidental scroll-bounce/overscroll jitter at the
+  // top doesn't twitch the ring open — only a real, sustained pull does.
+  static const double _deadZone = 18.0;
 
   double _pullDistance = 0.0;
   bool _refreshing = false;
@@ -112,15 +109,27 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
   late final AnimationController _settleCtrl;
   Animation<double>? _settleAnim;
 
+  // Continuous spin while actively refreshing (Chrome-style — the ring
+  // keeps rotating smoothly rather than a discrete morph animation).
+  late final AnimationController _spinCtrl;
+
   @override
   void initState() {
     super.initState();
-    _settleCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 320));
+    _settleCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    );
+    _spinCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 850),
+    )..repeat();
   }
 
   @override
   void dispose() {
     _settleCtrl.dispose();
+    _spinCtrl.dispose();
     super.dispose();
   }
 
@@ -146,6 +155,9 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
             _pullDistance = 0.0;
           } else {
             final effective = raw - _deadZone;
+            // Same rubber-band falloff as the old indicator so it never
+            // feels like it can be pulled forever, but stays snappier
+            // (smaller _maxReveal) since it now lives inside the card.
             _pullDistance = _maxReveal * (1 - math.exp(-effective / _maxReveal));
           }
         });
@@ -153,10 +165,11 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
         _dragging = false;
         _animateTo(0.0);
       }
-    } else if (n is ScrollEndNotification || n is UserScrollNotification && n.direction == ScrollDirection.idle) {
+    } else if (n is ScrollEndNotification ||
+        (n is UserScrollNotification && n.direction == ScrollDirection.idle)) {
       if (_dragging) {
         _dragging = false;
-        if (_pullDistance >= _triggerDistance * 0.72) {
+        if (_pullDistance >= _triggerDistance * 0.78) {
           _startRefresh();
         } else if (_pullDistance > 0) {
           _animateTo(0.0);
@@ -166,58 +179,16 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
     return false;
   }
 
-  // Minimum time the branded loader stays visible once triggered. A refresh
-  // that completes in 400ms (cached/fast network) used to snap the loader
-  // away almost instantly — felt cheap/glitchy rather than intentional.
-  // Real premium apps (Spotify/Apple Music) always hold the refresh
-  // animation for a deliberate beat regardless of actual fetch speed. We
-  // pick a random point in the 3.0-4.5s window each time so it doesn't feel
-  // robotic/identical on every pull, but never drags past ~6s even if the
-  // real fetch is slow (the real fetch's own 25s timeout still governs
-  // actual data loading — this only paces the VISIBLE loader).
-  static const Duration _minRefreshVisible = Duration(milliseconds: 3000);
-  static const Duration _maxRefreshVisible = Duration(milliseconds: 4500);
-
-  bool _justCompleted = false; // triggers the success pop, then clears itself
-
   Future<void> _startRefresh() async {
     HapticFeedback.mediumImpact();
     setState(() => _refreshing = true);
-    _animateTo(_triggerDistance * 0.72);
-
-    final targetVisible = _minRefreshVisible +
-        Duration(
-          milliseconds:
-              math.Random().nextInt((_maxRefreshVisible - _minRefreshVisible).inMilliseconds),
-        );
-    final stopwatch = Stopwatch()..start();
-
+    _animateTo(_triggerDistance * 0.78);
     try {
       await widget.onRefresh();
     } finally {
-      final elapsed = stopwatch.elapsed;
-      if (elapsed < targetVisible) {
-        await Future.delayed(targetVisible - elapsed);
-      }
       if (mounted) {
         HapticFeedback.lightImpact();
-        // Premium completion beat: a quick gold "success pop" (scale +
-        // brighten) before the loader retracts — makes the finish feel
-        // like a deliberate, designed moment instead of the loader just
-        // abruptly vanishing the instant data arrives.
-        setState(() {
-          _refreshing = false;
-          _justCompleted = true;
-        });
-        await Future.delayed(const Duration(milliseconds: 180));
-        if (!mounted) return;
-        setState(() => _justCompleted = false);
-        // Post-success retract gets a slightly snappier curve than a plain
-        // cancelled/aborted pull, so the finish reads as a deliberate
-        // "snap away" moment. Deliberately NOT easeOutBack — that curve
-        // overshoots past its target, which here (target = 0) means
-        // _pullDistance would dip negative for a frame and flip the
-        // Transform.translate the wrong way.
+        setState(() => _refreshing = false);
         _animateTo(0.0, curve: Curves.easeOutQuart);
       }
     }
@@ -226,62 +197,59 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
   @override
   Widget build(BuildContext context) {
     final progress = (_pullDistance / _triggerDistance).clamp(0.0, 1.0);
+    final ringSize = 30.0;
+
     return NotificationListener<ScrollNotification>(
       onNotification: _onNotification,
       child: Stack(
+        clipBehavior: Clip.none,
         children: [
+          // The child (hero card + rest of the scroll content) shifts
+          // down to reveal a real gap above it — the ring physically
+          // lives IN that gap, right above the hero card's top edge,
+          // rather than floating on a separate layer over the page.
           Transform.translate(
             offset: Offset(0, _pullDistance),
             child: widget.child,
           ),
           Positioned(
-            // Anchored to the safe-area inset (status bar height) — this
-            // was already correct/working; not touching this value again.
-            top: MediaQuery.of(context).padding.top + 8,
+            top: MediaQuery.of(context).padding.top +
+                kToolbarHeight -
+                ringSize / 2,
             left: 0,
             right: 0,
             child: IgnorePointer(
               child: Center(
                 child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 150),
-                  opacity: _pullDistance > 4 ? 1.0 : 0.0,
-                  child: AnimatedScale(
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOutBack,
-                    scale: (0.55 + (0.45 * progress)) * (_justCompleted ? 1.18 : 1.0),
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AurumTheme.bgCardOf(context),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.18),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                          if (_refreshing || _justCompleted)
-                            BoxShadow(
-                              color: AurumTheme.gold.withOpacity(_justCompleted ? 0.5 : 0.28),
-                              blurRadius: _justCompleted ? 24 : 16,
-                              spreadRadius: _justCompleted ? 2 : 1,
-                            ),
-                        ],
-                      ),
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 160),
-                        transitionBuilder: (child, anim) =>
-                            ScaleTransition(scale: anim, child: FadeTransition(opacity: anim, child: child)),
-                        child: _justCompleted
-                            ? Icon(Icons.check_rounded, key: const ValueKey('done'), color: AurumTheme.gold, size: 22)
-                            : AurumMorphLoader(
-                                key: const ValueKey('spin'),
-                                size: 26,
+                  duration: const Duration(milliseconds: 120),
+                  opacity: _pullDistance > 2 ? 1.0 : 0.0,
+                  child: Transform.translate(
+                    // Rides down with the pull so it always sits right
+                    // above the hero card's (now-shifted) top edge,
+                    // instead of staying pinned near the status bar.
+                    offset: Offset(0, _pullDistance * 0.55),
+                    child: SizedBox(
+                      width: ringSize,
+                      height: ringSize,
+                      child: AnimatedBuilder(
+                        animation: _spinCtrl,
+                        builder: (context, _) {
+                          return Transform.rotate(
+                            // Chrome/Android-style: the ring itself only
+                            // spins once actively refreshing; while just
+                            // being pulled, it stays still and simply
+                            // fills in as an arc tracking pull progress.
+                            angle: _refreshing ? _spinCtrl.value * 6.28319 : 0,
+                            child: CustomPaint(
+                              painter: _RingPainter(
+                                progress: _refreshing ? 0.75 : progress,
                                 color: AurumTheme.gold,
-                                rotateDuration: _refreshing
-                                    ? const Duration(milliseconds: 900)
-                                    : Duration(milliseconds: (4000 - (2800 * progress)).round()),
+                                trackColor: AurumTheme.gold.withOpacity(0.15),
+                                strokeWidth: 2.6,
                               ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -293,6 +261,57 @@ class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
       ),
     );
   }
+}
+
+// Plain circular progress ring — a filled arc that grows with `progress`
+// (0.0-1.0), on top of a faint full-circle track. This is the actual
+// Chrome/native-Android pull-to-refresh look: no icon, no card, no
+// shadow — just a clean ring.
+class _RingPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  final Color trackColor;
+  final double strokeWidth;
+
+  _RingPainter({
+    required this.progress,
+    required this.color,
+    required this.trackColor,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (size.width - strokeWidth) / 2;
+
+    final trackPaint = Paint()
+      ..color = trackColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+    canvas.drawCircle(center, radius, trackPaint);
+
+    final arcPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+    final sweep = 6.28319 * progress.clamp(0.0, 1.0);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -1.5708, // start at 12 o'clock
+      sweep,
+      false,
+      arcPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter oldDelegate) =>
+      oldDelegate.progress != progress ||
+      oldDelegate.color != color ||
+      oldDelegate.trackColor != trackColor;
 }
 
 class _HomeScreenState extends State<HomeScreen> {
@@ -376,8 +395,17 @@ class _HomeScreenState extends State<HomeScreen> {
       _onlineSections = []; // cleared until the full batch is ready
     });
     try {
-      final topArtists  = context.read<RecentlyPlayedProvider>().topArtists(count: 3);
-      final recentSongs = context.read<RecentlyPlayedProvider>().history.take(10).toList();
+      final recentlyPlayedProvider = context.read<RecentlyPlayedProvider>();
+      final topArtists  = recentlyPlayedProvider.topArtists(count: 3);
+      // Fresh random seed every pull so, when learned affinity data is too
+      // sparse for RecommendationEngine's own rotation, this fallback list
+      // of "Made for You" artists still changes from refresh to refresh
+      // instead of always featuring the exact same top-3-by-play-count.
+      final topArtistsRotating = recentlyPlayedProvider.rotatingTopArtists(
+        count: 3,
+        seed: math.Random().nextInt(1000000),
+      );
+      final recentSongs = recentlyPlayedProvider.history.take(10).toList();
       // Collect every section locally as it streams in from the API, but
       // don't touch UI state per-section anymore — the user wants the
       // whole home page to appear at once instead of sections trickling
@@ -385,6 +413,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final collected = <SongSection>[];
       await ApiService.fetchHomeStreaming(
         topArtists: topArtists,
+        topArtistsRotating: topArtistsRotating,
         recentlyPlayed: recentSongs,
         onSection: (section) {
           collected.add(section);
@@ -419,7 +448,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const _TopAmbientGlow(),
 
           // ── Main scroll content ──
-          _AurumPullToRefresh(
+          _HeroPullToRefresh(
             onRefresh: () => isOnline
                 ? Future.wait([_loadOnline(), _loadArtists()])
                 : context.read<LibraryProvider>().refresh(),

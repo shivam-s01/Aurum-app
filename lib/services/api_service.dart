@@ -485,6 +485,7 @@ class ApiService {
   // ===========================================================================
   static Future<void> fetchHomeStreaming({
     List<String> topArtists = const [],
+    List<String> topArtistsRotating = const [],
     List<Song> recentlyPlayed = const [],
     required void Function(SongSection section) onSection,
   }) async {
@@ -498,7 +499,24 @@ class ApiService {
     final affinityArtists = _filterMainstream(
       RecommendationEngine.rotatingAffinityArtists(count: 4, seed: refreshSalt),
     );
-    final personalArtists = affinityArtists.isNotEmpty ? affinityArtists : _filterMainstream(topArtists);
+    // ROOT CAUSE (actual): when RecommendationEngine doesn't yet have enough
+    // learned affinity weight (a newer account, or weights not past the 0.5
+    // threshold), `rotatingAffinityArtists` returns []. Previously this fell
+    // straight back to the plain `topArtists` param passed in — a
+    // deterministic, frequency-only "same top 3 every time" list with no
+    // seed or shuffle. Since these "Made for You · <artist>" sections render
+    // FIRST (priority: true) and are the most visible part of the page, that
+    // fallback alone was enough to make pull-to-refresh look completely
+    // frozen even though every other part of the pipeline (network fetch,
+    // song shuffling) was genuinely fresh each time. `topArtistsRotating`
+    // still ranks by real listening frequency, but shuffles a wider pool of
+    // real top artists with `refreshSalt` before picking who's featured —
+    // so it actually varies pull to pull, same as the affinity-based path.
+    final personalArtists = affinityArtists.isNotEmpty
+        ? affinityArtists
+        : _filterMainstream(
+            topArtistsRotating.isNotEmpty ? topArtistsRotating : topArtists,
+          );
     final topGenres = _filterHomeGenres(
       RecommendationEngine.rotatingAffinityGenres(count: 3, seed: refreshSalt ^ 0x9E3779B9),
     );

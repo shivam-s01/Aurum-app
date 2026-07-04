@@ -292,11 +292,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
 // ══════════════════════════════════════════════════════════════════
 // AURUM BOTTOM NAV BAR — branded replacement for the stock Material
-// BottomNavigationBar. A sliding gold-gradient glow pill sits behind
-// the active tab, icons/labels smoothly cross-fade weight + color, and
-// a haptic tick fires on switch — matches the premium search bar /
-// tab bar / pull-to-refresh polish already used elsewhere in the app,
-// instead of looking like a stock Flutter default.
+// BottomNavigationBar. Icons/labels smoothly cross-fade weight + color
+// on selection, and a haptic tick fires on switch — matches the
+// premium search bar / tab bar / pull-to-refresh polish already used
+// elsewhere in the app, instead of looking like a stock Flutter
+// default.
+//
+// NOTE: this previously had a sliding gold-gradient glow "pill" behind
+// the active tab. Removed per request — tap targets, icons, and
+// labels behave exactly as before, just without the pill visual.
 // ══════════════════════════════════════════════════════════════════
 class _AurumBottomNavBar extends StatelessWidget {
   const _AurumBottomNavBar({
@@ -350,101 +354,59 @@ class _AurumBottomNavBar extends StatelessWidget {
             top: false,
             child: SizedBox(
               height: 64,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final tabWidth = constraints.maxWidth / _items.length;
-                  return Stack(
-                    children: [
-                      AnimatedPositioned(
-                        duration: const Duration(milliseconds: 260),
-                        curve: Curves.easeOutCubic,
-                        left: tabWidth * currentIndex + tabWidth * 0.14,
-                        top: 8,
-                        width: tabWidth * 0.72,
-                        height: 48,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(20),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(20),
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    AurumTheme.gold.withOpacity(isLight ? 0.16 : 0.20),
-                                    AurumTheme.gold.withOpacity(isLight ? 0.06 : 0.08),
-                                  ],
-                                ),
-                                border: Border.all(
-                                  color: AurumTheme.gold.withOpacity(isLight ? 0.28 : 0.32),
-                                  width: 1,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AurumTheme.gold.withOpacity(0.18),
-                                    blurRadius: 18,
-                                    spreadRadius: -2,
-                                  ),
-                                ],
-                              ),
+              // Plain Row now that the pill is gone — the previous
+              // Stack(children: [Row(...)]) + LayoutBuilder wrapping only
+              // existed to position the pill behind the tabs (LayoutBuilder
+              // measured width, Stack layered the pill under the Row).
+              // Neither is needed to just lay out three equal tap targets.
+              child: Row(
+                children: List.generate(_items.length, (i) {
+                  final item = _items[i];
+                  final selected = i == currentIndex;
+                  return Expanded(
+                    child: _NavTapScale(
+                      onTap: () {
+                        if (!selected) HapticFeedback.selectionClick();
+                        onTap(i);
+                      },
+                      child: SizedBox.expand(
+                        child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 200),
+                            transitionBuilder: (child, anim) => ScaleTransition(
+                              scale: anim,
+                              child: FadeTransition(opacity: anim, child: child),
+                            ),
+                            child: Icon(
+                              selected ? item.filled : item.outline,
+                              key: ValueKey(selected),
+                              size: 24,
+                              color: selected
+                                  ? AurumTheme.gold
+                                  : AurumTheme.textMutedOf(context),
                             ),
                           ),
+                          const SizedBox(height: 4),
+                          AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 220),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                              color: selected
+                                  ? AurumTheme.gold
+                                  : AurumTheme.textMutedOf(context),
+                            ),
+                            child: Text(item.label),
+                          ),
+                        ],
                         ),
                       ),
-                      Row(
-                        children: List.generate(_items.length, (i) {
-                          final item = _items[i];
-                          final selected = i == currentIndex;
-                          return Expanded(
-                            child: _NavTapScale(
-                              onTap: () {
-                                if (!selected) HapticFeedback.selectionClick();
-                                onTap(i);
-                              },
-                              child: SizedBox.expand(
-                                child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 200),
-                                    transitionBuilder: (child, anim) => ScaleTransition(
-                                      scale: anim,
-                                      child: FadeTransition(opacity: anim, child: child),
-                                    ),
-                                    child: Icon(
-                                      selected ? item.filled : item.outline,
-                                      key: ValueKey(selected),
-                                      size: 24,
-                                      color: selected
-                                          ? AurumTheme.gold
-                                          : AurumTheme.textMutedOf(context),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  AnimatedDefaultTextStyle(
-                                    duration: const Duration(milliseconds: 220),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                                      color: selected
-                                          ? AurumTheme.gold
-                                          : AurumTheme.textMutedOf(context),
-                                    ),
-                                    child: Text(item.label),
-                                  ),
-                                ],
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
-                      ),
-                    ],
+                    ),
                   );
-                },
+                }),
               ),
             ),
           ),

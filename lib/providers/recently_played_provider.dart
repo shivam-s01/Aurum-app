@@ -21,6 +21,7 @@
 //   All new methods are additive. Nothing removed.
 // =============================================================================
 
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -204,6 +205,42 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   List<String> topArtists({int count = 2}) {
     if (_history.isEmpty) return [];
+    return _rankedArtists().take(count).toList();
+  }
+
+  // ---------------------------------------------------------------------------
+  // ROOT CAUSE (part 2) of "pull-to-refresh shows the same songs" — this was
+  // the piece the earlier rotatingAffinityArtists/Genres fix in
+  // recommendation_engine.dart never touched, because it lives in a
+  // different provider entirely.
+  //
+  // ApiService.fetchHomeStreaming() only uses RecommendationEngine's rotating
+  // affinity artists/genres when the user already has enough *learned*
+  // affinity weight (>0.5 score for at least a couple of artists/genres —
+  // built up over real listening activity). For a newer account, or anyone
+  // whose weights haven't crossed that threshold yet, `rotatingAffinityArtists`
+  // returns an empty list, and the code falls straight back to this
+  // provider's `topArtists(count: 3)` — a plain frequency count with NO
+  // seed, NO shuffle, deterministically sorted by play count. That fallback
+  // is what was actually driving the "Made for You · <artist>" sections
+  // (the first, most visible rows on the page) on every single pull, and it
+  // never varied no matter how many times you refreshed.
+  //
+  // Fix: a rotating counterpart, same pattern as
+  // RecommendationEngine.rotatingAffinityArtists — pull from a wider top-N
+  // pool by frequency, then shuffle with the given seed before slicing to
+  // `count`. Real listening data still drives who's eligible; a fresh
+  // random seed per pull decides who's actually featured this time.
+  List<String> rotatingTopArtists({int count = 3, int? seed, int poolSize = 12}) {
+    if (_history.isEmpty) return [];
+    final pool = _rankedArtists().take(poolSize).toList();
+    if (pool.length <= count) return pool;
+    pool.shuffle(seed != null ? math.Random(seed) : math.Random());
+    return pool.take(count).toList();
+  }
+
+  List<String> _rankedArtists() {
+    if (_history.isEmpty) return [];
 
     // Label/publisher names that sometimes appear in the `artist` field of
     // Saavn metadata instead of an actual singer — these must never be
@@ -227,7 +264,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
     final sorted = freq.keys.toList()
       ..sort((a, b) => freq[b]!.compareTo(freq[a]!));
 
-    return sorted.take(count).toList();
+    return sorted;
   }
 
   // ---------------------------------------------------------------------------
