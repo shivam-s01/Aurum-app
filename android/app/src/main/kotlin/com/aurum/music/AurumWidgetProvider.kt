@@ -35,8 +35,25 @@ open class AurumWidgetProvider : AppWidgetProvider() {
         try {
             for (id in appWidgetIds) {
                 val views = RemoteViews(context.packageName, R.layout.widget_compact)
-                views.setTextViewText(R.id.widget_title, "Aurum")
-                views.setTextViewText(R.id.widget_artist, "Diagnostic build OK")
+
+                val engine = try { AurumMediaSessionService.sharedEngine } catch (e: Exception) {
+                    Log.e(TAG, "sharedEngine access crashed: ${e.message}", e)
+                    null
+                }
+                val player = engine?.player
+                val metadata = try { player?.mediaMetadata } catch (e: Exception) {
+                    Log.e(TAG, "mediaMetadata access crashed: ${e.message}", e)
+                    null
+                }
+                val title = metadata?.title?.toString()
+                val artist = metadata?.artist?.toString()
+                val hasSong = player != null && player.mediaItemCount > 0 && !title.isNullOrEmpty()
+
+                views.setTextViewText(R.id.widget_title, if (hasSong) title else "Aurum")
+                views.setTextViewText(
+                    R.id.widget_artist,
+                    if (hasSong) (artist ?: "") else "Tap to play something"
+                )
 
                 val openAppIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
                 if (openAppIntent != null) {
@@ -51,7 +68,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                 appWidgetManager.updateAppWidget(id, views)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Minimal onUpdate crashed: ${e.message}", e)
+            Log.e(TAG, "Step1 onUpdate crashed: ${e.message}", e)
         }
     }
 }
