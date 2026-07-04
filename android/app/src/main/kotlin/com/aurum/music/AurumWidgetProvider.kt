@@ -96,81 +96,117 @@ open class AurumWidgetProvider : AppWidgetProvider() {
             ids: IntArray,
             isCompact: Boolean,
         ) {
+            for (id in ids) {
+                try {
+                    updateSingleWidget(context, manager, id, isCompact)
+                } catch (e: Exception) {
+                    Log.e(TAG, "updateSingleWidget failed for id=$id: ${e.message}", e)
+                    try {
+                        // Minimal safe fallback render — guarantees the
+                        // widget host always gets SOME valid RemoteViews
+                        // for this id, never an uncaught exception (which
+                        // is what makes the launcher show "An error
+                        // occurred when loading widget").
+                        val safeViews = RemoteViews(
+                            context.packageName,
+                            if (isCompact) R.layout.widget_compact else R.layout.widget_full
+                        )
+                        safeViews.setTextViewText(R.id.widget_title, "Aurum")
+                        safeViews.setTextViewText(R.id.widget_artist, "Tap to open")
+                        safeViews.setImageViewResource(R.id.widget_play_pause, R.drawable.ic_widget_play)
+                        safeViews.setImageViewResource(R.id.widget_bg_image, R.drawable.widget_background_fallback)
+                        safeViews.setImageViewResource(R.id.widget_artwork_thumb, R.drawable.widget_thumb_mask)
+                        manager.updateAppWidget(id, safeViews)
+                    } catch (fatal: Exception) {
+                        Log.e(TAG, "Fallback render also failed for id=$id: ${fatal.message}", fatal)
+                    }
+                }
+            }
+        }
+
+        private fun updateSingleWidget(
+            context: Context,
+            manager: AppWidgetManager,
+            id: Int,
+            isCompact: Boolean,
+        ) {
             val engine = AurumMediaSessionService.sharedEngine
             val player = engine?.player
 
-            for (id in ids) {
-                val views = RemoteViews(
-                    context.packageName,
-                    if (isCompact) R.layout.widget_compact else R.layout.widget_full
-                )
+            val views = RemoteViews(
+                context.packageName,
+                if (isCompact) R.layout.widget_compact else R.layout.widget_full
+            )
 
-                val metadata = player?.mediaMetadata
-                val title = metadata?.title?.toString()
-                val artist = metadata?.artist?.toString()
-                val hasSong = player != null && player.mediaItemCount > 0 && !title.isNullOrEmpty()
-                val isPlaying = player?.isPlaying == true
+            val metadata = player?.mediaMetadata
+            val title = metadata?.title?.toString()
+            val artist = metadata?.artist?.toString()
+            val hasSong = player != null && player.mediaItemCount > 0 && !title.isNullOrEmpty()
+            val isPlaying = player?.isPlaying == true
 
-                views.setTextViewText(
-                    R.id.widget_title,
-                    if (hasSong) title else "Aurum"
-                )
-                views.setTextViewText(
-                    R.id.widget_artist,
-                    if (hasSong) (artist ?: "") else "Tap to play something"
-                )
-                views.setImageViewResource(
-                    R.id.widget_play_pause,
-                    if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
-                )
+            views.setTextViewText(
+                R.id.widget_title,
+                if (hasSong) title else "Aurum"
+            )
+            views.setTextViewText(
+                R.id.widget_artist,
+                if (hasSong) (artist ?: "") else "Tap to play something"
+            )
+            views.setImageViewResource(
+                R.id.widget_play_pause,
+                if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
+            )
 
-                wirePendingIntents(context, views, isCompact)
+            wirePendingIntents(context, views, isCompact)
 
-                // Artwork: fire an async load+blur pass, but paint
-                // whatever we already have cached immediately so the
-                // widget never flashes blank while that finishes.
-                val artworkUri = metadata?.artworkUri?.toString()
-                if (artworkUri != null && artworkUri == lastArtworkUrl && lastBlurredBitmap != null) {
-                    views.setImageViewBitmap(R.id.widget_bg_image, lastBlurredBitmap)
-                    views.setImageViewBitmap(R.id.widget_artwork_thumb, lastThumbBitmap)
-                    manager.updateAppWidget(id, views)
-                } else if (artworkUri.isNullOrEmpty()) {
-                    views.setImageViewResource(R.id.widget_bg_image, R.drawable.widget_background_fallback)
-                    views.setImageViewResource(R.id.widget_artwork_thumb, R.drawable.widget_thumb_mask)
-                    manager.updateAppWidget(id, views)
-                } else {
-                    // Push the text/controls now; artwork follows async.
-                    manager.updateAppWidget(id, views)
-                    loadAndApplyArtwork(context, manager, id, isCompact, artworkUri)
-                }
+            // Artwork: fire an async load+blur pass, but paint
+            // whatever we already have cached immediately so the
+            // widget never flashes blank while that finishes.
+            val artworkUri = metadata?.artworkUri?.toString()
+            if (artworkUri != null && artworkUri == lastArtworkUrl && lastBlurredBitmap != null) {
+                views.setImageViewBitmap(R.id.widget_bg_image, lastBlurredBitmap)
+                views.setImageViewBitmap(R.id.widget_artwork_thumb, lastThumbBitmap)
+                manager.updateAppWidget(id, views)
+            } else if (artworkUri.isNullOrEmpty()) {
+                views.setImageViewResource(R.id.widget_bg_image, R.drawable.widget_background_fallback)
+                views.setImageViewResource(R.id.widget_artwork_thumb, R.drawable.widget_thumb_mask)
+                manager.updateAppWidget(id, views)
+            } else {
+                // Push the text/controls now; artwork follows async.
+                manager.updateAppWidget(id, views)
+                loadAndApplyArtwork(context, manager, id, isCompact, artworkUri)
             }
         }
 
         private fun wirePendingIntents(context: Context, views: RemoteViews, isCompact: Boolean) {
             // Opening the app: tap on artwork thumb or the text column.
-            val openAppIntent = context.packageManager
-                .getLaunchIntentForPackage(context.packageName)
-                ?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP) }
-            val openAppPending = PendingIntent.getActivity(
-                context, 100, openAppIntent ?: Intent(),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            views.setOnClickPendingIntent(R.id.widget_root_tap, openAppPending)
+            try {
+                val openAppIntent = context.packageManager
+                    .getLaunchIntentForPackage(context.packageName)
+                    ?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP) }
+                if (openAppIntent != null) {
+                    val openAppPending = PendingIntent.getActivity(
+                        context, 100, openAppIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    )
+                    views.setOnClickPendingIntent(R.id.widget_root_tap, openAppPending)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "openApp PendingIntent failed: ${e.message}")
+            }
 
             views.setOnClickPendingIntent(
                 R.id.widget_play_pause,
                 actionPendingIntent(context, ACTION_PLAY_PAUSE, 101),
             )
-            if (!isCompact) {
-                views.setOnClickPendingIntent(
-                    R.id.widget_next,
-                    actionPendingIntent(context, ACTION_NEXT, 102),
-                )
-                views.setOnClickPendingIntent(
-                    R.id.widget_prev,
-                    actionPendingIntent(context, ACTION_PREV, 103),
-                )
-            }
+            views.setOnClickPendingIntent(
+                R.id.widget_next,
+                actionPendingIntent(context, ACTION_NEXT, 102),
+            )
+            views.setOnClickPendingIntent(
+                R.id.widget_prev,
+                actionPendingIntent(context, ACTION_PREV, 103),
+            )
         }
 
         private fun actionPendingIntent(context: Context, action: String, requestCode: Int): PendingIntent {
@@ -394,8 +430,12 @@ open class AurumWidgetProvider : AppWidgetProvider() {
     }
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        val isCompact = this !is AurumWidgetProviderFull
-        updateWidgets(context, appWidgetManager, appWidgetIds, isCompact)
+        try {
+            val isCompact = this !is AurumWidgetProviderFull
+            updateWidgets(context, appWidgetManager, appWidgetIds, isCompact)
+        } catch (e: Exception) {
+            Log.e(TAG, "onUpdate crashed: ${e.message}", e)
+        }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -437,6 +477,10 @@ open class AurumWidgetProvider : AppWidgetProvider() {
  */
 class AurumWidgetProviderFull : AurumWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        AurumWidgetProvider.updateWidgets(context, appWidgetManager, appWidgetIds, isCompact = false)
+        try {
+            AurumWidgetProvider.updateWidgets(context, appWidgetManager, appWidgetIds, isCompact = false)
+        } catch (e: Exception) {
+            Log.e("AurumWidget", "Full onUpdate crashed: ${e.message}", e)
+        }
     }
 }

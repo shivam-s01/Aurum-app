@@ -1,19 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Compact Aurum widget (target ~2x2 / 4x1 cells). Shows the blurred-
-  artwork background (set at runtime via setImageViewBitmap on
-  widget_bg_image), current track title/artist, and a single play/pause
-  button. Tapping the artwork thumbnail or the text opens the app
-  straight to the full player; only the play/pause circle has its own
-  narrower tap target so a stray tap on the card doesn't accidentally
-  toggle playback when the user meant to open the app.
+  Compact Aurum widget (target ~2x2 cells), Arc Player-style flat card:
+  solid dark card background (no artwork bleed — keeps it calm/legible
+  at small size), square rounded artwork thumb on the left, title/artist
+  stacked in the middle, and a compact prev/play/next pill row.
+  Tapping the artwork or text opens the app; each transport control has
+  its own tap target.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Blurred artwork background, or widget_background_fallback while
-         nothing has loaded yet / no song is playing. -->
+    <!-- Flat card background — solid, not the blurred artwork bleed
+         used previously. widget_bg_image is kept (still set at runtime)
+         but now sits fully behind the card fill + is heavily scrimmed,
+         so it only ever contributes a faint tint rather than a busy
+         photo background. -->
     <ImageView
         android:id="@+id/widget_bg_image"
         android:layout_width="match_parent"
@@ -21,12 +23,10 @@
         android:scaleType="centerCrop"
         android:src="@drawable/widget_background_fallback"/>
 
-    <!-- Dark scrim over the blur for text legibility, same gradient
-         language as the in-app hero card. -->
     <View
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/widget_scrim_compact"/>
+        android:background="@drawable/widget_flat_card"/>
 
     <LinearLayout
         android:id="@+id/widget_root_tap"
@@ -34,13 +34,13 @@
         android:layout_height="match_parent"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="14dp"
-        android:paddingEnd="12dp">
+        android:paddingStart="12dp"
+        android:paddingEnd="10dp">
 
         <ImageView
             android:id="@+id/widget_artwork_thumb"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:scaleType="centerCrop"
             android:background="@drawable/widget_thumb_mask"/>
 
@@ -67,20 +67,51 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Tap to play something"
-                android:textColor="#B3FFFFFF"
+                android:textColor="#99FFFFFF"
                 android:textSize="11sp"
                 android:maxLines="1"
                 android:ellipsize="end"
                 android:layout_marginTop="1dp"/>
         </LinearLayout>
 
-        <ImageView
-            android:id="@+id/widget_play_pause"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:layout_marginStart="6dp"
-            android:padding="6dp"
-            android:background="@drawable/widget_circle_button"
-            android:src="@drawable/ic_widget_play"/>
+        <!-- Compact transport pill: prev / play-pause / next, matching
+             the reference Arc Player row layout instead of a single
+             play/pause circle. -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_pill_bg"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp">
+
+            <ImageView
+                android:id="@+id/widget_prev"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:padding="5dp"
+                android:src="@drawable/ic_widget_prev"/>
+
+            <ImageView
+                android:id="@+id/widget_play_pause"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="2dp"
+                android:padding="6dp"
+                android:background="@drawable/widget_circle_button"
+                android:src="@drawable/ic_widget_play"/>
+
+            <ImageView
+                android:id="@+id/widget_next"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:layout_marginStart="2dp"
+                android:padding="5dp"
+                android:src="@drawable/ic_widget_next"/>
+        </LinearLayout>
     </LinearLayout>
 </FrameLayout>

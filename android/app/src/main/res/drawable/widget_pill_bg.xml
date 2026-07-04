@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Rounded pill container behind the compact widget's prev/play/next row,
+  matching the reference widget's dark control-strip look.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#26FFFFFF"/>
+    <corners android:radius="16dp"/>
+</shape>

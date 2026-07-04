@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Flat solid card background for the compact widget, matching the
+  reference Arc Player widget's plain dark-navy card look instead of a
+  photo/blur bleed background.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#E6141A2E"/>
+    <corners android:radius="18dp"/>
+</shape>
