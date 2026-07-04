@@ -1,28 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Full Aurum widget (target ~4x2 cells). Bigger blurred-artwork
-  background, larger square artwork thumbnail, title/artist, and a full
-  prev / play-pause / next transport row — the "big" Spotify-style widget.
-  Tapping the artwork or text opens the app to the full player; each
-  transport button has its own tap target wired straight to the native
-  MediaSession via AurumWidgetProvider, so playback control works without
-  needing the app process alive or Flutter running at all.
+  Full Aurum widget (target ~4x2 cells) — artwork/bitmap rendering
+  permanently removed (see AurumWidgetProvider.kt header comment).
+  Flat gradient card, larger title/artist, and a full prev/play/next
+  transport row. No ImageView here ever receives a runtime bitmap.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <ImageView
-        android:id="@+id/widget_bg_image"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="centerCrop"
-        android:src="@drawable/widget_background_fallback"/>
-
     <View
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/widget_scrim_full"/>
+        android:background="@drawable/widget_gradient_card"/>
 
     <LinearLayout
         android:id="@+id/widget_root_tap"
@@ -30,17 +20,15 @@
         android:layout_height="match_parent"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="16dp"
+        android:paddingStart="18dp"
         android:paddingEnd="14dp"
         android:paddingTop="12dp"
         android:paddingBottom="12dp">
 
-        <ImageView
-            android:id="@+id/widget_artwork_thumb"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:scaleType="centerCrop"
-            android:background="@drawable/widget_thumb_mask"/>
+        <View
+            android:layout_width="4dp"
+            android:layout_height="56dp"
+            android:background="@drawable/widget_accent_bar"/>
 
         <LinearLayout
             android:layout_width="0dp"

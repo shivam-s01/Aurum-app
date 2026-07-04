@@ -1,24 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Compact Aurum widget (target ~2x2 cells), Arc Player-style flat card:
-  solid dark card background, square rounded artwork thumb on the left,
-  title/artist stacked in the middle, and a compact prev/play/next pill.
+  Compact Aurum widget — artwork/bitmap rendering permanently removed
+  (see AurumWidgetProvider.kt header comment). Flat gradient card,
+  title/artist, and a prev/play/next control pill. No ImageView ever
+  receives a runtime bitmap here — only static drawable resources.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <ImageView
-        android:id="@+id/widget_bg_image"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="centerCrop"
-        android:src="@drawable/widget_background_fallback"/>
-
     <View
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/widget_flat_card"/>
+        android:background="@drawable/widget_gradient_card"/>
 
     <LinearLayout
         android:id="@+id/widget_root_tap"
@@ -26,21 +20,19 @@
         android:layout_height="match_parent"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="12dp"
+        android:paddingStart="14dp"
         android:paddingEnd="10dp">
 
-        <ImageView
-            android:id="@+id/widget_artwork_thumb"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:scaleType="centerCrop"
-            android:background="@drawable/widget_thumb_mask"/>
+        <View
+            android:layout_width="4dp"
+            android:layout_height="34dp"
+            android:background="@drawable/widget_accent_bar"/>
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="12dp"
             android:orientation="vertical">
 
             <TextView
