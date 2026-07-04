@@ -115,6 +115,19 @@ class AurumAudioEngine(
     private var splicingInProgress = false
     private var restoredSilently = false
 
+    // FIX (loading-stuck / "10-20s pe atak jaata hai"): between a tap and
+    // ExoPlayer actually getting a MediaItem, player.playbackState stays
+    // STATE_IDLE the whole time resolveFast() is awaiting the worker/
+    // fallback chain (up to ~18s for YouTube + retries). pushState() was
+    // reporting "idle" during that entire window, so Dart's _isLoading
+    // (state.processingState == "loading"/"buffering") never went true —
+    // whatever spinner WAS showing was local tap-state with no backing
+    // timeout, not a signal driven by real engine progress. This flag is
+    // true for the exact span we're actually resolving, and is reported as
+    // processingState "loading" so Dart's existing isLoading getter picks
+    // it up with zero call-site changes needed.
+    private var isResolving = false
+
     // Media3's playlist == the "ConcatenatingAudioSource" equivalent.
     // We track song IDs in the same order as player.mediaItemCount to
     // detect drift, same purpose as Dart's _queue vs sequence checks.
@@ -138,6 +151,17 @@ class AurumAudioEngine(
         private const val PRIORITY_FORWARD_WINDOW = 1
         private const val PRIORITY_BACKWARD_WINDOW = 1
         private const val PACED_RESOLVE_DELAY_MS = 2500L
+
+        // FIX (loading-stuck, 10-20s no-feedback window): hard ceiling on
+        // how long ANY single resolve attempt chain (resolveFast + its
+        // internal retries, or findFirstPlayableFrom's walk) is allowed to
+        // run before we give up and surface a real error instead of
+        // silently continuing to await. Matches the Worker's own max
+        // per-request timeout (isUrlAlive/AbortSignal.timeout(7000) plus
+        // margin for one retry) so Dart-side and native-side "give up"
+        // points line up instead of native waiting longer than the Worker
+        // itself would ever take to respond.
+        private const val RESOLVE_HARD_CAP_MS = 8_000L
     }
 
     init {
@@ -174,11 +198,16 @@ class AurumAudioEngine(
 
     private fun pushState() {
         _state.value = NativeEngineState(
-            processingState = when (player.playbackState) {
-                Player.STATE_IDLE -> "idle"
-                Player.STATE_BUFFERING -> "buffering"
-                Player.STATE_READY -> "ready"
-                Player.STATE_ENDED -> "completed"
+            processingState = when {
+                // Reported first: a resolve is in flight and ExoPlayer has no
+                // MediaItem yet, so player.playbackState would otherwise say
+                // "idle" — which Dart reads as "not loading". This is the
+                // actual fix for the silent 10-20s gap.
+                isResolving && player.playbackState == Player.STATE_IDLE -> "loading"
+                player.playbackState == Player.STATE_IDLE -> "idle"
+                player.playbackState == Player.STATE_BUFFERING -> "buffering"
+                player.playbackState == Player.STATE_READY -> "ready"
+                player.playbackState == Player.STATE_ENDED -> "completed"
                 else -> "idle"
             },
             playing = player.isPlaying,
@@ -266,14 +295,21 @@ class AurumAudioEngine(
             hardStopAndMute(mySession)
             if (mySession != playSessionId) return
 
-            var url = resolveFast(songs[safeIndex], mySession)
+            isResolving = true
+            pushState()
+            var url = try {
+                withTimeoutOrNull(RESOLVE_HARD_CAP_MS) { resolveFast(songs[safeIndex], mySession) }
+            } catch (e: CancellationException) { throw e }
             if (mySession != playSessionId) return
 
             var resolvedSong = songs[safeIndex]
             if (url == null) {
-                val found = findFirstPlayableFrom(songs, safeIndex + 1, mySession)
+                val found = try {
+                    withTimeoutOrNull(RESOLVE_HARD_CAP_MS) { findFirstPlayableFrom(songs, safeIndex + 1, mySession) }
+                } catch (e: CancellationException) { throw e }
                 if (mySession != playSessionId) return
                 if (found == null) {
+                    isResolving = false
                     failPlayback(songs[safeIndex], "stream URL could not be resolved for this song or any other in the queue")
                     return
                 }
@@ -288,9 +324,11 @@ class AurumAudioEngine(
             try {
                 setSingleMediaItemInternal(url!!, resolvedSong)
             } catch (e: Exception) {
+                isResolving = false
                 failPlayback(resolvedSong, e.message ?: "setMediaItem failed")
                 return
             }
+            isResolving = false
             if (mySession != playSessionId) return
 
             delay(600)
@@ -308,6 +346,11 @@ class AurumAudioEngine(
         } catch (e: Exception) {
             emitError("playQueue failed for \"${songs[safeIndex].title}\" — ${e.message}")
         } finally {
+            // Belt-and-suspenders: no matter which branch/exception path we
+            // took above, isResolving must never be left true past this
+            // point — that would leave the spinner spinning forever on the
+            // NEXT unrelated state change too, not just this one.
+            isResolving = false
             if (mySession == playSessionId) {
                 restoreVolume()
                 isLoadingNewSong = false
@@ -344,18 +387,34 @@ class AurumAudioEngine(
             hardStopAndMute(mySession)
             if (mySession != playSessionId) return
 
-            var url = resolveFast(song, mySession)
+            // FIX (loading-stuck, 10-20s no-feedback window): this is the
+            // direct single-tap path (_SongCard._handleTap -> playSong).
+            // isResolving=true the instant we start awaiting the worker,
+            // so pushState() reports "loading" for the ENTIRE span below —
+            // including the 700ms gap + second resolveFast attempt — not
+            // just once ExoPlayer has a MediaItem. Each individual attempt
+            // is still wrapped in its own hard cap so one dead attempt
+            // can't silently eat the whole budget before the retry runs.
+            isResolving = true
+            pushState()
+
+            var url = try {
+                withTimeoutOrNull(RESOLVE_HARD_CAP_MS) { resolveFast(song, mySession) }
+            } catch (e: CancellationException) { throw e }
             if (mySession != playSessionId) return
 
             if (url == null) {
                 delay(700)
                 if (mySession != playSessionId) return
                 resolver.invalidate(song)
-                url = resolveFast(song, mySession)
+                url = try {
+                    withTimeoutOrNull(RESOLVE_HARD_CAP_MS) { resolveFast(song, mySession) }
+                } catch (e: CancellationException) { throw e }
                 if (mySession != playSessionId) return
             }
 
             if (url == null) {
+                isResolving = false
                 failPlayback(song, "stream URL could not be resolved after retries, or local file missing")
                 return
             }
@@ -364,9 +423,11 @@ class AurumAudioEngine(
             try {
                 setSingleMediaItemInternal(url, song)
             } catch (e: Exception) {
+                isResolving = false
                 failPlayback(song, e.message ?: "setMediaItem failed")
                 return
             }
+            isResolving = false
             if (mySession != playSessionId) return
 
             delay(600)
@@ -376,6 +437,7 @@ class AurumAudioEngine(
         } catch (e: Exception) {
             emitError("playSong failed for \"${song.title}\" — ${e.message}")
         } finally {
+            isResolving = false
             if (mySession == playSessionId) {
                 restoreVolume()
                 isLoadingNewSong = false
