@@ -6,29 +6,38 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.Rect
+import android.graphics.RectF
 import android.util.Log
 import android.widget.RemoteViews
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Home-screen widget for Aurum — two sizes (compact "now playing" strip,
  * and a full version with prev/play-pause/next transport controls).
  *
- * ARTWORK/BLUR PERMANENTLY REMOVED. Both the GPU RenderEffect path and
- * the pure-software box-blur fallback were tried; both still produced
- * "An error occurred when loading widget" on the actual device even
- * with every catch widened to Throwable (covers OutOfMemoryError too).
- * That means the failure happens on the WIDGET HOST side of the
- * updateAppWidget() Binder IPC call — most likely the delivered
- * RemoteViews' embedded Bitmap (background blur + thumbnail) either
- * exceeded the Binder transaction size limit, or the host's own
- * inflate of a large embedded bitmap failed for some other
- * device/launcher-specific reason. No code running in this app's
- * process can catch a failure that happens after the RemoteViews have
- * already been handed off to the host. Removing bitmaps from the
- * RemoteViews entirely removes that whole failure class — this widget
- * now only ever sends text + solid-color drawables + click intents,
- * all of which are small, static, resource-based content the host has
- * always been able to render reliably.
+ * ARTWORK: only a small rounded THUMBNAIL is loaded — no blurred
+ * background bitmap, no HardwareRenderer/RenderEffect (that combo was
+ * the confirmed root cause of the earlier "An error occurred when
+ * loading widget" crash: RemoteViews only supports a fixed allowlist
+ * of view classes, and this widget previously also used a bare <View>
+ * tag, which isn't on that allowlist — that was the actual bug, fixed
+ * by switching to FrameLayout/LinearLayout containers instead).
+ * The thumbnail path here is deliberately minimal: one small bitmap,
+ * one simple rounded-rect crop, Throwable-guarded end to end, with a
+ * static placeholder shown immediately and swapped only on success.
  */
 open class AurumWidgetProvider : AppWidgetProvider() {
 
@@ -39,6 +48,11 @@ open class AurumWidgetProvider : AppWidgetProvider() {
         const val ACTION_NEXT = "com.aurum.music.widget.ACTION_NEXT"
         const val ACTION_PREV = "com.aurum.music.widget.ACTION_PREV"
         const val ACTION_REFRESH = "com.aurum.music.widget.ACTION_REFRESH"
+
+        private var lastArtworkUrl: String? = null
+        private var lastThumbBitmap: Bitmap? = null
+
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
         fun refreshAll(context: Context) {
             try {
@@ -121,7 +135,18 @@ open class AurumWidgetProvider : AppWidgetProvider() {
             )
 
             wirePendingIntents(context, views)
-            manager.updateAppWidget(id, views)
+
+            val artworkUri = metadata?.artworkUri?.toString()
+            if (artworkUri != null && artworkUri == lastArtworkUrl && lastThumbBitmap != null) {
+                views.setImageViewBitmap(R.id.widget_artwork_thumb, lastThumbBitmap)
+                manager.updateAppWidget(id, views)
+            } else {
+                // Static placeholder now; thumbnail (if any) follows async.
+                manager.updateAppWidget(id, views)
+                if (!artworkUri.isNullOrEmpty()) {
+                    loadAndApplyThumbnail(context, manager, id, isCompact, artworkUri)
+                }
+            }
         }
 
         private fun wirePendingIntents(context: Context, views: RemoteViews) {
@@ -160,6 +185,92 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                 context, requestCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+        }
+
+        private fun loadAndApplyThumbnail(
+            context: Context,
+            manager: AppWidgetManager,
+            widgetId: Int,
+            isCompact: Boolean,
+            url: String,
+        ) {
+            scope.launch {
+                try {
+                    val original = withContext(Dispatchers.IO) { downloadBitmap(url) } ?: return@launch
+                    val thumb = withContext(Dispatchers.Default) {
+                        roundedCrop(original, sizePx = 160, cornerRadiusPx = 22f)
+                    } ?: return@launch
+
+                    lastArtworkUrl = url
+                    lastThumbBitmap = thumb
+
+                    val views = RemoteViews(
+                        context.packageName,
+                        if (isCompact) R.layout.widget_compact else R.layout.widget_full
+                    )
+                    val engine = AurumMediaSessionService.sharedEngine
+                    val player = engine?.player
+                    val metadata = player?.mediaMetadata
+                    val hasSong = player != null && player.mediaItemCount > 0 && !metadata?.title?.toString().isNullOrEmpty()
+                    views.setTextViewText(R.id.widget_title, if (hasSong) metadata?.title?.toString() else "Aurum")
+                    views.setTextViewText(
+                        R.id.widget_artist,
+                        if (hasSong) (metadata?.artist?.toString() ?: "") else "Tap to play something"
+                    )
+                    views.setImageViewResource(
+                        R.id.widget_play_pause,
+                        if (player?.isPlaying == true) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
+                    )
+                    wirePendingIntents(context, views)
+                    views.setImageViewBitmap(R.id.widget_artwork_thumb, thumb)
+                    manager.updateAppWidget(widgetId, views)
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Thumbnail load failed for $url: ${e.message}")
+                }
+            }
+        }
+
+        private fun downloadBitmap(urlString: String): Bitmap? {
+            return try {
+                val connection = URL(urlString).openConnection() as HttpURLConnection
+                connection.connectTimeout = 3000
+                connection.readTimeout = 3000
+                connection.doInput = true
+                connection.connect()
+                connection.inputStream.use { stream ->
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 8 }
+                    BitmapFactory.decodeStream(stream, null, opts)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "downloadBitmap failed: ${e.message}")
+                null
+            }
+        }
+
+        private fun roundedCrop(source: Bitmap, sizePx: Int, cornerRadiusPx: Float): Bitmap? {
+            return try {
+                val squareSize = minOf(source.width, source.height)
+                val x = (source.width - squareSize) / 2
+                val y = (source.height - squareSize) / 2
+                val square = Bitmap.createBitmap(source, x, y, squareSize, squareSize)
+                val scaled = Bitmap.createScaledBitmap(square, sizePx, sizePx, true)
+
+                val output = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(output)
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+                val rect = Rect(0, 0, sizePx, sizePx)
+                val rectF = RectF(rect)
+
+                canvas.drawARGB(0, 0, 0, 0)
+                canvas.drawRoundRect(rectF, cornerRadiusPx, cornerRadiusPx, paint)
+                paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+                canvas.drawBitmap(scaled, rect, rect, paint)
+
+                output
+            } catch (e: Throwable) {
+                Log.w(TAG, "roundedCrop failed: ${e.message}")
+                null
+            }
         }
     }
 

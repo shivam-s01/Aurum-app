@@ -25,10 +25,12 @@
         android:paddingTop="12dp"
         android:paddingBottom="12dp">
 
-        <LinearLayout
-            android:layout_width="4dp"
-            android:layout_height="56dp"
-            android:background="@drawable/widget_accent_bar"/>
+        <ImageView
+            android:id="@+id/widget_artwork_thumb"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:scaleType="centerCrop"
+            android:background="@drawable/widget_thumb_mask"/>
 
         <LinearLayout
             android:layout_width="0dp"
