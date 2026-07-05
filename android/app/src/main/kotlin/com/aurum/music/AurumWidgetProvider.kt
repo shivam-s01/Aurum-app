@@ -52,6 +52,18 @@ open class AurumWidgetProvider : AppWidgetProvider() {
         private var lastArtworkUrl: String? = null
         private var lastThumbBitmap: Bitmap? = null
 
+        /**
+         * Called from AurumMediaSessionService.onDestroy() so that once
+         * playback/the session is gone, the widget doesn't keep showing
+         * a stale cached thumbnail from whatever song was last playing —
+         * it should fall back to the plain "Aurum / Tap to play
+         * something" state, same as a fresh app install.
+         */
+        fun clearArtworkCache() {
+            lastArtworkUrl = null
+            lastThumbBitmap = null
+        }
+
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
         fun refreshAll(context: Context) {
@@ -141,7 +153,14 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                 views.setImageViewBitmap(R.id.widget_artwork_thumb, lastThumbBitmap)
                 manager.updateAppWidget(id, views)
             } else {
-                // Static placeholder now; thumbnail (if any) follows async.
+                // Song/artwork changed (or there's no cached bitmap yet) —
+                // explicitly clear the thumbnail back to the placeholder
+                // drawable right now. Without this, the ImageView keeps
+                // showing whatever bitmap the widget host already had
+                // for it (the PREVIOUS song's artwork) until the new
+                // download finishes, which is exactly the "thumbnail
+                // doesn't change with the song" bug.
+                views.setImageViewResource(R.id.widget_artwork_thumb, R.drawable.widget_thumb_mask)
                 manager.updateAppWidget(id, views)
                 if (!artworkUri.isNullOrEmpty()) {
                     loadAndApplyThumbnail(context, manager, id, isCompact, artworkUri)

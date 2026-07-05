@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.media3.common.Player
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
@@ -350,6 +351,12 @@ class AurumMediaSessionService : MediaSessionService() {
             mediaSession = null
         }
         instance = null
+        try {
+            AurumWidgetProvider.clearArtworkCache()
+            AurumWidgetProvider.refreshAll(this)
+        } catch (e: Exception) {
+            Log.e("AurumMediaSessionService", "Widget cache clear on destroy failed: ${e.message}", e)
+        }
         super.onDestroy()
     }
 }

@@ -429,44 +429,32 @@ class _MiniPlayerState extends State<MiniPlayer>
           });
         }
 
-        // Hide mini player when home hero is visible. Pure transform +
-        // opacity — NEVER touches layout size, so there is no clip window
-        // and no growing/shrinking box to slice a fixed-height capsule.
-        // The Column this sits in always reserves the mini player's full
-        // height; when "hidden" it's just faded out and slid down in
-        // place, with IgnorePointer so it doesn't intercept taps.
+        // Hide mini player when home hero is visible — simple and
+        // direct: render nothing at all, same pattern as the
+        // !hasSong/_dismissed case above. No reserved space, no
+        // AnimatedSize, no extra wrapping.
         return ValueListenableBuilder<bool>(
           valueListenable: MiniPlayer.heroVisibleNotifier,
           builder: (context, heroVisible, _) {
-            return AnimatedSlide(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOutCubic,
-              offset: heroVisible ? const Offset(0, 0.6) : Offset.zero,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 160),
-                curve: Curves.easeOut,
-                opacity: heroVisible ? 0.0 : 1.0,
-                child: IgnorePointer(
-                  ignoring: heroVisible,
-                  child: AnimatedBuilder(
-                    animation: _entryCtrl,
-                    builder: (_, child) {
-                      return Transform.translate(
-                        offset: Offset(0, _entrySlide.value * 80),
-                        child: Transform.scale(
-                          scale: _entryScale.value,
-                          alignment: Alignment.bottomCenter,
-                          child: Opacity(
-                            opacity: _entryOpacity.value,
-                            child: child,
-                          ),
-                        ),
-                      );
-                    },
-                    child: _buildInner(context, player),
+            if (heroVisible) {
+              return const SizedBox.shrink();
+            }
+            return AnimatedBuilder(
+              animation: _entryCtrl,
+              builder: (_, child) {
+                return Transform.translate(
+                  offset: Offset(0, _entrySlide.value * 80),
+                  child: Transform.scale(
+                    scale: _entryScale.value,
+                    alignment: Alignment.bottomCenter,
+                    child: Opacity(
+                      opacity: _entryOpacity.value,
+                      child: child,
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
+              child: _buildInner(context, player),
             );
           },
         );
