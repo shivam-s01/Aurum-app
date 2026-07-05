@@ -374,23 +374,26 @@ class _AurumBottomNavBar extends StatelessWidget {
                             top: 0,
                             bottom: 0,
                             width: segmentWidth,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  // Flat tonal fill, not a bright gradient —
-                                  // a two-stop gradient plus glow read as
-                                  // "app icon sticker"; a near-flat wash
-                                  // reads as a quiet, deliberate surface.
-                                  color: AurumTheme.gold.withOpacity(isLight ? 0.09 : 0.11),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: AurumTheme.gold.withOpacity(isLight ? 0.14 : 0.16),
-                                    width: 0.7,
+                            child: Center(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                child: Container(
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    // Flat tonal fill, not a bright gradient —
+                                    // a two-stop gradient plus glow read as
+                                    // "app icon sticker"; a near-flat wash
+                                    // reads as a quiet, deliberate surface.
+                                    color: AurumTheme.gold.withOpacity(isLight ? 0.09 : 0.11),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: AurumTheme.gold.withOpacity(isLight ? 0.14 : 0.16),
+                                      width: 0.7,
+                                    ),
+                                    // No glow/boxShadow at all — a shadow here
+                                    // is what pushes this toward "neon button"
+                                    // rather than "etched surface".
                                   ),
-                                  // No glow/boxShadow at all — a shadow here
-                                  // is what pushes this toward "neon button"
-                                  // rather than "etched surface".
                                 ),
                               ),
                             ),
