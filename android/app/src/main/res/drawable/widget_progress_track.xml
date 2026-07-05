@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Faint full-width track behind the progress fill — decorative only,
+  no live seek position tracked.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#26FFFFFF"/>
+    <corners android:radius="2dp"/>
+</shape>

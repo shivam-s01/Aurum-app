@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Accent-colored progress fill segment — decorative, fixed width set
+  in the layout. Gives the widget a "something is actually playing"
+  visual cue at a glance.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#9B7EDE"/>
+    <corners android:radius="2dp"/>
+</shape>
