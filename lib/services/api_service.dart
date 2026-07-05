@@ -139,9 +139,33 @@ class _InstanceHealth {
 // =============================================================================
 class _WorkerHealth {
   static DateTime? _deadUntil;
-  static const Duration _cooldown = Duration(seconds: 60);
+  static int _consecutiveFailures = 0;
+
+  // Cooldown/backoff tracking kept for diagnostics and in case fallback
+  // providers are reintroduced later, but as of the Worker-only
+  // simplification (2026-07-06) nothing currently gates on isAlive —
+  // _ytStreamById now always attempts the Worker directly (quick probe,
+  // then one extended-timeout retry) rather than skipping it based on
+  // recent failure history. maintenanceMode is the only thing that
+  // actually short-circuits a Worker attempt now.
+  static const List<Duration> _backoffSteps = [
+    Duration(seconds: 8),
+    Duration(seconds: 20),
+    Duration(seconds: 45),
+    Duration(seconds: 90),
+    Duration(minutes: 2),
+  ];
+
+  // Manual override for planned maintenance. Flip to true right before
+  // restarting/redeploying the Cloudflare Worker, false the moment it's
+  // back — every song then skips the quick probe and goes straight to
+  // the longer-timeout retry (which will also fail fast-ish while the
+  // Worker is actually down, surfacing a clear "Worker unreachable" log
+  // instead of spending time on a doomed quick attempt first).
+  static bool maintenanceMode = false;
 
   static bool get isAlive {
+    if (maintenanceMode) return false;
     final dead = _deadUntil;
     if (dead == null) return true;
     if (DateTime.now().isAfter(dead)) {
@@ -152,16 +176,29 @@ class _WorkerHealth {
   }
 
   static void markDead() {
-    _deadUntil = DateTime.now().add(_cooldown);
+    final stepIndex = _consecutiveFailures.clamp(0, _backoffSteps.length - 1);
+    _deadUntil = DateTime.now().add(_backoffSteps[stepIndex]);
+    _consecutiveFailures++;
   }
 
   static void markAlive() {
     _deadUntil = null;
+    _consecutiveFailures = 0;
   }
 }
 
 
 class ApiService {
+
+  /// Flip to true right before you start restarting/redeploying the
+  /// Cloudflare Worker, false the moment it's back. While true, every
+  /// song skips Stage 1 (Worker) instantly and goes straight to
+  /// Piped/Invidious — no failed request, no timeout, no user-visible
+  /// stutter while you're doing maintenance.
+  static set workerMaintenanceMode(bool value) {
+    _WorkerHealth.maintenanceMode = value;
+  }
+  static bool get workerMaintenanceMode => _WorkerHealth.maintenanceMode;
 
   static final http.Client    _client = http.Client();
   static final YoutubeExplode _yt     = YoutubeExplode();
@@ -1343,61 +1380,28 @@ class ApiService {
   // Result: 8 sec → 1-3 sec on warm, 3-5 sec cold start.
   // ===========================================================================
   static Future<String?> _ytStreamById(String videoId) async {
-    // ── STAGE 1: Worker proxy ONLY ────────────────────────────────────────
-    // NOTE: _ytExplodeStream is intentionally NOT raced here.
-    // youtube_explode_dart returns raw googlevideo.com URLs that are
-    // IP-locked to the Cloudflare edge server that resolved them.
-    // Giving that URL to ExoPlayer fails with 403 → idle@0ms because
-    // phone IP != Cloudflare IP. Worker proxy resolves + pipes bytes
-    // through same CF IP → no mismatch. Explode only used in Stage 3
-    // as last-resort, routed through Worker proxy to avoid IP-lock.
-    //
-    // PERFORMANCE (2026-07-02): skip Stage 1 entirely if the Worker has
-    // failed recently (_WorkerHealth) — no point re-paying up to 28s of
-    // sequential timeout on every single tap when we already know it's
-    // down. Go straight to the fast parallel fallback race instead.
-    if (_WorkerHealth.isAlive) {
-      final stage1 = await _workerYtStream(videoId);
-      if (stage1 != null) return stage1;
-      _log('[ytStreamById] Stage 1 (Worker) failed for $videoId — blast racing fallbacks');
+    // ── Worker-only resolution ─────────────────────────────────────────
+    // Piped/Invidious fallbacks removed entirely (2026-07-06). Those were
+    // public, volunteer-run instances with no uptime guarantee — most of
+    // the "songs randomly won't play" reports traced back to THEM being
+    // down, not the Cloudflare Worker (independently confirmed working
+    // via a direct browser request during the same failure window).
+    // Now the only thing that can fail this is an actual Worker outage,
+    // which is something Shivam controls directly and can fix — instead
+    // of an unpredictable third-party instance nobody here maintains.
+    // Two attempts against the Worker: a quick probe first, then one
+    // longer-timeout retry if the quick one didn't land (covers a slow
+    // cold-start without giving up on a Worker that's actually fine).
+    if (!_WorkerHealth.maintenanceMode) {
+      final quick = await _workerYtStream(videoId);
+      if (quick != null) return quick;
+      _log('[ytStreamById] Quick Worker attempt failed for $videoId — retrying with extended timeout');
     } else {
-      _log('[ytStreamById] Worker in cooldown (recent failure) — skipping Stage 1, blast racing fallbacks directly');
+      _log('[ytStreamById] Worker maintenance mode active — skipping straight to extended retry');
     }
 
-    // ── STAGE 2: Blast race all Piped + Invidious simultaneously ─────────
-    final aliveInstances = [
-      ..._kPipedInstances.where(_InstanceHealth.isAlive),
-      ..._kInvidiousInstances.where(_InstanceHealth.isAlive),
-    ];
-
-    if (aliveInstances.isNotEmpty) {
-      final blastFns = aliveInstances.map((inst) => () async {
-        String? url;
-        if (_kPipedInstances.contains(inst)) {
-          url = await _pipedStream(videoId, inst);
-        } else {
-          url = await _invidiousStream(videoId, inst);
-        }
-        if (url != null) _InstanceHealth.markAlive(inst);
-        else _InstanceHealth.markDead(inst);
-        return url;
-      }).toList();
-
-      final stage2 = await _blastRace(blastFns);
-      if (stage2 != null) return stage2;
-    }
-
-    _log('[ytStreamById] Stage 2 failed for $videoId — Worker proxy last resort');
-
-    // ── STAGE 3: Last resort — Worker proxy with extended timeout ────────
-    // Do NOT use _ytExplodeStream directly — googlevideo.com URLs are
-    // IP-locked to the CF edge that resolved them. Phone IP != CF IP = 403.
-    // Worker proxy gets one more chance with a longer 30s timeout.
-    _log('[ytStreamById] Stage 3: Worker extended-timeout retry for $videoId');
     try {
       final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
-      // PERFORMANCE (2026-07-02): same probe-range shrink as Stage 1 —
-      // 256 bytes is enough to confirm liveness/content-type.
       final rangeRes = await _client.get(
         Uri.parse(proxyUrl),
         headers: {'Range': 'bytes=0-255'},
@@ -1407,15 +1411,17 @@ class ApiService {
         final isAudio = ct.contains('audio') || ct.contains('octet') ||
             ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
         if (isAudio || rangeRes.bodyBytes.length > 128) {
-          _log('[ytStreamById] Stage 3 Worker proxy OK for $videoId ✓');
+          _log('[ytStreamById] Extended-timeout Worker retry OK for $videoId ✓');
           _WorkerHealth.markAlive();
           return proxyUrl;
         }
       }
+      _log('[ytStreamById] Extended-timeout retry got status=${rangeRes.statusCode} for $videoId');
     } catch (e) {
-      _log('[ytStreamById] Stage 3 Worker retry failed: $e');
+      _log('[ytStreamById] Extended-timeout Worker retry failed: $e');
     }
-    _log('[ytStreamById] ALL stages failed for $videoId');
+    _log('[ytStreamById] Worker unreachable for $videoId — this means the '
+        'Cloudflare Worker itself is down. Check the Worker deployment.');
     return null;
   }
 
@@ -2200,7 +2206,7 @@ class ApiService {
 
   /// Fetch full artist page data: profile, top songs, top albums and singles.
   static Future<Artist?> fetchArtist(String artistId,
-      {int songCount = 15, int albumCount = 12}) async {
+      {int songCount = 50, int albumCount = 40}) async {
     if (artistId.isEmpty) return null;
     try {
       final uri = Uri.parse('$_saavnPrimary/api/artists/$artistId').replace(
@@ -2209,7 +2215,7 @@ class ApiService {
           'albumCount': '$albumCount',
         },
       );
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
+      final res = await http.get(uri).timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) return null;
       final body = jsonDecode(res.body);
       if (body['success'] != true) return null;
