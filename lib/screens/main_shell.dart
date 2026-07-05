@@ -30,10 +30,12 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _tab = 0;
 
-  final _screens = const [
-    HomeScreen(),
-    SearchScreen(),
-    LibraryScreen(),
+  final _homeKey = GlobalKey<HomeScreenState>();
+
+  late final _screens = [
+    HomeScreen(key: _homeKey),
+    const SearchScreen(),
+    const LibraryScreen(),
   ];
 
   // ── Shake-to-skip ─────────────────────────────────────────────────
@@ -277,6 +279,19 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                   // vanishing / showing a stray line on Search & Library.
                   if (i != 0) {
                     MiniPlayer.heroVisibleNotifier.value = false;
+                  } else {
+                    // Returning TO Home: the notifier may still be
+                    // holding a stale value from whichever tab-switch
+                    // ran last (always false, per the branch above),
+                    // even if Home's actual scroll position says the
+                    // hero card is on-screen right now. Recompute it
+                    // from the real scroll offset instead of trusting
+                    // the leftover write — this is what fixed the mini
+                    // player getting stuck hidden/shown incorrectly
+                    // after fast repeated tab switching.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _homeKey.currentState?.resyncHeroVisibility();
+                    });
                   }
                   setState(() => _tab = i);
                 },

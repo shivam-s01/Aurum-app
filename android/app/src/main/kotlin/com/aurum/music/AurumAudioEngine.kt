@@ -54,7 +54,7 @@ class AurumAudioEngine(
 
     // I10: identical buffer tuning to the Dart AndroidLoadControl config.
     private val loadControl = DefaultLoadControl.Builder()
-        .setBufferDurationsMs(15_000, 50_000, 1_500, 3_000)
+        .setBufferDurationsMs(30_000, 90_000, 2_500, 5_000)
         .setTargetBufferBytes(4 * 1024 * 1024)
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()

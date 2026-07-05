@@ -326,9 +326,29 @@ class AurumMediaSessionService : MediaSessionService() {
         val player = mediaSession?.player
         val isActivelyPlaying = player != null && player.playWhenReady && player.mediaItemCount > 0
         if (!isActivelyPlaying) {
+            try {
+                AurumWidgetProvider.refreshAll(this)
+            } catch (e: Exception) {
+                Log.e("AurumMediaSessionService", "Widget refresh on task removed failed: ${e.message}", e)
+            }
             stopSelf()
         } else if (readStopOnSwipePref()) {
             player?.stop()
+            // player.stop() changes playback state synchronously, but
+            // Android's actual Service.onDestroy() (where the widget
+            // cache normally gets cleared/refreshed) can run noticeably
+            // later — during that gap the widget kept showing a stale
+            // "playing" pause-icon state even though playback had
+            // already gone silent. Refresh right here, synchronously,
+            // right after the explicit stop, so the widget reflects
+            // reality immediately instead of waiting on the service
+            // teardown to eventually catch up.
+            try {
+                AurumWidgetProvider.clearArtworkCache()
+                AurumWidgetProvider.refreshAll(this)
+            } catch (e: Exception) {
+                Log.e("AurumMediaSessionService", "Widget refresh on swipe-stop failed: ${e.message}", e)
+            }
             stopSelf()
         }
         super.onTaskRemoved(rootIntent)

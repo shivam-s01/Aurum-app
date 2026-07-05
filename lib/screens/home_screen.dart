@@ -46,6 +46,13 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+/// Public so MainShell can type a GlobalKey against this and call
+/// resyncHeroVisibility() without needing access to the private
+/// _HomeScreenState class itself.
+abstract class HomeScreenState extends State<HomeScreen> {
+  void resyncHeroVisibility();
+}
+
 // ── Curated playlists shown as Spotify/JioSaavn-style cards ──
 // Focused on current-era (2025/2026) Bollywood trending music instead of
 // generic mood buckets — these queries are written to surface recent
@@ -93,7 +100,7 @@ class _PlaylistMeta {
 // gold accent so it still matches the rest of Aurum instead of looking
 // like a stock Material widget.
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends HomeScreenState {
   List<SongSection> _onlineSections = [];
   bool _onlineLoading = true;
   String? _onlineError;
@@ -111,6 +118,28 @@ class _HomeScreenState extends State<HomeScreen> {
   static const double _heroHeight = 190.0;
 
   void _onScroll() {
+    final heroGone = _scrollCtrl.offset >= _heroHeight;
+    MiniPlayer.heroVisibleNotifier.value = !heroGone;
+  }
+
+  /// Re-derives heroVisibleNotifier from the CURRENT scroll offset.
+  ///
+  /// _onScroll only fires on an actual scroll event. HomeScreen is kept
+  /// alive in MainShell's IndexedStack (never disposed on tab switch),
+  /// so if the user switches away to Search/Library and back to Home
+  /// WITHOUT scrolling in between, nothing re-runs _onScroll — the
+  /// notifier is left holding whatever value the *previous* tab switch
+  /// forced it to (always false, per MainShell's onTap handler), even
+  /// if Home's scroll position says the hero card is still on-screen.
+  /// That mismatch is what caused the mini player to occasionally stay
+  /// hidden (or, on fast repeated switching, land in the wrong
+  /// show/hide state) after returning to Home. MainShell calls this
+  /// via a GlobalKey the moment tab 0 becomes active again, so the
+  /// flag always matches reality instead of a stale write from the
+  /// tab-switch that happened to run last.
+  @override
+  void resyncHeroVisibility() {
+    if (!mounted) return;
     final heroGone = _scrollCtrl.offset >= _heroHeight;
     MiniPlayer.heroVisibleNotifier.value = !heroGone;
   }
@@ -664,13 +693,26 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   Widget _buildPlayingCard(BuildContext context, Song song, bool isLight) {
     return Padding(
       key: const ValueKey('hero_playing'),
-      padding: EdgeInsets.zero,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 22),
       child: AurumPressable(
         scaleAmount: 0.99,
         onTap: _openFullPlayer,
-        child: SizedBox(
+        child: Container(
           height: 210,
-          child: ValueListenableBuilder<bool>(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(26),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isLight ? 0.14 : 0.32),
+                blurRadius: 22,
+                offset: const Offset(0, 10),
+                spreadRadius: -4,
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: ValueListenableBuilder<bool>(
             valueListenable: AudioPrefs.swipeToChangeNotifier,
             builder: (context, swipeEnabled, _) {
               return GestureDetector(
@@ -817,6 +859,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
             ),
           );
             },
+          ),
           ),
         ),
       ),
