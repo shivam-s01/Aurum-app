@@ -9,7 +9,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <View
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@drawable/widget_gradient_card"/>
@@ -23,7 +23,7 @@
         android:paddingStart="14dp"
         android:paddingEnd="10dp">
 
-        <View
+        <LinearLayout
             android:layout_width="4dp"
             android:layout_height="34dp"
             android:background="@drawable/widget_accent_bar"/>
