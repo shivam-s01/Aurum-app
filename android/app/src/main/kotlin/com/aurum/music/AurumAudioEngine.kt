@@ -5,8 +5,15 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -40,6 +47,7 @@ class AurumAudioEngine(
     context: Context,
     private val resolver: StreamResolver,
 ) {
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     // Serializes skip commands (next/prev/queue-jump). Without this, spamming
@@ -59,8 +67,91 @@ class AurumAudioEngine(
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()
 
+    // Disables the video renderer entirely. This is what makes it safe for
+    // the Worker to sometimes hand back a MUXED (video+audio combined) URL
+    // as a fallback — see worker.js _extractMuxed(): YouTube's bot-detection
+    // scrutinizes audio-only adaptive formats harder than legacy progressive
+    // (muxed) formats, so when audio-only resolution is blocked, the Worker
+    // falls back to a muxed itag 18/22 URL instead of failing the song
+    // entirely. Without this track selector, ExoPlayer would decode AND
+    // render the video track too — wasted CPU/battery and (if a UI surface
+    // were ever attached) an unwanted video frame. With it, ExoPlayer still
+    // downloads the combined stream (some extra bandwidth vs pure audio-only,
+    // unavoidable trade-off of this fallback) but only decodes/outputs the
+    // audio track — behaves identically to a normal audio-only URL from the
+    // player's perspective. Also applies to plain audio-only URLs (the
+    // common case) with zero side effects, since there's no video track to
+    // disable in that case anyway.
+    private val trackSelector = DefaultTrackSelector(context).apply {
+        setParameters(
+            buildUponParameters()
+                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+        )
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // DISK CACHE — ViMusic-inspired (github.com/vfsfitvnm/ViMusic,
+    // PlayerService.kt createCacheDataSource()/createDataSourceFactory()).
+    //
+    // PREVIOUSLY MISSING: every play of every song re-downloaded every
+    // byte from scratch, even for a song played 30 seconds ago, even for
+    // rewinding within the same song past already-buffered-then-evicted
+    // audio. This is pure disk cache with an LRU evictor — once a chunk
+    // of a stream is downloaded, it's kept on disk (up to the size cap
+    // below) and served instantly from there on any future request that
+    // overlaps it, with ZERO network call and ZERO dependency on the
+    // stream URL still being valid (googlevideo URLs expire; a cached
+    // chunk doesn't care, because it's not re-fetching that URL for
+    // data that already exists on disk).
+    //
+    // Concretely fixes: replaying a recently-played song, seeking
+    // backward in the current song, and resuming immediately after a
+    // brief network drop — all previously required a full URL
+    // re-resolve + full re-download from position 0/wherever ExoPlayer
+    // asked; now the on-disk portion serves instantly and only the
+    // missing portion (if any) triggers a network fetch.
+    //
+    // 350MB cap: enough for roughly 60-90 average songs at typical
+    // compressed audio bitrates, evicted least-recently-used first.
+    // Stored under the app's private cache dir — cleared automatically
+    // by Android under storage pressure, no manual cleanup needed, and
+    // never counts against the user's "app storage" the way a files-dir
+    // cache would.
+    // ─────────────────────────────────────────────────────────────────
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private val streamCache: SimpleCache by lazy {
+        val cacheDir = java.io.File(context.cacheDir, "aurum_stream_cache")
+        val evictor = LeastRecentlyUsedCacheEvictor(350L * 1024 * 1024)
+        val databaseProvider = StandaloneDatabaseProvider(context)
+        SimpleCache(cacheDir, evictor, databaseProvider)
+    }
+
+    // Upstream (network) data source used only for bytes not already on
+    // disk. Same connect/read timeouts as ViMusic's working config, and a
+    // real browser-style User-Agent — googlevideo.com and Saavn's CDN both
+    // serve more consistently to a request that looks like a real browser
+    // than to a bare/default HTTP client UA.
+    private fun createUpstreamFactory() = DefaultHttpDataSource.Factory()
+        .setConnectTimeoutMs(16_000)
+        .setReadTimeoutMs(8_000)
+        .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+
+    // Wraps the upstream factory with the disk cache. Every read first
+    // checks streamCache; only genuinely missing bytes hit the network.
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun createCacheDataSourceFactory() = CacheDataSource.Factory()
+        .setCache(streamCache)
+        .setUpstreamDataSourceFactory(createUpstreamFactory())
+
+    private val cachedMediaSourceFactory = DefaultMediaSourceFactory(createCacheDataSourceFactory())
+
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setLoadControl(loadControl)
+        .setTrackSelector(trackSelector)
+        // Routes every playback through the disk-cache-backed data source
+        // above instead of ExoPlayer's bare default (which re-fetches from
+        // network every time with no persistence between plays).
+        .setMediaSourceFactory(cachedMediaSourceFactory)
         // I11: audio focus handling — pauses on incoming call/other app
         // audio, ducks appropriately, resumes when focus is regained.
         // Without this ExoPlayer plays right over calls/notifications.
