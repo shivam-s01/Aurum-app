@@ -39,20 +39,21 @@ object YoutubeInnertube {
         try {
             val video = downloader.getVideo(videoId)
 
-            val best = video.getAudioWithQuality(AudioQuality.high).firstOrNull()
+            val best = (video.getAudioWithQuality(AudioQuality.high).firstOrNull()
                 ?: video.getAudioWithQuality(AudioQuality.medium).firstOrNull()
-                ?: video.getAudioWithQuality(AudioQuality.low).firstOrNull()
+                ?: video.getAudioWithQuality(AudioQuality.low).firstOrNull())
 
-            if (best?.url.isNullOrBlank()) {
+            val bestUrl: String? = best?.url
+            if (bestUrl.isNullOrBlank()) {
                 lastFailureReason = "videoId=$videoId no audio format with a usable URL"
                 Log.w(TAG, lastFailureReason)
                 return@withContext null
             }
 
             AudioStream(
-                url = best.url!!,
-                bitrate = best.bitrate,
-                mimeType = best.mimeType ?: "",
+                url = bestUrl,
+                bitrate = best?.bitrate ?: 0,
+                mimeType = best?.mimeType ?: "",
             )
         } catch (e: Exception) {
             lastFailureReason = "videoId=$videoId ${e.javaClass.simpleName}: ${e.message}"
