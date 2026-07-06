@@ -92,7 +92,26 @@ dependencies {
     // NewPipe.init() and the Downloader implementation correctly out of
     // the box, so we don't have to hand-roll one against an undocumented
     // internal Request/Response constructor shape.
-    implementation "com.github.shalva97:NewValve:1.5"
+    //
+    // IMPORTANT: NewValve pulls in NewPipeExtractor as a SEPARATE JitPack
+    // coordinate — "com.github.TeamNewPipe.NewPipeExtractor:extractor"
+    // (note the extra ".NewPipeExtractor" in the group, because JitPack is
+    // resolving the "extractor" submodule directly out of the
+    // TeamNewPipe/NewPipeExtractor repo) — which Gradle does NOT recognize
+    // as the same artifact as "com.github.TeamNewPipe:NewPipeExtractor"
+    // (the root/aggregate coordinate used below). Because they're
+    // different coordinates as far as Gradle's dependency resolution is
+    // concerned, `resolutionStrategy.force` on one has zero effect on the
+    // other, and BOTH end up on the classpath — same
+    // org.schabi.newpipe.extractor.* classes present twice
+    // (jetified-NewPipeExtractor-v0.26.1 AND jetified-extractor-v0.24.5),
+    // which is exactly the "Duplicate class ... found in modules" build
+    // failure. Excluding NewValve's transitive module here removes the
+    // stale v0.24.5 copy from the classpath entirely, leaving only the
+    // v0.26.1 one declared below.
+    implementation("com.github.shalva97:NewValve:1.5") {
+        exclude group: "com.github.TeamNewPipe.NewPipeExtractor", module: "extractor"
+    }
 
     // NewValve 1.5 (released March 2025) transitively pulls in whatever
     // NewPipeExtractor version was current back then. That old extractor
@@ -144,11 +163,17 @@ dependencies {
 }
 
 configurations.all {
+    // Belt-and-suspenders: exclude the old JitPack submodule coordinate
+    // globally too, in case any other transitive dependency (now or added
+    // later) pulls it in the same way NewValve did.
+    exclude group: "com.github.TeamNewPipe.NewPipeExtractor", module: "extractor"
+
     resolutionStrategy {
         // This is the correct (and only valid) way to force a specific
-        // version to win dependency resolution in Gradle — guarantees
-        // NewValve's stale transitive NewPipeExtractor pin never wins
-        // over the version declared above.
+        // version to win dependency resolution in Gradle for same-
+        // coordinate conflicts — guarantees NewValve's stale transitive
+        // NewPipeExtractor pin never wins over the version declared above,
+        // for the cases where it IS recognized as the same coordinate.
         force "com.github.TeamNewPipe:NewPipeExtractor:v0.26.1"
     }
 }
