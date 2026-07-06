@@ -128,9 +128,16 @@ dependencies {
     // June 2026) that this version should be bumped every few months as
     // part of normal maintenance, the same way NewValve's own README
     // recommends staying current.
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.1") {
-        force = true
-    }
+    //
+    // (The actual "win over NewValve's transitive pin" enforcement is
+    // done below via configurations.all { resolutionStrategy { force ... } }
+    // — that's the only valid place to force a version in Gradle; passing
+    // `force = true` inside this dependency's own configuration closure,
+    // as an earlier version of this file did, fails the build with
+    // "Cannot set the value of read-only property 'force'" because
+    // `force` here refers to the DefaultExternalModuleDependency's
+    // read-only accessor, not a settable flag.)
+    implementation "com.github.TeamNewPipe:NewPipeExtractor:v0.26.1"
 
     // Required by coreLibraryDesugaringEnabled above.
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs_nio:2.1.4"
@@ -138,12 +145,10 @@ dependencies {
 
 configurations.all {
     resolutionStrategy {
-        // Belt-and-suspenders: guarantee NewValve's transitive
-        // NewPipeExtractor pin never wins over the explicit version above,
-        // regardless of Gradle's normal "highest version wins" resolution
-        // (which would actually already prefer the newer one here, but an
-        // explicit force removes any ambiguity if NewValve is bumped later
-        // and happens to pin something newer than what's declared above).
+        // This is the correct (and only valid) way to force a specific
+        // version to win dependency resolution in Gradle — guarantees
+        // NewValve's stale transitive NewPipeExtractor pin never wins
+        // over the version declared above.
         force "com.github.TeamNewPipe:NewPipeExtractor:v0.26.1"
     }
 }
