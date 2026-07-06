@@ -44,6 +44,7 @@ object YoutubeInnertube {
         val platform: String,
         val androidSdkVersion: Int? = null,
         val userAgent: String? = null,
+        val visitorData: String = "CgtEUlRINDFjdm1YayjX1pSaBg%3D%3D",
     )
 
     private val ANDROID_MUSIC = ClientContext(
@@ -91,10 +92,18 @@ object YoutubeInnertube {
 
     private fun selectBestAudio(playerJson: JSONObject?): AudioStream? {
         val playabilityStatus = playerJson?.optJSONObject("playabilityStatus")
-        if (playabilityStatus?.optString("status") != "OK") return null
+        val status = playabilityStatus?.optString("status")
+        if (status != "OK") {
+            Log.w(TAG, "playabilityStatus=$status reason=${playabilityStatus?.optString("reason")}")
+            return null
+        }
 
         val adaptiveFormats = playerJson.optJSONObject("streamingData")
-            ?.optJSONArray("adaptiveFormats") ?: return null
+            ?.optJSONArray("adaptiveFormats")
+        if (adaptiveFormats == null) {
+            Log.w(TAG, "status OK but no adaptiveFormats in streamingData")
+            return null
+        }
 
         // Prefer itag 251 (Opus, best quality), fall back to 140 (AAC).
         var best: AudioStream? = null
@@ -128,6 +137,7 @@ object YoutubeInnertube {
                 put("clientVersion", context.clientVersion)
                 put("platform", context.platform)
                 put("hl", "en")
+                put("visitorData", context.visitorData)
                 context.androidSdkVersion?.let { put("androidSdkVersion", it) }
                 context.userAgent?.let { put("userAgent", it) }
             })

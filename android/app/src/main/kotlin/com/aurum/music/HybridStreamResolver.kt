@@ -26,6 +26,9 @@ class HybridStreamResolver(messenger: BinaryMessenger) : StreamResolver {
             return fallback.resolve(song, forceRefresh)
         }
 
+        // Worker fallback intentionally removed — testing pure native
+        // InnerTube path in isolation. If this returns null, the failure
+        // is 100% in YoutubeInnertube, not masked by the old Worker path.
         val native = try {
             YoutubeInnertube.resolve(song.id)
         } catch (e: Exception) {
@@ -33,14 +36,7 @@ class HybridStreamResolver(messenger: BinaryMessenger) : StreamResolver {
             null
         }
 
-        if (native != null) return native.url
-
-        // Native path exhausted its own internal fallback chain already;
-        // as a last resort defer to the Dart-side resolver (Worker/Piped),
-        // so a single YouTube song failing doesn't fail plainly when the
-        // legacy path could still succeed (e.g. differing IP/region luck).
-        Log.w(TAG, "Native InnerTube resolve failed for ${song.id}, falling back to Dart resolver")
-        return fallback.resolve(song, forceRefresh)
+        return native?.url
     }
 
     override suspend fun invalidate(song: NativeSong) {
