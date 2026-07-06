@@ -137,14 +137,23 @@ dependencies {
     // (NewValve has had no release since March 2025, per its GitHub
     // releases page checked 2026-07-07).
     //
-    // v0.26.1 specifically (not the older v0.24.8) is used here because
-    // v0.24.8 PREDATES the #1438 fix for this exact
-    // "ContentNotAvailableException: The page needs to be reloaded" bug —
-    // #1438 landed after v0.24.8 shipped. v0.26.1 is the version the
-    // official NewPipe app itself shipped in its v0.28.5 release, i.e. a
-    // release that's actually been through TeamNewPipe's own release
-    // testing with real users, not just the earliest tag that happens to
-    // compile.
+    // v0.26.1 was originally used here (not the older v0.24.8) because
+    // v0.24.8 PREDATES the #1438 fix for the
+    // "ContentNotAvailableException: The page needs to be reloaded" bug.
+    // v0.26.1 was the version the official NewPipe app itself shipped in
+    // its v0.28.5 release.
+    //
+    // BUMPED to v0.26.3 (2026-07-07, current latest release as of 9 June
+    // 2026) after diagnosing "no audio streams returned" failures on every
+    // YouTube-source song: v0.26.3 contains #1508 "[YouTube] Workaround
+    // SABR enforcement by using another player client" — YouTube's
+    // SABR-only enforcement is exactly the "SABR protocol changes" noted
+    // below (fixed in NewPipe app v0.28.8, June 2026). v0.26.1 predates
+    // that fix, so every extraction attempt was hitting SABR-gated
+    // responses with empty adaptiveFormats — no amount of client-side
+    // retrying in YoutubeInnertube.kt could work around it, same as the
+    // #1438 case above. v0.26.3 also adds #1504 (audio track type via
+    // formats xTags), used incidentally by the same code path.
     //
     // Check https://github.com/TeamNewPipe/NewPipeExtractor/releases for
     // newer tags periodically — YouTube changes format often enough
@@ -161,7 +170,7 @@ dependencies {
     // "Cannot set the value of read-only property 'force'" because
     // `force` here refers to the DefaultExternalModuleDependency's
     // read-only accessor, not a settable flag.)
-    implementation "com.github.TeamNewPipe:NewPipeExtractor:v0.26.1"
+    implementation "com.github.TeamNewPipe:NewPipeExtractor:v0.26.3"
 
     // Required by coreLibraryDesugaringEnabled above.
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs_nio:2.1.4"
@@ -178,7 +187,7 @@ configurations.all {
         // NOTE: there is deliberately NO global
         // `exclude group: "com.github.TeamNewPipe.NewPipeExtractor"` here.
         // The root coordinate declared above
-        // (com.github.TeamNewPipe:NewPipeExtractor:v0.26.1) very likely
+        // (com.github.TeamNewPipe:NewPipeExtractor:v0.26.3) very likely
         // depends on its OWN submodules (extractor, timeago-parser, etc)
         // under that exact group internally — a configurations.all-level
         // exclude applies to every configuration, including the
@@ -190,6 +199,6 @@ configurations.all {
         // actually running. The exclude is instead scoped to ONLY
         // NewValve's dependency declaration above, which is the one place
         // that needs it.
-        force "com.github.TeamNewPipe:NewPipeExtractor:v0.26.1"
+        force "com.github.TeamNewPipe:NewPipeExtractor:v0.26.3"
     }
 }
