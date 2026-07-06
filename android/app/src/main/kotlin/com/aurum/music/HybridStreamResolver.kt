@@ -26,17 +26,29 @@ class HybridStreamResolver(messenger: BinaryMessenger) : StreamResolver {
             return fallback.resolve(song, forceRefresh)
         }
 
-        // Worker fallback intentionally removed — testing pure native
-        // InnerTube path in isolation. If this returns null, the failure
-        // is 100% in YoutubeInnertube, not masked by the old Worker path.
+        // Native path first: no MethodChannel round-trip, no Worker network
+        // hop — fastest path for the vast majority of videos.
         val native = try {
             YoutubeInnertube.resolve(song.id)
         } catch (e: Exception) {
             Log.w(TAG, "Native resolve threw for ${song.id}: ${e.message}")
             null
         }
+        if (native?.url != null) return native.url
 
-        return native?.url
+        // Fallback: the native extractor can legitimately fail (YouTube
+        // page/cipher format changes NewPipeExtractor hasn't patched yet,
+        // a transient ContentNotAvailableException that survived its own
+        // internal retry, regional blocks the embedded-bypass doesn't
+        // clear, etc). Previously there was NO fallback here at all — a
+        // native failure meant the song simply never played, which is
+        // exactly the "resolve failed" behavior reported. Falling through
+        // to the existing Worker-backed Dart resolver keeps the native
+        // path as the fast common case while a native failure degrades to
+        // the same reliability the app already had before this migration,
+        // instead of degrading to "song doesn't play."
+        Log.w(TAG, "Native resolve failed for ${song.id} (${YoutubeInnertube.lastFailureReason}), falling back to Worker")
+        return fallback.resolve(song, forceRefresh)
     }
 
     override suspend fun invalidate(song: NativeSong) {
