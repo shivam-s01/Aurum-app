@@ -3,9 +3,9 @@ package com.aurum.music
 import android.util.Log
 import io.github.shalva97.initNewPipe
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.ServiceList
-import java.io.IOException
 
 /**
  * Native YouTube stream resolution using NewPipeExtractor, via the NewValve
@@ -63,35 +63,36 @@ object YoutubeInnertube {
             // on a flaky mobile connection. None of these mean the video
             // is actually unavailable; a stale/half-populated extractor
             // instance can't just be retried in place though — a fresh
-            // getStreamExtractor() + fetchPage() call is required. One
-            // retry here mirrors what NewPipe itself does on these
-            // specific transient conditions.
-            // FIX: this used to check e.javaClass.simpleName against a fixed
-            // set of exact names, which does NOT match subclasses. Kotlin/
-            // Java exception names don't do prefix/inheritance matching via
-            // simpleName equality — e.g. java.net.UnknownHostException IS a
-            // java.io.IOException by class hierarchy, but
-            // "UnknownHostException" != "IOException" as strings, so it
-            // silently fell through to the non-retried branch below and
-            // failed permanently on a single flaky DNS lookup. Any
-            // IOException subclass (UnknownHostException, SocketTimeout
-            // Exception, ConnectException, SSLException, etc.) is exactly
-            // the class of transient, worth-retrying network failure this
-            // block was meant to cover — checking `is IOException` follows
-            // the actual class hierarchy instead of a name whitelist that
-            // has to be kept in sync by hand and silently misses subclasses.
-            val transient = e is IOException ||
-                e.javaClass.simpleName in TRANSIENT_EXCEPTION_NAMES ||
+            // getStreamExtractor() + fetchPage() call is required.
+            //
+            // NOTE: the "reloaded" message specifically was, in a lot of
+            // real cases, actually a genuine upstream extractor bug fixed
+            // by TeamNewPipe/NewPipeExtractor PR #1438 — no amount of
+            // in-app retrying fixes that class of failure, only pulling a
+            // fixed extractor version does (see build.gradle, which now
+            // pins v0.26.1 instead of the stale one bundled by NewValve
+            // 1.5). What retrying HERE is for is the separate, genuinely
+            // transient case: per-request flakiness (e.g. YouTube's
+            // SABR-related A/B experiments) where the exact same request
+            // can succeed on a second try even with an up-to-date
+            // extractor. Two retries with a short backoff between them
+            // gives that transient case a real chance to clear, instead
+            // of an instant single retry that can hit the same transient
+            // condition again immediately.
+            val transient = e.javaClass.simpleName in TRANSIENT_EXCEPTION_NAMES ||
                 e.message?.contains("reloaded", ignoreCase = true) == true
 
             if (transient) {
-                Log.w(TAG, "Transient error for $videoId (${e.javaClass.simpleName}), retrying once: ${e.message}")
-                try {
-                    return@withContext resolveOnce(videoId)
-                } catch (e2: Exception) {
-                    lastFailureReason = "videoId=$videoId ${e2.javaClass.simpleName}: ${e2.message}"
-                    Log.w(TAG, "resolve retry failed for $videoId: ${e2.message}", e2)
-                    return@withContext null
+                for (attempt in 1..2) {
+                    Log.w(TAG, "Transient error for $videoId (${e.javaClass.simpleName}), retry $attempt/2: ${e.message}")
+                    delay(600L * attempt)
+                    try {
+                        return@withContext resolveOnce(videoId)
+                    } catch (eRetry: Exception) {
+                        lastFailureReason = "videoId=$videoId ${eRetry.javaClass.simpleName}: ${eRetry.message}"
+                        Log.w(TAG, "resolve retry $attempt/2 failed for $videoId: ${eRetry.message}", eRetry)
+                        if (attempt == 2) return@withContext null
+                    }
                 }
             }
             lastFailureReason = "videoId=$videoId ${e.javaClass.simpleName}: ${e.message}"
@@ -100,14 +101,12 @@ object YoutubeInnertube {
         }
     }
 
-    // Kept for ParsingException/ExtractionException — NewPipeExtractor's own
-    // checked exception types that are NOT IOException subclasses but are
-    // still worth one retry (e.g. a half-populated extractor instance from
-    // a concurrent request).
     private val TRANSIENT_EXCEPTION_NAMES = setOf(
         "ContentNotAvailableException",
         "ParsingException",
         "ExtractionException",
+        "IOException",
+        "SocketTimeoutException",
     )
 
     private fun resolveOnce(videoId: String): AudioStream? {

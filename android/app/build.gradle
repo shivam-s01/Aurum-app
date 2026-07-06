@@ -94,6 +94,56 @@ dependencies {
     // internal Request/Response constructor shape.
     implementation "com.github.shalva97:NewValve:1.5"
 
+    // NewValve 1.5 (released March 2025) transitively pulls in whatever
+    // NewPipeExtractor version was current back then. That old extractor
+    // is EXACTLY what produces
+    // "ContentNotAvailableException: The page needs to be reloaded" on
+    // most/all videos — this was a real upstream bug
+    // (TeamNewPipe/NewPipe#13082), and it was fixed by shipping a newer
+    // extractor version (TeamNewPipe/NewPipeExtractor PR #1438, "[YouTube]
+    // Fix page reload required error on streams"), not by retrying harder
+    // on the client side. No amount of retry/backoff logic in
+    // YoutubeInnertube.kt can work around a genuinely stale extractor —
+    // it will keep failing the same way every time until the library
+    // itself is updated.
+    //
+    // This line force-overrides NewValve's transitive NewPipeExtractor
+    // dependency to a current release, so we get YouTube-format fixes
+    // (including #1438) without waiting on NewValve's own release cadence
+    // (NewValve has had no release since March 2025, per its GitHub
+    // releases page checked 2026-07-07).
+    //
+    // v0.26.1 specifically (not the older v0.24.8) is used here because
+    // v0.24.8 PREDATES the #1438 fix for this exact
+    // "ContentNotAvailableException: The page needs to be reloaded" bug —
+    // #1438 landed after v0.24.8 shipped. v0.26.1 is the version the
+    // official NewPipe app itself shipped in its v0.28.5 release, i.e. a
+    // release that's actually been through TeamNewPipe's own release
+    // testing with real users, not just the earliest tag that happens to
+    // compile.
+    //
+    // Check https://github.com/TeamNewPipe/NewPipeExtractor/releases for
+    // newer tags periodically — YouTube changes format often enough
+    // (see e.g. the SABR protocol changes fixed in NewPipe app v0.28.8,
+    // June 2026) that this version should be bumped every few months as
+    // part of normal maintenance, the same way NewValve's own README
+    // recommends staying current.
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.1") {
+        force = true
+    }
+
     // Required by coreLibraryDesugaringEnabled above.
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs_nio:2.1.4"
+}
+
+configurations.all {
+    resolutionStrategy {
+        // Belt-and-suspenders: guarantee NewValve's transitive
+        // NewPipeExtractor pin never wins over the explicit version above,
+        // regardless of Gradle's normal "highest version wins" resolution
+        // (which would actually already prefer the newer one here, but an
+        // explicit force removes any ambiguity if NewValve is bumped later
+        // and happens to pin something newer than what's declared above).
+        force "com.github.TeamNewPipe:NewPipeExtractor:v0.26.1"
+    }
 }
