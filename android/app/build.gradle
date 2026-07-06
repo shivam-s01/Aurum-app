@@ -20,6 +20,10 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
+        // Required by NewPipeExtractor on minSdk < 33 (java.time / java.nio
+        // APIs it uses internally aren't available on older Android
+        // without desugaring).
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
@@ -75,8 +79,21 @@ dependencies {
     implementation "androidx.media3:media3-database:$media3Version"
     implementation "androidx.media3:media3-datasource:$media3Version"
 
-    // YouTube stream resolution — used by YoutubeInnertube.kt
-    // (io.github.shabinder.YoutubeDownloader / AudioQuality). Available
-    // directly on Maven Central, no extra repo needed.
-    implementation "io.github.shabinder:youtube-api-dl-android:1.4"
+    // YouTube stream resolution — powers YoutubeInnertube.kt. Switched from
+    // io.github.shabinder:youtube-api-dl-android (unmaintained since ~2022,
+    // started throwing BadPageException once YouTube changed its page
+    // format) to NewPipeExtractor — the same extraction library SimpMusic,
+    // InnerTune, and YouMusic all use. Actively maintained (patches YouTube
+    // format/cipher changes on an ongoing basis), which is the actual
+    // reason those apps' playback stays stable over time.
+    //
+    // Using NewValve (a thin OkHttp-backed Downloader wrapper over
+    // NewPipeExtractor) instead of the raw extractor artifact — it handles
+    // NewPipe.init() and the Downloader implementation correctly out of
+    // the box, so we don't have to hand-roll one against an undocumented
+    // internal Request/Response constructor shape.
+    implementation "com.github.shalva97:NewValve:1.5"
+
+    // Required by coreLibraryDesugaringEnabled above.
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs_nio:2.1.4"
 }

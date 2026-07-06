@@ -2,6 +2,9 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Required for com.github.TeamNewPipe:NewPipeExtractor (YouTube
+        // stream resolution) — published via JitPack, not Maven Central.
+        maven { url "https://jitpack.io" }
     }
 }
 
