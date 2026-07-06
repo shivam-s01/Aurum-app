@@ -429,7 +429,7 @@ class AurumAudioEngine(
                 if (mySession != playSessionId) return
                 if (found == null) {
                     isResolving = false
-                    failPlayback(songs[safeIndex], "stream URL could not be resolved for this song or any other in the queue")
+                    failPlayback(songs[safeIndex], "stream URL could not be resolved for this song or any other in the queue (last: ${YoutubeInnertube.lastFailureReason})")
                     return
                 }
                 effectiveIndex = found.first
@@ -534,7 +534,7 @@ class AurumAudioEngine(
 
             if (url == null) {
                 isResolving = false
-                failPlayback(song, "stream URL could not be resolved after retries, or local file missing")
+                failPlayback(song, "stream URL could not be resolved after retries, or local file missing (last: ${YoutubeInnertube.lastFailureReason})")
                 return
             }
 

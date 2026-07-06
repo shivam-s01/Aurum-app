@@ -30,6 +30,13 @@ object YoutubeInnertube {
     private const val PLAYER_ENDPOINT = "$HOST/youtubei/v1/player"
     private const val API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 
+    // Set on every failed resolve attempt so callers (HybridStreamResolver)
+    // can surface the real cause in the on-screen error banner, without
+    // needing adb/Logcat to diagnose. Always reflects the LAST attempt.
+    @Volatile
+    var lastFailureReason: String = "unknown"
+        private set
+
     private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
     private val client = OkHttpClient.Builder()
@@ -78,12 +85,14 @@ object YoutubeInnertube {
         try {
             selectBestAudio(callPlayer(videoId, ANDROID_MUSIC))?.let { return it }
         } catch (e: Exception) {
+            lastFailureReason = "ANDROID_MUSIC: ${e.javaClass.simpleName}: ${e.message}"
             Log.w(TAG, "ANDROID_MUSIC resolve failed for $videoId: ${e.message}")
         }
 
         try {
             selectBestAudio(callPlayer(videoId, TVHTML5_EMBED, embedFallback = true))?.let { return it }
         } catch (e: Exception) {
+            lastFailureReason = "TVHTML5_EMBED: ${e.javaClass.simpleName}: ${e.message}"
             Log.w(TAG, "TVHTML5_SIMPLY_EMBEDDED_PLAYER resolve failed for $videoId: ${e.message}")
         }
 
@@ -94,14 +103,17 @@ object YoutubeInnertube {
         val playabilityStatus = playerJson?.optJSONObject("playabilityStatus")
         val status = playabilityStatus?.optString("status")
         if (status != "OK") {
-            Log.w(TAG, "playabilityStatus=$status reason=${playabilityStatus?.optString("reason")}")
+            val reason = playabilityStatus?.optString("reason") ?: "no playabilityStatus in response"
+            lastFailureReason = "playabilityStatus=$status reason=$reason"
+            Log.w(TAG, lastFailureReason)
             return null
         }
 
         val adaptiveFormats = playerJson.optJSONObject("streamingData")
             ?.optJSONArray("adaptiveFormats")
         if (adaptiveFormats == null) {
-            Log.w(TAG, "status OK but no adaptiveFormats in streamingData")
+            lastFailureReason = "status OK but no adaptiveFormats in streamingData"
+            Log.w(TAG, lastFailureReason)
             return null
         }
 
