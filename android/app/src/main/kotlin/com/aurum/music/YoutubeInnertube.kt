@@ -53,38 +53,72 @@ object YoutubeInnertube {
     suspend fun resolve(videoId: String): AudioStream? = withContext(Dispatchers.IO) {
         try {
             ensureInit()
-
-            val url = "https://www.youtube.com/watch?v=$videoId"
-            val extractor = ServiceList.YouTube.getStreamExtractor(url)
-            extractor.fetchPage()
-
-            val audioStreams = extractor.audioStreams
-            if (audioStreams.isNullOrEmpty()) {
-                lastFailureReason = "videoId=$videoId no audio streams returned"
-                Log.w(TAG, lastFailureReason)
-                return@withContext null
-            }
-
-            // Highest average bitrate first — mirrors the old
-            // high->medium->low quality fallback intent.
-            val best = audioStreams.maxByOrNull { it.averageBitrate }
-
-            val bestUrl = best?.content
-            if (bestUrl.isNullOrBlank()) {
-                lastFailureReason = "videoId=$videoId no audio stream with a usable URL"
-                Log.w(TAG, lastFailureReason)
-                return@withContext null
-            }
-
-            AudioStream(
-                url = bestUrl,
-                bitrate = best.averageBitrate,
-                mimeType = best.format?.mimeType ?: "",
-            )
+            resolveOnce(videoId)
         } catch (e: Exception) {
+            // NewPipeExtractor's YouTube extractor sometimes fails its
+            // first page fetch transiently — most commonly
+            // "ContentNotAvailableException: The page needs to be
+            // reloaded", but also occasional IOException/ParsingException
+            // on a flaky mobile connection. None of these mean the video
+            // is actually unavailable; a stale/half-populated extractor
+            // instance can't just be retried in place though — a fresh
+            // getStreamExtractor() + fetchPage() call is required. One
+            // retry here mirrors what NewPipe itself does on these
+            // specific transient conditions.
+            val transient = e.javaClass.simpleName in TRANSIENT_EXCEPTION_NAMES ||
+                e.message?.contains("reloaded", ignoreCase = true) == true
+
+            if (transient) {
+                Log.w(TAG, "Transient error for $videoId (${e.javaClass.simpleName}), retrying once: ${e.message}")
+                try {
+                    return@withContext resolveOnce(videoId)
+                } catch (e2: Exception) {
+                    lastFailureReason = "videoId=$videoId ${e2.javaClass.simpleName}: ${e2.message}"
+                    Log.w(TAG, "resolve retry failed for $videoId: ${e2.message}", e2)
+                    return@withContext null
+                }
+            }
             lastFailureReason = "videoId=$videoId ${e.javaClass.simpleName}: ${e.message}"
             Log.w(TAG, "resolve failed for $videoId: ${e.message}", e)
             null
         }
+    }
+
+    private val TRANSIENT_EXCEPTION_NAMES = setOf(
+        "ContentNotAvailableException",
+        "ParsingException",
+        "ExtractionException",
+        "IOException",
+        "SocketTimeoutException",
+    )
+
+    private fun resolveOnce(videoId: String): AudioStream? {
+        val url = "https://www.youtube.com/watch?v=$videoId"
+        val extractor = ServiceList.YouTube.getStreamExtractor(url)
+        extractor.fetchPage()
+
+        val audioStreams = extractor.audioStreams
+        if (audioStreams.isNullOrEmpty()) {
+            lastFailureReason = "videoId=$videoId no audio streams returned"
+            Log.w(TAG, lastFailureReason)
+            return null
+        }
+
+        // Highest average bitrate first — mirrors the old
+        // high->medium->low quality fallback intent.
+        val best = audioStreams.maxByOrNull { it.averageBitrate }
+
+        val bestUrl = best?.content
+        if (bestUrl.isNullOrBlank()) {
+            lastFailureReason = "videoId=$videoId no audio stream with a usable URL"
+            Log.w(TAG, lastFailureReason)
+            return null
+        }
+
+        return AudioStream(
+            url = bestUrl,
+            bitrate = best.averageBitrate,
+            mimeType = best.format?.mimeType ?: "",
+        )
     }
 }
