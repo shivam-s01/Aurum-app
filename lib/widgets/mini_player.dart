@@ -619,7 +619,7 @@ class _MiniPlayerContent extends StatelessWidget {
 
         if (!isSolid) {
           capsuleBody = BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
             child: capsuleBody,
           );
         }
@@ -784,7 +784,7 @@ class _MiniPlayerContent extends StatelessWidget {
             ),
           ),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               decoration: BoxDecoration(

@@ -2526,10 +2526,11 @@ class _QueuePage extends StatelessWidget {
     final mutedText =
         isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(60);
 
-    return Consumer<PlayerProvider>(
-      builder: (context, player, _) {
-        final queue = player.queue;
-        final current = player.currentIndex;
+    return Selector<PlayerProvider, ({List<Song> queue, int? current})>(
+      selector: (_, player) => (queue: player.queue, current: player.currentIndex),
+      builder: (context, data, _) {
+        final queue = data.queue;
+        final current = data.current;
 
         if (queue.isEmpty) {
           return Center(
@@ -2615,22 +2616,24 @@ class _QueuePage extends StatelessWidget {
                       index: listIdx + 1,
                       onTap: () {
                         HapticFeedback.selectionClick();
-                        player.skipToIndex(queueIdx);
+                        context.read<PlayerProvider>().skipToIndex(queueIdx);
                       },
                       onRemove: () {
                         HapticFeedback.mediumImpact();
-                        player.removeFromQueue(queueIdx);
+                        context.read<PlayerProvider>().removeFromQueue(queueIdx);
                       },
                       onPlayNext: () async {
                         HapticFeedback.selectionClick();
                         final song = queue[queueIdx];
-                        await player.removeFromQueue(queueIdx);
-                        await player.playNext(song);
+                        final p = context.read<PlayerProvider>();
+                        await p.removeFromQueue(queueIdx);
+                        await p.playNext(song);
                       },
                       onMoveToTop: () {
                         HapticFeedback.selectionClick();
-                        final target = (player.currentIndex ?? 0) + 1;
-                        player.moveQueueItem(queueIdx, target);
+                        final p = context.read<PlayerProvider>();
+                        final target = (p.currentIndex ?? 0) + 1;
+                        p.moveQueueItem(queueIdx, target);
                       },
                     ),
                   );

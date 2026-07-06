@@ -168,18 +168,33 @@ class AurumAudioEffects(private val player: ExoPlayer) {
         val eq = equalizer ?: return
 
         try {
-            eq.enabled = true
             val bandCount = eq.numberOfBands.toInt()
             if (bandCount <= 0) return
+
+            val savedBandsPreview = (0 until bandCount).map { i ->
+                bandGainsMb?.getOrNull(i) ?: 0
+            }
+            val hasCustomCurve = savedBandsPreview.any { it != 0 }
+
+            // Heat/battery: android.media.audiofx.Equalizer runs its DSP on
+            // every audio sample while enabled=true, regardless of whether
+            // any band actually deviates from flat. If the user has no
+            // custom curve and bass boost is off, there is nothing for the
+            // equalizer to do — fully disable it instead of leaving it
+            // enabled at all-zero gains, which was silently burning CPU on
+            // every song for users who never touch the EQ screen.
+            if (!hasCustomCurve && !bassBoost) {
+                eq.enabled = false
+                return
+            }
+
+            eq.enabled = true
 
             val range = eq.bandLevelRange // [minMb, maxMb]
             val minMb = range[0].toInt()
             val maxMb = range[1].toInt()
 
-            val savedBands = (0 until bandCount).map { i ->
-                bandGainsMb?.getOrNull(i) ?: 0
-            }
-            val hasCustomCurve = savedBands.any { it != 0 }
+            val savedBands = savedBandsPreview
 
             var rejectedBands = 0
             for (i in 0 until bandCount) {

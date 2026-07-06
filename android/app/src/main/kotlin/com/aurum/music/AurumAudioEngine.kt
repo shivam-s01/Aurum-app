@@ -52,10 +52,16 @@ class AurumAudioEngine(
     // time, in order, against consistent player state.
     private val skipMutex = Mutex()
 
-    // I10: identical buffer tuning to the Dart AndroidLoadControl config.
+    // Lightweight buffer profile: enough to avoid audible stalls on a
+    // typical connection, without ExoPlayer greedily decoding 60-90s ahead
+    // in the background 24/7 — that constant background decode+network
+    // activity was direct battery/RAM pressure, and on low-RAM phones the
+    // extra memory held by a 90s/4MB buffer increases the odds of the OS
+    // reclaiming memory from the app (which surfaces as "song randomly
+    // pauses").
     private val loadControl = DefaultLoadControl.Builder()
-        .setBufferDurationsMs(30_000, 90_000, 2_500, 5_000)
-        .setTargetBufferBytes(4 * 1024 * 1024)
+        .setBufferDurationsMs(15_000, 30_000, 1_500, 3_000)
+        .setTargetBufferBytes(1 * 1024 * 1024)
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()
 
@@ -170,7 +176,10 @@ class AurumAudioEngine(
                 pushState()
                 if (playbackState == Player.STATE_IDLE) handleIdleEvent()
             }
-            override fun onIsPlayingChanged(isPlaying: Boolean) = pushState()
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                pushState()
+                updateTickerState(isPlaying)
+            }
             override fun onPlayerError(error: PlaybackException) = pushState()
             override fun onPositionDiscontinuity(
                 oldPosition: Player.PositionInfo,
@@ -182,14 +191,33 @@ class AurumAudioEngine(
                 }
             }
         })
-        startPositionTicker()
+        // Ticker starts only when playback actually begins — see
+        // updateTickerState(), driven off onIsPlayingChanged above.
+    }
+
+    // Ticker job is only alive while something is actually playing. Before,
+    // this loop ran unconditionally from init() for the lifetime of the
+    // engine — meaning it kept polling every 200ms and pushing a fresh
+    // NativeEngineState (→ notifyListeners() → full widget rebuild) even
+    // while paused, while the app was backgrounded, or with the screen off.
+    // That was the single biggest battery/CPU drain in the app.
+    private var tickerJob: Job? = null
+
+    private fun updateTickerState(isPlaying: Boolean) {
+        if (isPlaying) {
+            startPositionTicker()
+        } else {
+            tickerJob?.cancel()
+            tickerJob = null
+        }
     }
 
     private fun startPositionTicker() {
-        scope.launch {
+        if (tickerJob?.isActive == true) return
+        tickerJob = scope.launch {
             var last = -1L
             while (isActive) {
-                delay(200)
+                delay(1000)
                 val pos = player.currentPosition
                 if (pos != last) { last = pos; pushState() }
             }
@@ -457,6 +485,18 @@ class AurumAudioEngine(
     // I2: resolve with a single fast attempt (2 attempts max), same timeouts
     // as Dart's _resolveFast — YouTube gets 45s per attempt, others 12s.
     private suspend fun resolveFast(song: NativeSong, sessionId: Int, maxAttempts: Int = 2): String? {
+        // Local/downloaded songs: the file is already on disk, nothing to
+        // resolve over the network or via the Dart MethodChannel bridge.
+        // Returning the file URI directly here means a downloaded song
+        // plays instantly and can never get stuck behind a slow/stuck
+        // resolver call the way a streamed song can.
+        if (song.isLocal) {
+            val path = song.localPath
+            if (path.isNullOrEmpty()) return null
+            return if (path.startsWith("file://") || path.startsWith("content://")) path
+            else "file://$path"
+        }
+
         val perAttemptTimeoutMs = if (song.source == "youtube") 18_000L else 12_000L
         repeat(maxAttempts) { attemptIndex ->
             if (sessionId != playSessionId) return null
@@ -512,6 +552,7 @@ class AurumAudioEngine(
 
     private suspend fun handleFreshStartIdle() {
         val songAtIdle = queueSongs.getOrNull(currentIndex) ?: return
+        if (songAtIdle.isLocal) return
         val sessionAtIdle = playSessionId
         delay(1200)
 

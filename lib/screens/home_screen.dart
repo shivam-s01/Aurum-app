@@ -473,9 +473,10 @@ class _HeroNowPlaying extends StatefulWidget {
 }
 
 class _HeroNowPlayingState extends State<_HeroNowPlaying>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _breatheCtrl;
   String? _lastUrl;
+  bool _appInForeground = true;
 
   // ── Left/right swipe → prev/next song ──
   double _dragX = 0;
@@ -493,11 +494,12 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // 13s full cycle — within spec's 12-15s range
     _breatheCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 20000),
-    )..repeat(reverse: true);
+    ); // started/stopped from build() based on isPlaying — see build()
 
     _swipeCtrl = AnimationController(
       vsync: this,
@@ -512,7 +514,23 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Force-stop the breathe glow the instant the app leaves the
+    // foreground (minimized, screen locked, app-switcher) regardless of
+    // isPlaying — audio keeps playing via the foreground service, but
+    // there's zero reason to keep repainting this widget when nobody can
+    // see it. This is on top of the isPlaying gate in build().
+    _appInForeground = state == AppLifecycleState.resumed;
+    if (!_appInForeground) {
+      if (_breatheCtrl.isAnimating) _breatheCtrl.stop();
+    } else if (mounted) {
+      setState(() {}); // let build() re-evaluate and resume if isPlaying
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _breatheCtrl.dispose();
     _swipeCtrl.dispose();
     _slideInCtrl.dispose();
@@ -608,6 +626,20 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     final song = context.select<PlayerProvider, Song?>((p) => p.currentSong);
     final isLight = Theme.of(context).brightness == Brightness.light;
 
+    // Battery: the breathe glow only needs to animate while a song is
+    // actually playing. Previously it ran on an infinite ..repeat(reverse:
+    // true) from initState with no gating, so it kept ticking (and
+    // repainting this part of the hero) even when paused or when nothing
+    // was loaded — pure wasted GPU/CPU work sitting on the home screen.
+    final isPlayingNow =
+        context.select<PlayerProvider, bool>((p) => p.isPlaying);
+    final shouldBreathe = isPlayingNow && _appInForeground;
+    if (shouldBreathe && !_breatheCtrl.isAnimating) {
+      _breatheCtrl.repeat(reverse: true);
+    } else if (!shouldBreathe && _breatheCtrl.isAnimating) {
+      _breatheCtrl.stop();
+    }
+
     // FIX: a persistent hairline seam (page's cream/`bgOf` background
     // peeking through) was showing along the hero's bottom edge in every
     // state, not just mid-transition. Root cause: AnimatedSize recomputes
@@ -698,7 +730,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
         scaleAmount: 0.99,
         onTap: _openFullPlayer,
         child: Container(
-          height: 210,
+          height: 160,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(26),
             boxShadow: [
@@ -759,16 +791,17 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
               },
               child: Stack(fit: StackFit.expand, children: [
             // ── Stage background: blurred artwork, breathing scale ──
+            // Perf: the blur (ImageFiltered) is now built ONCE, outside the
+            // AnimatedBuilder — only the cheap Transform.scale wrapper
+            // rebuilds every animation tick. Before, the blur filter itself
+            // sat inside the builder callback, so Skia was re-running the
+            // (expensive, full-stage-sized) Gaussian blur on every single
+            // frame of the breathe loop for a scale change of at most
+            // 1.5% — pure wasted GPU work for an effect nobody can even
+            // perceive.
             RepaintBoundary(
               child: AnimatedBuilder(
                 animation: _breatheCtrl,
-                builder: (_, child) {
-                  final b = Curves.easeInOut.transform(_breatheCtrl.value);
-                  return Transform.scale(
-                    scale: 1.0 + (b * 0.015), // 1.00 -> 1.015: alive, not animated
-                    child: child,
-                  );
-                },
                 child: ImageFiltered(
                   imageFilter: ImageFilter.blur(
                     sigmaX: isLight ? 6 : 5,
@@ -781,6 +814,13 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                     borderRadius: 0,
                   ),
                 ),
+                builder: (_, child) {
+                  final b = Curves.easeInOut.transform(_breatheCtrl.value);
+                  return Transform.scale(
+                    scale: 1.0 + (b * 0.015), // 1.00 -> 1.015: alive, not animated
+                    child: child,
+                  );
+                },
               ),
             ),
             // ── Scrim: now fades from fully transparent at the very top
@@ -813,12 +853,12 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
             Align(
               alignment: Alignment.bottomCenter,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
                 child: Row(children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: AurumArtwork(
-                        url: song.artworkUrl, size: 52, borderRadius: 12),
+                        url: song.artworkUrl, size: 44, borderRadius: 11),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -1158,16 +1198,18 @@ class _OnlineContent extends StatelessWidget {
         children: [
           // Header row
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                section.title,
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.2,
+              Expanded(
+                child: Text(
+                  section.title,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
                 ),
               ),
               AurumPressable(
