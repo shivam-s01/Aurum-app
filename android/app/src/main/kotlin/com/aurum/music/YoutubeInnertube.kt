@@ -5,6 +5,7 @@ import io.github.shalva97.initNewPipe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.ServiceList
+import java.io.IOException
 
 /**
  * Native YouTube stream resolution using NewPipeExtractor, via the NewValve
@@ -65,7 +66,22 @@ object YoutubeInnertube {
             // getStreamExtractor() + fetchPage() call is required. One
             // retry here mirrors what NewPipe itself does on these
             // specific transient conditions.
-            val transient = e.javaClass.simpleName in TRANSIENT_EXCEPTION_NAMES ||
+            // FIX: this used to check e.javaClass.simpleName against a fixed
+            // set of exact names, which does NOT match subclasses. Kotlin/
+            // Java exception names don't do prefix/inheritance matching via
+            // simpleName equality — e.g. java.net.UnknownHostException IS a
+            // java.io.IOException by class hierarchy, but
+            // "UnknownHostException" != "IOException" as strings, so it
+            // silently fell through to the non-retried branch below and
+            // failed permanently on a single flaky DNS lookup. Any
+            // IOException subclass (UnknownHostException, SocketTimeout
+            // Exception, ConnectException, SSLException, etc.) is exactly
+            // the class of transient, worth-retrying network failure this
+            // block was meant to cover — checking `is IOException` follows
+            // the actual class hierarchy instead of a name whitelist that
+            // has to be kept in sync by hand and silently misses subclasses.
+            val transient = e is IOException ||
+                e.javaClass.simpleName in TRANSIENT_EXCEPTION_NAMES ||
                 e.message?.contains("reloaded", ignoreCase = true) == true
 
             if (transient) {
@@ -84,12 +100,14 @@ object YoutubeInnertube {
         }
     }
 
+    // Kept for ParsingException/ExtractionException — NewPipeExtractor's own
+    // checked exception types that are NOT IOException subclasses but are
+    // still worth one retry (e.g. a half-populated extractor instance from
+    // a concurrent request).
     private val TRANSIENT_EXCEPTION_NAMES = setOf(
         "ContentNotAvailableException",
         "ParsingException",
         "ExtractionException",
-        "IOException",
-        "SocketTimeoutException",
     )
 
     private fun resolveOnce(videoId: String): AudioStream? {
