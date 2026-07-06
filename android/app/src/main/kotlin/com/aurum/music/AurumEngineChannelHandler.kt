@@ -19,7 +19,7 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
         private const val ERROR_CHANNEL = "com.aurum.music/audio_engine_errors"
     }
 
-    private val resolver = MethodChannelStreamResolver(messenger)
+    private val resolver = HybridStreamResolver(messenger)
     val engine: AurumAudioEngine = AurumMediaSessionService.sharedEngine
         ?: AurumAudioEngine(context.applicationContext, resolver)
     private val scope = CoroutineScope(Dispatchers.Main.immediate)
