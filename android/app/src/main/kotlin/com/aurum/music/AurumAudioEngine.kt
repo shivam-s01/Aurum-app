@@ -255,10 +255,22 @@ class AurumAudioEngine(
         // run before we give up and surface a real error instead of
         // silently continuing to await. Matches the Worker's own max
         // per-request timeout (isUrlAlive/AbortSignal.timeout(7000) plus
-        // margin for one retry) so Dart-side and native-side "give up"
-        // points line up instead of native waiting longer than the Worker
-        // itself would ever take to respond.
+        // margin for one retry) for Saavn/Worker-backed sources so
+        // Dart-side and native-side "give up" points line up.
+        //
+        // YouTube resolution runs natively via YoutubeInnertube (InnerTube
+        // call + JS cipher decode), which routinely takes longer than the
+        // Worker ever did. resolveFast() already gives it an 18s
+        // per-attempt budget internally (see perAttemptTimeoutMs below),
+        // but this OUTER cap was flatly 8s for every source, silently
+        // killing YouTube resolution before its own internal timeout ever
+        // got a chance to finish. Bumped so the outer cap can never be
+        // tighter than the inner per-attempt budget.
         private const val RESOLVE_HARD_CAP_MS = 8_000L
+        private const val RESOLVE_HARD_CAP_YOUTUBE_MS = 20_000L
+
+        private fun hardCapFor(song: NativeSong): Long =
+            if (song.source == "youtube") RESOLVE_HARD_CAP_YOUTUBE_MS else RESOLVE_HARD_CAP_MS
     }
 
     init {
@@ -417,14 +429,14 @@ class AurumAudioEngine(
             isResolving = true
             pushState()
             var url = try {
-                withTimeoutOrNull(RESOLVE_HARD_CAP_MS) { resolveFast(songs[safeIndex], mySession) }
+                withTimeoutOrNull(hardCapFor(songs[safeIndex])) { resolveFast(songs[safeIndex], mySession) }
             } catch (e: CancellationException) { throw e }
             if (mySession != playSessionId) return
 
             var resolvedSong = songs[safeIndex]
             if (url == null) {
                 val found = try {
-                    withTimeoutOrNull(RESOLVE_HARD_CAP_MS) { findFirstPlayableFrom(songs, safeIndex + 1, mySession) }
+                    withTimeoutOrNull(RESOLVE_HARD_CAP_YOUTUBE_MS) { findFirstPlayableFrom(songs, safeIndex + 1, mySession) }
                 } catch (e: CancellationException) { throw e }
                 if (mySession != playSessionId) return
                 if (found == null) {
@@ -518,7 +530,7 @@ class AurumAudioEngine(
             pushState()
 
             var url = try {
-                withTimeoutOrNull(RESOLVE_HARD_CAP_MS) { resolveFast(song, mySession) }
+                withTimeoutOrNull(hardCapFor(song)) { resolveFast(song, mySession) }
             } catch (e: CancellationException) { throw e }
             if (mySession != playSessionId) return
 
@@ -527,7 +539,7 @@ class AurumAudioEngine(
                 if (mySession != playSessionId) return
                 resolver.invalidate(song)
                 url = try {
-                    withTimeoutOrNull(RESOLVE_HARD_CAP_MS) { resolveFast(song, mySession) }
+                    withTimeoutOrNull(hardCapFor(song)) { resolveFast(song, mySession) }
                 } catch (e: CancellationException) { throw e }
                 if (mySession != playSessionId) return
             }
