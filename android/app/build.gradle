@@ -93,24 +93,29 @@ dependencies {
     // the box, so we don't have to hand-roll one against an undocumented
     // internal Request/Response constructor shape.
     //
-    // IMPORTANT: NewValve pulls in NewPipeExtractor as a SEPARATE JitPack
-    // coordinate — "com.github.TeamNewPipe.NewPipeExtractor:extractor"
-    // (note the extra ".NewPipeExtractor" in the group, because JitPack is
-    // resolving the "extractor" submodule directly out of the
-    // TeamNewPipe/NewPipeExtractor repo) — which Gradle does NOT recognize
-    // as the same artifact as "com.github.TeamNewPipe:NewPipeExtractor"
-    // (the root/aggregate coordinate used below). Because they're
-    // different coordinates as far as Gradle's dependency resolution is
-    // concerned, `resolutionStrategy.force` on one has zero effect on the
-    // other, and BOTH end up on the classpath — same
-    // org.schabi.newpipe.extractor.* classes present twice
-    // (jetified-NewPipeExtractor-v0.26.1 AND jetified-extractor-v0.24.5),
-    // which is exactly the "Duplicate class ... found in modules" build
-    // failure. Excluding NewValve's transitive module here removes the
-    // stale v0.24.5 copy from the classpath entirely, leaving only the
-    // v0.26.1 one declared below.
+    // IMPORTANT: NewValve pulls in NewPipeExtractor as SEPARATE JitPack
+    // coordinates under the group "com.github.TeamNewPipe.NewPipeExtractor"
+    // (note the extra ".NewPipeExtractor" — JitPack publishes EACH
+    // submodule of the TeamNewPipe/NewPipeExtractor repo — "extractor",
+    // "timeago-parser", "timeago-generator", etc — under this group when
+    // resolved as a multi-module build). Gradle does NOT recognize any of
+    // these as the same artifact as "com.github.TeamNewPipe:NewPipeExtractor"
+    // (the root/aggregate coordinate used below), so
+    // `resolutionStrategy.force` on the root coordinate has zero effect on
+    // them, and each stale submodule ends up on the classpath alongside the
+    // new one — same classes present twice, which is the
+    // "Duplicate class ... found in modules" build failure. First it was
+    // "extractor" (v0.24.5), then "timeago-parser" (v0.24.5) — there could
+    // be more submodules NewValve depends on that haven't surfaced yet
+    // since Gradle only reports duplicates it actually finds, one class at
+    // a time, not the whole dependency tree up front.
+    //
+    // Rather than exclude submodules one at a time as each one surfaces in
+    // a build failure, this excludes the ENTIRE stale group in one shot —
+    // covers "extractor", "timeago-parser", and any other submodule under
+    // this group NewValve might pull in, present or future.
     implementation("com.github.shalva97:NewValve:1.5") {
-        exclude group: "com.github.TeamNewPipe.NewPipeExtractor", module: "extractor"
+        exclude group: "com.github.TeamNewPipe.NewPipeExtractor"
     }
 
     // NewValve 1.5 (released March 2025) transitively pulls in whatever
@@ -163,17 +168,28 @@ dependencies {
 }
 
 configurations.all {
-    // Belt-and-suspenders: exclude the old JitPack submodule coordinate
-    // globally too, in case any other transitive dependency (now or added
-    // later) pulls it in the same way NewValve did.
-    exclude group: "com.github.TeamNewPipe.NewPipeExtractor", module: "extractor"
-
     resolutionStrategy {
         // This is the correct (and only valid) way to force a specific
         // version to win dependency resolution in Gradle for same-
         // coordinate conflicts — guarantees NewValve's stale transitive
         // NewPipeExtractor pin never wins over the version declared above,
         // for the cases where it IS recognized as the same coordinate.
+        //
+        // NOTE: there is deliberately NO global
+        // `exclude group: "com.github.TeamNewPipe.NewPipeExtractor"` here.
+        // The root coordinate declared above
+        // (com.github.TeamNewPipe:NewPipeExtractor:v0.26.1) very likely
+        // depends on its OWN submodules (extractor, timeago-parser, etc)
+        // under that exact group internally — a configurations.all-level
+        // exclude applies to every configuration, including the
+        // resolution of that root dependency's own transitive graph. That
+        // would silently strip classes back OUT of the v0.26.1 artifact
+        // we actually want, trading a build-time duplicate-class error for
+        // a runtime ClassNotFoundException/NoClassDefFoundError instead —
+        // a worse failure because it wouldn't show up until the app is
+        // actually running. The exclude is instead scoped to ONLY
+        // NewValve's dependency declaration above, which is the one place
+        // that needs it.
         force "com.github.TeamNewPipe:NewPipeExtractor:v0.26.1"
     }
 }
