@@ -149,6 +149,15 @@ class AudioPrefs {
   /// changes. Default false — never self-grant.
   static bool isPremium = false;
 
+  /// Mirrors AuthProvider.isSignedIn for service-layer code (PlayerProvider)
+  /// that has no BuildContext. Set by AuthProvider whenever its value
+  /// changes. Backs the many features gated on "has a Google account" only
+  /// (Unlimited Skips, Like Songs, Playlists, Follow Artist, Cloud Sync,
+  /// Themes/Fonts/Player Styles) as distinct from the single feature still
+  /// gated on payment (High Bitrate — see isPremium above). Default false
+  /// — never self-grant.
+  static bool isSignedIn = false;
+
   static const _kStreamQuality = 'stream_quality';
   static const _kDataSaver     = 'data_saver';
   static const _kPauseOnCall   = 'pause_on_call';
