@@ -237,6 +237,32 @@ class NativeAudioEngine {
       _method.invokeMethod('setCrossfadeSeconds', {'seconds': secs});
   Future<void> sleepAfterCurrentSong() => _method.invokeMethod('sleepAfterCurrentSong');
 
+  // FIX (2026-07-07) — "downloads fail / stuck resolving": DownloadProvider
+  // was calling ApiService.resolveStreamUrl() directly for every download,
+  // which is the OLD, Worker-only resolve chain — it never benefited from
+  // the native YoutubeInnertube/NewPipeExtractor path that live playback
+  // now uses (via HybridStreamResolver), even after that path became the
+  // reliable one. This calls the exact same resolver playback uses,
+  // native-first with the existing Worker/Dart chain only as a fallback,
+  // as a single one-shot lookup with no queue/player side effects —
+  // DownloadProvider.download() calls this for youtube-source songs
+  // instead of ApiService.resolveStreamUrl() directly.
+  //
+  // Returns null if resolution genuinely failed on both the native and
+  // fallback paths (caller should treat this exactly like the old
+  // resolveStreamUrl() returning null/throwing).
+  Future<String?> resolveForDownload(Song song) async {
+    try {
+      final result = await _method.invokeMethod<String>(
+        'resolveForDownload',
+        {'song': _songToArgs(song)},
+      );
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ── Bass Boost / Equalizer (native android.media.audiofx, see
   // AurumAudioEffects.kt) — replaces the old just_audio-based
   // AudioEffectsController. Gains are given/received in dB (matching the

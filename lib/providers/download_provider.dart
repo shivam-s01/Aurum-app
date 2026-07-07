@@ -9,6 +9,7 @@ import '../models/song.dart';
 import '../models/download_item.dart';
 import '../services/notification_service.dart';
 import '../services/api_service.dart';
+import '../services/native_engine_bridge.dart';
 
 /// Manages downloading songs for offline playback.
 ///
@@ -22,6 +23,13 @@ import '../services/api_service.dart';
 ///   uninstall).
 class DownloadProvider extends ChangeNotifier {
   static const _boxName = 'aurum_downloads';
+
+  // FIX (2026-07-07) — see the resolveForDownload call further below:
+  // injected so downloads can use the same native-first YouTube resolver
+  // (YoutubeInnertube/NewPipeExtractor via HybridStreamResolver) that live
+  // playback already uses, instead of only the old Worker-only chain.
+  final NativeAudioEngine _engine;
+  DownloadProvider(this._engine);
 
   late Box<Map> _box;
   final Map<String, DownloadItem> _items = {}; // keyed by song.id
@@ -148,7 +156,24 @@ class DownloadProvider extends ChangeNotifier {
     String? url = song.streamUrl;
     if (url == null || url.isEmpty || !url.startsWith('http')) {
       try {
-        url = await ApiService.resolveDownloadUrl(song, qualityOrder: qualityOrder);
+        // FIX (2026-07-07) — "YouTube downloads fail / stuck resolving":
+        // ApiService.resolveDownloadUrl() falls through to
+        // ApiService.resolveStreamUrl() for youtube-source songs, which is
+        // the OLD Worker-only resolve chain (Cloudflare Worker's
+        // SABR-gated YouTube clients + Piped fallback). Live playback
+        // stopped depending on that chain once NewPipeExtractor was
+        // bumped to v0.26.3 and playback moved to a native-first resolver
+        // (HybridStreamResolver: YoutubeInnertube first, Worker/Dart only
+        // as fallback) — but downloads never got that benefit, since
+        // nothing about the download path went through the native engine
+        // at all. For youtube-source songs, try the native-first resolver
+        // (same one playback uses) before falling back to the old
+        // Dart-only chain, so downloads get the same reliability
+        // improvement playback already has.
+        if (song.source == SongSource.youtube) {
+          url = await _engine.resolveForDownload(song);
+        }
+        url ??= await ApiService.resolveDownloadUrl(song, qualityOrder: qualityOrder);
       } catch (_) {
         url = null;
       }

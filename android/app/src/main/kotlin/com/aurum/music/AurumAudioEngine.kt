@@ -67,9 +67,39 @@ class AurumAudioEngine(
     // extra memory held by a 90s/4MB buffer increases the odds of the OS
     // reclaiming memory from the app (which surfaces as "song randomly
     // pauses").
+    //
+    // FIX (2026-07-07) — "songs keep pausing and restarting on their own,
+    // every source including offline": setTargetBufferBytes was previously
+    // 1 * 1024 * 1024 (1 MiB). At typical audio bitrates (~40 KB/s for a
+    // 320kbps stream), 1 MiB of buffered media is only ~25 SECONDS of
+    // audio — far below the 30s maxBufferMs this same LoadControl was
+    // trying to hold. Whichever threshold ExoPlayer hits FIRST wins, and
+    // size and time were fighting each other: the moment buffered audio
+    // exceeded ~25s of an average-bitrate file, the 1 MiB size cap
+    // triggered STATE_BUFFERING (a real pause+rebuffer, visible to the
+    // user as playback randomly stopping/restarting) even though the
+    // 30s time-based ceiling hadn't been reached yet, and even on a fast
+    // connection or when reading purely from local disk cache/offline
+    // storage (this LoadControl applies to ALL playback through this
+    // ExoPlayer instance, network or local — which is why the symptom
+    // showed up on Saavn, YouTube, AND offline songs alike, not just slow
+    // network conditions).
+    //
+    // setPrioritizeTimeOverSizeThresholds(true) does NOT fix this — it
+    // only decides which threshold ExoPlayer consults FIRST when both are
+    // still unmet; it doesn't disable the size cap once buffered bytes
+    // actually exceed it.
+    //
+    // Fix: disable the byte-based cap entirely (-1, ExoPlayer's documented
+    // "no limit" sentinel for this field) so only the time-based
+    // thresholds (15s min / 30s max) govern buffering. Battery/RAM
+    // reasoning from the original comment above is unaffected — a 30s cap
+    // was always the actual intended ceiling; the byte cap was firing
+    // long before that ceiling was ever reached, defeating its own
+    // purpose.
     private val loadControl = DefaultLoadControl.Builder()
         .setBufferDurationsMs(15_000, 30_000, 1_500, 3_000)
-        .setTargetBufferBytes(1 * 1024 * 1024)
+        .setTargetBufferBytes(-1)
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()
 
@@ -655,7 +685,57 @@ class AurumAudioEngine(
 
     private suspend fun handleFreshStartIdle() {
         val songAtIdle = queueSongs.getOrNull(currentIndex) ?: return
-        if (songAtIdle.isLocal) return
+
+        // FIX (2026-07-07) — "downloaded songs just sit on loading forever":
+        // this used to be a flat `if (songAtIdle.isLocal) return` — correct
+        // in intent (never try to re-resolve a local file over the
+        // network/Dart bridge, since resolveFast() already returns its
+        // file:// URI directly with nothing to "resolve"), but it also
+        // meant that if the local file itself was missing, deleted (e.g.
+        // storage cleanup, app cache cleared, download never actually
+        // completed despite Hive metadata saying "completed"), corrupt, or
+        // otherwise unreadable, we returned immediately with NO recovery
+        // and NO error surfaced — the player just sat in STATE_IDLE
+        // forever, which is exactly what shows up in the UI as an
+        // infinite loading spinner with nothing happening.
+        //
+        // Fix: for local songs, don't re-resolve (still correct — there's
+        // nothing to resolve), but DO check whether the file genuinely
+        // exists and is non-empty before giving up silently. If it
+        // doesn't, treat it exactly like a dead stream: surface a real
+        // error and advance the queue past it, same as the network-song
+        // recovery path below already does.
+        if (songAtIdle.isLocal) {
+            val sessionAtIdle = playSessionId
+            val path = songAtIdle.localPath?.removePrefix("file://")?.removePrefix("content://")
+            val fileOk = try {
+                path != null && java.io.File(path).let { it.exists() && it.length() > 0 }
+            } catch (_: Exception) {
+                false
+            }
+            if (fileOk) {
+                // File is genuinely fine; this STATE_IDLE was likely a
+                // transient blip (e.g. brief MediaCodec hiccup) rather than
+                // a missing file. Give ExoPlayer one silent nudge instead
+                // of leaving it stuck — cheap and avoids a false "skipping
+                // song" error for what may just be a one-off glitch.
+                delay(400)
+                if (sessionAtIdle == playSessionId &&
+                    queueSongs.getOrNull(currentIndex)?.id == songAtIdle.id &&
+                    player.playbackState == Player.STATE_IDLE
+                ) {
+                    try {
+                        player.prepare()
+                        player.play()
+                    } catch (_: Exception) { /* falls through to advancePastDeadSong below */ }
+                }
+                return
+            }
+            emitError("Downloaded file for \"${songAtIdle.title}\" is missing or unreadable — skipping to next song.", true)
+            advancePastDeadSong(songAtIdle, sessionAtIdle)
+            return
+        }
+
         val sessionAtIdle = playSessionId
         delay(1200)
 
@@ -714,7 +794,43 @@ class AurumAudioEngine(
     private suspend fun handleMidStreamIdle(pos: Long) {
         if (queueSongs.isEmpty() || isLoadingNewSong) return
         val song = queueSongs.getOrNull(currentIndex) ?: return
-        if (song.isLocal) return
+
+        // FIX (2026-07-07) — same "downloaded song sits on loading forever"
+        // bug as handleFreshStartIdle: a local file going idle mid-stream
+        // (e.g. a genuinely corrupt/truncated download, or storage
+        // reclaiming the underlying file) used to just return here with no
+        // recovery. There's nothing to re-resolve for a local file, but we
+        // can still detect a broken file and skip it instead of leaving
+        // the player stuck.
+        if (song.isLocal) {
+            val sessionNow = playSessionId
+            val path = song.localPath?.removePrefix("file://")?.removePrefix("content://")
+            val fileOk = try {
+                path != null && java.io.File(path).let { it.exists() && it.length() > 0 }
+            } catch (_: Exception) {
+                false
+            }
+            if (fileOk) {
+                // Likely a transient decoder hiccup rather than a genuinely
+                // broken file — give it one silent retry from the same
+                // position instead of leaving playback stuck.
+                delay(400)
+                if (sessionNow == playSessionId &&
+                    queueSongs.getOrNull(currentIndex)?.id == song.id &&
+                    player.playbackState == Player.STATE_IDLE
+                ) {
+                    try {
+                        player.prepare()
+                        player.seekTo(pos)
+                        player.play()
+                    } catch (_: Exception) { /* falls through to advancePastDeadSong below */ }
+                }
+                return
+            }
+            emitError("Downloaded file for \"${song.title}\" could not continue playing — skipping to next song.", true)
+            advancePastDeadSong(song, sessionNow)
+            return
+        }
 
         val playerIdxAtStart = player.currentMediaItemIndex
         fun stillOnThisSong(): Boolean {

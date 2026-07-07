@@ -193,6 +193,37 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                 "getEqualizerBands" -> {
                     result.success(engine.effects.describeBands())
                 }
+                // FIX (2026-07-07) — "downloads fail / stuck resolving":
+                // DownloadProvider.download() (Dart) was calling
+                // ApiService.resolveStreamUrl() directly — the OLD,
+                // Worker-only resolve chain (Cloudflare Worker's SABR-gated
+                // YouTube clients + Piped fallback), completely bypassing
+                // the native YoutubeInnertube/NewPipeExtractor path that
+                // HybridStreamResolver already gives live playback. Live
+                // playback got reliable once NewPipeExtractor was bumped to
+                // v0.26.3, but downloads never benefited from that fix
+                // because they never went through this resolver at all.
+                //
+                // This exposes the SAME resolver playback uses
+                // (native-first via YoutubeInnertube, falling back to the
+                // Worker/Dart chain only if the native attempt genuinely
+                // fails) as a standalone, one-shot method call — no queue,
+                // no player state, no engine side effects. Dart's
+                // DownloadProvider calls this instead of
+                // ApiService.resolveStreamUrl() directly for youtube-source
+                // downloads (see NativeEngineBridge.resolveForDownload +
+                // the corresponding DownloadProvider change).
+                "resolveForDownload" -> {
+                    val song = parseSong(call.argument<Map<String, Any?>>("song")!!)
+                    scope.launch {
+                        val url = try {
+                            resolver.resolve(song, forceRefresh = false)
+                        } catch (e: Exception) {
+                            null
+                        }
+                        result.success(url)
+                    }
+                }
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {
