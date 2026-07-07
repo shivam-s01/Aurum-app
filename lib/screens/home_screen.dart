@@ -605,7 +605,11 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   }
 
 
+  bool _openingFullPlayer = false; // guards against double-push on rapid tap
+
   void _openFullPlayer() {
+    if (_openingFullPlayer) return;
+    _openingFullPlayer = true;
     HapticFeedback.lightImpact();
     Navigator.of(context).push(
       PageRouteBuilder(
@@ -617,8 +621,11 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
           child: child,
         ),
         transitionDuration: const Duration(milliseconds: 380),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
       ),
-    );
+    ).then((_) {
+      _openingFullPlayer = false;
+    });
   }
 
   @override
@@ -1849,7 +1856,9 @@ class _SongCardState extends State<_SongCard>
     _isTapping = true;
     unawaited(_pressCtrl.forward().then((_) => _pressCtrl.reverse()));
     HapticFeedback.selectionClick();
-    context.read<RecentlyPlayedProvider>().addPlay(widget.song);
+    // History save moved to PlayerProvider._onSongChanged — fires only
+    // once the native engine confirms this song actually started
+    // playing, instead of on every tap regardless of stream success.
     context.read<PlayerProvider>()
         .playSong(widget.song, queue: widget.queue, index: widget.index);
     await Future.delayed(const Duration(milliseconds: 300));
@@ -2403,23 +2412,47 @@ class _HomePremiumBanner extends StatefulWidget {
 }
 
 class _HomePremiumBannerState extends State<_HomePremiumBanner>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _shimmerCtrl;
   late final Animation<double> _shimmer;
 
+  // PERF: this banner lives on Home, which is kept alive inside an
+  // IndexedStack (see main_shell.dart) — so even when the user is on
+  // Library/Search/Profile, this widget is still mounted and, previously,
+  // this shimmer's `..repeat()` kept ticking at 60fps in the background
+  // forever, for every free user, burning GPU/battery for a purely
+  // decorative loop nobody could see. Same fix pattern as the full/home
+  // player's ambient breathe animation: pause on app background, and
+  // respect the Appearance -> Animations toggle.
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _shimmerCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2600),
-    )..repeat();
+    );
     _shimmer =
         CurvedAnimation(parent: _shimmerCtrl, curve: Curves.easeInOutSine);
+    if (AudioPrefs.enableAnimationsNotifier.value) {
+      _shimmerCtrl.repeat();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (AudioPrefs.enableAnimationsNotifier.value && !_shimmerCtrl.isAnimating) {
+        _shimmerCtrl.repeat();
+      }
+    } else {
+      _shimmerCtrl.stop();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _shimmerCtrl.dispose();
     super.dispose();
   }

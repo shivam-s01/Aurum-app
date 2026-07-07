@@ -1,4 +1,5 @@
 import 'package:aurum_music/widgets/aurum_loader.dart';
+import 'package:aurum_music/widgets/aurum_morph_loader.dart';
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/recently_played_provider.dart';
 import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
 
@@ -480,7 +482,9 @@ class _AccountCardState extends State<_AccountCard> {
         title: Text('Sign out?',
             style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
         content: Text(
-          'Your playlists and library stay on this device. Sign back in anytime to sync again.',
+          'Your liked songs, playlists, followed artists and history will '
+          'be cleared from this device. Sign back in anytime to get them '
+          'back.',
           style: TextStyle(color: AurumTheme.textSecondaryOf(context)),
         ),
         actions: [
@@ -495,7 +499,61 @@ class _AccountCardState extends State<_AccountCard> {
         ],
       ),
     );
-    if (confirmed == true) await auth.signOut();
+    if (confirmed != true) return;
+    await _signOutAndWipe(auth);
+  }
+
+  /// Signs out of Google/Supabase, then clears every account-scoped local
+  /// provider (Liked Songs, Playlists, Followed Artists, History) so the
+  /// device goes back to a clean slate — matching what the confirmation
+  /// dialog above promises. Signing back in (same account or a different
+  /// one) pulls fresh data from Supabase via SyncService instead of ever
+  /// mixing with a previous account's leftovers.
+  //
+  // Deliberately NOT cleared: Downloads (actual audio files on disk —
+  // deleting those without a separate, explicit "Delete downloads too?"
+  // confirmation would be a surprising, destructive side effect of what
+  // the user thinks is just a sign-out) and device-level preferences
+  // (theme, equalizer, sleep timer, etc.) which belong to the device, not
+  // the account.
+  Future<void> _signOutAndWipe(AuthProvider auth) async {
+    HapticFeedback.mediumImpact();
+
+    // Premium, top-level feel: a brief centered loader overlay while the
+    // wipe runs (this is all local Hive box clears, so it's fast — but a
+    // frozen UI with no feedback reads as broken, not premium).
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        barrierColor: Colors.black.withOpacity(0.55),
+        builder: (_) => const Center(
+          child: AurumMorphLoader(size: 48),
+        ),
+      );
+    }
+
+    try {
+      await auth.signOut();
+      if (!mounted) return;
+      await Future.wait([
+        context.read<FavoritesProvider>().clearAll(),
+        context.read<PlaylistProvider>().clearAll(),
+        context.read<FollowedArtistsProvider>().clearAll(),
+        context.read<RecentlyPlayedProvider>().clearHistory(),
+      ]);
+    } finally {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop(); // close loader
+    }
+
+    if (mounted) {
+      HapticFeedback.lightImpact();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Signed out — your data has been cleared from this device'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 3),
+      ));
+    }
   }
 
   @override

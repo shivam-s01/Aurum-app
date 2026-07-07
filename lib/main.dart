@@ -169,7 +169,7 @@ class AurumApp extends StatelessWidget {
           },
         ),
         ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()),
-        ChangeNotifierProvider(create: (_) => DownloadProvider(_audioEngine)..init()),
+        ChangeNotifierProvider(create: (_) => DownloadProvider()..init()),
         ChangeNotifierProxyProvider<DownloadProvider, FavoritesProvider>(
           create: (_) => FavoritesProvider()..init(),
           update: (_, dl, fav) {
@@ -179,7 +179,18 @@ class AurumApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()..init()),
         ChangeNotifierProvider(create: (_) => FollowedArtistsProvider()..init()),
-        ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
+        ChangeNotifierProvider(
+          create: (_) {
+            final auth = AuthProvider();
+            auth.init();
+            // Keep AudioPrefs in sync so service-layer code (PlayerProvider)
+            // can check isSignedIn without a BuildContext — mirrors the
+            // isPremium wiring just below for the same reason.
+            AudioPrefs.isSignedIn = auth.isSignedIn;
+            auth.addListener(() => AudioPrefs.isSignedIn = auth.isSignedIn);
+            return auth;
+          },
+        ),
         ChangeNotifierProvider(
           create: (_) {
             final pp = PremiumProvider();

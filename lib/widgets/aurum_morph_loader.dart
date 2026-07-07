@@ -18,9 +18,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
-/// Default color sampled directly from the Play Store loader — Google's
-/// standard Material blue (#1A73E8 family).
-const Color kAurumMorphBlue = Color(0xFFB89640); // Aurum gold
+/// Default color — Aurum purple.
+const Color kAurumMorphBlue = Color(0xFFA855F7); // Aurum purple
 
 class AurumMorphLoader extends StatefulWidget {
   const AurumMorphLoader({

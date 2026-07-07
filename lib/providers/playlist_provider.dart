@@ -241,4 +241,11 @@ class PlaylistProvider extends ChangeNotifier {
 
   String _generateId() =>
       'pl_${DateTime.now().millisecondsSinceEpoch}_${_playlists.length}';
+
+  /// Wipes all playlists — local only, called on sign-out.
+  Future<void> clearAll() async {
+    await _box.clear();
+    _playlists = [];
+    notifyListeners();
+  }
 }

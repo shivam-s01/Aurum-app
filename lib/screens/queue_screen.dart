@@ -5,6 +5,7 @@ import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_empty_state.dart';
+import '../widgets/aurum_pressable.dart';
 
 class QueueScreen extends StatelessWidget {
   const QueueScreen({super.key});
@@ -57,8 +58,15 @@ class QueueScreen extends StatelessWidget {
             itemBuilder: (context, i) {
               final song = queue[i];
               final isCurrent = i == player.currentIndex;
-              return ListTile(
+              return AurumPressable(
                 key: ValueKey('${song.id}_$i'),
+                scaleAmount: 0.985,
+                haptic: false, // onTap below fires its own selectionClick
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  player.skipToIndex(i);
+                },
+                child: ListTile(
                 leading: Stack(
                   alignment: Alignment.center,
                   children: [
@@ -108,10 +116,7 @@ class QueueScreen extends StatelessWidget {
                     const Icon(Icons.drag_handle_rounded, color: AurumTheme.textMuted, size: 20),
                   ],
                 ),
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  player.skipToIndex(i);
-                },
+                ),
               );
             },
           );

@@ -46,4 +46,10 @@ class FollowedArtistsProvider extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  /// Wipes all followed artists — local only, called on sign-out.
+  Future<void> clearAll() async {
+    await _box.clear();
+    notifyListeners();
+  }
 }

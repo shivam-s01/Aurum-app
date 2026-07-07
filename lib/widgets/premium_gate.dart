@@ -26,15 +26,15 @@ class PremiumGate {
     BuildContext context, {
     required String feature,
     String? description,
+    bool requiresLoginOnly = false,
   }) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _PremiumGateSheet(
-        feature: feature,
-        description: description,
-      ),
+      builder: (_) => requiresLoginOnly
+          ? _LoginGateSheet(feature: feature, description: description)
+          : _PremiumGateSheet(feature: feature, description: description),
     );
   }
 
@@ -43,7 +43,19 @@ class PremiumGate {
     required String feature,
     String? description,
     required VoidCallback onAllowed,
+    bool requiresLoginOnly = false,
   }) {
+    if (requiresLoginOnly) {
+      // Login-gated feature — no payment involved at all. Signed in is
+      // the only bar to clear.
+      final isSignedIn = context.read<AuthProvider>().isSignedIn;
+      if (isSignedIn) {
+        onAllowed();
+      } else {
+        show(context, feature: feature, description: description, requiresLoginOnly: true);
+      }
+      return;
+    }
     final isPremium = context.read<PremiumProvider>().isPremium;
     if (isPremium) {
       onAllowed();
@@ -72,14 +84,12 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
   late final Animation<Offset> _contentSlide, _ctaSlide;
   bool _isSigningIn = false;
 
+  // Payment now only gates HD Audio (320kbps) — everything else moved to
+  // a free Google-account gate (see _LoginGateSheet below). Keeping the
+  // old 7-perk list here would misrepresent what payment actually buys.
   static const _perks = [
-    (Icons.high_quality_rounded,  'HD Audio',          '320kbps quality'),
-    (Icons.all_inclusive_rounded, 'Unlimited Skips',   'Skip freely'),
-    (Icons.favorite_rounded,      'Like & Save',       'Personal library'),
-    (Icons.person_add_rounded,    'Follow Artists',    'Stay updated'),
-    (Icons.queue_music_rounded,   'Playlists',         'Organize music'),
-    (Icons.sync_rounded,          'Cloud Sync',        'All devices'),
-    (Icons.palette_rounded,       'Themes',            'Premium styles'),
+    (Icons.high_quality_rounded, 'HD Audio',      '320kbps quality'),
+    (Icons.graphic_eq_rounded,   'Best Quality',  'Every track, full fidelity'),
   ];
 
   @override
@@ -223,7 +233,7 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                 const SizedBox(height: 6),
                 Text(
                   widget.description ??
-                      'Unlock this and every premium feature\nwith Aurum Plus.',
+                      'Unlock studio-quality 320kbps streaming\nwith Aurum Plus.',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.45),
                     fontSize: 13,
@@ -400,6 +410,347 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                                         ? '✦  Get Aurum Plus'
                                         : 'Sign in & Get Plus',
                                     style: const TextStyle(
+                                      color: Colors.black,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.1,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(
+                      'Maybe later',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.3),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Login-only gate — same premium visual language as _PremiumGateSheet
+// (gold gradient, glow, staggered fade/slide-in), but for the many
+// features that only require a Google account, not a paid plan. Never
+// mentions price and never routes to PremiumScreen — the single CTA is
+// "Sign in with Google", and success closes the sheet and calls back into
+// the feature immediately.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _LoginGateSheet extends StatefulWidget {
+  final String feature;
+  final String? description;
+
+  const _LoginGateSheet({required this.feature, this.description});
+
+  @override
+  State<_LoginGateSheet> createState() => _LoginGateSheetState();
+}
+
+class _LoginGateSheetState extends State<_LoginGateSheet>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _iconFade, _contentFade, _ctaFade;
+  late final Animation<Offset> _contentSlide, _ctaSlide;
+  bool _isSigningIn = false;
+
+  static const _perks = [
+    (Icons.favorite_rounded,      'Like & Save',    'Personal library'),
+    (Icons.queue_music_rounded,   'Playlists',      'Organize music'),
+    (Icons.person_add_rounded,    'Follow Artists', 'Stay updated'),
+    (Icons.sync_rounded,          'Cloud Sync',     'All devices'),
+    (Icons.all_inclusive_rounded, 'Unlimited Skips','Skip freely'),
+    (Icons.palette_rounded,       'Themes',         'Personalize'),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 680),
+    );
+
+    _iconFade = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
+    );
+    _contentFade = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
+    );
+    _contentSlide = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.2, 0.7, curve: Curves.easeOutCubic),
+    ));
+    _ctaFade = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.45, 1.0, curve: Curves.easeOut),
+    );
+    _ctaSlide = Tween<Offset>(
+      begin: const Offset(0, 0.05),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
+    ));
+
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSignIn(BuildContext context) async {
+    HapticFeedback.mediumImpact();
+    final auth = context.read<AuthProvider>();
+    setState(() => _isSigningIn = true);
+    final success = await auth.signInWithGoogle();
+    if (!mounted) return;
+    setState(() => _isSigningIn = false);
+    if (success && mounted) {
+      Navigator.pop(context);
+    }
+    // If cancelled/failed, sheet stays open so the user can retry.
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E0E12),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        border: Border.all(
+          color: AurumTheme.gold.withOpacity(0.22),
+          width: 0.8,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle
+          Container(
+            margin: const EdgeInsets.only(top: 12),
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+
+          // Icon + header
+          FadeTransition(
+            opacity: _iconFade,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+              child: Column(children: [
+                // Glowing account icon — gold like the rest of the app,
+                // but a person/account glyph instead of a crown, since
+                // this is an identity gate, not a paywall.
+                Container(
+                  width: 68,
+                  height: 68,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: AurumTheme.goldGradient,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AurumTheme.gold.withOpacity(0.5),
+                        blurRadius: 24,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.account_circle_rounded,
+                    color: Colors.black,
+                    size: 34,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ShaderMask(
+                  shaderCallback: (b) => const LinearGradient(
+                    colors: [AurumTheme.goldDark, AurumTheme.goldLight],
+                  ).createShader(b),
+                  child: Text(
+                    'Sign in for ${widget.feature}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 21,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.3,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  widget.description ??
+                      'Sign in with Google to unlock this and\nsync it across every device.',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.45),
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ]),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Perks horizontal scroll — same premium strip treatment as the
+          // payment gate, just listing what a signed-in account unlocks.
+          FadeTransition(
+            opacity: _contentFade,
+            child: SlideTransition(
+              position: _contentSlide,
+              child: SizedBox(
+                height: 76,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _perks.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (ctx, i) {
+                    final perk = _perks[i];
+                    return Container(
+                      width: 88,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AurumTheme.gold.withOpacity(0.07),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AurumTheme.gold.withOpacity(0.18),
+                          width: 0.7,
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(perk.$1, color: AurumTheme.gold, size: 17),
+                          const SizedBox(height: 5),
+                          Text(
+                            perk.$2,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.85),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            perk.$3,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.3),
+                              fontSize: 8,
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 22),
+
+          // CTA — sign in with Google, full stop. No price, no plan
+          // choice, no route to PremiumScreen.
+          FadeTransition(
+            opacity: _ctaFade,
+            child: SlideTransition(
+              position: _ctaSlide,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20, 0, 20,
+                  20 + MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: Column(children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: _isSigningIn
+                        ? Container(
+                            height: 56,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: AurumTheme.gold.withOpacity(0.15),
+                            ),
+                            child: const Center(
+                              child: SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: Center(child: AurumM3Loader(width: 22, height: 2.5)),
+                              ),
+                            ),
+                          )
+                        : DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: AurumTheme.goldGradient,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AurumTheme.gold.withOpacity(0.4),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ],
+                            ),
+                            child: ElevatedButton(
+                              onPressed: () => _handleSignIn(context),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.login_rounded,
+                                    color: Colors.black,
+                                    size: 18,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Sign in with Google',
+                                    style: TextStyle(
                                       color: Colors.black,
                                       fontSize: 15,
                                       fontWeight: FontWeight.w900,

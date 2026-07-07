@@ -6,6 +6,9 @@ import '../theme/aurum_theme.dart';
 import '../services/native_engine_bridge.dart';
 import '../services/audio_prefs.dart';
 import '../providers/recently_played_provider.dart';
+import '../providers/premium_provider.dart';
+import '../widgets/premium_gate.dart';
+import '../widgets/aurum_pressable.dart';
 
 // =============================================================================
 // Sleep Timer Service — singleton so it survives screen navigation
@@ -117,8 +120,15 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
+    final savedQuality = p.getString('stream_quality') ?? 'Auto';
     setState(() {
-      _streamQuality       = p.getString('stream_quality') ?? 'Auto';
+      // Defensive: if this was saved as 'High' before the payment gate
+      // existed (or the account's premium lapsed), don't show a locked
+      // option as the selected one — this matches what
+      // AudioPrefs.qualityOrder() actually does at runtime regardless.
+      _streamQuality       = (savedQuality == 'High' && !AudioPrefs.isPremium)
+          ? 'Auto'
+          : savedQuality;
       _dataSaver           = p.getBool('data_saver') ?? false;
       _gapless             = p.getBool('gapless') ?? true;
       _playbackSpeed       = p.getDouble('playback_speed') ?? 1.0;
@@ -142,6 +152,154 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
     if (value is double) await p.setDouble(key, value);
     if (value is int)    await p.setInt(key, value);
     if (value is String) await p.setString(key, value);
+  }
+
+  // ── Stream Quality ──────────────────────────────────────────────────────
+  //
+  // Dedicated tile (not a generic dropdown) so "High Bitrate (320kbps)" can
+  // be a clearly-locked, individually-tappable row — a plain
+  // DropdownButton can't intercept a single item's tap to show a paywall
+  // before committing the value. Tapping the locked row always opens
+  // PremiumGate (payment only — this is the one feature in the app that
+  // still requires Aurum Plus, not just a Google account) and never
+  // silently selects it. The enforcement itself already lived in
+  // AudioPrefs.qualityOrder() (free accounts capped at 160kbps); this tile
+  // just makes that boundary visible and intentional in the UI instead of
+  // free users picking "High" and silently getting capped audio.
+  static const _qualityOptions = [
+    ('Auto',   'Best available for each song', false),
+    ('Low',    '48–96kbps · saves data',        false),
+    ('Medium', 'Up to 160kbps',                 false),
+    ('High',   '320kbps · studio quality',      true), // locked = premium-only
+  ];
+
+  Widget _streamQualityTile(BuildContext context) {
+    final isPremium = context.watch<PremiumProvider>().isPremium;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+            child: Row(children: [
+              Container(
+                width: 38, height: 38,
+                decoration: BoxDecoration(
+                    color: AurumTheme.gold.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.high_quality_rounded, color: AurumTheme.gold, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Stream Quality',
+                        style: TextStyle(
+                            color: AurumTheme.textPrimaryOf(context),
+                            fontSize: 14, fontWeight: FontWeight.w500)),
+                    Text('Audio bitrate for online streaming',
+                        style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+                  ],
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 4),
+          ..._qualityOptions.map((opt) {
+            final (label, subtitle, locked) = opt;
+            final isLocked = locked && !isPremium;
+            final selected = _streamQuality == label;
+            return AurumPressable(
+              scaleAmount: 0.985,
+              haptic: false,
+              onTap: () {
+                if (isLocked) {
+                  HapticFeedback.mediumImpact();
+                  // Strictly payment-gated — no requiresLoginOnly here.
+                  // This is the one feature in the app a Google account
+                  // alone does not unlock.
+                  PremiumGate.show(
+                    context,
+                    feature: 'High Bitrate (320kbps)',
+                    description: 'Unlock studio-quality 320kbps streaming with Aurum Plus.',
+                  );
+                  return;
+                }
+                HapticFeedback.selectionClick();
+                setState(() => _streamQuality = label);
+                _save('stream_quality', label);
+                AudioPrefs.setStreamQuality(label);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AurumTheme.gold.withOpacity(0.08)
+                      : Colors.transparent,
+                ),
+                child: Row(children: [
+                  Icon(
+                    selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                    color: selected ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+                    size: 18,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Text(label,
+                              style: TextStyle(
+                                color: isLocked
+                                    ? AurumTheme.textMutedOf(context)
+                                    : AurumTheme.textPrimaryOf(context),
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                              )),
+                          if (isLocked) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                gradient: AurumTheme.goldGradient,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                                Icon(Icons.lock_rounded, color: Colors.black, size: 9),
+                                SizedBox(width: 2),
+                                Text('PLUS',
+                                    style: TextStyle(
+                                        color: Colors.black,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.2)),
+                              ]),
+                            ),
+                          ],
+                        ]),
+                        Text(subtitle,
+                            style: TextStyle(
+                              color: AurumTheme.textMutedOf(context).withOpacity(isLocked ? 0.7 : 1),
+                              fontSize: 11.5,
+                            )),
+                      ],
+                    ),
+                  ),
+                ]),
+              ),
+            );
+          }),
+          const SizedBox(height: 6),
+        ],
+      ),
+    );
   }
 
   // Pushes current Bass Boost / Volume Normalization / EQ band settings to
@@ -191,17 +349,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
           // ── PLAYBACK ──────────────────────────────────────────────────────
           _sectionLabel('🔊 PLAYBACK'),
-          _dropdownTile(context,
-              icon: Icons.high_quality_rounded,
-              title: 'Stream Quality',
-              subtitle: 'Audio bitrate for online streaming',
-              value: _streamQuality,
-              options: const ['Auto', 'Low', 'Medium', 'High'],
-              onChanged: (v) {
-                setState(() => _streamQuality = v!);
-                _save('stream_quality', v!);
-                AudioPrefs.setStreamQuality(v);
-              }),
+          _streamQualityTile(context),
           _switchTile(context,
               icon: Icons.data_saver_on_rounded,
               title: 'Data Saver',

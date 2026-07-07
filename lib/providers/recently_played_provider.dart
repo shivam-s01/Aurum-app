@@ -71,7 +71,24 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // v1 behaviour: save to Hive, dedup, trim.
   // v2 addition:  also call RecommendationEngine.onSongStarted().
   // ---------------------------------------------------------------------------
-  Future<void> addPlay(Song song) async {
+  // Serializes addPlay() so that a rapid sequence of song-changes (e.g.
+  // fast skip-through, or a stale call landing just as a new one starts)
+  // can never interleave their Hive `clear()` + rewrite passes. Without
+  // this, two overlapping addPlay() calls could each read `_history` at
+  // a different point mid-mutation and then both wipe+rewrite the box,
+  // silently dropping whichever entry lost the race — the opposite of
+  // "history saves perfectly every time."
+  Future<void> _writeQueue = Future.value();
+
+  Future<void> addPlay(Song song) {
+    final result = _writeQueue.then((_) => _addPlay(song));
+    // Swallow errors here so one failed write doesn't wedge the queue for
+    // every addPlay() call after it; the caller can still .catchError().
+    _writeQueue = result.catchError((_) {});
+    return result;
+  }
+
+  Future<void> _addPlay(Song song) async {
     // Incognito Mode: don't record history, don't feed the recommendation
     // engine. This is the single gate that makes the Privacy toggle real.
     if (AudioPrefs.incognito) return;
@@ -177,7 +194,13 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // trimToLimit — trims history to [limit] most recent songs.
   // Called live when the user moves the "History Duration" slider.
   // ---------------------------------------------------------------------------
-  Future<void> trimToLimit(int limit) async {
+  Future<void> trimToLimit(int limit) {
+    final result = _writeQueue.then((_) => _trimToLimit(limit));
+    _writeQueue = result.catchError((_) {});
+    return result;
+  }
+
+  Future<void> _trimToLimit(int limit) async {
     if (_history.length <= limit) return;
     _history = _history.sublist(0, limit);
     await _box.clear();
@@ -190,7 +213,13 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   // clearHistory — wipes all play history from memory + Hive
   // ---------------------------------------------------------------------------
-  Future<void> clearHistory() async {
+  Future<void> clearHistory() {
+    final result = _writeQueue.then((_) => _clearHistory());
+    _writeQueue = result.catchError((_) {});
+    return result;
+  }
+
+  Future<void> _clearHistory() async {
     _history.clear();
     await _box.clear();
     notifyListeners();

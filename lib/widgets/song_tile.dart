@@ -5,12 +5,12 @@ import 'package:provider/provider.dart';
 import '../models/song.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
-import '../providers/recently_played_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../screens/library_screen.dart' show showAddToPlaylistSheet;
 import '../screens/full_player_screen.dart';
 import '../screens/artist_screen.dart';
 import 'aurum_artwork.dart';
+import 'aurum_like_button.dart';
 
 class SongTile extends StatefulWidget {
   final Song song;
@@ -41,7 +41,9 @@ class _SongTileState extends State<SongTile> {
     _isTapping = true;
     HapticFeedback.lightImpact();
     try {
-      context.read<RecentlyPlayedProvider>().addPlay(widget.song).catchError((_) {});
+      // History save moved to PlayerProvider._onSongChanged — fires only
+      // once the native engine confirms this song actually started
+      // playing, instead of on every tap regardless of stream success.
       context.read<PlayerProvider>().playSong(
             widget.song,
             queue: widget.queue ?? [widget.song],
@@ -72,6 +74,7 @@ class _SongTileState extends State<SongTile> {
               child: child,
             ),
             transitionDuration: const Duration(milliseconds: 380),
+            reverseTransitionDuration: const Duration(milliseconds: 300),
           ),
         );
       }
@@ -139,19 +142,12 @@ class _SongTileState extends State<SongTile> {
                 ],
               ),
             ),
-            // Heart button
-            GestureDetector(
+            // Heart button — pop + sparkle burst on like, wobble on unlike
+            AurumLikeButton(
+              isLiked: isLiked,
+              size: 18,
+              unlikedColor: AurumTheme.textMutedOf(context),
               onTap: () => context.read<FavoritesProvider>().toggleFavorite(widget.song),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 250),
-                transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
-                child: Icon(
-                  isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                  key: ValueKey(isLiked),
-                  color: isLiked ? const Color(0xFFE1306C) : AurumTheme.textMutedOf(context),
-                  size: 18,
-                ),
-              ),
             ),
             const SizedBox(width: 4),
             if (widget.song.durationString.isNotEmpty)
@@ -285,23 +281,23 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                     ],
                   ),
                 ),
-                // Like button in header — FIX: context.watch drives isLiked, no manual setState needed
-                GestureDetector(
-                  onTap: () => fav.toggleFavorite(song),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: isLiked
-                          ? const Color(0xFFE1306C).withOpacity(0.12)
-                          : AurumTheme.bgSurfaceOf(context),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                      color: isLiked ? const Color(0xFFE1306C) : AurumTheme.textMutedOf(context),
+                // Like button in header — pop + sparkle burst on like
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: isLiked
+                        ? const Color(0xFFE1306C).withOpacity(0.12)
+                        : AurumTheme.bgSurfaceOf(context),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: AurumLikeButton(
+                      isLiked: isLiked,
                       size: 20,
+                      unlikedColor: AurumTheme.textMutedOf(context),
+                      onTap: () => fav.toggleFavorite(song),
                     ),
                   ),
                 ),
@@ -328,7 +324,6 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                   color: AurumTheme.gold,
                   onTap: () {
                     Navigator.pop(context);
-                    unawaited(widget.rootContext.read<RecentlyPlayedProvider>().addPlay(song));
                     unawaited(player.playSong(song));
                   },
                 ),

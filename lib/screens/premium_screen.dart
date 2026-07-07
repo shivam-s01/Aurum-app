@@ -22,7 +22,7 @@ class PremiumScreen extends StatefulWidget {
 }
 
 class _PremiumScreenState extends State<PremiumScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   // Entrance
   late final AnimationController _entranceCtrl;
   late final Animation<double> _heroFade, _plansFade, _featuresFade, _ctaFade;
@@ -83,6 +83,12 @@ class _PremiumScreenState extends State<PremiumScreen>
 
     _entranceCtrl.forward();
 
+    // PERF: register for app-lifecycle callbacks so the three purely
+    // decorative ambient loops below (glow / shimmer / particles) stop
+    // ticking the instant the app is backgrounded, instead of burning
+    // GPU/CPU in a screen the user can't even see.
+    WidgetsBinding.instance.addObserver(this);
+
     _glowCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
@@ -121,7 +127,21 @@ class _PremiumScreenState extends State<PremiumScreen>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (!_glowCtrl.isAnimating) _glowCtrl.repeat(reverse: true);
+      if (!_shimmerCtrl.isAnimating) _shimmerCtrl.repeat();
+      if (!_particleCtrl.isAnimating) _particleCtrl.repeat();
+    } else {
+      _glowCtrl.stop();
+      _shimmerCtrl.stop();
+      _particleCtrl.stop();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _entranceCtrl.dispose();
     _glowCtrl.dispose();
     _shimmerCtrl.dispose();
@@ -755,25 +775,29 @@ class _ParticlePainter extends CustomPainter {
     _rng.nextDouble(), // size factor
     _rng.nextDouble(), // opacity factor
   ]);
+  // PERF: previously allocated a new Paint() + MaskFilter.blur PER PARTICLE
+  // PER FRAME (18 blurred Paint objects, every frame, for as long as this
+  // screen is open). MaskFilter.blur is one of the more expensive canvas
+  // ops on Skia/Impeller since it forces an offscreen blur pass per draw
+  // call. Pre-allocating one Paint per particle (color/opacity updated in
+  // place, not re-blurred) keeps the same soft gold-dust look at these
+  // radii (1–3.5px) without the per-frame blur cost or GC churn.
+  static final _paints = List.generate(18, (_) => Paint());
 
   _ParticlePainter(this.t);
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (final p in _particles) {
+    for (var i = 0; i < _particles.length; i++) {
+      final p = _particles[i];
       final x = p[0] * size.width;
       final y = ((p[1] + t * p[2] * 0.3) % 1.0) * size.height;
       final radius = 1.0 + p[3] * 2.5;
       final opacity = (0.08 + p[4] * 0.18) *
           (0.5 + 0.5 * math.sin(t * math.pi * 2 * (0.5 + p[2])));
 
-      canvas.drawCircle(
-        Offset(x, y),
-        radius,
-        Paint()
-          ..color = AurumTheme.gold.withOpacity(opacity)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
-      );
+      _paints[i].color = AurumTheme.gold.withOpacity(opacity);
+      canvas.drawCircle(Offset(x, y), radius, _paints[i]);
     }
   }
 

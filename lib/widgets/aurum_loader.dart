@@ -18,6 +18,9 @@ abstract final class _C {
   static const gold          = Color(0xFFB89640);
   static const goldLight     = Color(0xFFD4AF5A);
   static const goldDark      = Color(0xFF8A6F2A);
+  static const purple        = Color(0xFFA855F7);
+  static const purpleLight   = Color(0xFFC084FC);
+  static const purpleDark    = Color(0xFF7E22CE);
   static const deepPurpleLit = Color(0xFF9333EA);
   static const purpleGlow    = Color(0xFFA855F7);
 }
@@ -132,7 +135,7 @@ class _M3Painter extends CustomPainter {
     // Track
     canvas.drawRRect(
       RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), Radius.circular(br)),
-      Paint()..color = _C.gold.withOpacity(0.10),
+      Paint()..color = _C.purple.withOpacity(0.10),
     );
 
     void seg(double normStart, double normEnd) {
@@ -144,20 +147,22 @@ class _M3Painter extends CustomPainter {
       final rect  = Rect.fromLTWH(left, 0, right - left, h);
       final rrect = RRect.fromRectAndRadius(rect, Radius.circular(br));
 
-      // Bloom glow
+      // Bloom glow — pure purple, matching AurumMorphLoader (home page
+      // spinner) so every loading indicator in the app reads as the same
+      // single purple color.
       canvas.drawRRect(
         RRect.fromRectAndRadius(rect.inflate(h), Radius.circular(br + h)),
         Paint()
-          ..color      = _C.purpleGlow.withOpacity(0.18)
+          ..color      = _C.purpleLight.withOpacity(0.18)
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 2),
       );
 
-      // Gold → purple bar
+      // Solid purple bar (dark -> base -> light purple only, no gold)
       canvas.drawRRect(rrect, Paint()
         ..shader = ui.Gradient.linear(
           Offset(left, 0), Offset(right, 0),
-          [_C.goldDark, _C.gold, _C.goldLight, _C.deepPurpleLit, _C.purpleGlow],
-          [0.0, 0.2, 0.45, 0.72, 1.0],
+          [_C.purpleDark, _C.purple, _C.purpleLight],
+          [0.0, 0.5, 1.0],
         ));
 
       // Bright head highlight

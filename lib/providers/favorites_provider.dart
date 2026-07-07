@@ -81,4 +81,15 @@ class FavoritesProvider extends ChangeNotifier {
       await _add(song);
     }
   }
+
+  /// Wipes all liked songs — local only, called on sign-out so a fresh
+  /// sign-in (same or different account) starts from an empty library
+  /// instead of showing the previous account's likes. Does not touch
+  /// Supabase; that data belongs to the account and is simply left behind
+  /// until the user signs back in and SyncService pulls it down again.
+  Future<void> clearAll() async {
+    await _box.clear();
+    _favorites = [];
+    notifyListeners();
+  }
 }

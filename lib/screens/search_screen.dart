@@ -407,6 +407,7 @@ class _SearchScreenState extends State<SearchScreen>
             child: child,
           ),
           transitionDuration: const Duration(milliseconds: 380),
+          reverseTransitionDuration: const Duration(milliseconds: 300),
         ),
       );
     }
@@ -414,8 +415,25 @@ class _SearchScreenState extends State<SearchScreen>
 
   // ── Build ─────────────────────────────────────────────────────
 
+  // Single source of truth for both _computeBodyKey (drives the outer
+  // AnimatedSwitcher) and _buildBody (decides what to actually render).
+  // Keeping this in one place is deliberate — these two were previously
+  // duplicated ad hoc and fell out of sync, which is exactly what caused
+  // the full-page-cover bug on submit search.
+  bool get _hasVisibleContent =>
+      _results.isNotEmpty ||
+      (_controller.text.trim().isNotEmpty && _liveResults.isNotEmpty);
+
   String _computeBodyKey() {
-    if (_loading) return 'loading';
+    // STRICT FIX: this key drives the AnimatedSwitcher wrapping _buildBody.
+    // It used to return 'loading' the instant _loading flipped true,
+    // regardless of whether results were already on screen — so even
+    // though _buildBody itself kept rendering the results list, this outer
+    // key change made AnimatedSwitcher tear the whole subtree down and
+    // fade/scale in a brand new "loading" subtree over it. That's what
+    // made the page look like it "gets completely covered" on submit
+    // search even though the results view underneath was otherwise fine.
+    if (_loading && !_hasVisibleContent) return 'loading';
     if (_results.isNotEmpty) return 'results';
     if (_controller.text.trim().isNotEmpty) return 'live';
     if (_showHistory && _history.isNotEmpty) return 'history';
@@ -559,7 +577,28 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _buildBody(BuildContext context) {
-    if (_loading) return ColoredBox(color: AurumTheme.bgOf(context), child: const Center(key: ValueKey('loading'), child: AurumMorphLoader()));
+    // STRICT FIX: previously `if (_loading)` was checked first, no matter
+    // what — so the instant the user hit the keyboard's Search action
+    // (_search() sets _loading = true), this ColoredBox slammed down over
+    // whatever was already on screen (live results the user was just
+    // scrolling) and hid everything behind a full-page loader until the
+    // new results arrived. That's the "page suddenly gets covered" bug —
+    // it only ever happened on submit, never on live/typeahead search,
+    // because live search uses `_liveLoading` + a small in-panel loader,
+    // not this full-cover branch.
+    //
+    // Fix: only show the full-cover loader when there is genuinely nothing
+    // to show yet (cold state). If results are already on screen — either
+    // finished search results or live results — keep them visible while
+    // the new search resolves; _buildResults()/_buildLivePanel() below
+    // render a slim top progress line instead so the transition reads as
+    // "refreshing", not "reloading the whole page".
+    if (_loading && !_hasVisibleContent) {
+      return ColoredBox(
+        color: AurumTheme.bgOf(context),
+        child: const Center(key: ValueKey('loading'), child: AurumMorphLoader()),
+      );
+    }
     if (_results.isNotEmpty) return _buildResults();
     if (_controller.text.trim().isNotEmpty) return _buildLivePanel(context);
     if (_showHistory && _history.isNotEmpty) return _buildHistory(context);
@@ -793,19 +832,32 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildResults() {
     return ColoredBox(
       color: AurumTheme.bgOf(context),
-      child: ListView.builder(
-        key: const ValueKey('results'),
-        physics: const BouncingScrollPhysics(),
-        itemCount: _results.length,
-        itemExtent: 66,
-        padding: const EdgeInsets.only(bottom: 80),
-        itemBuilder: (_, i) => _StaggeredItem(
-          index: i,
-          child: SongTile(
-            key: ValueKey('result_${_results[i].id}_$i'),
-            song: _results[i], queue: _results, index: i,
+      child: Stack(
+        children: [
+          ListView.builder(
+            key: const ValueKey('results'),
+            physics: const BouncingScrollPhysics(),
+            itemCount: _results.length,
+            itemExtent: 66,
+            padding: const EdgeInsets.only(bottom: 80),
+            itemBuilder: (_, i) => _StaggeredItem(
+              index: i,
+              child: SongTile(
+                key: ValueKey('result_${_results[i].id}_$i'),
+                song: _results[i], queue: _results, index: i,
+              ),
+            ),
           ),
-        ),
+          // Thin top progress line while a new submit-search is refreshing
+          // these same results — this is the "premium" refresh cue: the
+          // list the user was already looking at stays put and scrollable,
+          // instead of the whole screen vanishing behind a full loader.
+          if (_loading)
+            const Positioned(
+              top: 0, left: 0, right: 0,
+              child: SizedBox(height: 2, child: AurumM3Loader(height: 2)),
+            ),
+        ],
       ),
     );
   }

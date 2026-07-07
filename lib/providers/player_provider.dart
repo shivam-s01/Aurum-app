@@ -163,15 +163,21 @@ class PlayerProvider extends ChangeNotifier {
   int _skipsUsed = 0;
   DateTime _skipWindowStart = DateTime.now();
 
-  /// How many skips remain for free users this hour. Returns null if premium.
+  // Unlimited Skips is login-gated, not payment-gated (see PremiumGate
+  // call sites in full_player_screen.dart) — only signing in with Google
+  // lifts the limit. AudioPrefs.isPremium is intentionally NOT checked
+  // here anymore; High Bitrate remains the only payment-gated feature.
+
+  /// How many skips remain for free users this hour. Returns null if
+  /// signed in (unlimited).
   int? get freeSkipsRemaining {
-    if (AudioPrefs.isPremium) return null; // unlimited
+    if (AudioPrefs.isSignedIn) return null; // unlimited
     _resetWindowIfExpired();
     return (_kFreeSkipLimit - _skipsUsed).clamp(0, _kFreeSkipLimit);
   }
 
   bool get skipLimitReached {
-    if (AudioPrefs.isPremium) return false;
+    if (AudioPrefs.isSignedIn) return false;
     _resetWindowIfExpired();
     return _skipsUsed >= _kFreeSkipLimit;
   }
@@ -184,7 +190,7 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void _recordSkip() {
-    if (!AudioPrefs.isPremium) {
+    if (!AudioPrefs.isSignedIn) {
       _resetWindowIfExpired();
       _skipsUsed++;
       notifyListeners();
@@ -345,6 +351,16 @@ class PlayerProvider extends ChangeNotifier {
     _earlySkipArmed   = song.source != SongSource.local; // arm for online songs
     _replayArmed      = false;
     _nextPrefetchFired = false;
+
+    // History: save here — once the native engine has actually confirmed
+    // and settled on this song (post 150ms debounce, see caller) — not on
+    // tap. Previously `addPlay()` was fired straight from the UI tap
+    // handler, before playback was confirmed; if the stream failed to
+    // resolve (dead JioSaavn link, YouTube fallback exhausted, etc.) a
+    // "played" entry still landed in History for a song that never
+    // actually played. This is the single source of truth: it only fires
+    // once per real song-change, matching exactly what the user heard.
+    _rp?.addPlay(song);
 
     // Push liked-state for the new current song to the native session icon.
     final liked = _isSongLikedLookup?.call(song) ?? false;

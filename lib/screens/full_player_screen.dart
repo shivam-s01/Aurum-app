@@ -20,6 +20,7 @@ import '../services/audio_prefs.dart';
 import '../services/waveform_service.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
+import '../widgets/aurum_like_button.dart';
 import '../widgets/premium_gate.dart';
 import 'library_screen.dart' show showAddToPlaylistSheet;
 import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
@@ -47,9 +48,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
 
   // ── Entry animation (420ms, easeOutCubic) ──
-  late final AnimationController _entryCtrl;
-  late final Animation<Offset> _slideAnim;
-  late final Animation<double> _fadeAnim;
+  // Note: entry slide/fade used to be driven by an internal _entryCtrl
+  // here, stacked on top of the route's own PageRouteBuilder transition
+  // (see mini_player.dart / home_screen.dart / search_screen.dart /
+  // song_tile.dart, all standardized to a 380ms slide-up / 300ms
+  // slide-down). That meant every open played TWO slide-in animations
+  // back to back with different durations/curves, and every close played
+  // a 480ms internal reverse THEN a separate 300ms route-pop reverse
+  // (~780ms total) — the double-animation is what read as "awkward, not
+  // premium". Removed: the route transition is now the single source of
+  // truth for open/close motion, and _close() below just pops instead of
+  // running its own reverse first.
 
   // ── Staggered entry: info, seekbar, controls fade in after artwork ──
   late final AnimationController _staggerCtrl;
@@ -91,6 +100,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   double _dragY = 0;
   bool _isDragging = false;
   bool _dragIsUpward = false;
+  // Tracks how far the finger has moved upward during this gesture, purely
+  // for the release-time "did they mean to open Up Next" threshold check
+  // below. Deliberately NOT applied to _dragY / screen position (see
+  // onVerticalDragUpdate) — this fixes the full player visibly sliding up
+  // while swiping to open Up Next.
+  double _upwardDragDistance = 0;
 
   // ── Spring-back after a cancelled drag ──
   // Previously a cancelled drag (released before crossing the dismiss
@@ -111,17 +126,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    _entryCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 480),
-    );
-    _slideAnim = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic));
-    _fadeAnim = Tween<double>(begin: 0.0, end: 1.0)
-        .animate(CurvedAnimation(
-            parent: _entryCtrl,
-            curve: const Interval(0.0, 0.55, curve: Curves.easeOut)));
-    _entryCtrl.forward();
+    // Entry slide/fade now handled entirely by the route's own
+    // PageRouteBuilder transition — see note above _entryCtrl's old
+    // declaration for why the internal copy was removed.
 
     // Stagger: artwork appears with entry, info/seekbar/controls follow
     _staggerCtrl = AnimationController(
@@ -205,7 +212,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   void dispose() {
     aurumRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
-    _entryCtrl.dispose();
     _staggerCtrl.dispose();
     _titleChangeCtrl.dispose();
     _artworkCtrl.dispose();
@@ -375,11 +381,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     if (!mounted) return;
     HapticFeedback.lightImpact();
     if (_dragY != 0) setState(() => _dragY = 0);
-    _entryCtrl.reverse().then((_) {
-      if (mounted && Navigator.of(context).canPop()) {
-        Navigator.of(context).pop();
-      }
-    });
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
   }
 
   Future<void> _onPlayTap(PlayerProvider player) async {
@@ -470,11 +474,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         final dragScale =
             (1.0 - (_dragY / 2200).clamp(0.0, 0.06)).clamp(0.0, 1.0);
 
-        return SlideTransition(
-          position: _slideAnim,
-          child: FadeTransition(
-            opacity: _fadeAnim,
-            child: GestureDetector(
+        return GestureDetector(
               // Single gesture owner for the whole screen — swipe down
               // dismisses, swipe up opens the queue/lyrics panel. Having
               // this logic split across two nested GestureDetectors (one
@@ -487,6 +487,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               // ambiguity entirely.
               onVerticalDragStart: (_) {
                 _dragIsUpward = false;
+                _upwardDragDistance = 0;
                 setState(() => _isDragging = true);
               },
               onVerticalDragUpdate: (d) {
@@ -495,13 +496,22 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   // Downward: drag-to-dismiss follows the finger.
                   setState(() => _dragY += d.delta.dy);
                 } else if (d.delta.dy < 0 || _dragIsUpward) {
-                  // Upward: mark intent and let the finger drag the sheet
-                  // up slightly too, so the gesture gives visual feedback
-                  // immediately instead of only reacting on release.
+                  // Upward: STRICT FIX — this used to nudge _dragY negative
+                  // (clamped to -60) and Transform.translate applied that
+                  // immediately, so the instant you started swiping up to
+                  // open Up Next, the *entire full player screen* visibly
+                  // slid upward underneath your finger — worse and more
+                  // jarring the faster you swiped. The Up Next panel opens
+                  // as its own bottom sheet with its own slide-in transition
+                  // (see _openPanel/showModalBottomSheet below); the full
+                  // player underneath has no reason to move at all during
+                  // that gesture. We track the raw distance separately
+                  // (_upwardDragDistance) purely so onVerticalDragEnd's
+                  // threshold check below keeps working for slow deliberate
+                  // swipes, not just fast flicks — without ever touching
+                  // the screen's position.
                   _dragIsUpward = true;
-                  setState(() {
-                    _dragY = (_dragY + d.delta.dy).clamp(-60.0, 0.0);
-                  });
+                  _upwardDragDistance += d.delta.dy; // negative while moving up
                 }
               },
               onVerticalDragEnd: (d) {
@@ -509,14 +519,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 final velocity = d.primaryVelocity ?? 0;
 
                 if (!_dragIsUpward && (_dragY > 110 || velocity > 750)) {
-                  // Reset drag offset BEFORE starting the reverse slide —
-                  // otherwise Transform.translate(_dragY) keeps stacking on
-                  // top of _entryCtrl's reverse animation, causing a visible
-                  // jump/freeze right as it hands off to the mini player.
+                  // Reset drag offset before popping — _close() now just
+                  // pops the route directly, so the route's own reverse
+                  // transition (see PageRouteBuilder callers) takes over
+                  // immediately with no extra internal animation in front
+                  // of it.
                   setState(() => _dragY = 0);
                   _close();
                 } else if (_dragIsUpward &&
-                    (_dragY < -20 || velocity < -400)) {
+                    (_upwardDragDistance < -20 || velocity < -400)) {
                   setState(() => _dragY = 0);
                   _openPanel();
                 } else {
@@ -525,7 +536,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 _dragIsUpward = false;
               },
               child: Transform.translate(
-                offset: Offset(0, _dragY.clamp(-60.0, 280.0)),
+                offset: Offset(0, _dragY.clamp(0.0, 280.0)),
                 child: Transform.scale(
                   scale: dragScale,
                   child: Opacity(
@@ -574,8 +585,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   ),
                 ),
               ),
-            ),
-          ),
         );
       },
     );
@@ -631,7 +640,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         PremiumGate.guard(
                           context,
                           feature: 'Like Songs',
-                          description: 'Like songs to save them to your library with Aurum Premium.',
+                          description: 'Sign in with Google to save songs to your library.',
+                          requiresLoginOnly: true,
                           onAllowed: () {
                             HapticFeedback.lightImpact();
                             setState(() => _isFav = !_isFav);
@@ -832,7 +842,8 @@ class _ArtworkState extends State<_Artwork> {
           PremiumGate.show(
             context,
             feature: 'Unlimited Skips',
-            description: 'Free users get 6 skips per hour. Upgrade for unlimited.',
+            description: 'Sign in with Google to skip as many times as you want.',
+            requiresLoginOnly: true,
           );
         }
       });
@@ -1395,7 +1406,8 @@ class _Controls extends StatelessWidget {
                   PremiumGate.show(
                     context,
                     feature: 'Unlimited Skips',
-                    description: 'Free users get 6 skips per hour. Upgrade for unlimited.',
+                    description: 'Sign in with Google to skip as many times as you want.',
+                    requiresLoginOnly: true,
                   );
                 }
               });
@@ -1591,23 +1603,14 @@ class _FavButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = context.watch<ThemeProvider>().accentColor;
-    return AurumPressable(
-      scaleAmount: 0.8,
-      haptic: false,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 240),
-          transitionBuilder: (child, anim) =>
-              ScaleTransition(scale: anim, child: child),
-          child: Icon(
-            isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-            key: ValueKey(isFav),
-            color: isFav ? accent : Colors.white.withAlpha(128),
-            size: 24,
-          ),
-        ),
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: AurumLikeButton(
+        isLiked: isFav,
+        size: 24,
+        likedColor: accent,
+        unlikedColor: Colors.white.withAlpha(128),
+        onTap: onTap,
       ),
     );
   }
@@ -1906,7 +1909,8 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
           PremiumGate.guard(
             context,
             feature: 'Like Songs',
-            description: 'Like songs to build your personal library with Aurum Premium.',
+            description: 'Sign in with Google to build your personal library.',
+            requiresLoginOnly: true,
             onAllowed: () {
               fav.toggleFavorite(song);
               final nowLiked = fav.isFavorite(song.id);

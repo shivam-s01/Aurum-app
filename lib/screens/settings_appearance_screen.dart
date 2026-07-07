@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/mini_player.dart';
 import '../providers/theme_provider.dart';
-import '../providers/premium_provider.dart';
+import '../providers/auth_provider.dart';
 import '../widgets/premium_gate.dart';
 import '../widgets/aurum_pressable.dart';
 import '../services/audio_prefs.dart';
@@ -141,15 +141,15 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                     border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
                   ),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.workspace_premium_rounded, color: AurumTheme.gold, size: 10),
+                    Icon(Icons.login_rounded, color: AurumTheme.gold, size: 10),
                     const SizedBox(width: 3),
-                    Text('Extra colors = Premium', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+                    Text('Extra colors = Sign in', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
                   ]),
                 ),
               ]),
               const SizedBox(height: 12),
               Builder(builder: (context) {
-                final isPremium = context.watch<PremiumProvider>().isPremium;
+                final isSignedIn = context.watch<AuthProvider>().isSignedIn;
                 return Wrap(
                   spacing: 10,
                   children: _accentOptions.asMap().entries.map((entry) {
@@ -157,14 +157,15 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                     final c = entry.value;
                     final isFree = i == 0; // only gold is free
                     final sel = _accentColor.value == c.value;
-                    final locked = !isFree && !isPremium;
+                    final locked = !isFree && !isSignedIn;
                     return AurumPressable(
                       scaleAmount: 0.88,
                       onTap: () {
                         if (locked) {
                           PremiumGate.show(context,
                             feature: 'Custom Accent Colors',
-                            description: 'Unlock more accent colors with Aurum Premium.',
+                            description: 'Sign in with Google to unlock more accent colors.',
+                            requiresLoginOnly: true,
                           );
                           return;
                         }
@@ -340,7 +341,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     const premiumFonts = {'Rounded', 'Mono'};
 
     return Builder(builder: (context) {
-      final isPremium = context.watch<PremiumProvider>().isPremium;
+      final isSignedIn = context.watch<AuthProvider>().isSignedIn;
       return _card(context, child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -355,9 +356,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                 border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.workspace_premium_rounded, color: AurumTheme.gold, size: 10),
+                Icon(Icons.login_rounded, color: AurumTheme.gold, size: 10),
                 const SizedBox(width: 3),
-                Text('Rounded & Mono = Premium', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+                Text('Rounded & Mono = Sign in', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
               ]),
             ),
           ]),
@@ -365,7 +366,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           Row(
             children: fonts.entries.map((e) {
               final sel = _fontStyle == e.key;
-              final locked = premiumFonts.contains(e.key) && !isPremium;
+              final locked = premiumFonts.contains(e.key) && !isSignedIn;
               return Expanded(
                 child: AurumPressable(
                   scaleAmount: 0.96,
@@ -373,7 +374,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                     if (locked) {
                       PremiumGate.show(context,
                         feature: '${e.key} Font',
-                        description: 'Unlock premium fonts with Aurum Premium.',
+                        description: 'Sign in with Google to unlock this font.',
+                        requiresLoginOnly: true,
                       );
                       return;
                     }
@@ -447,12 +449,12 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     const premiumStyles = {'Card', 'Immersive'};
 
     return Builder(builder: (context) {
-      final isPremium = context.watch<PremiumProvider>().isPremium;
+      final isSignedIn = context.watch<AuthProvider>().isSignedIn;
       return _card(context, child: Column(
         children: styles.entries.map((e) {
           final sel = _nowPlayingCardStyle == e.key;
           final isLast = e.key == 'Immersive';
-          final locked = premiumStyles.contains(e.key) && !isPremium;
+          final locked = premiumStyles.contains(e.key) && !isSignedIn;
           return Column(children: [
             ListTile(
               onTap: () {
@@ -460,7 +462,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                 if (locked) {
                   PremiumGate.show(context,
                     feature: '${e.key} Player Style',
-                    description: 'Unlock the ${e.key} now-playing style with Aurum Premium.',
+                    description: 'Sign in with Google to unlock the ${e.key} style.',
+                    requiresLoginOnly: true,
                   );
                   return;
                 }

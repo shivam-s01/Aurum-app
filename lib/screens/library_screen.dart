@@ -473,19 +473,11 @@ class PlaylistsScreen extends StatelessWidget {
   }
 
   Future<void> _showCreateDialog(BuildContext context) async {
-    final auth = context.read<AuthProvider>();
-    if (!auth.isSignedIn) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Sign in to create playlists'),
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 2),
-      ));
-      return;
-    }
     PremiumGate.guard(
       context,
       feature: 'Create Playlist',
-      description: 'Organize your music into custom playlists with Aurum Premium.',
+      description: 'Sign in with Google to organize your music into playlists.',
+      requiresLoginOnly: true,
       onAllowed: () async {
         await showDialog(
           context: context,
@@ -1462,20 +1454,11 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                           color: AurumTheme.textPrimaryOf(context),
                           fontWeight: FontWeight.w600)),
                   onTap: () {
-                    final auth = context.read<AuthProvider>();
-                    if (!auth.isSignedIn) {
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Sign in to create playlists'),
-                        behavior: SnackBarBehavior.floating,
-                        duration: Duration(seconds: 2),
-                      ));
-                      return;
-                    }
                     PremiumGate.guard(
                       context,
                       feature: 'Create Playlist',
-                      description: 'Organize your music into custom playlists with Aurum Premium.',
+                      description: 'Sign in with Google to organize your music into playlists.',
+                      requiresLoginOnly: true,
                       onAllowed: () {
                         Navigator.pop(ctx);
                         showDialog(

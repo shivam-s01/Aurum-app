@@ -366,17 +366,24 @@ class _MiniPlayerState extends State<MiniPlayer>
     if (_opening) return;
     _opening = true;
     setState(() => _dragY = 0);
+    HapticFeedback.lightImpact();
     Navigator.of(context)
         .push(
       PageRouteBuilder(
         opaque: true,
         pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-        transitionsBuilder: (_, anim, __, child) => FadeTransition(
-          opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+        // Standardized to match every other entry point (Home, Search,
+        // SongTile) — same slide-up + easeOutCubic, same 380ms. Previously
+        // this was the only place using a plain fade, so opening the full
+        // player felt different depending on whether you tapped the
+        // mini-player or a song row — inconsistent motion reads as cheap.
+        transitionsBuilder: (_, anim, __, child) => SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+              .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
           child: child,
         ),
-        transitionDuration: const Duration(milliseconds: 320),
-        reverseTransitionDuration: const Duration(milliseconds: 260),
+        transitionDuration: const Duration(milliseconds: 380),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
       ),
     )
         .then((_) {
@@ -386,8 +393,21 @@ class _MiniPlayerState extends State<MiniPlayer>
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<PlayerProvider>(
-      builder: (context, player, _) {
+    // PERF: was `Consumer<PlayerProvider>`, which rebuilds this entire
+    // subtree (capsule, BackdropFilter blur, Hero, artwork, text) on
+    // EVERY notifyListeners() call from PlayerProvider — including the
+    // position tick that fires several times a second during playback.
+    // The only fields this outer level actually branches on are hasSong /
+    // currentSong.id / isPlaying / isLoading, all of which change rarely
+    // (song change, play/pause, buffering). `Selector` rebuilds only when
+    // that tuple changes; the live-updating progress value is read by a
+    // separately-isolated widget further down (`_MiniProgressBar`) so it
+    // repaints on its own without dragging the blur/artwork/text along.
+    return Selector<PlayerProvider, (bool, String?, bool, bool)>(
+      selector: (_, p) =>
+          (p.hasSong, p.currentSong?.id, p.isPlaying, p.isLoading),
+      builder: (context, _, __) {
+        final player = context.read<PlayerProvider>();
         // Reset dismissed when a DIFFERENT song starts playing, OR when
         // playback resumes on the SAME song.
         final shouldReappear = _dismissed &&
@@ -656,12 +676,7 @@ class _MiniPlayerContent extends StatelessWidget {
           children: [
             ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-              child: LinearProgressIndicator(
-                value: player.progress,
-                backgroundColor: Colors.transparent,
-                valueColor: const AlwaysStoppedAnimation<Color>(AurumTheme.gold),
-                minHeight: 2,
-              ),
+              child: _MiniProgressBar(player: player),
             ),
             Expanded(
               child: Padding(
@@ -807,13 +822,7 @@ class _MiniPlayerContent extends StatelessWidget {
                   Column(
                     mainAxisSize: MainAxisSize.max,
                     children: [
-                      LinearProgressIndicator(
-                        value: player.progress,
-                        backgroundColor: Colors.transparent,
-                        valueColor:
-                            const AlwaysStoppedAnimation<Color>(AurumTheme.gold),
-                        minHeight: 2,
-                      ),
+                      _MiniProgressBar(player: player),
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -911,6 +920,31 @@ class _MiniPlayerContent extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mini Progress Bar — isolated so the position tick (fires several times a
+// second during playback) only repaints this 2px strip, not the whole
+// capsule (BackdropFilter blur, artwork, text) sitting around it.
+// ─────────────────────────────────────────────────────────────────────────────
+class _MiniProgressBar extends StatelessWidget {
+  final PlayerProvider player;
+  const _MiniProgressBar({required this.player});
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<PlayerProvider, double>(
+      selector: (_, p) => p.progress,
+      builder: (context, progress, _) => RepaintBoundary(
+        child: LinearProgressIndicator(
+          value: progress,
+          backgroundColor: Colors.transparent,
+          valueColor: const AlwaysStoppedAnimation<Color>(AurumTheme.gold),
+          minHeight: 2,
         ),
       ),
     );
