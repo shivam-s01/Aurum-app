@@ -169,7 +169,7 @@ class AurumApp extends StatelessWidget {
           },
         ),
         ChangeNotifierProvider(create: (_) => RecentlyPlayedProvider()..init()),
-        ChangeNotifierProvider(create: (_) => DownloadProvider()..init()),
+        ChangeNotifierProvider(create: (_) => DownloadProvider(engine)..init()),
         ChangeNotifierProxyProvider<DownloadProvider, FavoritesProvider>(
           create: (_) => FavoritesProvider()..init(),
           update: (_, dl, fav) {
