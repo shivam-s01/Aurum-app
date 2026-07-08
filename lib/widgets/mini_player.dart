@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -92,6 +93,26 @@ class _MiniPlayerState extends State<MiniPlayer>
   bool _dismissed = false;
   String? _dismissedSongId; // track which song was dismissed
 
+  // Debounces the "reappear because playback resumed" check below. Without
+  // this, a single stale/transient read of player.isPlaying — which comes
+  // from an async method-channel round trip to the native engine, not a
+  // synchronous field — could read `true` for one build right after
+  // _dismissPlayer() calls player.pause() (the real native pause hasn't
+  // been confirmed back yet), causing the mini player to flash back in and
+  // then immediately disappear again on the next state push. Spamming
+  // swipe-down repeatedly makes this race far more likely to actually be
+  // hit, since it forces exactly this pause-then-rebuild sequence over and
+  // over in quick succession.
+  Timer? _reappearDebounce;
+
+  // Bumped every time a song-change entry/slide-in is scheduled, so that
+  // if rapid skip-spam queues several postFrameCallbacks before the first
+  // one runs, only the LAST scheduled one actually starts an animation —
+  // the stale earlier ones no-op instead of each independently restarting
+  // _entryCtrl/_slideInCtrl from 0, which under heavy spam could stack
+  // redundant animation restarts and read as stutter.
+  int _songChangeGen = 0;
+
   // ── Horizontal swipe (left/right) → prev/next song ──────────────────────
   double _dragX = 0;
   bool _isDraggingX = false;
@@ -176,7 +197,38 @@ class _MiniPlayerState extends State<MiniPlayer>
   }
 
   void _onStyleChanged() {
-    if (mounted) setState(() => _style = MiniPlayer.styleNotifier.value);
+    if (!mounted) return;
+    final newStyle = MiniPlayer.styleNotifier.value;
+    setState(() {
+      _style = newStyle;
+      // Compact Bar is always-visible/sticky and has no dismiss gesture
+      // of its own — but if the user dismissed the mini player while on
+      // Capsule and then switches the style setting to Compact Bar,
+      // `_dismissed` would still be `true` left over from that gesture,
+      // and Compact Bar would render nothing (SizedBox.shrink in build())
+      // with no way to bring it back except playing a new song. Clear it
+      // here so switching TO Compact Bar always guarantees "sticky and
+      // visible whenever a song is loaded", per its own contract.
+      //
+      // Also guards a rarer but real case: switching style FROM Settings
+      // while a Capsule drag/settle animation is still active (finger
+      // still down, or mid spring-back/dismiss). Compact Bar has no drag
+      // gestures at all, so any of that leftover state must be fully
+      // cleared, not just _dragY, or a stale _isDragging/_settleCtrl could
+      // affect the next Capsule session if the user switches back.
+      if (newStyle == 'Compact Bar') {
+        _settleGen++;
+        _settleCtrl.stop();
+        _settleCtrl.reset();
+        _settleCtrl.duration = const Duration(milliseconds: 220);
+        _dismissed = false;
+        _dismissedSongId = null;
+        _dragY = 0;
+        _isDragging = false;
+        _reappearDebounce?.cancel();
+        _reappearDebounce = null;
+      }
+    });
   }
 
   Future<void> _loadStyle() async {
@@ -190,6 +242,7 @@ class _MiniPlayerState extends State<MiniPlayer>
   void dispose() {
     MiniPlayer.styleNotifier.removeListener(_onStyleChanged);
     MiniPlayer.heroVisibleNotifier.removeListener(_onHeroVisibilityChanged);
+    _reappearDebounce?.cancel();
     _settleCtrl.dispose();
     _entryCtrl.dispose();
     _swipeCtrl.dispose();
@@ -206,6 +259,12 @@ class _MiniPlayerState extends State<MiniPlayer>
   void _onDragStart(DragStartDetails _) {
     _settleGen++;
     _settleCtrl.stop();
+    // A new drag can interrupt a dismiss animation mid-flight, whose
+    // .whenComplete() (where duration normally gets restored) never
+    // fires on .stop(). Restore it here too so an interrupted fast-flick
+    // dismiss can never leave a short velocity-derived duration bleeding
+    // into the next spring-back or dismiss animation.
+    _settleCtrl.duration = const Duration(milliseconds: 220);
     setState(() {
       _isDragging = true;
     });
@@ -237,7 +296,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     // Swipe DOWN → dismiss + stop
     if (_dragY > _dismissThreshold || velocity > _velocityThreshold) {
       HapticFeedback.heavyImpact();
-      _dismissPlayer();
+      _dismissPlayer(releaseVelocity: velocity);
       return;
     }
 
@@ -259,10 +318,32 @@ class _MiniPlayerState extends State<MiniPlayer>
     });
   }
 
-  void _dismissPlayer() {
+  void _dismissPlayer({double releaseVelocity = 0}) {
     _settleCtrl.stop();
     final gen = ++_settleGen;
     final from = _dragY;
+    // FIX — swipe-down dismiss didn't feel "premium clean": this used to
+    // always run over a fixed 220ms (_settleCtrl's built-in duration)
+    // regardless of how the gesture was released. A fast flick released
+    // near the top still had to cover the FULL remaining distance to
+    // 200.0 in the same 220ms as a slow drag released just past the
+    // threshold near the bottom — the fast flick's motion visibly
+    // stalled/snapped instead of continuing the throw, which is exactly
+    // what reads as "not quite right" versus Apple Music/JioSaavn-style
+    // dismiss gestures, where the exit speed matches how hard you threw
+    // it.
+    //
+    // Fix: derive the animation duration from the actual distance left
+    // to travel and the release velocity, the same way Flutter's own
+    // fling simulations do it — clamped to a sensible premium range
+    // (120ms floor so it's never jarring-fast, 260ms ceiling so a slow
+    // threshold-cross still feels deliberate rather than sluggish).
+    final remaining = (200.0 - from).abs();
+    final speed = releaseVelocity.abs();
+    final velocityMs = speed > 1
+        ? (remaining / speed * 1000).clamp(120.0, 260.0)
+        : 220.0;
+    _settleCtrl.duration = Duration(milliseconds: velocityMs.round());
     // Animate fully off-screen + faded out FIRST. Only once that's fully
     // complete (widget is already invisible) do we flip `_dismissed` and
     // pause playback. This guarantees there is never a frame where the
@@ -272,6 +353,11 @@ class _MiniPlayerState extends State<MiniPlayer>
       CurvedAnimation(parent: _settleCtrl, curve: Curves.easeInCubic),
     );
     _settleCtrl.forward(from: 0.0).whenComplete(() {
+      // Restore the default duration regardless of gen — this is a
+      // controller-wide setting, not per-animation state, so it must
+      // never be left on a one-off velocity-derived value that would
+      // then wrongly apply to the next _springBack() call.
+      _settleCtrl.duration = const Duration(milliseconds: 220);
       if (!mounted || gen != _settleGen) return;
       final player = context.read<PlayerProvider>();
       final songId = player.currentSong?.id;
@@ -410,11 +496,38 @@ class _MiniPlayerState extends State<MiniPlayer>
         final player = context.read<PlayerProvider>();
         // Reset dismissed when a DIFFERENT song starts playing, OR when
         // playback resumes on the SAME song.
-        final shouldReappear = _dismissed &&
+        //
+        // FIX — "swipe down (once or repeatedly, fast), mini player
+        // flashes back up then disappears again": player.isPlaying is
+        // populated from an async method-channel event pushed by the
+        // native engine, not a synchronous field. Right after
+        // _dismissPlayer() calls player.pause(), there is a real window
+        // (one or two Provider rebuilds) where the native pause hasn't
+        // been confirmed back yet and player.isPlaying can still read
+        // stale `true`. That single stale read used to be enough to flip
+        // shouldReappear -> true, bringing the mini player back for a
+        // frame before the real paused state arrived and hid it again.
+        // Spamming the dismiss gesture repeatedly hits this window over
+        // and over, since it's the exact same pause-then-rebuild sequence
+        // every time. Debouncing the reappear by 250ms means a
+        // transient/stale true (which flips back to false within a frame
+        // or two) never survives long enough to trigger it, while a
+        // genuine resume (isPlaying staying true) reappears cleanly after
+        // a short, barely-noticeable delay.
+        final sameSongResumed = _dismissed &&
             player.hasSong &&
-            (player.currentSong?.id != _dismissedSongId || player.isPlaying);
+            player.currentSong?.id == _dismissedSongId &&
+            player.isPlaying;
+        final differentSongStarted = _dismissed &&
+            player.hasSong &&
+            player.currentSong?.id != _dismissedSongId;
 
-        if (shouldReappear) {
+        if (differentSongStarted) {
+          // Different song is unambiguous — no race possible here, since
+          // it's keyed on song identity, not the async isPlaying flag.
+          // Reappear immediately, no debounce needed.
+          _reappearDebounce?.cancel();
+          _reappearDebounce = null;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               setState(() {
@@ -423,6 +536,28 @@ class _MiniPlayerState extends State<MiniPlayer>
               });
             }
           });
+        } else if (sameSongResumed) {
+          _reappearDebounce ??= Timer(const Duration(milliseconds: 250), () {
+            _reappearDebounce = null;
+            if (!mounted) return;
+            // Re-check at fire time — if isPlaying flipped back to false
+            // (confirming it was transient/stale), don't reappear at all.
+            final p = context.read<PlayerProvider>();
+            if (_dismissed &&
+                p.isPlaying &&
+                p.currentSong?.id == _dismissedSongId) {
+              setState(() {
+                _dismissed = false;
+                _dismissedSongId = null;
+              });
+            }
+          });
+        } else {
+          // isPlaying dropped back to false (or song mismatch resolved)
+          // before the debounce fired — cancel it so a stale timer can't
+          // fire later and force a reappear based on outdated info.
+          _reappearDebounce?.cancel();
+          _reappearDebounce = null;
         }
 
         // No song, or currently dismissed → render NOTHING. There is no
@@ -439,8 +574,20 @@ class _MiniPlayerState extends State<MiniPlayer>
         if (songId != _lastSongId) {
           final isFirstSong = _lastSongId == null;
           _lastSongId = songId;
+          // FIX — rapid skip-spam (next/prev tapped or swiped repeatedly,
+          // fast) could queue several postFrameCallbacks here before the
+          // first one actually runs, since this branch re-evaluates on
+          // every Selector rebuild and each queued callback independently
+          // called .forward(from: 0.0) on the SAME controller. Individually
+          // harmless (forward(from:) always resets to a clean start), but
+          // under heavy spam this stacks redundant restarts back-to-back
+          // and can read as a stutter instead of one clean slide. The
+          // generation token ensures only the LAST scheduled callback (the
+          // one matching the song actually current when it fires) starts
+          // the animation — every earlier, now-stale one no-ops.
+          final gen = ++_songChangeGen;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
+            if (!mounted || gen != _songChangeGen) return;
             if (isFirstSong) {
               _entryCtrl.forward(from: 0.0);
             } else {
@@ -483,9 +630,24 @@ class _MiniPlayerState extends State<MiniPlayer>
   }
 
   Widget _buildInner(BuildContext context, PlayerProvider player) {
+    // FIX — Compact Bar should be a permanently-sticky JioSaavn-style bar:
+    // no swipe-to-dismiss, no vertical drag feedback at all, only tap to
+    // open the full player. It only ever disappears via
+    // heroVisibleNotifier (handled one level up in build()) — never via
+    // _dismissed. Capsule keeps its full drag-to-dismiss/open behavior
+    // unchanged.
+    final isCompactBar = _style == 'Compact Bar';
+
     return AnimatedBuilder(
       animation: _settleCtrl,
       builder: (_, child) {
+        // Compact Bar: never apply the drag-driven translate/scale/
+        // opacity transform — _dragY can only ever be nonzero here if a
+        // gesture briefly fired mid style-switch, and skipping the
+        // transform entirely guarantees the bar stays pixel-locked in
+        // place regardless, exactly like a native sticky bar.
+        if (isCompactBar) return child!;
+
         final y = _settleCtrl.isAnimating ? _settleAnim.value : _dragY;
         final frac = (y.abs() / 160.0).clamp(0.0, 1.0);
         final op = (1.0 - frac * 0.6).clamp(0.0, 1.0);
@@ -505,11 +667,16 @@ class _MiniPlayerState extends State<MiniPlayer>
       child: ValueListenableBuilder<bool>(
         valueListenable: AudioPrefs.swipeToChangeNotifier,
         builder: (context, swipeEnabled, _) {
+          // Compact Bar: horizontal swipe (prev/next) still respected per
+          // the user's existing swipe-to-change preference, but vertical
+          // drag (open/dismiss) is fully disabled — tap is the only way
+          // to open the full player, and there is no dismiss gesture at
+          // all, matching the "always visible, sticky" requirement.
           return GestureDetector(
             onTap: _openFullPlayer,
-            onVerticalDragStart: _onDragStart,
-            onVerticalDragUpdate: _onDragUpdate,
-            onVerticalDragEnd: _onDragEnd,
+            onVerticalDragStart: isCompactBar ? null : _onDragStart,
+            onVerticalDragUpdate: isCompactBar ? null : _onDragUpdate,
+            onVerticalDragEnd: isCompactBar ? null : _onDragEnd,
             onHorizontalDragStart: swipeEnabled ? _onDragStartX : null,
             onHorizontalDragUpdate: swipeEnabled ? _onDragUpdateX : null,
             onHorizontalDragEnd: swipeEnabled ? _onDragEndX : null,

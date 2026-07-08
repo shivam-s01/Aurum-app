@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
@@ -117,7 +118,52 @@ class _HomeScreenState extends HomeScreenState {
   // Once user scrolls past this, mini player should appear.
   static const double _heroHeight = 190.0;
 
+  // FIX — "mini player vanishes, only the nav bar pill is left showing"
+  // during theme changes / fast scrolling:
+  //
+  // _onScroll used to write straight to heroVisibleNotifier on EVERY
+  // scroll tick, unconditionally. Two real sources of bad ticks:
+  //
+  //   1. Theme change rebuilds HomeScreen's subtree. If that rebuild
+  //      touches the Scrollable this controller is attached to, the
+  //      controller can emit a transient notify at a stale/zeroed
+  //      offset before the real position re-settles one frame later —
+  //      a single bad read was enough to flip the notifier the wrong
+  //      way and it never got corrected.
+  //   2. Fast flings on ClampingScrollPhysics/overscroll can bounce the
+  //      offset above and below _heroHeight several times per second
+  //      while still in motion. Each bounce is a real value change, so
+  //      ValueNotifier fires every time — the mini player was
+  //      flickering in/out mid-fling, and if the LAST bounce before the
+  //      gesture's final gesture-detector gap happened to land on the
+  //      wrong side transiently, it could stay stuck hidden even once
+  //      scrolling had actually stopped at a safe offset.
+  //
+  // Fix: only trust a scroll tick once motion has been steady for one
+  // short window (60ms) — i.e. re-derive from CURRENT offset after a
+  // brief settle, not on every raw delta. This throws away the noisy
+  // intermediate flips from theme-rebuild glitches and fling rebounds,
+  // while still feeling instant to the user (60ms is imperceptible).
+  // A hard immediate check on scroll-end (ScrollEndNotification, wired
+  // in build()) covers the case where the debounce timer is still
+  // pending when the finger lifts.
+  Timer? _heroSyncDebounce;
+
   void _onScroll() {
+    _heroSyncDebounce?.cancel();
+    _heroSyncDebounce = Timer(const Duration(milliseconds: 60), () {
+      if (!mounted || !_scrollCtrl.hasClients) return;
+      final heroGone = _scrollCtrl.offset >= _heroHeight;
+      MiniPlayer.heroVisibleNotifier.value = !heroGone;
+    });
+  }
+
+  // Fires the instant a scroll gesture actually ends (finger lift or
+  // fling settle) — bypasses the debounce above so the final state is
+  // always correct even if a debounce timer was still in flight.
+  void _onScrollEnd() {
+    _heroSyncDebounce?.cancel();
+    if (!mounted || !_scrollCtrl.hasClients) return;
     final heroGone = _scrollCtrl.offset >= _heroHeight;
     MiniPlayer.heroVisibleNotifier.value = !heroGone;
   }
@@ -140,6 +186,12 @@ class _HomeScreenState extends HomeScreenState {
   @override
   void resyncHeroVisibility() {
     if (!mounted) return;
+    // Cancel any pending debounced write from _onScroll — otherwise a
+    // stale timer (scheduled right before the tab switch) could fire a
+    // few ms later and stomp this authoritative resync with an old
+    // offset read, right back to the bug this function exists to fix.
+    _heroSyncDebounce?.cancel();
+    if (!_scrollCtrl.hasClients) return;
     final heroGone = _scrollCtrl.offset >= _heroHeight;
     MiniPlayer.heroVisibleNotifier.value = !heroGone;
   }
@@ -179,7 +231,28 @@ class _HomeScreenState extends HomeScreenState {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // FIX — mini player disappearing (only nav bar visible) on THEME
+    // CHANGE specifically: switching theme rebuilds the app from the
+    // root down (Theme is provided above MaterialApp), which passes
+    // through HomeScreen too. That rebuild carries no scroll event at
+    // all, so _onScroll's debounce/resync never gets a chance to run —
+    // heroVisibleNotifier is left holding whatever it was before the
+    // rebuild, and if a scroll-in-progress reset the ScrollController's
+    // attachment during that rebuild, the notifier's old value can now
+    // be flat-out wrong for the new scroll position. Re-deriving here,
+    // every time this widget's inherited dependencies change, closes
+    // that gap without waiting on a scroll gesture to correct it.
+    if (mounted && _scrollCtrl.hasClients) {
+      final heroGone = _scrollCtrl.offset >= _heroHeight;
+      MiniPlayer.heroVisibleNotifier.value = !heroGone;
+    }
+  }
+
+  @override
   void dispose() {
+    _heroSyncDebounce?.cancel();
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
     MiniPlayer.heroVisibleNotifier.value = true; // reset when leaving home
@@ -263,7 +336,18 @@ class _HomeScreenState extends HomeScreenState {
           // so a plain downward pull at the top of the list reliably
           // triggers a refresh every time. Styled gold/dark to match the
           // rest of Aurum rather than looking like a stock widget.
-          RefreshIndicator(
+          // NotificationListener catches ScrollEndNotification the instant
+          // a fling/drag actually settles — this is what makes the
+          // hero-visibility fix immediate rather than waiting out the
+          // 60ms debounce in _onScroll every single time. Returning false
+          // lets the notification keep bubbling (RefreshIndicator and
+          // CustomScrollView both need to see it too).
+          NotificationListener<ScrollEndNotification>(
+            onNotification: (notification) {
+              _onScrollEnd();
+              return false;
+            },
+            child: RefreshIndicator(
             color: AurumTheme.gold,
             backgroundColor: AurumTheme.bgCardOf(context),
             strokeWidth: 2.6,
@@ -325,6 +409,7 @@ class _HomeScreenState extends HomeScreenState {
                 const SliverToBoxAdapter(child: SizedBox(height: 110)),
               ],
             ),
+          ),
           ),
         ],
       ),
@@ -1028,19 +1113,35 @@ class _TopAmbientGlowState extends State<_TopAmbientGlow>
       });
     }
 
-    if (song == null) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // FIX — home screen looked completely flat whenever nothing was
+    // playing (which is exactly the state a fresh app-open lands on,
+    // e.g. "Pick something to play"): this glow used to render nothing
+    // at all with no active song, even though the whole point of the
+    // effect is to give the page ambient depth instead of a flat block
+    // of background color. A paid app's home surface has *some* subtle
+    // life to it even before playback starts. Fall back to a gentle,
+    // static wash of the brand gold at low opacity instead of
+    // SizedBox.shrink — same painter, same position, just a fixed
+    // idle color rather than one extracted from currently-playing art.
+    final effectiveColor = song != null
+        ? _currentColor
+        : (isDark
+            ? AurumTheme.gold.withOpacity(0.16)
+            : AurumTheme.gold.withOpacity(0.14));
 
     return RepaintBoundary(
       child: AnimatedBuilder(
         animation: _opacity,
         builder: (_, __) {
+          final opacity = song != null ? _opacity.value : 1.0;
           return Opacity(
-            opacity: _opacity.value,
+            opacity: opacity,
             child: SizedBox(
               height: isDark ? 220 : 300,
               width: double.infinity,
-              child: _GlowPainter(color: _currentColor, isDark: isDark),
+              child: _GlowPainter(color: effectiveColor, isDark: isDark),
             ),
           );
         },
@@ -1243,6 +1344,16 @@ class _OnlineContent extends StatelessWidget {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
+              // FIX — same issue as Trending Playlists above: last
+              // _SongCard only has its own `margin: right: 12` (meant
+              // for INTER-card spacing), so it cut flush against the
+              // screen's right edge with no matching inset to the 16px
+              // the first card gets from this section's outer Padding.
+              // +4px here brings the last card's total trailing space to
+              // 16px, matching the first card's leading inset exactly —
+              // a clean, consistent peek on both sides instead of an
+              // asymmetric hard cut.
+              padding: const EdgeInsets.only(right: 4),
               itemCount: section.songs.length,
               itemBuilder: (_, i) => _SongCard(
                 song: section.songs[i],
@@ -1884,7 +1995,30 @@ class _SongCardState extends State<_SongCard>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // ── Artwork ──
-              Stack(children: [
+              // FIX: this artwork had ZERO shadow/elevation — a flat
+              // ClipRRect with nothing behind it, while every other card
+              // type in the app (playlist cards, the mini player capsule)
+              // carries a proper drop shadow for depth. That flatness is
+              // exactly what made the Afternoon Picks / Bollywood Mix rows
+              // read as a plain list instead of a designed, "paid app"
+              // product — subtle consistent elevation across every card
+              // type is one of the cheapest, highest-impact premium-feel
+              // fixes available here.
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(
+                          Theme.of(context).brightness == Brightness.dark
+                              ? 0.35
+                              : 0.14),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Stack(children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: AurumArtwork(
@@ -1913,7 +2047,8 @@ class _SongCardState extends State<_SongCard>
                       ),
                     ),
                   ),
-              ]),
+                ]),
+              ),
               // ── Title ──
               Padding(
                 padding: const EdgeInsets.fromLTRB(4, 8, 4, 2),
@@ -1961,8 +2096,15 @@ class _ArtistStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // FIX — inconsistent vertical rhythm between home-feed sections: this
+    // was top:24 while every other section (Trending Playlists, each
+    // SongSection like Afternoon Picks/Bollywood Mix) uses top:28. Small
+    // as it is, a 4px mismatch between otherwise-identical section
+    // headers is exactly the kind of inconsistency that reads as
+    // "not quite premium" even when nothing else is obviously wrong —
+    // paid apps keep this rhythm perfectly uniform down the whole feed.
     return Padding(
-      padding: const EdgeInsets.only(top: 24, left: 16, right: 16),
+      padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1985,6 +2127,11 @@ class _ArtistStrip extends StatelessWidget {
                     : ListView.builder(
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
+                        // Note: unlike the playlist/song rows above,
+                        // _ArtistChip's own `margin: right: 16` already
+                        // matches this section's 16px left inset exactly
+                        // — no extra trailing padding needed here, this
+                        // row was never affected by the cut-off bug.
                         itemCount: artists.length,
                         itemBuilder: (_, i) => _ArtistChip(artist: artists[i]),
                       ),
@@ -2115,6 +2262,15 @@ class _CuratedPlaylistsSection extends StatelessWidget {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
+              // FIX — last card was cutting flush against the screen's
+              // right edge with zero breathing room, while the first
+              // card got a clean 16px inset from the outer Padding. Each
+              // card only carries its own `margin: right: 12` for
+              // INTER-card spacing — nothing accounted for the END of
+              // the whole row. Adding matching trailing padding here
+              // gives the last card the same clean peek/inset the first
+              // one already had, instead of an asymmetric hard cut.
+              padding: const EdgeInsets.only(right: 4),
               itemCount: _kCuratedPlaylists.length,
               itemBuilder: (_, i) => _PlaylistCard(
                 // New key per refresh forces a fresh State → fresh fetch,
@@ -2150,10 +2306,22 @@ class _PlaylistCardState extends State<_PlaylistCard> {
     _loadArt();
   }
 
+  // Routes to the correct fetch strategy for this card: "New Releases"
+  // gets genuinely newest-first songs (fetchNewReleaseSongs), every other
+  // playlist keeps the existing random-shuffle behaviour
+  // (fetchPlaylistSongs) — that variety is intentional and desired for
+  // "Trending Now" / "Party Anthems" / etc, so only this one card's
+  // fetch path changes.
+  Future<List<Song>> _fetchSongsForThisCard({int limit = 65}) {
+    if (widget.playlist.name == 'New Releases') {
+      return ApiService.fetchNewReleaseSongs(limit: limit);
+    }
+    return ApiService.fetchPlaylistSongs(widget.playlist.query, limit: limit);
+  }
+
   Future<void> _loadArt() async {
     try {
-      final songs = await ApiService
-          .fetchPlaylistSongs(widget.playlist.query, limit: 65)
+      final songs = await _fetchSongsForThisCard(limit: 65)
           .timeout(const Duration(seconds: 12));
       if (!mounted) return;
       // Cache the fetched songs on the card itself (not globally) so
@@ -2206,7 +2374,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
       // Reuse the songs already fetched for the thumbnail when available —
       // same Saavn-first, variant-filtered set the user is about to see
       // art for. Only re-fetch if that hasn't resolved yet.
-      final songs = _cachedSongs ?? await ApiService.fetchPlaylistSongs(widget.playlist.query, limit: 65);
+      final songs = _cachedSongs ?? await _fetchSongsForThisCard(limit: 65);
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       if (songs.isEmpty) return;
@@ -2350,7 +2518,17 @@ class _PlaylistCardState extends State<_PlaylistCard> {
             else
               _gradientFallback(p),
 
-            // Darken for text legibility over any artwork
+            // Darken for text legibility over any artwork.
+            // FIX: the old gradient only reached black@0.55 at its
+            // darkest stop, and the title text's shadow (black54,
+            // 8px blur) alone wasn't enough against BRIGHT artwork —
+            // exactly what shows in the screenshot, where "Trending Now"
+            // and "New Releases" read washed-out/low-contrast over
+            // light-colored cover art. A real paid app's card labels stay
+            // crisply legible over ANY artwork brightness. Deepened the
+            // bottom stop to black@0.78 (still lets the art breathe at
+            // the top) and moved the transition earlier so more of the
+            // card's lower half carries real contrast for the text.
             Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -2358,9 +2536,9 @@ class _PlaylistCardState extends State<_PlaylistCard> {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.black.withOpacity(0.05),
-                    Colors.black.withOpacity(0.55),
+                    Colors.black.withOpacity(0.78),
                   ],
-                  stops: const [0.35, 1.0],
+                  stops: const [0.25, 1.0],
                 ),
               ),
             ),
@@ -2388,7 +2566,14 @@ class _PlaylistCardState extends State<_PlaylistCard> {
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.3,
-                  shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
+                  // Stronger, tighter shadow (was blurRadius 8 @ black54)
+                  // — a tighter blur with a solid black core reads as a
+                  // deliberate premium label treatment instead of a soft
+                  // halo that washes out over light backgrounds.
+                  shadows: [
+                    Shadow(color: Colors.black87, blurRadius: 4, offset: Offset(0, 1)),
+                    Shadow(color: Colors.black54, blurRadius: 10),
+                  ],
                 ),
                 maxLines: 2,
               ),

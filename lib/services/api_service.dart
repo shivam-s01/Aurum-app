@@ -662,6 +662,46 @@ class ApiService {
   }
 
   // ===========================================================================
+  // NEW RELEASES — genuinely newest songs, not a random shuffle
+  // ===========================================================================
+  //
+  // FIX: the "New Releases" home card used fetchPlaylistSongs like every
+  // other card, which RANDOMLY SHUFFLES results before returning them.
+  // That's correct behaviour for "Trending Now" / "Party Anthems" / etc —
+  // those are meant to feel different each refresh — but for a card whose
+  // entire premise is "here are the newest songs", showing a random pick
+  // from a generic 'new bollywood songs' search bucket instead of the
+  // actual most-recent releases defeats the point and reads as fake/cheap,
+  // not premium. A real paid app's "New Releases" row is sorted by actual
+  // release recency, full stop.
+  //
+  // Fix: fetch the same search results, but sort by the song's own `year`
+  // field (parsed from the API's releaseDate) descending — newest first —
+  // instead of shuffling. Songs with an unparseable/missing year sort
+  // last rather than being dropped, so a thin result set never goes empty
+  // just because some entries lack metadata.
+  static Future<List<Song>> fetchNewReleaseSongs({int limit = 30}) async {
+    final songs = await _searchSaavn('new bollywood songs 2026', limit: limit * 2);
+    if (songs.isEmpty) return [];
+
+    final seenIds = <String>{};
+    final seenTitles = <String>{};
+    final deduped = <Song>[];
+    for (final s in songs) {
+      if (!seenIds.add(s.id)) continue;
+      if (RecommendationEngine.isInherentVariant(s.title)) continue;
+      final tk = _normTitle(s.title);
+      if (!seenTitles.add(tk)) continue;
+      deduped.add(s);
+    }
+
+    int yearOf(Song s) => int.tryParse(s.year ?? '') ?? -1;
+    deduped.sort((a, b) => yearOf(b).compareTo(yearOf(a)));
+
+    return deduped.take(limit).toList();
+  }
+
+  // ===========================================================================
   // AUTO-CONTINUE QUEUE — similar songs for the "up next" auto-extend feature
   // ===========================================================================
   static Future<List<Song>> fetchSimilarSongs({
