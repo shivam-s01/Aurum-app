@@ -47,7 +47,7 @@ data class NativeEngineState(
  * porting that chain itself is Stage 4.
  */
 class AurumAudioEngine(
-    context: Context,
+    private val context: Context,
     private val resolver: StreamResolver,
 ) {
 
@@ -252,8 +252,9 @@ class AurumAudioEngine(
     // Custom audio focus handling (replaces ExoPlayer's built-in one —
     // see the long comment above ExoPlayer.Builder for why).
     // ─────────────────────────────────────────────────────────────────
-    private val audioManager =
+    private val audioManager: AudioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
 
     // Remembers whether we auto-paused for a duckable/transient loss so we
     // know whether to auto-resume when focus returns. We deliberately do
