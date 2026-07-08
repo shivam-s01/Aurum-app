@@ -49,7 +49,9 @@ import '../utils/aurum_transitions.dart';
 import 'settings_screen.dart';
 import 'liked_screen.dart';
 import '../providers/followed_artists_provider.dart';
+import '../providers/followed_albums_provider.dart';
 import 'artist_screen.dart';
+import 'album_screen.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Library Root
@@ -2292,17 +2294,231 @@ class _DownloadTile extends StatelessWidget {
   }
 }
 
-// ── Coming-soon stubs (Albums / Artists) ──────────────────────────────────────
+// ── Albums screen ──────────────────────────────────────────────────────────
 
 class _AlbumsScreen extends StatelessWidget {
   const _AlbumsScreen();
+
   @override
-  Widget build(BuildContext context) => _ComingSoonScreen(
-        title: 'Albums',
-        icon: Icons.album_rounded,
-        color: Colors.deepPurple,
-        message: 'Albums you save will appear here.',
-      );
+  Widget build(BuildContext context) {
+    final followed = context.watch<FollowedAlbumsProvider>().followed;
+
+    return Scaffold(
+      backgroundColor: AurumTheme.bgOf(context),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 100,
+            floating: true,
+            snap: true,
+            backgroundColor: AurumTheme.bgOf(context),
+            leading: IconButton(
+              icon: Icon(Icons.arrow_back_ios_rounded,
+                  color: AurumTheme.textSecondaryOf(context), size: 20),
+              onPressed: () => Navigator.pop(context),
+            ),
+            flexibleSpace: FlexibleSpaceBar(
+              titlePadding: const EdgeInsets.fromLTRB(52, 0, 16, 16),
+              title: Row(
+                children: [
+                  const Icon(Icons.album_rounded,
+                      color: Colors.deepPurple, size: 22),
+                  const SizedBox(width: 8),
+                  ShaderMask(
+                    shaderCallback: (b) =>
+                        AurumTheme.goldGradient.createShader(b),
+                    child: const Text('Albums',
+                        style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (followed.isEmpty)
+            SliverFillRemaining(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurple.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: Colors.deepPurple.withOpacity(0.3)),
+                        ),
+                        child: const Icon(Icons.album_rounded,
+                            color: Colors.deepPurple, size: 36),
+                      ),
+                      const SizedBox(height: 20),
+                      Text('No albums saved yet',
+                          style: TextStyle(
+                              color: AurumTheme.textPrimaryOf(context),
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      Text('Albums you save will appear here.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: AurumTheme.textMutedOf(context),
+                              fontSize: 13,
+                              height: 1.5)),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 14,
+                  childAspectRatio: 0.72,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, i) => _FollowedAlbumTile(album: followed[i]),
+                  childCount: followed.length,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FollowedAlbumTile extends StatelessWidget {
+  final Map<String, dynamic> album;
+  const _FollowedAlbumTile({required this.album});
+
+  @override
+  Widget build(BuildContext context) {
+    final id = (album['id'] ?? '').toString();
+    final name = (album['name'] ?? '').toString();
+    final artworkUrl = (album['artworkUrl'] ?? '').toString();
+
+    return AurumPressable(
+      onTap: () {
+        AurumPageRoute.to(
+          context,
+          AlbumScreen(albumId: id, albumName: name, artworkUrl: artworkUrl),
+        );
+      },
+      onLongPress: () {
+        HapticFeedback.mediumImpact();
+        _showUnsaveSheet(context, id, name, artworkUrl);
+      },
+      scaleAmount: 0.95,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AurumArtwork(url: artworkUrl, size: 300, borderRadius: 12),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Icon(Icons.album_rounded,
+                  size: 12, color: AurumTheme.gold.withOpacity(0.85)),
+              const SizedBox(width: 4),
+              Text(
+                'Album',
+                style: TextStyle(
+                  color: AurumTheme.textMutedOf(context),
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showUnsaveSheet(
+      BuildContext context, String id, String name, String artworkUrl) {
+    final rootContext = context;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: AurumTheme.bgElevatedOf(rootContext),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: AurumArtwork(url: artworkUrl, size: 44, borderRadius: 8),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    name,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(rootContext),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.bookmark_remove_rounded,
+                  color: Colors.redAccent),
+              title: const Text('Remove from saved albums'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                rootContext.read<FollowedAlbumsProvider>().toggleFollow(
+                      albumId: id,
+                      name: name,
+                      artworkUrl: artworkUrl,
+                    );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _ArtistsScreen extends StatelessWidget {

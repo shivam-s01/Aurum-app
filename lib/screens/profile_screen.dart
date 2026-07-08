@@ -9,6 +9,7 @@ import '../theme/aurum_theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
+import '../providers/followed_albums_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../providers/premium_provider.dart';
@@ -444,6 +445,7 @@ class _AccountCardState extends State<_AccountCard> {
           await SyncService.instance.syncAll(
             playlists: context.read<PlaylistProvider>(),
             followedArtists: context.read<FollowedArtistsProvider>(),
+            followedAlbums: context.read<FollowedAlbumsProvider>(),
             favorites: context.read<FavoritesProvider>(),
           );
         } finally {
@@ -540,6 +542,7 @@ class _AccountCardState extends State<_AccountCard> {
         context.read<FavoritesProvider>().clearAll(),
         context.read<PlaylistProvider>().clearAll(),
         context.read<FollowedArtistsProvider>().clearAll(),
+        context.read<FollowedAlbumsProvider>().clearAll(),
         context.read<RecentlyPlayedProvider>().clearHistory(),
       ]);
     } finally {

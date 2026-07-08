@@ -17,6 +17,7 @@ import '../theme/aurum_theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
+import '../providers/followed_albums_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../services/sync_service.dart';
 
@@ -73,6 +74,7 @@ class _LoginScreenState extends State<LoginScreen>
         await SyncService.instance.syncAll(
           playlists: context.read<PlaylistProvider>(),
           followedArtists: context.read<FollowedArtistsProvider>(),
+          followedAlbums: context.read<FollowedAlbumsProvider>(),
           favorites: context.read<FavoritesProvider>(),
         );
       } catch (_) {}

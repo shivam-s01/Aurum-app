@@ -16,6 +16,7 @@ import 'providers/theme_provider.dart';
 import 'providers/download_provider.dart';
 import 'providers/playlist_provider.dart';
 import 'providers/followed_artists_provider.dart';
+import 'providers/followed_albums_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/premium_provider.dart';
 import 'theme/aurum_theme.dart';
@@ -179,6 +180,7 @@ class AurumApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()..init()),
         ChangeNotifierProvider(create: (_) => FollowedArtistsProvider()..init()),
+        ChangeNotifierProvider(create: (_) => FollowedAlbumsProvider()..init()),
         ChangeNotifierProvider(
           create: (_) {
             final auth = AuthProvider();

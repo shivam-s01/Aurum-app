@@ -274,6 +274,11 @@ class AurumAudioEngine(
                 // Sustained loss — another app has taken over audio
                 // entirely (rare: another music player, screen recording,
                 // etc). Pause and require an explicit user tap to resume.
+                // The OS has genuinely taken focus away from us here, so
+                // hasAudioFocus must flip back to false — otherwise the
+                // later requestAudioFocus() call (once the user taps play
+                // again) would wrongly no-op and never actually re-acquire it.
+                hasAudioFocus = false
                 if (player.isPlaying) {
                     pausedForSustainedFocusLoss = true
                     player.pause()
@@ -284,6 +289,9 @@ class AurumAudioEngine(
                 // commonly an incoming/active phone call. Pause and let
                 // AUDIOFOCUS_GAIN below resume it once the call ends —
                 // this matches every other music app's behavior for calls.
+                // Same reasoning as AUDIOFOCUS_LOSS above: the OS took focus
+                // away, so reflect that here too.
+                hasAudioFocus = false
                 if (player.isPlaying) {
                     pausedForTransientFocusLoss = true
                     player.pause()
@@ -306,6 +314,7 @@ class AurumAudioEngine(
                 }
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
+                hasAudioFocus = true
                 if (duckedForTransientFocusLoss) {
                     player.volume = preduckVolume
                     duckedForTransientFocusLoss = false
@@ -325,7 +334,25 @@ class AurumAudioEngine(
 
     private var focusRequest: AudioFocusRequest? = null
 
+    // FIX — THE actual root cause of "song pauses for 1-2s then auto-resumes
+    // by itself, repeatedly, chahe screen on ho ya off": onIsPlayingChanged
+    // below was calling requestAudioFocus() on EVERY single isPlaying=true
+    // event — initial play, every track transition, every crossfade, every
+    // resume-after-buffering, even the resume that our own AUDIOFOCUS_GAIN
+    // handler itself triggers. We already held focus continuously through
+    // all of that; calling AudioManager.requestAudioFocus() again while
+    // already holding it is what caused the repeated pause/resume cycles —
+    // on many OEM audio stacks, re-requesting AUDIOFOCUS_GAIN for a stream
+    // that already has it makes the system briefly cycle the focus state
+    // (a transient loss/gain echo straight back to our own listener), which
+    // is exactly what pauses/ducks and then auto-resumes 1-2s later. This
+    // flag tracks whether we currently hold focus so requestAudioFocus()
+    // becomes a genuine no-op when we already do, instead of re-requesting
+    // on every single playback event.
+    private var hasAudioFocus = false
+
     private fun requestAudioFocus(): Boolean {
+        if (hasAudioFocus) return true
         val attrs = android.media.AudioAttributes.Builder()
             .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
             .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
@@ -336,11 +363,14 @@ class AurumAudioEngine(
             .setOnAudioFocusChangeListener(focusChangeListener)
             .build()
         focusRequest = request
-        return audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        val granted = audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        hasAudioFocus = granted
+        return granted
     }
 
     private fun abandonAudioFocus() {
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        hasAudioFocus = false
     }
 
 

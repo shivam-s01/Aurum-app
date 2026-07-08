@@ -27,6 +27,16 @@
 //   create policy "own followed artists" on followed_artists
 //     for all using (auth.uid() = user_id);
 //
+//   create table followed_albums (
+//     album_id text not null,
+//     user_id uuid references auth.users not null,
+//     data jsonb not null,
+//     primary key (album_id, user_id)
+//   );
+//   alter table followed_albums enable row level security;
+//   create policy "own followed albums" on followed_albums
+//     for all using (auth.uid() = user_id);
+//
 //   create table favorites (
 //     song_id text not null,
 //     user_id uuid references auth.users not null,
@@ -42,6 +52,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
+import '../providers/followed_albums_provider.dart';
 import '../providers/favorites_provider.dart';
 
 class SyncService {
@@ -59,6 +70,7 @@ class SyncService {
   Future<void> syncAll({
     required PlaylistProvider playlists,
     required FollowedArtistsProvider followedArtists,
+    required FollowedAlbumsProvider followedAlbums,
     required FavoritesProvider favorites,
   }) async {
     final uid = _uid;
@@ -68,6 +80,7 @@ class SyncService {
       await Future.wait([
         _syncPlaylists(uid, playlists),
         _syncFollowedArtists(uid, followedArtists),
+        _syncFollowedAlbums(uid, followedAlbums),
         _syncFavorites(uid, favorites),
       ]);
     } catch (e) {
@@ -143,6 +156,38 @@ class SyncService {
           'artist_id': id,
           'user_id': uid,
           'data': artist,
+        });
+      }
+    }
+  }
+
+  // ── Followed albums ──────────────────────────────────────────────────────
+
+  Future<void> _syncFollowedAlbums(
+      String uid, FollowedAlbumsProvider provider) async {
+    final remoteRows =
+        await _client.from('followed_albums').select().eq('user_id', uid);
+
+    final remoteIds = <String>{};
+    for (final row in remoteRows) {
+      final data = Map<String, dynamic>.from(row['data'] as Map);
+      remoteIds.add(row['album_id'] as String);
+      if (!provider.isFollowing(data['id'] as String)) {
+        await provider.toggleFollow(
+          albumId: data['id'] as String,
+          name: data['name'] as String? ?? '',
+          artworkUrl: data['artworkUrl'] as String? ?? '',
+        );
+      }
+    }
+
+    for (final album in provider.followed) {
+      final id = album['id'] as String;
+      if (!remoteIds.contains(id)) {
+        await _client.from('followed_albums').upsert({
+          'album_id': id,
+          'user_id': uid,
+          'data': album,
         });
       }
     }
