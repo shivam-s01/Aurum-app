@@ -1,11 +1,14 @@
 package com.aurum.music
 
 import android.content.Context
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -167,10 +170,24 @@ class AurumAudioEngine(
     // real browser-style User-Agent — googlevideo.com and Saavn's CDN both
     // serve more consistently to a request that looks like a real browser
     // than to a bare/default HTTP client UA.
-    private fun createUpstreamFactory() = DefaultHttpDataSource.Factory()
+    //
+    // FIX — "downloaded songs don't play at all": this used to return the
+    // bare DefaultHttpDataSource.Factory directly. That factory ONLY
+    // understands http:// and https:// schemes. Every downloaded/local
+    // song is played via a file:// URI (see resolveFast's isLocal branch
+    // below), which this factory has no handler for — ExoPlayer would
+    // fail to open the source and the song would never start. Wrapping it
+    // in DefaultDataSource.Factory keeps the exact same HTTP behavior for
+    // streamed songs (it delegates to the HTTP factory for http/https)
+    // while adding the missing file/content/asset/rawresource handlers
+    // needed for local playback, with zero change to network timeouts,
+    // User-Agent, or the disk cache wrapping below.
+    private fun createHttpFactory() = DefaultHttpDataSource.Factory()
         .setConnectTimeoutMs(16_000)
         .setReadTimeoutMs(8_000)
         .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+
+    private fun createUpstreamFactory() = DefaultDataSource.Factory(context, createHttpFactory())
 
     // Wraps the upstream factory with the disk cache. Every read first
     // checks streamCache; only genuinely missing bytes hit the network.
@@ -188,15 +205,36 @@ class AurumAudioEngine(
         // above instead of ExoPlayer's bare default (which re-fetches from
         // network every time with no persistence between plays).
         .setMediaSourceFactory(cachedMediaSourceFactory)
-        // I11: audio focus handling — pauses on incoming call/other app
-        // audio, ducks appropriately, resumes when focus is regained.
-        // Without this ExoPlayer plays right over calls/notifications.
+        // FIX — "song randomly pauses for 1-2s then auto-resumes, happens
+        // 50+ times during a single playback": this used to be
+        // handleAudioFocus = true, which hands ALL focus decisions to
+        // Media3's built-in AudioFocusManager. That built-in handler
+        // pauses playback on *every* focus request from *any* app,
+        // including short-lived, harmless ones — a notification sound, a
+        // keyboard click's audio feedback, a background app's brief audio
+        // ping. Each one is a full pause+resume cycle, and on a phone
+        // with typical notification traffic that adds up to dozens of
+        // audible micro-interruptions during a single song — exactly the
+        // reported symptom, and it happens identically for YouTube,
+        // Saavn, and offline/local songs because it has nothing to do
+        // with the source — it is purely an audio-focus routing issue
+        // that affects the player globally.
+        //
+        // Fix: hand focus handling to our own listener (requestAudioFocus
+        // below) instead, which distinguishes real, sustained focus loss
+        // (an actual phone call, another music app taking over) — where
+        // pausing is correct and expected — from the genuinely transient,
+        // duckable case (notification sounds, UI click feedback, brief
+        // pings from other apps), where it only lowers volume briefly
+        // instead of stopping playback outright. That duck-only handling
+        // for AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK is what eliminates the
+        // repeated pause/resume cycles.
         .setAudioAttributes(
             androidx.media3.common.AudioAttributes.Builder()
                 .setUsage(androidx.media3.common.C.USAGE_MEDIA)
                 .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
                 .build(),
-            /* handleAudioFocus = */ true,
+            /* handleAudioFocus = */ false,
         )
         // Auto-pause when headphones are unplugged / Bluetooth disconnects —
         // otherwise audio keeps blaring out the speaker unexpectedly.
@@ -209,6 +247,101 @@ class AurumAudioEngine(
         // both are satisfied here.
         .setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL)
         .build()
+
+    // ─────────────────────────────────────────────────────────────────
+    // Custom audio focus handling (replaces ExoPlayer's built-in one —
+    // see the long comment above ExoPlayer.Builder for why).
+    // ─────────────────────────────────────────────────────────────────
+    private val audioManager =
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+    // Remembers whether we auto-paused for a duckable/transient loss so we
+    // know whether to auto-resume when focus returns. We deliberately do
+    // NOT auto-resume after a genuine AUDIOFOCUS_LOSS (a real phone call,
+    // another app taking over playback) — that should require the user to
+    // press play again, matching every other music app's behavior. These
+    // are two separate flags (not one) specifically so AUDIOFOCUS_GAIN can
+    // tell the two cases apart and only auto-resume the transient one.
+    private var duckedForTransientFocusLoss = false
+    private var pausedForTransientFocusLoss = false
+    private var pausedForSustainedFocusLoss = false
+    private var preduckVolume = 1f
+
+    private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                // Sustained loss — another app has taken over audio
+                // entirely (rare: another music player, screen recording,
+                // etc). Pause and require an explicit user tap to resume.
+                if (player.isPlaying) {
+                    pausedForSustainedFocusLoss = true
+                    player.pause()
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                // A real, but temporary, competing audio need — most
+                // commonly an incoming/active phone call. Pause and let
+                // AUDIOFOCUS_GAIN below resume it once the call ends —
+                // this matches every other music app's behavior for calls.
+                if (player.isPlaying) {
+                    pausedForTransientFocusLoss = true
+                    player.pause()
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // THE actual fix for the reported "pauses 50+ times during
+                // a single song" bug: this is the genuinely short-lived
+                // case — notification sounds, keyboard/UI click feedback,
+                // brief pings from other apps. Android's own contract for
+                // this focus type is "you may keep playing, just get
+                // quieter if you want" — it explicitly does NOT ask for a
+                // pause. Only duck (lower volume briefly), never stop
+                // playback. This one change is what eliminates the
+                // dozens of audible micro-interruptions per song.
+                if (player.isPlaying) {
+                    preduckVolume = player.volume
+                    player.volume = preduckVolume * 0.3f
+                    duckedForTransientFocusLoss = true
+                }
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (duckedForTransientFocusLoss) {
+                    player.volume = preduckVolume
+                    duckedForTransientFocusLoss = false
+                }
+                if (pausedForTransientFocusLoss) {
+                    // Auto-resume — this was a call/transient interruption,
+                    // not the user or another app deliberately taking over.
+                    player.play()
+                    pausedForTransientFocusLoss = false
+                }
+                // pausedForSustainedFocusLoss is intentionally NOT
+                // auto-resumed here — see comment on the field above.
+                pausedForSustainedFocusLoss = false
+            }
+        }
+    }
+
+    private var focusRequest: AudioFocusRequest? = null
+
+    private fun requestAudioFocus(): Boolean {
+        val attrs = android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(attrs)
+            .setWillPauseWhenDucked(false)
+            .setOnAudioFocusChangeListener(focusChangeListener)
+            .build()
+        focusRequest = request
+        return audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
+    private fun abandonAudioFocus() {
+        focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+    }
+
 
     // Native replacement for the old just_audio AndroidEqualizer/
     // AndroidLoudnessEnhancer (audio_effects_controller.dart, now
@@ -312,6 +445,21 @@ class AurumAudioEngine(
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 pushState()
                 updateTickerState(isPlaying)
+                // Request focus the moment anything actually starts
+                // playing, from ANY path (initial play, skip, retry,
+                // crossfade, restore-after-focus-gain) — not just the
+                // play() wrapper below, which several internal call sites
+                // bypass by calling player.play() directly. Abandon it
+                // once playback genuinely stops, EXCEPT when we ourselves
+                // just paused it for a focus loss — abandoning focus there
+                // would prevent us from ever hearing AUDIOFOCUS_GAIN to
+                // resume (transient case) or would just be redundant
+                // (sustained case, where the OS already took focus away).
+                if (isPlaying) {
+                    requestAudioFocus()
+                } else if (!pausedForTransientFocusLoss && !pausedForSustainedFocusLoss) {
+                    abandonAudioFocus()
+                }
             }
             override fun onPlayerError(error: PlaybackException) = pushState()
             override fun onPositionDiscontinuity(
@@ -1106,9 +1254,14 @@ class AurumAudioEngine(
     // ─────────────────────────────────────────────────────────────────
     // TRANSPORT CONTROLS
     // ─────────────────────────────────────────────────────────────────
-    fun play() { restoredSilently = false; player.play() }
+    fun play() {
+        restoredSilently = false
+        player.play()
+    }
     fun pause() { player.pause() }
-    fun stop() { try { player.stop() } catch (e: Exception) { } }
+    fun stop() {
+        try { player.stop() } catch (e: Exception) { }
+    }
     fun seek(positionMs: Long) { player.seekTo(positionMs) }
 
     fun skipToNext() {
@@ -1197,6 +1350,7 @@ class AurumAudioEngine(
         idleWatchdogJob?.cancel()
         scope.cancel()
         effects.dispose()
+        abandonAudioFocus()
         player.release()
     }
 }
