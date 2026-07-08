@@ -253,7 +253,18 @@ class _MiniPlayerState extends State<MiniPlayer>
     _entryCtrl.dispose();
     _swipeCtrl.dispose();
     _slideInCtrl.dispose();
-    MiniPlayer.visibleNotifier.value = false;
+    // NOTE: deliberately NOT forcing `visibleNotifier.value = false` here.
+    // visibleNotifier is `static` — shared by every MiniPlayer instance —
+    // so if THIS instance is being torn down only because a replacement
+    // MiniPlayer is mounting in the same frame (e.g. an ancestor rebuild
+    // during a theme switch), forcing `false` here would stomp whatever
+    // correct value the new instance's build() is about to set, and
+    // MainShell's ValueListenableBuilder would flash/stick on "hidden"
+    // even though a song is actively playing. Whichever MiniPlayer
+    // instance is actually alive and building always keeps this notifier
+    // correct on every build (see the unconditional sync in build()
+    // above) — there is no scenario where dispose() forcing a value adds
+    // correctness, only a scenario where it can introduce a race.
     super.dispose();
   }
 
@@ -572,15 +583,53 @@ class _MiniPlayerState extends State<MiniPlayer>
         // absent from the tree. Nothing here ever mid-animates a height,
         // so there is no clip window that can slice a fixed-height child.
         final showingNow = player.hasSong && !_dismissed;
-        if (MiniPlayer.visibleNotifier.value != showingNow) {
-          // Deferred to post-frame: this build() can run mid-frame (e.g.
-          // triggered by the Selector above), and flipping a ValueNotifier
-          // synchronously here could schedule a MainShell rebuild while
-          // this widget's own frame is still in progress.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            MiniPlayer.visibleNotifier.value = showingNow;
-          });
-        }
+
+        // FIX — mini player permanently vanishing / stuck-empty background
+        // pill on: app backgrounding+resume, fast rapid song/source
+        // switching, and theme changes.
+        //
+        // Why this must still be deferred (not set synchronously right
+        // here): MiniPlayer is built INSIDE MainShell's
+        // ValueListenableBuilder, which itself listens to this very
+        // notifier. Setting `.value =` synchronously during this build()
+        // would call that ValueListenableBuilder's setState() while it is
+        // still on the call stack building its own subtree — Flutter
+        // throws "setState() or markNeedsBuild() called during build" for
+        // exactly this pattern. So a post-frame callback is required.
+        //
+        // Why the OLD post-frame implementation was still broken: it
+        // captured `showingNow` from THIS build only, with no mounted
+        // check, and guarded re-entrancy with a PER-INSTANCE generation
+        // counter (`_visibilityGen`) — but `visibleNotifier` itself is
+        // `static`, shared across every MiniPlayer instance. Any time
+        // this widget's State was torn down and recreated (an ancestor
+        // rebuild during a theme change, rapid navigation, etc.), the NEW
+        // instance's counter restarted at 0 with zero knowledge of the
+        // OLD instance's still-pending callback, so a stale callback from
+        // a torn-down instance could still fire and flip the shared
+        // notifier to a wrong value the new instance never asked for.
+        // `dispose()` made this worse by unconditionally forcing
+        // `visibleNotifier.value = false` with no check at all.
+        //
+        // THE FIX: don't trust anything captured back when the callback
+        // was scheduled. Every single frame, unconditionally schedule a
+        // post-frame callback that — only if this exact State is still
+        // `mounted` at fire time — re-reads `PlayerProvider` and
+        // `_dismissed` FRESH at that moment and writes that live truth to
+        // the shared notifier. Scheduling every frame instead of only on
+        // change is deliberate and cheap (post-frame callbacks are a
+        // no-op if nothing is listening/changed): it means the mounted
+        // instance is continuously the one true source keeping the
+        // static notifier honest, and a torn-down instance's `mounted`
+        // guard makes any of its in-flight callbacks permanently inert —
+        // no generation bookkeeping required at all.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final freshShowingNow = context.read<PlayerProvider>().hasSong && !_dismissed;
+          if (MiniPlayer.visibleNotifier.value != freshShowingNow) {
+            MiniPlayer.visibleNotifier.value = freshShowingNow;
+          }
+        });
         if (!showingNow) {
           return const SizedBox.shrink();
         }
