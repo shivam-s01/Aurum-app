@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -758,75 +757,19 @@ class _MiniPlayerContent extends StatelessWidget {
   }
 
   Widget _buildCapsule(BuildContext context, dynamic song) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     final showUpHint = dragY < -20;
     final showDownHint = dragY > 20;
 
-    return ValueListenableBuilder<String>(
-      valueListenable: AudioPrefs.miniPlayerBgStyleNotifier,
-      builder: (context, bgStyle, _) {
-        final isSolid = bgStyle == 'Solid';
-        final capsuleDecoration = BoxDecoration(
-          color: isSolid
-              ? (isDark ? const Color(0xFF1A1A22) : const Color(0xFFF5F2EA))
-              : (isDark
-                  ? Colors.white.withAlpha(isDragging ? 14 : 9)
-                  : Colors.black.withAlpha(isDragging ? 12 : 7)),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isDragging
-                ? AurumTheme.gold.withAlpha(60)
-                : AurumTheme.gold.withAlpha(isDark ? 35 : 50),
-            width: 0.8,
-          ),
-          // FIX (glow-bleed): this used to carry a second BoxShadow tinted
-          // with AurumTheme.gold at a 12px blur radius. That shadow paints
-          // outside the capsule's own ClipRRect bounds — since Container's
-          // boxShadow is drawn on the *undecorated* box before children are
-          // clipped, a wide, colored blur there reads as a stray purple/
-          // gold glow sitting above/around the capsule, most noticeable
-          // during the hero-hide/reappear transform on Home. A single
-          // plain black drop-shadow is enough for depth; removing the
-          // tinted one eliminates the bleed entirely.
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha(isDark ? 100 : 30),
-              blurRadius: isDragging ? 20 : 14,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        );
-
-        Widget capsuleBody = AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          decoration: capsuleDecoration,
-          child:
-              _miniPlayerCapsuleContent(context, song, showUpHint, showDownHint),
-        );
-
-        if (!isSolid) {
-          capsuleBody = BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: capsuleBody,
-          );
-        }
-
-        return Container(
-          margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-          height: 68,
-          // RepaintBoundary forces this blur onto its own compositing
-          // layer so it can never bleed into/from sibling BackdropFilters
-          // (e.g. the bottom nav bar's own blur) on Android's Skia
-          // backend.
-          child: RepaintBoundary(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: capsuleBody,
-            ),
-          ),
-        );
-      },
+    // FIX — capsule background/blur/border/shadow removed entirely per
+    // request: the mini player now shows ONLY its raw content (artwork,
+    // title/artist, controls) with no glass pill, no rounded box, no
+    // BackdropFilter blur sitting behind it. Kept the fixed 68px height +
+    // horizontal margin so tap targets and layout spacing stay unchanged;
+    // everything that used to paint a visible "capsule" shape is gone.
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      height: 68,
+      child: _miniPlayerCapsuleContent(context, song, showUpHint, showDownHint),
     );
   }
 
@@ -948,41 +891,14 @@ class _MiniPlayerContent extends StatelessWidget {
 
   // ── Compact Bar — premium edge-to-edge style (Settings → Appearance) ──
   Widget _buildCompactBar(BuildContext context, dynamic song) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final showUpHint = dragY < -20;
     final showDownHint = dragY > 20;
 
-    return RepaintBoundary(
-      child: ClipRect(
-        child: Container(
-          height: 64,
-          decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(
-                color: isDragging
-                    ? AurumTheme.gold.withAlpha(70)
-                    : AurumTheme.gold.withAlpha(isDark ? 30 : 45),
-                width: 0.6,
-              ),
-            ),
-          ),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.white.withAlpha(isDragging ? 16 : 11)
-                    : Colors.black.withAlpha(isDragging ? 14 : 9),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(isDark ? 90 : 26),
-                    blurRadius: isDragging ? 22 : 16,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
-              ),
-              child: Stack(
+    // FIX — same background/blur/border/shadow removal as the Capsule
+    // variant: only raw content now, no bar-shaped background behind it.
+    return Container(
+      height: 64,
+      child: Stack(
                 children: [
                   // Same reasoning as the Capsule variant above:
                   // MainAxisSize.max so the Expanded child gets a real
@@ -1085,10 +1001,6 @@ class _MiniPlayerContent extends StatelessWidget {
                       ),
                     ),
                 ],
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }
