@@ -48,13 +48,6 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-/// Public so MainShell can type a GlobalKey against this and call
-/// resyncHeroVisibility() without needing access to the private
-/// _HomeScreenState class itself.
-abstract class HomeScreenState extends State<HomeScreen> {
-  void resyncHeroVisibility();
-}
-
 // ── Curated playlists shown as Spotify/JioSaavn-style cards ──
 // Focused on current-era (2025/2026) Bollywood trending music instead of
 // generic mood buckets — these queries are written to surface recent
@@ -102,7 +95,7 @@ class _PlaylistMeta {
 // gold accent so it still matches the rest of Aurum instead of looking
 // like a stock Material widget.
 
-class _HomeScreenState extends HomeScreenState {
+class _HomeScreenState extends State<HomeScreen> {
   List<SongSection> _onlineSections = [];
   bool _onlineLoading = true;
   String? _onlineError;
@@ -115,98 +108,10 @@ class _HomeScreenState extends HomeScreenState {
   bool _artistsLoading = true;
 
   final ScrollController _scrollCtrl = ScrollController();
-  // Hero card is ~190px tall (168 height + 22 vertical padding).
-  // Once user scrolls past this, mini player should appear.
-  static const double _heroHeight = 190.0;
-
-  // FIX — "mini player vanishes, only the nav bar pill is left showing"
-  // during theme changes / fast scrolling:
-  //
-  // _onScroll used to write straight to heroVisibleNotifier on EVERY
-  // scroll tick, unconditionally. Two real sources of bad ticks:
-  //
-  //   1. Theme change rebuilds HomeScreen's subtree. If that rebuild
-  //      touches the Scrollable this controller is attached to, the
-  //      controller can emit a transient notify at a stale/zeroed
-  //      offset before the real position re-settles one frame later —
-  //      a single bad read was enough to flip the notifier the wrong
-  //      way and it never got corrected.
-  //   2. Fast flings on ClampingScrollPhysics/overscroll can bounce the
-  //      offset above and below _heroHeight several times per second
-  //      while still in motion. Each bounce is a real value change, so
-  //      ValueNotifier fires every time — the mini player was
-  //      flickering in/out mid-fling, and if the LAST bounce before the
-  //      gesture's final gesture-detector gap happened to land on the
-  //      wrong side transiently, it could stay stuck hidden even once
-  //      scrolling had actually stopped at a safe offset.
-  //
-  // Fix: only trust a scroll tick once motion has been steady for one
-  // short window (60ms) — i.e. re-derive from CURRENT offset after a
-  // brief settle, not on every raw delta. This throws away the noisy
-  // intermediate flips from theme-rebuild glitches and fling rebounds,
-  // while still feeling instant to the user (60ms is imperceptible).
-  // A hard immediate check on scroll-end (ScrollEndNotification, wired
-  // in build()) covers the case where the debounce timer is still
-  // pending when the finger lifts.
-  Timer? _heroSyncDebounce;
-
-  void _onScroll() {
-    _heroSyncDebounce?.cancel();
-    // FIX — mini player felt "bahut late" reappearing near the hero card.
-    // 60ms here was stacked on top of the mini player's own 380ms entry
-    // animation, reading as a sluggish ~440ms lag before anything even
-    // started animating in. 16ms (~1 frame) is still enough to swallow
-    // the theme-rebuild/fling-rebound noise this debounce exists for,
-    // without being perceptible as a delay.
-    _heroSyncDebounce = Timer(const Duration(milliseconds: 16), () {
-      if (!mounted || !_scrollCtrl.hasClients) return;
-      final heroGone = _scrollCtrl.offset >= _heroHeight;
-      MiniPlayer.heroVisibleNotifier.value = !heroGone;
-    });
-  }
-
-  // Fires the instant a scroll gesture actually ends (finger lift or
-  // fling settle) — bypasses the debounce above so the final state is
-  // always correct even if a debounce timer was still in flight.
-  void _onScrollEnd() {
-    _heroSyncDebounce?.cancel();
-    if (!mounted || !_scrollCtrl.hasClients) return;
-    final heroGone = _scrollCtrl.offset >= _heroHeight;
-    MiniPlayer.heroVisibleNotifier.value = !heroGone;
-  }
-
-  /// Re-derives heroVisibleNotifier from the CURRENT scroll offset.
-  ///
-  /// _onScroll only fires on an actual scroll event. HomeScreen is kept
-  /// alive in MainShell's IndexedStack (never disposed on tab switch),
-  /// so if the user switches away to Search/Library and back to Home
-  /// WITHOUT scrolling in between, nothing re-runs _onScroll — the
-  /// notifier is left holding whatever value the *previous* tab switch
-  /// forced it to (always false, per MainShell's onTap handler), even
-  /// if Home's scroll position says the hero card is still on-screen.
-  /// That mismatch is what caused the mini player to occasionally stay
-  /// hidden (or, on fast repeated switching, land in the wrong
-  /// show/hide state) after returning to Home. MainShell calls this
-  /// via a GlobalKey the moment tab 0 becomes active again, so the
-  /// flag always matches reality instead of a stale write from the
-  /// tab-switch that happened to run last.
-  @override
-  void resyncHeroVisibility() {
-    if (!mounted) return;
-    // Cancel any pending debounced write from _onScroll — otherwise a
-    // stale timer (scheduled right before the tab switch) could fire a
-    // few ms later and stomp this authoritative resync with an old
-    // offset read, right back to the bug this function exists to fix.
-    _heroSyncDebounce?.cancel();
-    if (!_scrollCtrl.hasClients) return;
-    final heroGone = _scrollCtrl.offset >= _heroHeight;
-    MiniPlayer.heroVisibleNotifier.value = !heroGone;
-  }
 
   @override
   void initState() {
     super.initState();
-    _scrollCtrl.addListener(_onScroll);
     _loadOnline();
     _loadArtists();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -238,31 +143,8 @@ class _HomeScreenState extends HomeScreenState {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // FIX — mini player disappearing (only nav bar visible) on THEME
-    // CHANGE specifically: switching theme rebuilds the app from the
-    // root down (Theme is provided above MaterialApp), which passes
-    // through HomeScreen too. That rebuild carries no scroll event at
-    // all, so _onScroll's debounce/resync never gets a chance to run —
-    // heroVisibleNotifier is left holding whatever it was before the
-    // rebuild, and if a scroll-in-progress reset the ScrollController's
-    // attachment during that rebuild, the notifier's old value can now
-    // be flat-out wrong for the new scroll position. Re-deriving here,
-    // every time this widget's inherited dependencies change, closes
-    // that gap without waiting on a scroll gesture to correct it.
-    if (mounted && _scrollCtrl.hasClients) {
-      final heroGone = _scrollCtrl.offset >= _heroHeight;
-      MiniPlayer.heroVisibleNotifier.value = !heroGone;
-    }
-  }
-
-  @override
   void dispose() {
-    _heroSyncDebounce?.cancel();
-    _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
-    MiniPlayer.heroVisibleNotifier.value = true; // reset when leaving home
     super.dispose();
   }
 
@@ -343,18 +225,7 @@ class _HomeScreenState extends HomeScreenState {
           // so a plain downward pull at the top of the list reliably
           // triggers a refresh every time. Styled gold/dark to match the
           // rest of Aurum rather than looking like a stock widget.
-          // NotificationListener catches ScrollEndNotification the instant
-          // a fling/drag actually settles — this is what makes the
-          // hero-visibility fix immediate rather than waiting out the
-          // 60ms debounce in _onScroll every single time. Returning false
-          // lets the notification keep bubbling (RefreshIndicator and
-          // CustomScrollView both need to see it too).
-          NotificationListener<ScrollEndNotification>(
-            onNotification: (notification) {
-              _onScrollEnd();
-              return false;
-            },
-            child: RefreshIndicator(
+          RefreshIndicator(
             color: AurumTheme.gold,
             backgroundColor: AurumTheme.bgCardOf(context),
             strokeWidth: 2.6,
@@ -416,7 +287,6 @@ class _HomeScreenState extends HomeScreenState {
                 const SliverToBoxAdapter(child: SizedBox(height: 110)),
               ],
             ),
-          ),
           ),
         ],
       ),
@@ -1040,8 +910,6 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                       ],
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  _ResumeButton(onTap: _openFullPlayer),
                 ]),
               ),
             ),
@@ -1056,34 +924,6 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     );
   }
 }
-
-class _ResumeButton extends StatelessWidget {
-  final VoidCallback onTap;
-  const _ResumeButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final isPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
-
-    return AurumPressable(
-      scaleAmount: 0.92,
-      onTap: () => context.read<PlayerProvider>().togglePlay(),
-      child: Container(
-        width: 40, height: 40,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          color: AurumTheme.gold,
-        ),
-        child: Icon(
-          isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-          color: Colors.black,
-          size: 22,
-        ),
-      ),
-    );
-  }
-}
-
 
 class _TopAmbientGlow extends StatefulWidget {
   const _TopAmbientGlow();

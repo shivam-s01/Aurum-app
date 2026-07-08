@@ -75,11 +75,24 @@ class MiniPlayer extends StatefulWidget {
   static final ValueNotifier<String> styleNotifier =
       ValueNotifier<String>('Capsule');
 
-  /// When home screen's hero card is visible, mini player hides.
-  /// Home screen updates this via scroll while it is the ACTIVE tab.
-  /// MainShell resets this to `false` whenever the active tab isn't Home.
-  static final ValueNotifier<bool> heroVisibleNotifier =
-      ValueNotifier<bool>(false);
+  /// FIX — "background pill" left stuck visible bug: MainShell's
+  /// bottomNavigationBar wraps [MiniPlayer] in a solid-color Container
+  /// (so the nav bar + mini player read as one continuous card). That
+  /// Container used to paint its background purely off `player.hasSong`,
+  /// with no knowledge of THIS widget's own internal visibility state
+  /// (swipe-down dismissed, or the split-second mid-rebuild gap during a
+  /// theme change). Result: the rounded card-colored background kept
+  /// painting even after the capsule content inside had already faded/
+  /// animated itself away — exactly the stray background pill left after
+  /// swipe-down, and the same mechanism behind the mini player fully
+  /// vanishing (content gone, panel stays) on a theme switch.
+  ///
+  /// Single source of truth for "is the mini player actually showing real
+  /// content right now" — true only when there is a song AND it isn't
+  /// dismissed. MainShell listens to this instead of re-deriving hasSong
+  /// itself, so the backing Container's background can never desync from
+  /// what's actually painted inside it.
+  static final ValueNotifier<bool> visibleNotifier = ValueNotifier<bool>(false);
 
   @override
   State<MiniPlayer> createState() => _MiniPlayerState();
@@ -188,11 +201,6 @@ class _MiniPlayerState extends State<MiniPlayer>
 
     _loadStyle();
     MiniPlayer.styleNotifier.addListener(_onStyleChanged);
-    MiniPlayer.heroVisibleNotifier.addListener(_onHeroVisibilityChanged);
-  }
-
-  void _onHeroVisibilityChanged() {
-    if (mounted) setState(() {});
   }
 
   void _onStyleChanged() {
@@ -240,12 +248,12 @@ class _MiniPlayerState extends State<MiniPlayer>
   @override
   void dispose() {
     MiniPlayer.styleNotifier.removeListener(_onStyleChanged);
-    MiniPlayer.heroVisibleNotifier.removeListener(_onHeroVisibilityChanged);
     _reappearDebounce?.cancel();
     _settleCtrl.dispose();
     _entryCtrl.dispose();
     _swipeCtrl.dispose();
     _slideInCtrl.dispose();
+    MiniPlayer.visibleNotifier.value = false;
     super.dispose();
   }
 
@@ -563,7 +571,17 @@ class _MiniPlayerState extends State<MiniPlayer>
         // height animation guarding this transition; the widget is simply
         // absent from the tree. Nothing here ever mid-animates a height,
         // so there is no clip window that can slice a fixed-height child.
-        if (!player.hasSong || _dismissed) {
+        final showingNow = player.hasSong && !_dismissed;
+        if (MiniPlayer.visibleNotifier.value != showingNow) {
+          // Deferred to post-frame: this build() can run mid-frame (e.g.
+          // triggered by the Selector above), and flipping a ValueNotifier
+          // synchronously here could schedule a MainShell rebuild while
+          // this widget's own frame is still in progress.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            MiniPlayer.visibleNotifier.value = showingNow;
+          });
+        }
+        if (!showingNow) {
           return const SizedBox.shrink();
         }
 
@@ -595,35 +613,28 @@ class _MiniPlayerState extends State<MiniPlayer>
           });
         }
 
-        // Hide mini player when home hero is visible — plain instant
-        // conditional, no fade/switcher wrapper. When heroVisible is true,
-        // this returns SizedBox.shrink() and NOTHING else is built: no
-        // decoration, no background, no reserved layout space, no pill of
-        // any kind sitting in that spot.
-        return ValueListenableBuilder<bool>(
-          valueListenable: MiniPlayer.heroVisibleNotifier,
-          builder: (context, heroVisible, _) {
-            if (heroVisible) {
-              return const SizedBox.shrink();
-            }
-            return AnimatedBuilder(
-              animation: _entryCtrl,
-              builder: (_, child) {
-                return Transform.translate(
-                  offset: Offset(0, _entrySlide.value * 80),
-                  child: Transform.scale(
-                    scale: _entryScale.value,
-                    alignment: Alignment.bottomCenter,
-                    child: Opacity(
-                      opacity: _entryOpacity.value,
-                      child: child,
-                    ),
-                  ),
-                );
-              },
-              child: _buildInner(context, player),
+        // FIX — mini player now ALWAYS shows whenever a song is playing,
+        // regardless of whether the hero card is on-screen or not. The
+        // heroVisibleNotifier gate that used to hide this widget while the
+        // hero card was visible is removed entirely — no more
+        // ValueListenableBuilder/SizedBox.shrink() swap tied to hero
+        // visibility.
+        return AnimatedBuilder(
+          animation: _entryCtrl,
+          builder: (_, child) {
+            return Transform.translate(
+              offset: Offset(0, _entrySlide.value * 80),
+              child: Transform.scale(
+                scale: _entryScale.value,
+                alignment: Alignment.bottomCenter,
+                child: Opacity(
+                  opacity: _entryOpacity.value,
+                  child: child,
+                ),
+              ),
             );
           },
+          child: _buildInner(context, player),
         );
       },
     );
@@ -632,8 +643,8 @@ class _MiniPlayerState extends State<MiniPlayer>
   Widget _buildInner(BuildContext context, PlayerProvider player) {
     // FIX — Compact Bar should be a permanently-sticky JioSaavn-style bar:
     // no swipe-to-dismiss, no vertical drag feedback at all, only tap to
-    // open the full player. It only ever disappears via
-    // heroVisibleNotifier (handled one level up in build()) — never via
+    // open the full player. It only ever disappears when there's no song
+    // (handled one level up in build() via `showingNow`) — never via
     // _dismissed. Capsule keeps its full drag-to-dismiss/open behavior
     // unchanged.
     final isCompactBar = _style == 'Compact Bar';

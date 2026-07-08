@@ -30,7 +30,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _tab = 0;
 
-  final _homeKey = GlobalKey<HomeScreenState>();
+  final _homeKey = GlobalKey<State<HomeScreen>>();
 
   late final _screens = [
     HomeScreen(key: _homeKey),
@@ -81,13 +81,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startShakeListener();
-    // Same reasoning as the nav bar onTap fix below: ensure the mini
-    // player isn't hidden by a stale hero-visible flag if _tab doesn't
-    // start on Home (defensive — currently _tab always starts at 0, but
-    // this keeps the two in sync if that ever changes).
-    if (_tab != 0) {
-      MiniPlayer.heroVisibleNotifier.value = false;
-    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Update check
@@ -245,57 +238,48 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       body: IndexedStack(index: _tab, children: _screens),
-      bottomNavigationBar: Container(
-        // FIX: the MiniPlayer capsule has an 8px bottom margin (its
-        // rounded corners need breathing room above the nav bar). That
-        // 8px gap used to show the Scaffold's body background straight
-        // through — a plain white/cream strip on light theme, right
-        // where the capsule's rounded corner ends and the nav bar
-        // begins. Giving this wrapping Container the same background
-        // as the nav bar fills that gap with the correct color instead
-        // of leaking the page background behind it.
-        color: AurumTheme.bgCardOf(context),
-        child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const MiniPlayer(),
-          // The nav bar no longer paints any top divider/gradient line
-          // (removed permanently in _AurumBottomNavBar — see the
-          // comment there). Just render it plainly; no style/song
-          // state can affect it anymore, so no listener is needed here.
-          _AurumBottomNavBar(
-            currentIndex: _tab,
-            onTap: (i) {
-              primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
-              SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-              // Leaving Home (index 0): force hero-visible flag off.
-              // HomeScreen never gets disposed on a tab switch (it's
-              // kept alive in IndexedStack), so its own scroll
-              // listener can't reset this itself — MainShell is the
-              // only place that reliably knows the tab changed. This
-              // is what actually fixes the mini player permanently
-              // vanishing / showing a stray line on Search & Library.
-              if (i != 0) {
-                MiniPlayer.heroVisibleNotifier.value = false;
-              } else {
-                // Returning TO Home: the notifier may still be
-                // holding a stale value from whichever tab-switch
-                // ran last (always false, per the branch above),
-                // even if Home's actual scroll position says the
-                // hero card is on-screen right now. Recompute it
-                // from the real scroll offset instead of trusting
-                // the leftover write — this is what fixed the mini
-                // player getting stuck hidden/shown incorrectly
-                // after fast repeated tab switching.
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _homeKey.currentState?.resyncHeroVisibility();
-                });
-              }
-              setState(() => _tab = i);
-            },
-          ),
-        ],
-        ),
+      bottomNavigationBar: ValueListenableBuilder<bool>(
+        // FIX — "background pill stuck visible" bug: this used to key off
+        // raw `player.hasSong` alone, so the very moment MiniPlayer's own
+        // content faded/animated away (swipe-down dismiss, or the brief
+        // mid-rebuild gap during a theme change) — while hasSong was still
+        // technically true — this Container kept painting its solid
+        // rounded background with nothing real inside it: exactly the
+        // stray "pill" left floating after swipe-down, and the same root
+        // cause behind the mini player fully vanishing (content gone,
+        // backing panel still there) on a theme switch.
+        //
+        // MiniPlayer.visibleNotifier is the single source of truth for
+        // "is there actually visible mini-player content right now" (see
+        // its doc comment in mini_player.dart) — it's false both when
+        // there's no song AND while MiniPlayer is mid-dismissed, so this
+        // background can never outlive what it's supposed to be behind.
+        valueListenable: MiniPlayer.visibleNotifier,
+        builder: (context, showingMiniPlayer, _) {
+          return Container(
+            color: showingMiniPlayer
+                ? AurumTheme.bgCardOf(context)
+                : Colors.transparent,
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const MiniPlayer(),
+                  // The nav bar no longer paints any top divider/gradient line
+                  // (removed permanently in _AurumBottomNavBar — see the
+                  // comment there). Just render it plainly; no style/song
+                  // state can affect it anymore, so no listener is needed here.
+                  _AurumBottomNavBar(
+                    currentIndex: _tab,
+                    onTap: (i) {
+                      primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+                      SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+                      setState(() => _tab = i);
+                    },
+                  ),
+                ],
+                ),
+              );
+        },
       ),
     );
   }
