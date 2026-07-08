@@ -9,12 +9,14 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
 import 'package:share_plus/share_plus.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/premium_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/song.dart';
+import '../models/lyrics.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
 import '../services/waveform_service.dart';
@@ -3204,10 +3206,14 @@ class _LyricsPage extends StatefulWidget {
 }
 
 class _LyricsPageState extends State<_LyricsPage> {
-  String? _lyrics;
+  LyricsResult? _result;
   bool _loading = true;
   bool _notFound = false;
   Song? _loadedFor;
+  int _activeIndex = -1;
+
+  final ItemScrollController _scrollController = ItemScrollController();
+  final ItemPositionsListener _positionsListener = ItemPositionsListener.create();
 
   @override
   void didChangeDependencies() {
@@ -3215,27 +3221,48 @@ class _LyricsPageState extends State<_LyricsPage> {
     final song = context.read<PlayerProvider>().currentSong;
     if (song != null && song.id != _loadedFor?.id) {
       _loadedFor = song;
-      _fetchLyrics(song);
+      _fetchLyrics();
     }
   }
 
-  Future<void> _fetchLyrics(Song song) async {
+  Future<void> _fetchLyrics() async {
     if (!mounted) return;
     setState(() {
       _loading = true;
       _notFound = false;
-      _lyrics = null;
+      _result = null;
+      _activeIndex = -1;
     });
-    final lyrics = await context.read<PlayerProvider>().fetchLyrics();
+    final result = await context.read<PlayerProvider>().fetchSyncedLyrics();
     if (!mounted) return;
     setState(() {
       _loading = false;
-      if (lyrics != null && lyrics.trim().isNotEmpty) {
-        _lyrics = lyrics.trim();
+      if (result.hasAny) {
+        _result = result;
       } else {
         _notFound = true;
       }
     });
+  }
+
+  void _onPositionChanged(Duration position) {
+    final result = _result;
+    if (result == null || !result.hasSynced) return;
+    final idx = result.activeIndexFor(position);
+    if (idx != _activeIndex) {
+      _activeIndex = idx;
+      if (idx >= 0 && _scrollController.isAttached) {
+        _scrollController.scrollTo(
+          index: idx,
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+          // Keeps the active line roughly a third of the way down the
+          // viewport instead of pinned to the very top.
+          alignment: 0.35,
+        );
+      }
+      setState(() {});
+    }
   }
 
   @override
@@ -3247,10 +3274,6 @@ class _LyricsPageState extends State<_LyricsPage> {
         isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(140);
     final secondaryMuted =
         isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(70);
-    final lyricsColor =
-        isLight ? AurumTheme.lightTextPrimary : Colors.white.withAlpha(200);
-    final loaderColor =
-        isLight ? AurumTheme.lightTextMuted : Colors.white38;
 
     Widget content;
     if (_loading) {
@@ -3267,8 +3290,7 @@ class _LyricsPageState extends State<_LyricsPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.lyrics_rounded,
-                color: mutedIcon, size: 52),
+            Icon(Icons.lyrics_rounded, color: mutedIcon, size: 52),
             const SizedBox(height: 16),
             Text(
               'No lyrics found',
@@ -3281,20 +3303,28 @@ class _LyricsPageState extends State<_LyricsPage> {
             const SizedBox(height: 8),
             Text(
               'Lyrics not available for this song',
-              style: TextStyle(
-                color: secondaryMuted,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: secondaryMuted, fontSize: 13),
             ),
           ],
         ),
+      );
+    } else if (_result!.hasSynced) {
+      content = _SyncedLyricsView(
+        key: const ValueKey('synced-lyrics'),
+        lines: _result!.synced!,
+        activeIndex: _activeIndex,
+        scrollController: _scrollController,
+        positionsListener: _positionsListener,
+        onPositionChanged: _onPositionChanged,
       );
     } else {
       content = ValueListenableBuilder<LyricsStyle>(
         valueListenable: AudioPrefs.lyricsStyleNotifier,
         builder: (context, style, _) {
+          final lyricsColor =
+              isLight ? AurumTheme.lightTextPrimary : Colors.white.withAlpha(200);
           return TweenAnimationBuilder<double>(
-            key: const ValueKey('lyrics'),
+            key: const ValueKey('plain-lyrics'),
             tween: Tween(begin: 0.0, end: 1.0),
             duration: const Duration(milliseconds: 500),
             curve: Curves.easeOut,
@@ -3309,7 +3339,7 @@ class _LyricsPageState extends State<_LyricsPage> {
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
               child: Text(
-                _lyrics ?? '',
+                _result!.plain ?? '',
                 textAlign: style.position == 'Left' ? TextAlign.left : TextAlign.center,
                 style: TextStyle(
                   color: lyricsColor,
@@ -3325,9 +3355,108 @@ class _LyricsPageState extends State<_LyricsPage> {
       );
     }
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      child: content,
+    // Keep listening for playback position even while showing loading/
+    // not-found content, so a late-arriving fetch is synced immediately.
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            child: content,
+          ),
+        ),
+        Positioned.fill(
+          child: _PositionListenerBridge(onPositionChanged: _onPositionChanged),
+        ),
+      ],
+    );
+  }
+}
+
+/// Invisible widget that just re-runs [onPositionChanged] whenever
+/// PlayerProvider's position updates, without rebuilding the lyrics list
+/// itself (that's handled manually via setState in the parent for the
+/// active-line index only — avoids rebuilding all lyric rows every tick).
+class _PositionListenerBridge extends StatelessWidget {
+  final void Function(Duration) onPositionChanged;
+  const _PositionListenerBridge({required this.onPositionChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final position = context.select<PlayerProvider, Duration>((p) => p.position);
+    WidgetsBinding.instance.addPostFrameCallback((_) => onPositionChanged(position));
+    return const SizedBox.shrink();
+  }
+}
+
+class _SyncedLyricsView extends StatelessWidget {
+  final List<LyricLine> lines;
+  final int activeIndex;
+  final ItemScrollController scrollController;
+  final ItemPositionsListener positionsListener;
+  final void Function(Duration) onPositionChanged;
+
+  const _SyncedLyricsView({
+    super.key,
+    required this.lines,
+    required this.activeIndex,
+    required this.scrollController,
+    required this.positionsListener,
+    required this.onPositionChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+
+    return ValueListenableBuilder<LyricsStyle>(
+      valueListenable: AudioPrefs.lyricsStyleNotifier,
+      builder: (context, style, _) {
+        final activeColor =
+            isLight ? AurumTheme.lightTextPrimary : Colors.white;
+        final inactiveColor = isLight
+            ? AurumTheme.lightTextMuted.withAlpha(160)
+            : Colors.white.withAlpha(90);
+
+        return ScrollablePositionedList.builder(
+          key: const ValueKey('synced-list'),
+          itemScrollController: scrollController,
+          itemPositionsListener: positionsListener,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(28, 24, 28, 200),
+          itemCount: lines.length,
+          itemBuilder: (context, index) {
+            final line = lines[index];
+            final isActive = index == activeIndex;
+            if (line.text.isEmpty) {
+              return const SizedBox(height: 20);
+            }
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => context.read<PlayerProvider>().seekTo(line.time),
+              child: AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOut,
+                style: TextStyle(
+                  color: isActive ? activeColor : inactiveColor,
+                  fontSize: isActive ? style.textSize + 2 : style.textSize,
+                  height: style.lineSpacing,
+                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+                  letterSpacing: 0.1,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Text(
+                    line.text,
+                    textAlign:
+                        style.position == 'Left' ? TextAlign.left : TextAlign.center,
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

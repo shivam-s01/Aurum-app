@@ -43,6 +43,7 @@ import 'dart:math' as math;
 
 import '../models/song.dart';
 import '../models/artist.dart';
+import '../models/lyrics.dart';
 import '../utils/constants.dart';
 import 'audio_prefs.dart';
 import 'recommendation_engine.dart';
@@ -2347,6 +2348,7 @@ class ApiService {
   // LYRICS
   // ===========================================================================
   static final Map<String, String> _lyricsCache = {};
+  static final Map<String, LyricsResult> _syncedLyricsCache = {};
 
   static Future<String?> fetchLyrics(Song song) async {
     if (song.isLocal || song.id.isEmpty) return null;
@@ -2359,6 +2361,79 @@ class ApiService {
     lyrics ??= await _fetchLrcLibLyrics(song.title, song.artist);
     if (lyrics != null && lyrics.isNotEmpty) _lyricsCache[cacheKey] = lyrics;
     return lyrics;
+  }
+
+  /// Line-synced lyrics fetch. Prefers real [mm:ss.xx] timed lines from
+  /// LRCLIB; falls back to Saavn's plain lyrics (no timestamps) when LRCLIB
+  /// has nothing for this track. Cached separately from fetchLyrics() since
+  /// the shapes differ (LyricsResult vs raw String).
+  static Future<LyricsResult> fetchSyncedLyrics(Song song) async {
+    if (song.isLocal || song.id.isEmpty) return const LyricsResult();
+    final cacheKey = '${song.source.name}:${song.id}';
+    if (_syncedLyricsCache.containsKey(cacheKey)) {
+      return _syncedLyricsCache[cacheKey]!;
+    }
+
+    final result = await _fetchLrcLibSynced(song.title, song.artist, song.duration);
+    LyricsResult finalResult = result;
+
+    if (!finalResult.hasAny && song.source == SongSource.saavn) {
+      final saavnPlain = await _fetchSaavnLyrics(song.id);
+      if (saavnPlain != null && saavnPlain.isNotEmpty) {
+        finalResult = LyricsResult(plain: saavnPlain);
+      }
+    }
+
+    if (finalResult.hasAny) _syncedLyricsCache[cacheKey] = finalResult;
+    return finalResult;
+  }
+
+  static Future<LyricsResult> _fetchLrcLibSynced(
+    String title,
+    String artist,
+    int? durationSeconds,
+  ) async {
+    try {
+      final q = Uri.encodeQueryComponent('$title $artist');
+      final res = await _client
+          .get(Uri.parse('https://lrclib.net/api/search?q=$q'))
+          .timeout(const Duration(seconds: 6));
+      if (res.statusCode != 200) return const LyricsResult();
+      final data = jsonDecode(res.body);
+      if (data is! List || data.isEmpty) return const LyricsResult();
+
+      // Prefer a result whose duration matches the song (within 3s) when
+      // multiple candidates exist, since LRCLIB search can return covers/
+      // remixes with the same title. Falls back to the first result.
+      Map<String, dynamic>? best;
+      if (durationSeconds != null) {
+        for (final entry in data) {
+          final e = entry as Map<String, dynamic>;
+          final d = e['duration'];
+          if (d is num && (d.toInt() - durationSeconds).abs() <= 3) {
+            best = e;
+            break;
+          }
+        }
+      }
+      best ??= data.first as Map<String, dynamic>?;
+      if (best == null) return const LyricsResult();
+
+      final syncedRaw = best['syncedLyrics'] as String?;
+      final plainRaw = best['plainLyrics'] as String?;
+
+      if (syncedRaw != null && syncedRaw.isNotEmpty) {
+        final parsed = LyricsResult.parseLrc(syncedRaw);
+        if (parsed.isNotEmpty) {
+          final plainFallback = parsed.map((l) => l.text).where((t) => t.isNotEmpty).join('\n');
+          return LyricsResult(synced: parsed, plain: plainFallback);
+        }
+      }
+      if (plainRaw != null && plainRaw.isNotEmpty) {
+        return LyricsResult(plain: plainRaw);
+      }
+    } catch (_) {}
+    return const LyricsResult();
   }
 
   static Future<String?> _fetchSaavnLyrics(String songId) async {

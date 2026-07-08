@@ -39,6 +39,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
 import '../models/song.dart';
+import '../models/lyrics.dart';
 import '../services/native_engine_bridge.dart';
 import '../services/api_service.dart';
 import '../services/audio_prefs.dart';
@@ -773,6 +774,15 @@ class PlayerProvider extends ChangeNotifier {
     final song = currentSong;
     if (song == null) return null;
     return ApiService.fetchLyrics(song);
+  }
+
+  /// Line-synced lyrics for the currently playing song. Returns a
+  /// [LyricsResult] carrying either timestamped lines (preferred) or a
+  /// plain-text fallback when no synced source is available.
+  Future<LyricsResult> fetchSyncedLyrics() async {
+    final song = currentSong;
+    if (song == null) return const LyricsResult();
+    return ApiService.fetchSyncedLyrics(song);
   }
 
   // ---------------------------------------------------------------------------
