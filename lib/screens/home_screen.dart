@@ -18,6 +18,7 @@ import '../services/audio_prefs.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/song_tile.dart';
+import '../main.dart' show aurumRouteObserver;
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_pressable.dart';
@@ -151,7 +152,13 @@ class _HomeScreenState extends HomeScreenState {
 
   void _onScroll() {
     _heroSyncDebounce?.cancel();
-    _heroSyncDebounce = Timer(const Duration(milliseconds: 60), () {
+    // FIX — mini player felt "bahut late" reappearing near the hero card.
+    // 60ms here was stacked on top of the mini player's own 380ms entry
+    // animation, reading as a sluggish ~440ms lag before anything even
+    // started animating in. 16ms (~1 frame) is still enough to swallow
+    // the theme-rebuild/fling-rebound noise this debounce exists for,
+    // without being perceptible as a delay.
+    _heroSyncDebounce = Timer(const Duration(milliseconds: 16), () {
       if (!mounted || !_scrollCtrl.hasClients) return;
       final heroGone = _scrollCtrl.offset >= _heroHeight;
       MiniPlayer.heroVisibleNotifier.value = !heroGone;
@@ -558,7 +565,7 @@ class _HeroNowPlaying extends StatefulWidget {
 }
 
 class _HeroNowPlayingState extends State<_HeroNowPlaying>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
   late final AnimationController _breatheCtrl;
   String? _lastUrl;
   bool _appInForeground = true;
@@ -598,6 +605,56 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
         CurvedAnimation(parent: _slideInCtrl, curve: Curves.easeOutCubic);
   }
 
+  ModalRoute<void>? _subscribedRoute;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Guard against re-subscribing on every didChangeDependencies call —
+    // this fires more than once since _HeroNowPlaying lives inside an
+    // IndexedStack tab that's never disposed (theme changes, MediaQuery
+    // changes, etc. all re-trigger it). Only (re)subscribe if the actual
+    // ModalRoute instance changed, matching Flutter's documented
+    // RouteAware pattern exactly.
+    final route = ModalRoute.of(context);
+    if (route != null && route != _subscribedRoute) {
+      if (_subscribedRoute != null) {
+        aurumRouteObserver.unsubscribe(this);
+      }
+      aurumRouteObserver.subscribe(this, route);
+      _subscribedRoute = route;
+    }
+  }
+
+  // FIX — breathing animation permanently dead after opening the full
+  // player once: FullPlayerScreen is pushed via Navigator ON TOP of Home,
+  // which puts Home's route (and everything in it, including this widget)
+  // under Flutter's TickerMode.disabled. That silently stops _breatheCtrl
+  // from ticking frames, but does NOT flip AnimationController.isAnimating
+  // back to false — the controller still THINKS it's mid-`.repeat()`.
+  // build()'s gate is `if (shouldBreathe && !_breatheCtrl.isAnimating)`,
+  // so on returning to Home, isAnimating already reads true and that
+  // guard never re-fires .repeat() — the animation stays frozen forever
+  // (or until the next song change happens to reset state elsewhere).
+  // Fix: RouteAware.didPopNext fires exactly when this route becomes the
+  // active top route again (i.e. right after popping FullPlayerScreen
+  // back to Home). Force a hard stop+restart there so the controller's
+  // internal state is never left stale.
+  @override
+  void didPopNext() {
+    if (!mounted) return;
+    // Hard reset — do NOT rely on the `!_breatheCtrl.isAnimating` guard in
+    // build(), since that flag can still read `true` here (stale from
+    // before TickerMode disabled this route) even though no frames have
+    // actually ticked. .stop() first guarantees a clean, real restart.
+    _breatheCtrl.stop();
+    final player = context.read<PlayerProvider>();
+    if (player.isPlaying && _appInForeground) {
+      _breatheCtrl.repeat(reverse: true);
+    }
+    setState(() {});
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Force-stop the breathe glow the instant the app leaves the
@@ -616,6 +673,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    aurumRouteObserver.unsubscribe(this);
     _breatheCtrl.dispose();
     _swipeCtrl.dispose();
     _slideInCtrl.dispose();

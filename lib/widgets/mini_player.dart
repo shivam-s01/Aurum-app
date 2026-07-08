@@ -603,25 +603,41 @@ class _MiniPlayerState extends State<MiniPlayer>
         return ValueListenableBuilder<bool>(
           valueListenable: MiniPlayer.heroVisibleNotifier,
           builder: (context, heroVisible, _) {
-            if (heroVisible) {
-              return const SizedBox.shrink();
-            }
-            return AnimatedBuilder(
-              animation: _entryCtrl,
-              builder: (_, child) {
-                return Transform.translate(
-                  offset: Offset(0, _entrySlide.value * 80),
-                  child: Transform.scale(
-                    scale: _entryScale.value,
-                    alignment: Alignment.bottomCenter,
-                    child: Opacity(
-                      opacity: _entryOpacity.value,
-                      child: child,
-                    ),
-                  ),
-                );
-              },
-              child: _buildInner(context, player),
+            // FIX — "mini player shows up very late near the hero card":
+            // this used to hard-swap between SizedBox.shrink() and the
+            // fully-built capsule with NO transition at all on the
+            // hero-visibility toggle itself — the only motion the user
+            // ever saw was the unrelated _entryCtrl (380ms slide+scale),
+            // which only plays on song-change/dismiss-reappear, not on
+            // this toggle. So going from "hero visible" to "hero gone"
+            // felt like a instant pop with no ease. A quick, dedicated
+            // fade (120ms) here makes it read as smooth and immediate
+            // rather than either "invisible cause it never animates" or
+            // "slow because it's riding the 380ms entry animation".
+            return AnimatedOpacity(
+              duration: const Duration(milliseconds: 120),
+              curve: Curves.easeOut,
+              opacity: heroVisible ? 0.0 : 1.0,
+              child: IgnorePointer(
+                ignoring: heroVisible,
+                child: AnimatedBuilder(
+                  animation: _entryCtrl,
+                  builder: (_, child) {
+                    return Transform.translate(
+                      offset: Offset(0, _entrySlide.value * 80),
+                      child: Transform.scale(
+                        scale: _entryScale.value,
+                        alignment: Alignment.bottomCenter,
+                        child: Opacity(
+                          opacity: _entryOpacity.value,
+                          child: child,
+                        ),
+                      ),
+                    );
+                  },
+                  child: _buildInner(context, player),
+                ),
+              ),
             );
           },
         );
