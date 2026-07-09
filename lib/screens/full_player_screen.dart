@@ -4254,7 +4254,7 @@ class _IconBtn extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Control Button
 // ─────────────────────────────────────────────────────────────────────────────
-class _CtrlBtn extends StatelessWidget {
+class _CtrlBtn extends StatefulWidget {
   final IconData icon;
   final double size;
   final bool active;
@@ -4272,22 +4272,86 @@ class _CtrlBtn extends StatelessWidget {
   });
 
   @override
+  State<_CtrlBtn> createState() => _CtrlBtnState();
+}
+
+// FIX (Shivam feedback): Shuffle/Repeat previously just snapped between
+// active/inactive colors on rebuild with zero motion — every other control
+// (play/prev/next) has a press animation via AurumPressable, but the
+// gold-highlight state change on these two had nothing, which is why they
+// felt "flat"/cheap next to the rest of the transport row. This adds:
+//  - a smooth color cross-fade between active/inactive tint (AnimatedSwitcher
+//    alone can't tween Icon color, so we drive it with an AnimationController
+//    + ColorTween instead)
+//  - a quick pop/bounce scale (1.0 -> 1.25 -> 1.0) the moment the toggle
+//    actually flips, so activating shuffle/repeat *feels* like it registered
+// Press-scale (the 0.85 shrink on finger-down) is still handled by the
+// existing AurumPressable wrapper — this only adds the state-change motion
+// on top of it.
+class _CtrlBtnState extends State<_CtrlBtn> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late Animation<double> _pop;
+  late bool _wasActive;
+
+  @override
+  void initState() {
+    super.initState();
+    _wasActive = widget.active;
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
+    _pop = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.25), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.25, end: 1.0), weight: 60),
+    ]).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
+  }
+
+  @override
+  void didUpdateWidget(covariant _CtrlBtn oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) {
+      _wasActive = oldWidget.active;
+      _ctrl.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final inactiveColor = isLight
         ? AurumTheme.lightTextMuted
         : Colors.white.withAlpha(100);
-    final c = color ?? (active ? AurumTheme.gold : inactiveColor);
+    Color colorFor(bool isActive) =>
+        widget.color ?? (isActive ? AurumTheme.gold : inactiveColor);
+    final fromColor = colorFor(_wasActive);
+    final toColor = colorFor(widget.active);
+
     return Semantics(
-      label: semanticLabel,
+      label: widget.semanticLabel,
       button: true,
       child: AurumPressable(
         scaleAmount: 0.85,
         haptic: false, // callers already fire their own haptic per action
-        onTap: onTap,
+        onTap: widget.onTap,
         child: Padding(
           padding: const EdgeInsets.all(10),
-          child: Icon(icon, size: size, color: c),
+          child: AnimatedBuilder(
+            animation: _ctrl,
+            builder: (context, child) {
+              final c = Color.lerp(fromColor, toColor, _ctrl.value) ?? toColor;
+              return Transform.scale(
+                scale: _pop.value,
+                child: Icon(widget.icon, size: widget.size, color: c),
+              );
+            },
+          ),
         ),
       ),
     );

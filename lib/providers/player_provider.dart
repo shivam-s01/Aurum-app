@@ -580,7 +580,14 @@ class PlayerProvider extends ChangeNotifier {
 
       await _engine.playSong(song);
       if (mySession != _uiPlaySession) return; // superseded by a newer tap
-      if (!song.isLocal) {
+      // FIX: previously gated on `!song.isLocal`. isLocal is also true for
+      // downloaded songs (they have localPath set for offline playback),
+      // so tapping a downloaded song never auto-built an upNext queue at
+      // all. Downloaded songs keep their real source (saavn/youtube) and
+      // id, so recommendations still work for them — only genuinely
+      // imported local files (SongSource.local) have no online identity
+      // to base recommendations on, so we skip just those.
+      if (song.source != SongSource.local) {
         _buildInitialSmartQueue(song, alreadyInQueue: {song.id}, sessionId: mySession);
       }
     }

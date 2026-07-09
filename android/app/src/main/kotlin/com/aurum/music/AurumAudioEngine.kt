@@ -1254,7 +1254,6 @@ class AurumAudioEngine(
                     } catch (e: Exception) { /* skip this song, continue */ }
                 }
 
-                var playerIndex = 0
                 for (i in startIndex - 1 downTo 0) {
                     if (sessionId != playSessionId) return@launch
                     if (startIndex - i > PRIORITY_BACKWARD_WINDOW) {
@@ -1265,10 +1264,33 @@ class AurumAudioEngine(
                         val url = resolveFast(songs[i], sessionId, maxAttempts = 1)
                         if (sessionId != playSessionId) return@launch
                         if (url != null && sessionId == playSessionId) {
+                            // FIX (2026-07-09) — "song ruk ruk jata hai, 1-2
+                            // sec ke liye": this used to follow addMediaItem(0,
+                            // ...) with an explicit player.seekTo(playerIndex,
+                            // player.currentPosition) "to correct the index
+                            // shift". That seek is not just unnecessary —
+                            // ExoPlayer ALREADY keeps playing the same item
+                            // and auto-adjusts currentMediaItemIndex on its
+                            // own whenever items are inserted before the
+                            // current one; the timeline shifts, playback does
+                            // not. Calling seekTo() on the item that is
+                            // ACTIVELY PLAYING — even to its own current
+                            // position — forces ExoPlayer to treat it as a
+                            // real seek: it re-evaluates/reconstructs the
+                            // buffered window around that position, which
+                            // audibly interrupts rendering for ~1-2s. Because
+                            // this fires once per song walked in the backward
+                            // prewarm window (every PACED_RESOLVE_DELAY_MS
+                            // during ordinary playback, not just at queue
+                            // edges), it reproduced as periodic,
+                            // seemingly-random stutter throughout a song —
+                            // exactly the reported symptom. Simply not
+                            // seeking after the insert removes the bogus
+                            // seek while leaving the insert (and therefore
+                            // the backward instant-skip window it exists
+                            // for) fully intact.
                             player.addMediaItem(0, buildMediaItem(songs[i], url))
                             liveMediaIds.add(0, songs[i].id)
-                            playerIndex++
-                            player.seekTo(playerIndex, player.currentPosition)
                             handleCurrentIndexChanged(player.currentMediaItemIndex)
                         }
                     } catch (e: Exception) { /* skip this song, continue */ }
