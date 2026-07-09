@@ -2935,8 +2935,100 @@ class _CollectionRow extends StatefulWidget {
 }
 
 class _CollectionRowState extends State<_CollectionRow>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   bool _pressed = false;
+
+  // ── Swipe-to-open ─────────────────────────────────────────────────────
+  // Per spec: these 5 rows open ONLY via a left swipe — a plain tap does
+  // nothing. `_dragDx` tracks live horizontal drag distance so the row
+  // visually follows the finger (a lightweight Transform.translate, no
+  // extra widgets/layers), giving immediate feedback that a swipe is
+  // registering. Crossing `_openThreshold` on release triggers
+  // navigation; anything short of it — or a rightward drag — snaps the
+  // row back to rest, i.e. treated as a cancelled gesture, no navigation.
+  //
+  // FAST-USE HARDENING — this row must stay glitch-free even when a user
+  // swipes rapidly, repeatedly, or fires a new swipe before the last one
+  // has finished animating/navigating:
+  //   • `_navigating` guards against a double-fire: without it, a user
+  //     swiping twice in very quick succession (second swipe starting
+  //     before the pushed screen has actually appeared) could trigger
+  //     `onTap` twice, stacking two identical screens on the Navigator —
+  //     back would then need two presses to actually leave. Once a swipe
+  //     opens a screen, this row ignores all further drag input until
+  //     the row is disposed (it's off-screen under the new route by then
+  //     anyway) or, if the push is somehow cancelled, is defensively reset
+  //     after a short delay.
+  //   • Snap-back on a cancelled/incomplete swipe now animates back to
+  //     rest (short, cheap AnimatedContainer-level tween on `_dragDx`)
+  //     instead of jumping instantly — an instant jump reads as a stutter
+  //     when the user immediately starts another swipe right after; the
+  //     animated return means overlapping fast gestures always look
+  //     continuous instead of snapping around.
+  double _dragDx = 0;
+  bool _navigating = false;
+  static const double _openThreshold = -56.0;
+  static const double _maxDragFollow = -84.0;
+
+  // Dedicated controller purely for the "snap back to rest" motion after
+  // a drag ends — kept completely separate from the drag itself (which
+  // sets _dragDx directly, 1:1 with the finger, no animation involved)
+  // so live dragging always has zero lag, while release always animates
+  // smoothly regardless of how quickly the user repeats the gesture.
+  late final AnimationController _snapBackCtrl;
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    if (_navigating) return;
+    // A new drag starting mid-snap-back should immediately take over —
+    // stop any in-flight return animation so the row doesn't fight the
+    // finger (this is what keeps rapid repeated swipes glitch-free).
+    if (_snapBackCtrl.isAnimating) _snapBackCtrl.stop();
+    setState(() {
+      _dragDx += details.delta.dx;
+      if (_dragDx > 0) _dragDx = 0; // ignore rightward drag entirely
+      if (_dragDx < _maxDragFollow) _dragDx = _maxDragFollow;
+    });
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    if (_navigating) return;
+    final crossedThreshold = _dragDx <= _openThreshold;
+
+    if (crossedThreshold) {
+      // Lock immediately so a second, near-simultaneous swipe (finger
+      // lifts and comes right back down mid-gesture) can never fire a
+      // second navigation while the first is still in flight.
+      _navigating = true;
+      HapticFeedback.mediumImpact();
+      _animateSnapBack();
+      widget.item.onTap?.call();
+      // Defensive reset: if for any reason no navigation actually
+      // occurred (e.g. onTap was null), don't leave this row permanently
+      // stuck ignoring input.
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) _navigating = false;
+      });
+    } else {
+      _animateSnapBack();
+    }
+  }
+
+  void _animateSnapBack() {
+    final start = _dragDx;
+    _snapBackCtrl.reset();
+    final tween = Tween<double>(begin: start, end: 0).animate(
+      CurvedAnimation(parent: _snapBackCtrl, curve: Curves.easeOut),
+    );
+    void listener() {
+      if (!mounted) return;
+      setState(() => _dragDx = tween.value);
+    }
+
+    tween.addListener(listener);
+    _snapBackCtrl.forward().whenCompleteOrCancel(() {
+      tween.removeListener(listener);
+    });
+  }
 
   late final AnimationController _entranceCtrl;
   late final Animation<double> _fade;
@@ -2950,6 +3042,10 @@ class _CollectionRowState extends State<_CollectionRow>
   void initState() {
     super.initState();
     _entranceCtrl = AnimationController(vsync: this, duration: _riseDuration);
+    _snapBackCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    );
 
     // easeOutCubic gives a confident, slightly-decelerating rise rather
     // than a linear pop — reads as "premium spring" without the bounce
@@ -2972,6 +3068,7 @@ class _CollectionRowState extends State<_CollectionRow>
   @override
   void dispose() {
     _entranceCtrl.dispose();
+    _snapBackCtrl.dispose();
     super.dispose();
   }
 
@@ -2986,77 +3083,91 @@ class _CollectionRowState extends State<_CollectionRow>
 
     final row = GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTapDown: (_) => _setPressed(true),
-      onTapCancel: () => _setPressed(false),
-      onTapUp: (_) => _setPressed(false),
-      onTap: () {
-        HapticFeedback.selectionClick();
-        item.onTap?.call();
+      onHorizontalDragStart: (_) => _setPressed(true),
+      onHorizontalDragUpdate: _onDragUpdate,
+      onHorizontalDragEnd: (details) {
+        _setPressed(false);
+        _onDragEnd(details);
+      },
+      onHorizontalDragCancel: () {
+        _setPressed(false);
+        if (!_navigating) _animateSnapBack();
       },
       child: AnimatedScale(
         scale: _pressed ? 0.975 : 1.0,
         duration: const Duration(milliseconds: 120),
         curve: Curves.easeOut,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 14),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                item.color.withOpacity(_pressed ? 0.14 : (isLight ? 0.07 : 0.09)),
-                item.color.withOpacity(_pressed ? 0.05 : 0.02),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: item.color.withOpacity(isLight ? 0.14 : 0.16),
-              width: 0.8,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isLight ? 0.03 : 0.14),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
+        // Transform.translate driven directly by _dragDx: during an
+        // active drag this is a raw pixel-for-pixel finger-follow (no
+        // animation lag at all — the same feel as native swipe-to-open
+        // gestures). The snap-back on release is animated separately via
+        // _snapBackCtrl (see _onDragEnd) rather than this widget jumping
+        // instantly, so rapid back-to-back swipes never look like the
+        // row is teleporting between gestures.
+        child: Transform.translate(
+          offset: Offset(_dragDx, 0),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOut,
+            padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  item.color
+                      .withOpacity(_pressed ? 0.14 : (isLight ? 0.07 : 0.09)),
+                  item.color.withOpacity(_pressed ? 0.05 : 0.02),
+                ],
               ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: item.color.withOpacity(isLight ? 0.14 : 0.16),
-                  borderRadius: BorderRadius.circular(11),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: item.color.withOpacity(isLight ? 0.14 : 0.16),
+                width: 0.8,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isLight ? 0.03 : 0.14),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
                 ),
-                child: Icon(item.icon, color: item.color, size: 19),
-              ),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Text(item.label,
-                    style: TextStyle(
-                        color: AurumTheme.textPrimaryOf(context),
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.1),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-              ),
-              if (item.subtitle.isNotEmpty) ...[
-                Text(item.subtitle,
-                    style: TextStyle(
-                        color: AurumTheme.textMutedOf(context),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(width: 8),
               ],
-              Icon(Icons.chevron_right_rounded,
-                  color: AurumTheme.textMutedOf(context).withOpacity(0.5),
-                  size: 19),
-            ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: item.color.withOpacity(isLight ? 0.14 : 0.16),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Icon(item.icon, color: item.color, size: 19),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Text(item.label,
+                      style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.1),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ),
+                if (item.subtitle.isNotEmpty) ...[
+                  Text(item.subtitle,
+                      style: TextStyle(
+                          color: AurumTheme.textMutedOf(context),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500)),
+                  const SizedBox(width: 8),
+                ],
+                Icon(Icons.chevron_right_rounded,
+                    color: AurumTheme.textMutedOf(context).withOpacity(0.5),
+                    size: 19),
+              ],
+            ),
           ),
         ),
       ),
