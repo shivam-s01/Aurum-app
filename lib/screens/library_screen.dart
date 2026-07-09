@@ -43,6 +43,7 @@ import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_empty_state.dart';
+import 'full_player_screen.dart';
 import '../widgets/premium_gate.dart';
 import '../models/song.dart';
 import '../utils/aurum_transitions.dart';
@@ -2178,7 +2179,11 @@ class DownloadsScreen extends StatelessWidget {
                       context, '${completed.length} DOWNLOADED')),
               SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  (context, i) => _DownloadTile(item: completed[i]),
+                  (context, i) => _DownloadTile(
+                    item: completed[i],
+                    queue: completed,
+                    queueIndex: i,
+                  ),
                   childCount: completed.length,
                 ),
               ),
@@ -2205,7 +2210,15 @@ class DownloadsScreen extends StatelessWidget {
 
 class _DownloadTile extends StatelessWidget {
   final DownloadItem item;
-  const _DownloadTile({required this.item});
+  // FIX (Shivam feedback): tapping a downloaded song used to call
+  // playSong(offlineSong) with no queue/index, so Up Next stayed empty
+  // instead of showing the rest of the downloaded songs, and nothing
+  // pushed FullPlayerScreen so the player never opened. `queue` is the
+  // full list of completed DownloadItems (passed from DownloadsScreen)
+  // and `queueIndex` is this tile's position in it.
+  final List<DownloadItem>? queue;
+  final int? queueIndex;
+  const _DownloadTile({required this.item, this.queue, this.queueIndex});
 
   @override
   Widget build(BuildContext context) {
@@ -2287,9 +2300,36 @@ class _DownloadTile extends StatelessWidget {
         if (item.isFailed) {
           context.read<DownloadProvider>().retry(song);
         } else if (item.isCompleted) {
-          final offlineSong =
-              context.read<DownloadProvider>().offlineSongFor(song.id) ?? song;
-          context.read<PlayerProvider>().playSong(offlineSong);
+          final dl = context.read<DownloadProvider>();
+          final offlineSong = dl.offlineSongFor(song.id) ?? song;
+
+          // Build the Up Next queue out of every OTHER downloaded song too,
+          // resolving each to its offline version, so playback naturally
+          // continues through the rest of the downloads list.
+          final offlineQueue = (queue ?? [item])
+              .map((d) => dl.offlineSongFor(d.song.id) ?? d.song)
+              .toList();
+          final resolvedIndex = queueIndex ?? 0;
+
+          context.read<PlayerProvider>().playSong(
+                offlineSong,
+                queue: offlineQueue,
+                index: resolvedIndex,
+              );
+
+          Navigator.of(context).push(
+            PageRouteBuilder(
+              opaque: true,
+              pageBuilder: (_, __, ___) => const FullPlayerScreen(),
+              transitionsBuilder: (_, anim, __, child) => SlideTransition(
+                position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+                    .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+                child: child,
+              ),
+              transitionDuration: const Duration(milliseconds: 380),
+              reverseTransitionDuration: const Duration(milliseconds: 300),
+            ),
+          );
         }
       },
     );
