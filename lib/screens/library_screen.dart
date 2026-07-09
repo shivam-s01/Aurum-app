@@ -266,6 +266,8 @@ class LibraryScreen extends StatelessWidget {
     final plCount = context.watch<PlaylistProvider>().count;
     final followedCount =
         context.watch<FollowedArtistsProvider>().followed.length;
+    final followedAlbumsCount =
+        context.watch<FollowedAlbumsProvider>().followed.length;
 
     final items = [
       _CollectionItem(
@@ -273,28 +275,28 @@ class LibraryScreen extends StatelessWidget {
         label: 'Liked Songs',
         subtitle: '$favCount',
         color: Colors.pinkAccent,
-        onTap: () => AurumPageRoute.to(context, const LikedScreen()),
+        onTap: () => AurumSlidePageRoute.to(context, const LikedScreen()),
       ),
       _CollectionItem(
         icon: Icons.queue_music_rounded,
         label: 'Playlists',
         subtitle: plCount == 0 ? '' : '$plCount',
         color: Colors.purpleAccent,
-        onTap: () => AurumPageRoute.to(context, const PlaylistsScreen()),
+        onTap: () => AurumSlidePageRoute.to(context, const PlaylistsScreen()),
       ),
       _CollectionItem(
         icon: Icons.album_rounded,
         label: 'Albums',
-        subtitle: '',
+        subtitle: followedAlbumsCount == 0 ? '' : '$followedAlbumsCount',
         color: Colors.deepPurple,
-        onTap: () => AurumPageRoute.to(context, const _AlbumsScreen()),
+        onTap: () => AurumSlidePageRoute.to(context, const _AlbumsScreen()),
       ),
       _CollectionItem(
         icon: Icons.person_rounded,
         label: 'Artists',
         subtitle: followedCount == 0 ? '' : '$followedCount',
         color: Colors.blueAccent,
-        onTap: () => AurumPageRoute.to(context, const _ArtistsScreen()),
+        onTap: () => AurumSlidePageRoute.to(context, const _ArtistsScreen()),
       ),
       _CollectionItem(
         icon: Icons.folder_rounded,
@@ -304,7 +306,7 @@ class LibraryScreen extends StatelessWidget {
         onTap: () async {
           if (!lib.hasLoaded) await lib.load();
           if (context.mounted) {
-            AurumPageRoute.to(context, const _LocalFilesScreen());
+            AurumSlidePageRoute.to(context, const _LocalFilesScreen());
           }
         },
       ),
@@ -316,7 +318,7 @@ class LibraryScreen extends StatelessWidget {
         children: List.generate(items.length, (i) {
           return Padding(
             padding: EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 10),
-            child: _CollectionRow(item: items[i]),
+            child: _CollectionRow(item: items[i], chainIndex: i),
           );
         }),
       ),
@@ -2912,16 +2914,66 @@ class _CollectionItem {
 // soft shadow) rather than sitting flat on the page background with only
 // a divider line beneath it. This is what gives the "shelf of premium
 // tiles" feel instead of a plain settings list.
+//
+// CHAIN ENTRANCE ANIMATION — premium "cascade" open:
+//   Each row now plays a one-time entrance animation on first build: it
+//   starts slightly below its resting position, scaled down a touch and
+//   fully transparent, then springs up into place (slide + fade + scale)
+//   with a gentle overshoot. `chainIndex` staggers the start of each row's
+//   animation by a fixed offset, so rows fire one after another like a
+//   chain/waterfall — Liked Songs first, then Playlists, Albums, Artists,
+//   Local Files — instead of all five popping in at once. This only runs
+//   once per row's lifetime (triggered from initState), so scrolling the
+//   list or provider rebuilds (e.g. counts changing) never re-triggers it.
 class _CollectionRow extends StatefulWidget {
   final _CollectionItem item;
-  const _CollectionRow({required this.item});
+  final int chainIndex;
+  const _CollectionRow({required this.item, this.chainIndex = 0});
 
   @override
   State<_CollectionRow> createState() => _CollectionRowState();
 }
 
-class _CollectionRowState extends State<_CollectionRow> {
+class _CollectionRowState extends State<_CollectionRow>
+    with SingleTickerProviderStateMixin {
   bool _pressed = false;
+
+  late final AnimationController _entranceCtrl;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+  late final Animation<double> _scale;
+
+  static const _staggerStep = Duration(milliseconds: 90);
+  static const _riseDuration = Duration(milliseconds: 520);
+
+  @override
+  void initState() {
+    super.initState();
+    _entranceCtrl = AnimationController(vsync: this, duration: _riseDuration);
+
+    // easeOutCubic gives a confident, slightly-decelerating rise rather
+    // than a linear pop — reads as "premium spring" without the bounce
+    // overshooting into cartoonish territory.
+    final curved =
+        CurvedAnimation(parent: _entranceCtrl, curve: Curves.easeOutCubic);
+    _fade = curved;
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.35),
+      end: Offset.zero,
+    ).animate(curved);
+    _scale = Tween<double>(begin: 0.92, end: 1.0).animate(curved);
+
+    final delay = _staggerStep * widget.chainIndex;
+    Future.delayed(delay, () {
+      if (mounted) _entranceCtrl.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _entranceCtrl.dispose();
+    super.dispose();
+  }
 
   void _setPressed(bool v) {
     if (_pressed != v) setState(() => _pressed = v);
@@ -2932,7 +2984,7 @@ class _CollectionRowState extends State<_CollectionRow> {
     final item = widget.item;
     final isLight = Theme.of(context).brightness == Brightness.light;
 
-    return GestureDetector(
+    final row = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (_) => _setPressed(true),
       onTapCancel: () => _setPressed(false),
@@ -3008,6 +3060,18 @@ class _CollectionRowState extends State<_CollectionRow> {
           ),
         ),
       ),
+    );
+
+    return AnimatedBuilder(
+      animation: _entranceCtrl,
+      builder: (context, child) => Opacity(
+        opacity: _fade.value.clamp(0.0, 1.0),
+        child: FractionalTranslation(
+          translation: _slide.value,
+          child: Transform.scale(scale: _scale.value, child: child),
+        ),
+      ),
+      child: row,
     );
   }
 }
