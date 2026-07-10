@@ -347,39 +347,32 @@ class _AurumBottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    // REDESIGN — reference-matched full-width bar: edge-to-edge strip
-    // (not an inset floating capsule), icon + label always visible on
-    // all 3 tabs, and a small soft pill sitting ONLY behind the
-    // selected tab's icon (not spanning the whole segment) — matching
-    // the reference screenshot exactly. RepaintBoundary isolates this
-    // blur onto its own layer — the mini player directly above uses
-    // its own BackdropFilter too, and letting two backdrop filters
-    // share a compositing layer can make Android's Skia backend blur
-    // the wrong region (same issue already fixed once in
-    // mini_player.dart).
+    // REDESIGN v3 — roughly-half-height bar (46 vs the original 64) with
+    // a top-to-bottom fade: the top ~40% is fully transparent so home
+    // content shows through crisp (no blur — blur reads as "hiding
+    // something", not deliberate). Only the portion right behind the
+    // icons/labels fades to solid, for legibility. Height is 46, not a
+    // stricter half (32), because pill+icon+label content genuinely
+    // needs ~31px vertical room — going tighter starts clipping text or
+    // forcing illegibly small font sizes, which reads as broken, not
+    // premium.
+    const barHeight = 46.0;
     return RepaintBoundary(
       child: SafeArea(
         top: false,
         child: Container(
-          height: 64,
+          height: barHeight,
           decoration: BoxDecoration(
-            color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.94 : 0.96),
-            border: Border(
-              top: BorderSide(
-                color: AurumTheme.textMutedOf(context).withOpacity(isLight ? 0.08 : 0.10),
-                width: 0.6,
-              ),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: const [0.0, 0.4, 1.0],
+              colors: [
+                Colors.transparent,
+                AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.55 : 0.5),
+                AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.97 : 0.99),
+              ],
             ),
-            // Subtle upward shadow — lifts the bar off the content
-            // behind it just enough to read as a distinct surface,
-            // without turning into a heavy/floating card shadow.
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isLight ? 0.06 : 0.22),
-                blurRadius: 16,
-                offset: const Offset(0, -4),
-              ),
-            ],
           ),
           child: Row(
             children: List.generate(_items.length, (i) {
@@ -405,8 +398,8 @@ class _AurumBottomNavBar extends StatelessWidget {
                         AnimatedContainer(
                           duration: const Duration(milliseconds: 260),
                           curve: Curves.easeOutCubic,
-                          width: 52,
-                          height: 32,
+                          width: 42,
+                          height: 20,
                           decoration: BoxDecoration(
                             // Soft, not hard — low opacity tonal wash,
                             // matching the pale lavender capsule in
@@ -415,7 +408,7 @@ class _AurumBottomNavBar extends StatelessWidget {
                             color: selected
                                 ? AurumTheme.gold.withOpacity(isLight ? 0.14 : 0.16)
                                 : Colors.transparent,
-                            borderRadius: BorderRadius.circular(18),
+                            borderRadius: BorderRadius.circular(10),
                           ),
                           alignment: Alignment.center,
                           child: TweenAnimationBuilder<double>(
@@ -436,7 +429,7 @@ class _AurumBottomNavBar extends StatelessWidget {
                               child: Icon(
                                 selected ? item.filled : item.outline,
                                 key: ValueKey(selected),
-                                size: 22,
+                                size: 16,
                                 color: selected
                                     ? AurumTheme.gold
                                     : AurumTheme.textMutedOf(context),
@@ -444,12 +437,14 @@ class _AurumBottomNavBar extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 3),
-                        // ── Label — always visible on all 3 tabs ──
+                        // Halved bar height leaves little room, but text
+                        // below ~9.5px starts reading as illegible/cheap
+                        // on real device DPI rather than "compact" — this
+                        // is the smallest size that still stays crisp.
                         Text(
                           item.label,
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 9.5,
                             letterSpacing: 0.2,
                             fontWeight:
                                 selected ? FontWeight.w600 : FontWeight.w500,
