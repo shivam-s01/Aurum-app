@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -307,29 +306,19 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 }
 
+
 // ══════════════════════════════════════════════════════════════════
-// AURUM BOTTOM NAV BAR v2 — premium floating-pill tab bar.
+// AURUM BOTTOM NAV BAR — Echo Nighty style.
 //
-// WHY THIS REWRITE:
-//   The previous version had NO indicator behind the active tab at
-//   all (a prior pill was removed per an earlier request, leaving
-//   flat icon+label pairs with only a colour change). That reads as
-//   a generic default tab bar, not a "top-level paid app" one.
+// Ported directly from Echo Nighty's bottom nav: NO bar container at
+// all — no background fill, no blur, no shadow, no top border/divider.
+// Icons and labels float straight on top of page content. The only
+// visual element is a solid filled rounded-rect capsule that sits
+// behind the active tab's icon+label pair and slides between tabs.
 //
-//   This version brings back a floating pill — but built correctly
-//   this time: a single AnimationController drives its horizontal
-//   position with a spring curve (not a linear slide), so it
-//   overshoots slightly and settles, the way a native iOS/well-built
-//   Android tab indicator moves. The pill sits behind the icon+label
-//   as a soft gold-tinted glass capsule, animates width text width so
-//   it hugs the selected label naturally, and the icon does a small
-//   scale-pop + haptic on selection so every tap feels tactile.
-//
-//   Structure: a Stack with the pill positioned via AnimatedPositioned
-//   (spring curve) UNDER a plain Row of tap targets — exactly the
-//   architecture the old code deliberately avoided ("no
-//   Stack/LayoutBuilder needed"), reintroduced here because a moving
-//   indicator is precisely what that structure is for.
+// This replaces the old glass/blur/shadow "v2" pill bar. Constructor
+// signature (currentIndex, onTap) is unchanged, so MainShell's build()
+// above needs no edits.
 // ══════════════════════════════════════════════════════════════════
 class _AurumBottomNavBar extends StatelessWidget {
   const _AurumBottomNavBar({
@@ -345,300 +334,107 @@ class _AurumBottomNavBar extends StatelessWidget {
     (outline: PhosphorIconsRegular.vinylRecord, filled: PhosphorIconsFill.vinylRecord, label: 'Library'),
   ];
 
-  static const double _barHeight = 68.0;
-  static const double _cornerRadius = 28.0;
+  static const double _barHeight = 64.0;
 
   @override
   Widget build(BuildContext context) {
     final accent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
-    final isLight = Theme.of(context).brightness == Brightness.light;
 
-    // FLAGSHIP REDESIGN v3 — the previous pass had all the right numbers
-    // on paper but two of them cancelled each other out visually:
-    // `bgCardOf` is near-white in light theme, so tinting a blur with a
-    // near-white color at 0.78 opacity over an already-near-white home
-    // screen produced literally zero visible glass — no depth, no edge,
-    // just flat white-on-white. Same logic made the capsule indicator
-    // (accent @ 0.12) invisible against that same near-white field.
-    //
-    // Fix is contrast, not architecture: the glass tint now always leans
-    // slightly toward the *opposite* end of the brightness scale from
-    // the theme (a touch of darkness under light theme, a touch of extra
-    // depth under dark theme) so the blur has something to visibly
-    // diffuse against regardless of what bgCardOf happens to resolve to.
-    // A soft upward drop-shadow was added outside the ClipRRect so the
-    // bar visually lifts off the content above it instead of reading as
-    // a flush continuation of the same flat plane. Still exactly one
-    // BackdropFilter, still fully RepaintBoundary-isolated.
-    final glassTint = isLight
-        ? Color.alphaBlend(
-            Colors.black.withOpacity(0.05), AurumTheme.bgCardOf(context))
-        : Color.alphaBlend(
-            Colors.white.withOpacity(0.03), AurumTheme.bgCardOf(context));
-
-    return RepaintBoundary(
-      child: DecoratedBox(
-        // Soft upward lift so the bar reads as a distinct carved-in
-        // layer floating just above page content, not a flush flat
-        // extension of it. Single lightweight shadow, no nested effects.
-        decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(isLight ? 0.08 : 0.28),
-              blurRadius: 20,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(_cornerRadius),
-          ),
-          child: BackdropFilter(
-            // Blur radius 12–16 per spec — 14 sits in the middle, enough
-            // to soften whatever's behind without costing more than a
-            // single cheap Gaussian pass.
-            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-            child: Container(
-              decoration: BoxDecoration(
-                // Background opacity 0.72–0.82 per spec, now applied to
-                // a tint that always has real contrast against the page
-                // behind it instead of one that can wash out to
-                // near-white-on-white.
-                color: glassTint.withOpacity(isLight ? 0.80 : 0.82),
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(_cornerRadius),
-                ),
-                border: Border(
-                  top: BorderSide(
-                    color: Colors.white.withOpacity(isLight ? 0.45 : 0.08),
-                    width: 1.0,
+    // No RepaintBoundary/DecoratedBox/BackdropFilter/Container wrapper —
+    // deliberately nothing here to paint as a "bar". SafeArea handles
+    // the bottom system inset, everything else is just the tap row.
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: _barHeight,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final tabWidth = constraints.maxWidth / _items.length;
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                // ── Active tab capsule ──────────────────────────────
+                // Solid filled rounded-rect behind the selected tab's
+                // icon+label column, matching Echo's flat filled pill
+                // (no border, no shadow, no glass) — just tinted with
+                // Aurum's gold/bronze accent instead of Echo's lavender.
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 380),
+                  curve: Curves.easeOutCubic,
+                  left: tabWidth * currentIndex,
+                  top: 6,
+                  bottom: 6,
+                  width: tabWidth,
+                  child: Center(
+                    child: Container(
+                      width: tabWidth - 24,
+                      height: _barHeight - 12,
+                      decoration: BoxDecoration(
+                        color: accent.withOpacity(0.20),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              // Soft top highlight — a slim, fast-fading white gradient
-              // just inside the top edge, the classic "glass catching
-              // light" cue. Purely decorative, sits under everything
-              // else, costs nothing extra to paint (no blur, no filter).
-              foregroundDecoration: BoxDecoration(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(_cornerRadius),
-                ),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.white.withOpacity(isLight ? 0.10 : 0.05),
-                    Colors.white.withOpacity(0.0),
-                  ],
-                  stops: const [0.0, 0.18],
-                ),
-              ),
-              child: SafeArea(
-                top: false,
-                child: SizedBox(
-                  height: _barHeight,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final tabWidth = constraints.maxWidth / _items.length;
-                      return Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // ── Active tab glass capsule ────────────────
-                          // Opacity raised from the original 0.12/0.14 —
-                          // against a near-white light theme that was
-                          // visually indistinguishable from "no capsule
-                          // at all" (confirmed on-device). A solid
-                          // border now also anchors its edge explicitly
-                          // instead of relying purely on a translucent
-                          // fill + shadow to read as a shape.
-                          AnimatedPositioned(
-                            duration: const Duration(milliseconds: 360),
-                            curve: Curves.easeOutCubic,
-                            left: tabWidth * currentIndex,
-                            top: 8,
-                            bottom: 8,
-                            width: tabWidth,
-                            child: Center(
-                              child: Container(
-                                width: tabWidth - 28,
-                                height: _barHeight - 16,
-                                decoration: BoxDecoration(
-                                  color: accent.withOpacity(isLight ? 0.16 : 0.18),
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(
-                                    color: accent.withOpacity(isLight ? 0.22 : 0.24),
-                                    width: 1.0,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: accent.withOpacity(isLight ? 0.16 : 0.20),
-                                      blurRadius: 12,
-                                      spreadRadius: -2,
-                                    ),
-                                  ],
+                // ── Tap targets ──────────────────────────────────────
+                Row(
+                  children: List.generate(_items.length, (i) {
+                    final item = _items[i];
+                    final selected = i == currentIndex;
+                    return Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          if (!selected) HapticFeedback.selectionClick();
+                          onTap(i);
+                        },
+                        child: SizedBox.expand(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 180),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeOutCubic,
+                                transitionBuilder: (child, anim) => FadeTransition(
+                                  opacity: anim,
+                                  child: child,
+                                ),
+                                child: Icon(
+                                  selected ? item.filled : item.outline,
+                                  key: ValueKey(selected),
+                                  size: 24,
+                                  color: selected
+                                      ? accent
+                                      : AurumTheme.textMutedOf(context),
                                 ),
                               ),
-                            ),
-                          ),
-                          // ── Tap targets ──────────────────────────────
-                          Row(
-                            children: List.generate(_items.length, (i) {
-                              final item = _items[i];
-                              final selected = i == currentIndex;
-                              return Expanded(
-                                child: _NavTapScale(
-                                  selected: selected,
-                                  onTap: () {
-                                    if (!selected) {
-                                      HapticFeedback.selectionClick();
-                                    }
-                                    onTap(i);
-                                  },
-                                  child: SizedBox.expand(
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        // Icon: filled when active, outline
-                                        // when inactive, cross-fade + tiny
-                                        // scale morph — no bounce, no
-                                        // overshoot, restrained easeOutCubic
-                                        // throughout.
-                                        TweenAnimationBuilder<double>(
-                                          tween: Tween(
-                                            begin: 1.0,
-                                            end: selected ? 1.06 : 1.0,
-                                          ),
-                                          duration: const Duration(milliseconds: 200),
-                                          curve: Curves.easeOutCubic,
-                                          builder: (context, scale, child) =>
-                                              Transform.scale(scale: scale, child: child),
-                                          child: AnimatedSwitcher(
-                                            duration: const Duration(milliseconds: 200),
-                                            switchInCurve: Curves.easeOutCubic,
-                                            switchOutCurve: Curves.easeOutCubic,
-                                            transitionBuilder: (child, anim) =>
-                                                FadeTransition(
-                                              opacity: anim,
-                                              child: ScaleTransition(
-                                                scale: Tween(begin: 0.92, end: 1.0)
-                                                    .animate(anim),
-                                                child: child,
-                                              ),
-                                            ),
-                                            child: Icon(
-                                              selected ? item.filled : item.outline,
-                                              key: ValueKey(selected),
-                                              size: 23,
-                                              color: selected
-                                                  ? accent
-                                                  : AurumTheme.textMutedOf(context),
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        // Label: smooth color + weight
-                                        // transition, fixed vertical
-                                        // position — never jumps.
-                                        AnimatedDefaultTextStyle(
-                                          duration: const Duration(milliseconds: 220),
-                                          curve: Curves.easeOutQuart,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            height: 1.0,
-                                            fontWeight: selected
-                                                ? FontWeight.w600
-                                                : FontWeight.w500,
-                                            color: selected
-                                                ? accent
-                                                : AurumTheme.textMutedOf(context),
-                                            letterSpacing: 0.1,
-                                          ),
-                                          child: Text(item.label),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                              const SizedBox(height: 4),
+                              AnimatedDefaultTextStyle(
+                                duration: const Duration(milliseconds: 180),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  height: 1.0,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                  color: selected
+                                      ? accent
+                                      : AurumTheme.textMutedOf(context),
                                 ),
-                              );
-                            }),
+                                child: Text(item.label),
+                              ),
+                            ],
                           ),
-                        ],
-                      );
-                    },
-                  ),
+                        ),
+                      ),
+                    );
+                  }),
                 ),
-              ),
-            ),
-          ),
+              ],
+            );
+          },
         ),
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// NAV TAP SCALE v2 — press-down/spring-back scale PLUS a stronger
-// haptic + a quick downward "settle" easing on release, so tapping a
-// tab feels like pressing a real physical key, not a flat instant tap.
-// The selected tab also gets a tiny continuous "breathing" isn't
-// added (would be distracting) — instead all liveliness is
-// concentrated into the moment of the tap itself.
-// ══════════════════════════════════════════════════════════════════
-class _NavTapScale extends StatefulWidget {
-  const _NavTapScale({
-    required this.onTap,
-    required this.child,
-    this.selected = false,
-  });
-  final VoidCallback onTap;
-  final Widget child;
-  final bool selected;
-
-  @override
-  State<_NavTapScale> createState() => _NavTapScaleState();
-}
-
-class _NavTapScaleState extends State<_NavTapScale>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 90),
-    reverseDuration: const Duration(milliseconds: 180),
-    lowerBound: 0.0,
-    upperBound: 1.0,
-  );
-  // A restrained 0.94 press-scale with smooth easeOutCubic both ways —
-  // no elastic/spring overshoot on release. The press itself (going
-  // down slightly on tapDown) is what reads as tactile; a bounce on
-  // the way back up is the part that reads as playful/toy-like rather
-  // than a quiet, deliberate control.
-  late final Animation<double> _scale = Tween(begin: 1.0, end: 0.96).animate(
-    CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutCubic,
-      reverseCurve: Curves.easeOutCubic,
-    ),
-  );
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) => _controller.reverse(),
-      onTapCancel: () => _controller.reverse(),
-      onTap: widget.onTap,
-      child: AnimatedBuilder(
-        animation: _scale,
-        builder: (context, child) => Transform.scale(scale: _scale.value, child: child),
-        child: widget.child,
       ),
     );
   }
