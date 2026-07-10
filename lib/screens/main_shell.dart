@@ -263,29 +263,38 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           // that pass from ever visually touching the mini player/nav
           // bar, on top of the mounted-check fix in MiniPlayer itself.
           return RepaintBoundary(
-            child: Container(
-            color: showingMiniPlayer
-                ? AurumTheme.bgCardOf(context)
-                : Colors.transparent,
             child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const MiniPlayer(),
-                  // The nav bar no longer paints any top divider/gradient line
-                  // (removed permanently in _AurumBottomNavBar — see the
-                  // comment there). Just render it plainly; no style/song
-                  // state can affect it anymore, so no listener is needed here.
-                  _AurumBottomNavBar(
-                    currentIndex: _tab,
-                    onTap: (i) {
-                      primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
-                      SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-                      setState(() => _tab = i);
-                    },
-                  ),
-                ],
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Background color scoped to just the mini player itself —
+                // previously this color wrapped the mini player AND the nav
+                // bar together in one Container, so whenever the mini
+                // player was showing, the whole bottom section (mini
+                // player + nav bar) painted as one solid flat block. That's
+                // what read as a stray "pill"/panel sitting behind the
+                // mini player's actual spot instead of just being its own
+                // card. Now only the mini player's own area gets the card
+                // color; the nav bar underneath keeps its own background.
+                Container(
+                  color: showingMiniPlayer
+                      ? AurumTheme.bgCardOf(context)
+                      : Colors.transparent,
+                  child: const MiniPlayer(),
                 ),
-              ),
+                // The nav bar no longer paints any top divider/gradient line
+                // (removed permanently in _AurumBottomNavBar — see the
+                // comment there). Just render it plainly; no style/song
+                // state can affect it anymore, so no listener is needed here.
+                _AurumBottomNavBar(
+                  currentIndex: _tab,
+                  onTap: (i) {
+                    primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+                    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+                    setState(() => _tab = i);
+                  },
+                ),
+              ],
+            ),
           );
         },
       ),
@@ -339,26 +348,37 @@ class _AurumBottomNavBar extends StatelessWidget {
     // two backdrop filters share a compositing layer can make Android's
     // Skia backend blur the wrong region (same issue already fixed once
     // in mini_player.dart).
+    //
+    // REDESIGN — compact floating pill (icon-only, no labels): the old
+    // bar was a full-width, edge-to-edge, 66px-tall strip with stacked
+    // icon+label per tab. That reads as a standard Android nav bar, not
+    // the ultra-minimal floating pill look of premium references (Echo
+    // Nightly etc). This version drops labels entirely (3 icons are
+    // self-explanatory — Home/Search/Library), shrinks the bar to a
+    // single icon-row height, and floats it inset from the screen edges
+    // as one self-contained rounded pill instead of a full-bleed strip —
+    // it takes up as little vertical space as the tap targets allow.
     return RepaintBoundary(
-      child: ClipRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: Container(
-            decoration: BoxDecoration(
-              color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.55 : 0.5),
-              border: Border(
-                top: BorderSide(
-                  color: AurumTheme.textMutedOf(context).withOpacity(isLight ? 0.10 : 0.12),
-                  width: 0.6,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Container(
+                height: 52,
+                decoration: BoxDecoration(
+                  color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.65 : 0.6),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: AurumTheme.textMutedOf(context).withOpacity(isLight ? 0.10 : 0.12),
+                    width: 0.6,
+                  ),
                 ),
-              ),
-            ),
-            child: SafeArea(
-              top: false,
-              child: SizedBox(
-                height: 66,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final segmentWidth = constraints.maxWidth / _items.length;
@@ -378,25 +398,22 @@ class _AurumBottomNavBar extends StatelessWidget {
                             bottom: 0,
                             width: segmentWidth,
                             child: Center(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 4),
-                                child: Container(
-                                  height: 28,
-                                  decoration: BoxDecoration(
-                                    // Flat tonal fill, not a bright gradient —
-                                    // a two-stop gradient plus glow read as
-                                    // "app icon sticker"; a near-flat wash
-                                    // reads as a quiet, deliberate surface.
-                                    color: AurumTheme.gold.withOpacity(isLight ? 0.09 : 0.11),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: AurumTheme.gold.withOpacity(isLight ? 0.14 : 0.16),
-                                      width: 0.7,
-                                    ),
-                                    // No glow/boxShadow at all — a shadow here
-                                    // is what pushes this toward "neon button"
-                                    // rather than "etched surface".
-                                  ),
+                              child: Container(
+                                // Fixed, content-hugging width — a small
+                                // near-square indicator sitting behind just
+                                // the icon, not the whole tab segment.
+                                width: 40,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  // Flat tonal fill, not a bright gradient —
+                                  // a two-stop gradient plus glow read as
+                                  // "app icon sticker"; a near-flat wash
+                                  // reads as a quiet, deliberate surface.
+                                  color: AurumTheme.gold.withOpacity(isLight ? 0.10 : 0.13),
+                                  borderRadius: BorderRadius.circular(16),
+                                  // No border/glow/boxShadow — a shadow here
+                                  // is what pushes this toward "neon button"
+                                  // rather than "etched surface".
                                 ),
                               ),
                             ),
@@ -414,60 +431,39 @@ class _AurumBottomNavBar extends StatelessWidget {
                                     onTap(i);
                                   },
                                   child: SizedBox.expand(
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        TweenAnimationBuilder<double>(
-                                          tween: Tween(
-                                              begin: 1.0,
-                                              end: selected ? 1.06 : 1.0),
-                                          duration:
-                                              const Duration(milliseconds: 220),
-                                          curve: Curves.easeOutCubic,
-                                          builder: (context, scale, child) =>
-                                              Transform.scale(
-                                                  scale: scale, child: child),
-                                          child: AnimatedSwitcher(
-                                            duration: const Duration(
-                                                milliseconds: 200),
-                                            transitionBuilder: (child, anim) =>
-                                                ScaleTransition(
-                                              scale: anim,
-                                              child: FadeTransition(
-                                                  opacity: anim, child: child),
-                                            ),
-                                            child: Icon(
-                                              selected
-                                                  ? item.filled
-                                                  : item.outline,
-                                              key: ValueKey(selected),
-                                              size: 23,
-                                              color: selected
-                                                  ? AurumTheme.gold
-                                                  : AurumTheme.textMutedOf(
-                                                      context),
-                                            ),
+                                    child: Center(
+                                      child: TweenAnimationBuilder<double>(
+                                        tween: Tween(
+                                            begin: 1.0,
+                                            end: selected ? 1.08 : 1.0),
+                                        duration:
+                                            const Duration(milliseconds: 220),
+                                        curve: Curves.easeOutCubic,
+                                        builder: (context, scale, child) =>
+                                            Transform.scale(
+                                                scale: scale, child: child),
+                                        child: AnimatedSwitcher(
+                                          duration: const Duration(
+                                              milliseconds: 200),
+                                          transitionBuilder: (child, anim) =>
+                                              ScaleTransition(
+                                            scale: anim,
+                                            child: FadeTransition(
+                                                opacity: anim, child: child),
                                           ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        AnimatedDefaultTextStyle(
-                                          duration:
-                                              const Duration(milliseconds: 220),
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: selected
-                                                ? FontWeight.w700
-                                                : FontWeight.w500,
+                                          child: Icon(
+                                            selected
+                                                ? item.filled
+                                                : item.outline,
+                                            key: ValueKey(selected),
+                                            size: 22,
                                             color: selected
                                                 ? AurumTheme.gold
                                                 : AurumTheme.textMutedOf(
                                                     context),
-                                            letterSpacing: selected ? 0.1 : 0,
                                           ),
-                                          child: Text(item.label),
                                         ),
-                                      ],
+                                      ),
                                     ),
                                   ),
                                 ),
