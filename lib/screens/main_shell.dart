@@ -259,7 +259,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       // structurally impossible now rather than just guarded against.
       bottomNavigationBar: Selector<PlayerProvider, bool>(
         selector: (_, p) => p.miniPlayerVisible,
-        builder: (context, showingMiniPlayer, _) {
+        builder: (context, _, __) {
           // RepaintBoundary: floating SnackBars (settings confirmations,
           // "Added to playlist", etc.) are anchored to this Scaffold via
           // ScaffoldMessenger and can trigger a relayout pass around
@@ -270,21 +270,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Background color scoped to just the mini player itself —
-                // previously this color wrapped the mini player AND the nav
-                // bar together in one Container, so whenever the mini
-                // player was showing, the whole bottom section (mini
-                // player + nav bar) painted as one solid flat block. That's
-                // what read as a stray "pill"/panel sitting behind the
-                // mini player's actual spot instead of just being its own
-                // card. Now only the mini player's own area gets the card
-                // color; the nav bar underneath keeps its own background.
-                Container(
-                  color: showingMiniPlayer
-                      ? AurumTheme.bgCardOf(context)
-                      : Colors.transparent,
-                  child: const MiniPlayer(),
-                ),
+                // FIX — removed the card-color background that used to wrap
+                // just the mini player's own area. That solid fill was the
+                // "ghost pill" showing up behind the mini player content —
+                // now this Container paints nothing; the mini player renders
+                // with a fully transparent background behind it.
+                const MiniPlayer(),
                 // The nav bar no longer paints any top divider/gradient line
                 // (removed permanently in _AurumBottomNavBar — see the
                 // comment there). Just render it plainly; no style/song
