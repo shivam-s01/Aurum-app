@@ -267,6 +267,36 @@ class AurumAudioEngine(
     private var pausedForTransientFocusLoss = false
     private var pausedForSustainedFocusLoss = false
     private var preduckVolume = 1f
+    private var volumeFadeJob: Job? = null
+
+    // FIX — "music dabta/dab jaata hai baar baar" during long listening
+    // sessions: AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK fires for lots of brief,
+    // completely normal system/OEM sounds (keyboard clicks, nav-bar taps,
+    // other apps' notification pings) — that's expected and can happen
+    // often, especially with the keyboard open. The duck handling itself
+    // was correct (never pausing for this case), but it snapped volume
+    // straight to 30% and back INSTANTLY on the very next frame — an
+    // abrupt, audible jolt every time, which on a long session with lots
+    // of these transient dips reads exactly like "the song keeps getting
+    // pushed down". Fading both directions over a couple hundred ms makes
+    // every duck/restore smooth and far less noticeable, and raising the
+    // floor from 30%→55% means even mid-duck it's a gentle dip, not a
+    // near-mute.
+    private fun fadeVolumeTo(target: Float, durationMs: Long = 220L) {
+        volumeFadeJob?.cancel()
+        volumeFadeJob = scope.launch {
+            val start = player.volume
+            if (start == target) return@launch
+            val steps = 12
+            val stepDelay = durationMs / steps
+            for (i in 1..steps) {
+                val t = i / steps.toFloat()
+                player.volume = start + (target - start) * t
+                delay(stepDelay)
+            }
+            player.volume = target
+        }
+    }
 
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
@@ -279,6 +309,11 @@ class AurumAudioEngine(
                 // later requestAudioFocus() call (once the user taps play
                 // again) would wrongly no-op and never actually re-acquire it.
                 hasAudioFocus = false
+                volumeFadeJob?.cancel()
+                if (duckedForTransientFocusLoss) {
+                    player.volume = preduckVolume
+                    duckedForTransientFocusLoss = false
+                }
                 if (player.isPlaying) {
                     pausedForSustainedFocusLoss = true
                     player.pause()
@@ -292,6 +327,11 @@ class AurumAudioEngine(
                 // Same reasoning as AUDIOFOCUS_LOSS above: the OS took focus
                 // away, so reflect that here too.
                 hasAudioFocus = false
+                volumeFadeJob?.cancel()
+                if (duckedForTransientFocusLoss) {
+                    player.volume = preduckVolume
+                    duckedForTransientFocusLoss = false
+                }
                 if (player.isPlaying) {
                     pausedForTransientFocusLoss = true
                     player.pause()
@@ -309,14 +349,14 @@ class AurumAudioEngine(
                 // dozens of audible micro-interruptions per song.
                 if (player.isPlaying) {
                     preduckVolume = player.volume
-                    player.volume = preduckVolume * 0.3f
                     duckedForTransientFocusLoss = true
+                    fadeVolumeTo(preduckVolume * 0.55f)
                 }
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
                 hasAudioFocus = true
                 if (duckedForTransientFocusLoss) {
-                    player.volume = preduckVolume
+                    fadeVolumeTo(preduckVolume)
                     duckedForTransientFocusLoss = false
                 }
                 if (pausedForTransientFocusLoss) {

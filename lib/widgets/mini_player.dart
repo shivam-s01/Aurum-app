@@ -75,24 +75,16 @@ class MiniPlayer extends StatefulWidget {
   static final ValueNotifier<String> styleNotifier =
       ValueNotifier<String>('Capsule');
 
-  /// FIX — "background pill" left stuck visible bug: MainShell's
-  /// bottomNavigationBar wraps [MiniPlayer] in a solid-color Container
-  /// (so the nav bar + mini player read as one continuous card). That
-  /// Container used to paint its background purely off `player.hasSong`,
-  /// with no knowledge of THIS widget's own internal visibility state
-  /// (swipe-down dismissed, or the split-second mid-rebuild gap during a
-  /// theme change). Result: the rounded card-colored background kept
-  /// painting even after the capsule content inside had already faded/
-  /// animated itself away — exactly the stray background pill left after
-  /// swipe-down, and the same mechanism behind the mini player fully
-  /// vanishing (content gone, panel stays) on a theme switch.
-  ///
-  /// Single source of truth for "is the mini player actually showing real
-  /// content right now" — true only when there is a song AND it isn't
-  /// dismissed. MainShell listens to this instead of re-deriving hasSong
-  /// itself, so the backing Container's background can never desync from
-  /// what's actually painted inside it.
-  static final ValueNotifier<bool> visibleNotifier = ValueNotifier<bool>(false);
+  // NOTE: mini player visibility used to be tracked by a static
+  // `ValueNotifier<bool>` here (visibleNotifier), which MainShell listened
+  // to and this widget's initState/dispose had to keep in sync. That
+  // separate copy of "is it visible" was the root cause of a whole class
+  // of bugs (theme-change rebuilds tearing this widget down and leaving
+  // the notifier stuck stale, fixable only by an app restart). Visibility
+  // now lives solely in PlayerProvider.miniPlayerVisible — see its doc
+  // comment in player_provider.dart — which MainShell reads directly.
+  // There is deliberately no static notifier here anymore to fall out of
+  // sync with anything.
 
   @override
   State<MiniPlayer> createState() => _MiniPlayerState();
@@ -104,18 +96,6 @@ class _MiniPlayerState extends State<MiniPlayer>
   bool _isDragging = false;
   bool _dismissed = false;
   String? _dismissedSongId; // track which song was dismissed
-
-  // Debounces the "reappear because playback resumed" check below. Without
-  // this, a single stale/transient read of player.isPlaying — which comes
-  // from an async method-channel round trip to the native engine, not a
-  // synchronous field — could read `true` for one build right after
-  // _dismissPlayer() calls player.pause() (the real native pause hasn't
-  // been confirmed back yet), causing the mini player to flash back in and
-  // then immediately disappear again on the next state push. Spamming
-  // swipe-down repeatedly makes this race far more likely to actually be
-  // hit, since it forces exactly this pause-then-rebuild sequence over and
-  // over in quick succession.
-  Timer? _reappearDebounce;
 
   // Bumped every time a song-change entry/slide-in is scheduled, so that
   // if rapid skip-spam queues several postFrameCallbacks before the first
@@ -232,8 +212,9 @@ class _MiniPlayerState extends State<MiniPlayer>
         _dismissedSongId = null;
         _dragY = 0;
         _isDragging = false;
-        _reappearDebounce?.cancel();
-        _reappearDebounce = null;
+        // Keep the provider's authoritative state in sync with the local
+        // mirror — see the doc comment on PlayerProvider.miniPlayerVisible.
+        context.read<PlayerProvider>().clearMiniPlayerDismissed();
       }
     });
   }
@@ -248,12 +229,14 @@ class _MiniPlayerState extends State<MiniPlayer>
   @override
   void dispose() {
     MiniPlayer.styleNotifier.removeListener(_onStyleChanged);
-    _reappearDebounce?.cancel();
     _settleCtrl.dispose();
     _entryCtrl.dispose();
     _swipeCtrl.dispose();
     _slideInCtrl.dispose();
-    MiniPlayer.visibleNotifier.value = false;
+    // Deliberately nothing else here. Visibility lives in
+    // PlayerProvider.miniPlayerVisible now (see its doc comment), which
+    // this widget never owns or writes to on teardown — so there is
+    // nothing for a widget-lifecycle event like dispose() to desync.
     super.dispose();
   }
 
@@ -369,6 +352,7 @@ class _MiniPlayerState extends State<MiniPlayer>
       final player = context.read<PlayerProvider>();
       final songId = player.currentSong?.id;
       player.pause(); // pause only — keeps queue, so user can resume later
+      player.dismissMiniPlayer();
       _settleCtrl.reset();
       setState(() {
         _dismissed = true;
@@ -496,108 +480,52 @@ class _MiniPlayerState extends State<MiniPlayer>
     // that tuple changes; the live-updating progress value is read by a
     // separately-isolated widget further down (`_MiniProgressBar`) so it
     // repaints on its own without dragging the blur/artwork/text along.
-    return Selector<PlayerProvider, (bool, String?, bool, bool)>(
+    return Selector<PlayerProvider, (bool, String?, bool, bool, bool)>(
       selector: (_, p) =>
-          (p.hasSong, p.currentSong?.id, p.isPlaying, p.isLoading),
+          (p.hasSong, p.currentSong?.id, p.isPlaying, p.isLoading, p.miniPlayerVisible),
       builder: (context, _, __) {
         final player = context.read<PlayerProvider>();
-        // Reset dismissed when a DIFFERENT song starts playing, OR when
-        // playback resumes on the SAME song.
-        //
-        // FIX — "swipe down (once or repeatedly, fast), mini player
-        // flashes back up then disappears again": player.isPlaying is
-        // populated from an async method-channel event pushed by the
-        // native engine, not a synchronous field. Right after
-        // _dismissPlayer() calls player.pause(), there is a real window
-        // (one or two Provider rebuilds) where the native pause hasn't
-        // been confirmed back yet and player.isPlaying can still read
-        // stale `true`. That single stale read used to be enough to flip
-        // shouldReappear -> true, bringing the mini player back for a
-        // frame before the real paused state arrived and hid it again.
-        // Spamming the dismiss gesture repeatedly hits this window over
-        // and over, since it's the exact same pause-then-rebuild sequence
-        // every time. Debouncing the reappear by 250ms means a
-        // transient/stale true (which flips back to false within a frame
-        // or two) never survives long enough to trigger it, while a
-        // genuine resume (isPlaying staying true) reappears cleanly after
-        // a short, barely-noticeable delay.
-        final sameSongResumed = _dismissed &&
-            player.hasSong &&
-            player.currentSong?.id == _dismissedSongId &&
-            player.isPlaying;
-        final differentSongStarted = _dismissed &&
-            player.hasSong &&
-            player.currentSong?.id != _dismissedSongId;
-
-        if (differentSongStarted) {
-          // Different song is unambiguous — no race possible here, since
-          // it's keyed on song identity, not the async isPlaying flag.
-          // Reappear immediately, no debounce needed.
-          _reappearDebounce?.cancel();
-          _reappearDebounce = null;
+        // FIX — permanent fix for the whole class of "mini player
+        // disappears / gets stuck" bugs: dismiss + reappear state used to
+        // live only in this widget's local State (`_dismissed`,
+        // `_dismissedSongId`), with its own debounce to guard against a
+        // stale optimistic `isPlaying` read right after dismissing.
+        // PlayerProvider.miniPlayerVisible (see its doc comment) is now
+        // the single authoritative source for all of that — it auto-clears
+        // itself off the native engine's confirmed `playing` state in
+        // _onEngineState, not an optimistic per-frame flag, so there's no
+        // race left to debounce against. This widget's local `_dismissed`
+        // is kept only because the drag/settle animation code below reads
+        // it synchronously mid-gesture (before the provider's async
+        // pause() round-trip could possibly update it) — it's a mirror of
+        // the provider's state now, never an independent source of it.
+        if (_dismissed != !player.miniPlayerVisible && player.hasSong) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
-              setState(() {
-                _dismissed = false;
-                _dismissedSongId = null;
-              });
+              setState(() => _dismissed = !player.miniPlayerVisible);
             }
           });
-        } else if (sameSongResumed) {
-          _reappearDebounce ??= Timer(const Duration(milliseconds: 250), () {
-            _reappearDebounce = null;
-            if (!mounted) return;
-            // Re-check at fire time — if isPlaying flipped back to false
-            // (confirming it was transient/stale), don't reappear at all.
-            final p = context.read<PlayerProvider>();
-            if (_dismissed &&
-                p.isPlaying &&
-                p.currentSong?.id == _dismissedSongId) {
-              setState(() {
-                _dismissed = false;
-                _dismissedSongId = null;
-              });
-            }
-          });
-        } else {
-          // isPlaying dropped back to false (or song mismatch resolved)
-          // before the debounce fired — cancel it so a stale timer can't
-          // fire later and force a reappear based on outdated info.
-          _reappearDebounce?.cancel();
-          _reappearDebounce = null;
         }
 
         // No song, or currently dismissed → render NOTHING. There is no
         // height animation guarding this transition; the widget is simply
         // absent from the tree. Nothing here ever mid-animates a height,
         // so there is no clip window that can slice a fixed-height child.
-        final showingNow = player.hasSong && !_dismissed;
-        if (MiniPlayer.visibleNotifier.value != showingNow) {
-          // Deferred to post-frame: this build() can run mid-frame (e.g.
-          // triggered by the Selector above), and flipping a ValueNotifier
-          // synchronously here could schedule a MainShell rebuild while
-          // this widget's own frame is still in progress.
-          //
-          // FIX — "background pill stuck visible/mini player gone" after
-          // unrelated actions (settings change, playlist save, any
-          // SnackBar): those all show a floating SnackBar via
-          // ScaffoldMessenger, which is anchored to MainShell's single
-          // Scaffold and can force a relayout/rebuild pass around
-          // bottomNavigationBar while this callback is still queued. If
-          // that pass tore down and rebuilt this MiniPlayer instance
-          // in between scheduling and firing, the old `showingNow` value
-          // captured here is stale — writing it after the fact could
-          // re-show the backing pill Container for an instance that no
-          // longer has any real content, or hide it for one that does.
-          // Re-reading `mounted` at fire time (not just capturing the
-          // value now) ensures a dead instance can never write a stale
-          // value into this static, app-wide notifier.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            MiniPlayer.visibleNotifier.value = showingNow;
-          });
-        }
-        if (!showingNow) {
+        //
+        // FIX — "mini player controls disappear into a stuck pill after
+        // theme/settings changes, only fixed by an app restart": this used
+        // to also mirror visibility into a static `MiniPlayer.visibleNotifier`
+        // that MainShell read separately, via a postFrameCallback. Two
+        // separate copies of "is it visible" (this local check, and that
+        // notifier) could drift apart — most concretely, a theme change
+        // rebuilding MaterialApp could tear this widget's State down and
+        // recreate it, and the disposed instance's cleanup could leave the
+        // notifier on a stale value the new instance's async init hadn't
+        // caught up to yet. MainShell now reads `player.miniPlayerVisible`
+        // directly from PlayerProvider (see its doc comment) instead of a
+        // notifier this widget has to keep synced — there is nothing left
+        // here to fall out of sync, because there is nothing left to sync.
+        if (!player.miniPlayerVisible) {
           return const SizedBox.shrink();
         }
 

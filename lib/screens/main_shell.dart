@@ -238,30 +238,34 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       body: IndexedStack(index: _tab, children: _screens),
-      bottomNavigationBar: ValueListenableBuilder<bool>(
-        // FIX — "background pill stuck visible" bug: this used to key off
-        // raw `player.hasSong` alone, so the very moment MiniPlayer's own
-        // content faded/animated away (swipe-down dismiss, or the brief
-        // mid-rebuild gap during a theme change) — while hasSong was still
-        // technically true — this Container kept painting its solid
-        // rounded background with nothing real inside it: exactly the
-        // stray "pill" left floating after swipe-down, and the same root
-        // cause behind the mini player fully vanishing (content gone,
-        // backing panel still there) on a theme switch.
-        //
-        // MiniPlayer.visibleNotifier is the single source of truth for
-        // "is there actually visible mini-player content right now" (see
-        // its doc comment in mini_player.dart) — it's false both when
-        // there's no song AND while MiniPlayer is mid-dismissed, so this
-        // background can never outlive what it's supposed to be behind.
-        valueListenable: MiniPlayer.visibleNotifier,
+      // FIX — PERMANENT fix for "mini player disappears into a stuck pill
+      // after theme/settings changes, only recoverable with an app
+      // restart": this used to read a static `MiniPlayer.visibleNotifier`
+      // that MiniPlayer's own widget lifecycle (initState/dispose) had to
+      // keep in sync with reality. A theme change rebuilding MaterialApp
+      // (see Consumer<ThemeProvider> in main.dart) could tear down and
+      // recreate MiniPlayer's State independently of whether a song was
+      // still genuinely playing, and dispose() forcing that notifier false
+      // could leave it stuck — nothing was guaranteed to ever correct it
+      // except a fresh app launch.
+      //
+      // Visibility now comes directly from PlayerProvider.miniPlayerVisible
+      // (see its doc comment in player_provider.dart) via Selector.
+      // PlayerProvider is created once, above MaterialApp, in the
+      // MultiProvider in main.dart — it is never disposed or recreated by
+      // a theme change, a settings screen, or any navigation. There is no
+      // separate widget-lifecycle-bound copy of this state left anywhere
+      // in the app to fall out of sync, which is what makes this bug class
+      // structurally impossible now rather than just guarded against.
+      bottomNavigationBar: Selector<PlayerProvider, bool>(
+        selector: (_, p) => p.miniPlayerVisible,
         builder: (context, showingMiniPlayer, _) {
           // RepaintBoundary: floating SnackBars (settings confirmations,
           // "Added to playlist", etc.) are anchored to this Scaffold via
           // ScaffoldMessenger and can trigger a relayout pass around
           // bottomNavigationBar. Isolating this subtree's paint keeps
           // that pass from ever visually touching the mini player/nav
-          // bar, on top of the mounted-check fix in MiniPlayer itself.
+          // bar.
           return RepaintBoundary(
             child: Column(
               mainAxisSize: MainAxisSize.min,

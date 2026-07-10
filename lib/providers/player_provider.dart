@@ -293,6 +293,25 @@ class PlayerProvider extends ChangeNotifier {
     _currentSong = resolvedSong;
     _currentIndex = newIndex;
 
+    // Mini player reappear rules (moved here from MiniPlayer's State — see
+    // the doc comment on _miniPlayerDismissed above for why). A dismiss
+    // should not permanently hide the mini player for the rest of the
+    // session: switching to a different song, or resuming playback on the
+    // same song that was dismissed, both bring it back — matching every
+    // other music app's "swipe away = dismiss this one instance" behavior
+    // rather than "swipe away = never show again".
+    if (_miniPlayerDismissed) {
+      final differentSongStarted =
+          _currentSong != null && _currentSong!.id != _miniPlayerDismissedSongId;
+      final sameSongResumed = _currentSong != null &&
+          _currentSong!.id == _miniPlayerDismissedSongId &&
+          state.playing;
+      if (differentSongStarted || sameSongResumed) {
+        _miniPlayerDismissed = false;
+        _miniPlayerDismissedSongId = null;
+      }
+    }
+
     // position handling shares the same behavior-tracking hooks the old
     // positionStream listener had.
     _onPosition(state.position);
@@ -526,6 +545,54 @@ class PlayerProvider extends ChangeNotifier {
   List<Song> get queue        => _queue;
   int      get currentIndex   => _currentIndex;
   bool     get hasSong        => _currentSong != null;
+
+  // ── Mini player visibility — lives here, not in MiniPlayer's State ──
+  // This used to be split across two separate pieces of state: a
+  // StatefulWidget-local `_dismissed` bool inside MiniPlayer, and a
+  // static `ValueNotifier<bool>` (MiniPlayer.visibleNotifier) that
+  // MainShell read to decide whether to paint the background behind it.
+  // Two separate places holding "is it visible" is exactly what let them
+  // drift apart: MiniPlayer's dispose() (widget lifecycle) used to write
+  // to the static notifier, and a theme change rebuilding MaterialApp
+  // could tear down and recreate MiniPlayer's State independently of
+  // whether a song was still genuinely playing — leaving the notifier
+  // stuck on a stale value until the user force-quit the app.
+  //
+  // Moving "is the mini player dismissed" into the provider means there
+  // is exactly ONE source of truth for mini-player visibility anywhere
+  // in the app: `hasSong && !_miniPlayerDismissed`, read live via
+  // Selector/Consumer wherever it's needed. It lives exactly as long as
+  // PlayerProvider does (the whole app session, created once above
+  // MaterialApp) — a theme rebuild, a settings screen, a widget
+  // remount, none of that can touch it, because none of those ever
+  // dispose PlayerProvider. There is no separate notifier left to fall
+  // out of sync, and therefore no class of bug where the background
+  // persists with stale visibility — the underlying state literally
+  // cannot exist independently of whether a song is playing anymore.
+  bool _miniPlayerDismissed = false;
+  String? _miniPlayerDismissedSongId;
+  bool get miniPlayerVisible => hasSong && !_miniPlayerDismissed;
+
+  /// Called when the user swipes the mini player away. Auto-clears itself
+  /// the moment a different song starts, or the same song resumes playing
+  /// (see [_onSongChanged]/onIsPlayingChanged plumbing below) — same
+  /// reappear rules the old widget-local `_dismissed` flag followed.
+  void dismissMiniPlayer() {
+    _miniPlayerDismissed = true;
+    _miniPlayerDismissedSongId = _currentSong?.id;
+    notifyListeners();
+  }
+
+  /// Explicitly clears the dismiss state — used when the mini player style
+  /// switches to Compact Bar, which has no dismiss gesture of its own and
+  /// must always show whenever a song is loaded, regardless of whether the
+  /// Capsule style was mid-dismissed before the switch.
+  void clearMiniPlayerDismissed() {
+    if (!_miniPlayerDismissed) return;
+    _miniPlayerDismissed = false;
+    _miniPlayerDismissedSongId = null;
+    notifyListeners();
+  }
 
   double get progress {
     if (_duration.inMilliseconds == 0) return 0.0;
