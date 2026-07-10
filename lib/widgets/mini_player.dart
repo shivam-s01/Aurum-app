@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -65,6 +66,12 @@ import '../screens/full_player_screen.dart';
 //   its blur radius stays inside the capsule's own margin so nothing
 //   leaks above the intended card bounds.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Axis-lock state for the unified pan gesture recognizer used by
+// _MiniPlayerState — see the RawGestureDetector in build() for why a
+// single PanGestureRecognizer replaced the old competing vertical +
+// horizontal GestureDetector callbacks.
+enum _DragAxis { undecided, vertical, horizontal }
 
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
@@ -137,9 +144,16 @@ class _MiniPlayerState extends State<MiniPlayer>
   late final Animation<double> _entryScale;
   String? _lastSongId;
 
-  static const double _dismissThreshold = 80.0;
+  static const double _dismissThreshold = 64.0;
   static const double _openThreshold = -60.0;
-  static const double _velocityThreshold = 400.0;
+  static const double _velocityThreshold = 320.0;
+
+  // Axis lock for the unified pan recognizer (see RawGestureDetector in
+  // build) — decided once per gesture from the first clear movement, so a
+  // single PanGestureRecognizer can correctly route to either the
+  // vertical (open/dismiss) or horizontal (prev/next) handlers without
+  // ever losing/dropping the first swipe to gesture-arena resolution.
+  _DragAxis _dragAxis = _DragAxis.undecided;
 
   @override
   void initState() {
@@ -298,8 +312,9 @@ class _MiniPlayerState extends State<MiniPlayer>
     _settleCtrl.stop();
     final gen = ++_settleGen;
     final from = _dragY;
+    _settleCtrl.duration = const Duration(milliseconds: 200);
     _settleAnim = Tween<double>(begin: from, end: 0.0).animate(
-      CurvedAnimation(parent: _settleCtrl, curve: Curves.easeOutCubic),
+      CurvedAnimation(parent: _settleCtrl, curve: Curves.easeOutQuart),
     );
     _settleCtrl.forward(from: 0.0).whenComplete(() {
       if (!mounted || gen != _settleGen) return;
@@ -557,6 +572,24 @@ class _MiniPlayerState extends State<MiniPlayer>
           });
         }
 
+        // SELF-HEAL — if this State got recreated (theme/settings rebuild)
+        // or the postFrameCallback above ever got dropped mid-flight,
+        // `_entryCtrl` can be stuck at 0: zero opacity, 0.88 scale,
+        // translated 80px down. The mini player's background pill in
+        // MainShell still paints (miniPlayerVisible is true), but the
+        // content is fully transformed away — the "ghost pill". Instead of
+        // depending solely on the one-shot callback, check on every build:
+        // if a song is showing but the entry controller never actually
+        // started, kick it forward again. Self-corrects on next rebuild,
+        // no app restart needed.
+        if (_entryCtrl.status == AnimationStatus.dismissed) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _entryCtrl.status == AnimationStatus.dismissed) {
+              _entryCtrl.forward(from: 0.0);
+            }
+          });
+        }
+
         // FIX — mini player now ALWAYS shows whenever a song is playing,
         // regardless of whether the hero card is on-screen or not. The
         // heroVisibleNotifier gate that used to hide this widget while the
@@ -627,15 +660,87 @@ class _MiniPlayerState extends State<MiniPlayer>
           // drag (open/dismiss) is fully disabled — tap is the only way
           // to open the full player, and there is no dismiss gesture at
           // all, matching the "always visible, sticky" requirement.
-          return GestureDetector(
-            onTap: _openFullPlayer,
-            onVerticalDragStart: isCompactBar ? null : _onDragStart,
-            onVerticalDragUpdate: isCompactBar ? null : _onDragUpdate,
-            onVerticalDragEnd: isCompactBar ? null : _onDragEnd,
-            onHorizontalDragStart: swipeEnabled ? _onDragStartX : null,
-            onHorizontalDragUpdate: swipeEnabled ? _onDragUpdateX : null,
-            onHorizontalDragEnd: swipeEnabled ? _onDragEndX : null,
-            child: AnimatedBuilder(
+          // FIX — "needs two swipes to dismiss": a single GestureDetector
+          // previously declared BOTH onVerticalDrag* and onHorizontalDrag*
+          // callbacks together. Flutter has to resolve which recognizer
+          // "wins" the gesture arena on the very first touch, and on a
+          // fast/diagonal-ish swipe (which almost every real thumb swipe
+          // is, even when the user means "straight down") that first
+          // resolution could go to the wrong recognizer or get lost
+          // entirely — the touch would end, nothing visible would happen,
+          // and only the SECOND deliberate straight swipe would actually
+          // win vertical and trigger dismiss. This read as "unresponsive/
+          // not premium" — exactly the opposite of what a paid app should
+          // feel like.
+          //
+          // FIX: use a single PanGestureRecognizer via RawGestureDetector.
+          // One recognizer means there is no arena contest at all — every
+          // touch is captured immediately, and we decide the axis
+          // ourselves from the very first frame of real movement (based on
+          // whichever delta is larger), commit to that axis for the
+          // remainder of the gesture, and route deltas to the correct
+          // existing handler. This guarantees the FIRST swipe always
+          // registers, first frame, no missed gestures.
+          Widget dragWrapped(Widget child) {
+            if (isCompactBar) {
+              return GestureDetector(onTap: _openFullPlayer, child: child);
+            }
+            return RawGestureDetector(
+              gestures: {
+                PanGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>(
+                  () => PanGestureRecognizer(),
+                  (instance) {
+                    instance
+                      ..onStart = (details) {
+                        _dragAxis = _DragAxis.undecided;
+                        _onDragStart(DragStartDetails(
+                            globalPosition: details.globalPosition));
+                        if (swipeEnabled) {
+                          _onDragStartX(DragStartDetails(
+                              globalPosition: details.globalPosition));
+                        }
+                      }
+                      ..onUpdate = (details) {
+                        // Decide axis once, from the first meaningfully
+                        // non-zero movement — commit to it for the rest of
+                        // this gesture so a slightly diagonal swipe never
+                        // flip-flops between vertical/horizontal handling
+                        // mid-drag.
+                        if (_dragAxis == _DragAxis.undecided) {
+                          final dx = details.delta.dx.abs();
+                          final dy = details.delta.dy.abs();
+                          if (dx < 1.2 && dy < 1.2) {
+                            return; // wait for a clearer signal
+                          }
+                          _dragAxis = dy >= dx
+                              ? _DragAxis.vertical
+                              : _DragAxis.horizontal;
+                        }
+                        if (_dragAxis == _DragAxis.vertical) {
+                          _onDragUpdate(details);
+                        } else if (swipeEnabled) {
+                          _onDragUpdateX(details);
+                        }
+                      }
+                      ..onEnd = (details) {
+                        if (_dragAxis == _DragAxis.horizontal &&
+                            swipeEnabled) {
+                          _onDragEndX(details);
+                        } else {
+                          _onDragEnd(details);
+                        }
+                        _dragAxis = _DragAxis.undecided;
+                      };
+                  },
+                ),
+              },
+              child: GestureDetector(onTap: _openFullPlayer, child: child),
+            );
+          }
+
+          return dragWrapped(
+            AnimatedBuilder(
               animation: Listenable.merge([_swipeCtrl, _slideInCtrl]),
               builder: (_, child) {
                 final swipeX = _swipeCtrl.isAnimating ? _swipeAnim.value : _dragX;

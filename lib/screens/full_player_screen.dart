@@ -131,9 +131,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // is allowed to commit its colors — every stale, superseded one is
   // silently discarded, however late it finishes.
   int _artGen = 0;
+  // Bumped every time the title cross-fade is (re)triggered — guards the
+  // chained reverse().then(forward()) below so a stale completion from an
+  // earlier, now-superseded skip can never fire its .forward() after a
+  // newer skip has already started its own reverse, which under fast
+  // spam-skipping could otherwise interleave and leave the title
+  // mid-fade/stuck instead of cleanly settled on the current song.
+  int _titleGen = 0;
 
   // ── Favourite toggle (local) ──
-  bool _isFav = false;
+  // NOTE: local _isFav bool removed — liked state now reads/writes directly
+  // through FavoritesProvider (see _SongInfo's onFavTap wiring below),
+  // which is the single real source of truth already used everywhere else
+  // (mini player, bottom sheet actions).
 
   @override
   void initState() {
@@ -388,13 +398,26 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   }
 
   void _triggerArtworkAnimation() {
-    if (mounted && !_artworkCtrl.isAnimating) {
+    // FIX — "fast spam-skip makes the artwork/UI lag behind the actual
+    // song": this used to only call forward(from: 0.0) when the artwork
+    // controller WASN'T already animating — meaning if you skipped again
+    // while the previous song's artwork transition was still mid-flight,
+    // the new trigger was silently dropped and the OLD artwork animation
+    // was left to finish on its own timeline before anything reflected the
+    // real current song. Under rapid repeated skips this stacked into
+    // visibly stale artwork trailing behind, no matter how fast the user
+    // tapped. Always restarting from 0.0 (regardless of current animation
+    // state) guarantees the artwork transition always represents the
+    // LATEST song the instant a skip lands — old in-flight animations are
+    // simply superseded, never queued or waited on.
+    if (mounted) {
       _artworkCtrl.forward(from: 0.0);
     }
     // Title cross-fade: fade out → snap new title → fade in
     if (mounted) {
+      final gen = ++_titleGen;
       _titleChangeCtrl.reverse(from: 1.0).then((_) {
-        if (mounted) _titleChangeCtrl.forward();
+        if (mounted && gen == _titleGen) _titleChangeCtrl.forward();
       });
     }
   }
@@ -666,7 +689,21 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                       song: song,
                       hPad: hPad,
                       isTablet: isTablet,
-                      isFav: _isFav,
+                      // FIX — "like button not wired, doesn't actually
+                      // save/count as liked": this used to read/write a
+                      // local `_isFav` bool that had NO connection to
+                      // FavoritesProvider at all. It always opened showing
+                      // unliked (even for an actually-liked song) and
+                      // tapping it only flipped that local visual bool —
+                      // nothing was ever persisted, and the song was never
+                      // really added to/removed from Favorites. Now reads
+                      // the real state straight from FavoritesProvider
+                      // (same source of truth the bottom-sheet's "Like"
+                      // action and the mini player's AurumLikeButton
+                      // already correctly use) so the heart always
+                      // reflects — and actually changes — the song's real
+                      // liked status.
+                      isFav: context.watch<FavoritesProvider>().isFavorite(song.id),
                       onFavTap: () {
                         PremiumGate.guard(
                           context,
@@ -675,7 +712,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                           requiresLoginOnly: true,
                           onAllowed: () {
                             HapticFeedback.lightImpact();
-                            setState(() => _isFav = !_isFav);
+                            context.read<FavoritesProvider>().toggleFavorite(song);
                           },
                         );
                       },

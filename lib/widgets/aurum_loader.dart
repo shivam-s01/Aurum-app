@@ -7,23 +7,17 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:aurum_music/widgets/aurum_morph_loader.dart';
+import 'package:aurum_music/providers/theme_provider.dart';
 export 'package:aurum_music/widgets/aurum_morph_loader.dart';
 
 // ══════════════════════════════════════════════════════════════════
 // DESIGN TOKENS
 // ══════════════════════════════════════════════════════════════════
 
-abstract final class _C {
-  static const gold          = Color(0xFFB89640);
-  static const goldLight     = Color(0xFFD4AF5A);
-  static const goldDark      = Color(0xFF8A6F2A);
-  static const purple        = Color(0xFFA855F7);
-  static const purpleLight   = Color(0xFFC084FC);
-  static const purpleDark    = Color(0xFF7E22CE);
-  static const deepPurpleLit = Color(0xFF9333EA);
-  static const purpleGlow    = Color(0xFFA855F7);
-}
+// (Hardcoded _C color tokens removed — colors now derive from the user's
+// live accent color via ThemeProvider, see AurumM3Loader.build() above.)
 
 // ══════════════════════════════════════════════════════════════════
 // AurumM3Loader — Material 3 Fluid Morphing Indeterminate Bar
@@ -79,6 +73,16 @@ class _AurumM3LoaderState extends State<AurumM3Loader>
 
   @override
   Widget build(BuildContext context) {
+    // FIX — "loading bar is a fixed purple/pink, doesn't match my chosen
+    // accent color": this used to always paint with hardcoded _C.purple
+    // tokens. Now derives light/base/dark shades from the user's live
+    // accent color (same source as the nav bar and Settings → Appearance
+    // picker), so every M3 loading bar in the app matches whatever accent
+    // is actually selected.
+    final accent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
+    final accentLight = Color.lerp(accent, Colors.white, 0.30)!;
+    final accentDark = Color.lerp(accent, Colors.black, 0.35)!;
+
     final painter = AnimatedBuilder(
       animation: _ctrl,
       builder: (_, __) => CustomPaint(
@@ -89,6 +93,9 @@ class _AurumM3LoaderState extends State<AurumM3Loader>
           s2e: _s2e.evaluate(_ctrl),
           h: widget.height,
           r: widget.borderRadius,
+          base: accent,
+          light: accentLight,
+          dark: accentDark,
         ),
       ),
     );
@@ -123,9 +130,11 @@ class _M3Painter extends CustomPainter {
     required this.s1s, required this.s1e,
     required this.s2s, required this.s2e,
     required this.h,   required this.r,
+    required this.base, required this.light, required this.dark,
   });
 
   final double s1s, s1e, s2s, s2e, h, r;
+  final Color base, light, dark;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -135,7 +144,7 @@ class _M3Painter extends CustomPainter {
     // Track
     canvas.drawRRect(
       RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), Radius.circular(br)),
-      Paint()..color = _C.purple.withOpacity(0.10),
+      Paint()..color = base.withOpacity(0.10),
     );
 
     void seg(double normStart, double normEnd) {
@@ -147,21 +156,20 @@ class _M3Painter extends CustomPainter {
       final rect  = Rect.fromLTWH(left, 0, right - left, h);
       final rrect = RRect.fromRectAndRadius(rect, Radius.circular(br));
 
-      // Bloom glow — pure purple, matching AurumMorphLoader (home page
-      // spinner) so every loading indicator in the app reads as the same
-      // single purple color.
+      // Bloom glow — matches the accent color so every loading indicator
+      // in the app reads as the same single accent color the user chose.
       canvas.drawRRect(
         RRect.fromRectAndRadius(rect.inflate(h), Radius.circular(br + h)),
         Paint()
-          ..color      = _C.purpleLight.withOpacity(0.18)
+          ..color      = light.withOpacity(0.18)
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 2),
       );
 
-      // Solid purple bar (dark -> base -> light purple only, no gold)
+      // Solid accent bar (dark -> base -> light only)
       canvas.drawRRect(rrect, Paint()
         ..shader = ui.Gradient.linear(
           Offset(left, 0), Offset(right, 0),
-          [_C.purpleDark, _C.purple, _C.purpleLight],
+          [dark, base, light],
           [0.0, 0.5, 1.0],
         ));
 
@@ -185,7 +193,8 @@ class _M3Painter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _M3Painter o) =>
-      o.s1s != s1s || o.s1e != s1e || o.s2s != s2s || o.s2e != s2e;
+      o.s1s != s1s || o.s1e != s1e || o.s2s != s2s || o.s2e != s2e ||
+      o.base != base || o.light != light || o.dark != dark;
 }
 
 // ══════════════════════════════════════════════════════════════════

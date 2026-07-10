@@ -542,6 +542,37 @@ class AurumAudioEngine(
                     handleCurrentIndexChanged(newPosition.mediaItemIndex)
                 }
             }
+            // FIX — "notification/lock-screen skip plays the new song
+            // instantly and correctly, but if you then open the app it
+            // shows the OLD song stuck": onPositionDiscontinuity above only
+            // called handleCurrentIndexChanged() for
+            // DISCONTINUITY_REASON_AUTO_TRANSITION (natural song-end
+            // auto-advance). Skipping via the notification/lock-screen
+            // buttons goes through Media3's own default MediaSession
+            // command handling, which calls player.seekToNext()/
+            // seekToPrevious() directly on the shared ExoPlayer instance —
+            // entirely bypassing any Dart-triggered method-channel call —
+            // and that fires DISCONTINUITY_REASON_SEEK, not
+            // AUTO_TRANSITION. That branch was silently ignored, so
+            // `currentIndex` (and therefore `currentSongId` sent to Dart in
+            // pushState()) never updated for that path: the notification
+            // itself updated correctly (Media3 drives it straight off the
+            // player), but our own state stream kept reporting the old
+            // song/index until some OTHER event happened to also touch
+            // currentIndex.
+            //
+            // onMediaItemTransition fires for every track change regardless
+            // of cause (auto-advance, seek-based skip, or a manual
+            // setMediaItem/seekTo call) and gives us the definitive new
+            // index directly — this is the single correct funnel for
+            // "the current song changed", so route ALL cases through here
+            // instead of only auto-transition.
+            override fun onMediaItemTransition(
+                mediaItem: androidx.media3.common.MediaItem?,
+                reason: Int,
+            ) {
+                handleCurrentIndexChanged(player.currentMediaItemIndex)
+            }
         })
         // Ticker starts only when playback actually begins — see
         // updateTickerState(), driven off onIsPlayingChanged above.
@@ -1357,9 +1388,31 @@ class AurumAudioEngine(
     }
     fun seek(positionMs: Long) { player.seekTo(positionMs) }
 
+    // FIX — "spam-tapping skip fast makes UI/audio lag behind, catches up
+    // late": skipToNext()/skipToPrevious() previously launched a brand new
+    // coroutine per call, each of which queued on skipMutex and ran to
+    // completion in full sequence. Rapid-tapping skip 5 times in a row used
+    // to queue 5 FULL sequential skip operations back-to-back — each one
+    // doing a real seekToNext()/play() (and, at queue edges,
+    // playQueueInternal's real resolve/prepare) — so the visible song only
+    // "arrived" after all 5 had finished executing one after another,
+    // reading as UI lag no matter how fast the taps actually were.
+    //
+    // FIX: a generation token, bumped on every skip call. Each queued
+    // coroutine checks — right after acquiring the mutex — whether it's
+    // still the LATEST request; if a newer skip came in while it was
+    // waiting, it abandons immediately without touching the player. This
+    // means no matter how many times the user taps in a burst, only the
+    // very last tap's target actually executes — the UI/audio always jumps
+    // straight to wherever the user's fastest final tap landed, instantly,
+    // with zero queued catch-up lag.
+    private var skipGen = 0
+
     fun skipToNext() {
+        val gen = ++skipGen
         scope.launch {
             skipMutex.withLock {
+                if (gen != skipGen) return@withLock
                 val liveLen = player.mediaItemCount
                 val livePos = player.currentMediaItemIndex
                 if (livePos < liveLen - 1) {
@@ -1374,8 +1427,10 @@ class AurumAudioEngine(
     }
 
     fun skipToPrevious() {
+        val gen = ++skipGen
         scope.launch {
             skipMutex.withLock {
+                if (gen != skipGen) return@withLock
                 if (player.currentPosition > 3000) {
                     player.seekTo(0)
                 } else {
@@ -1391,8 +1446,10 @@ class AurumAudioEngine(
     }
 
     fun skipToQueueItem(index: Int) {
+        val gen = ++skipGen
         scope.launch {
             skipMutex.withLock {
+                if (gen != skipGen) return@withLock
                 if (index < player.mediaItemCount && !splicingInProgress) {
                     if (index < queueSongs.size) {
                         currentIndex = index

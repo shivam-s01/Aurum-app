@@ -17,15 +17,19 @@
 
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
+import '../theme/aurum_theme.dart';
 
-/// Default color — Aurum purple.
-const Color kAurumMorphBlue = Color(0xFFA855F7); // Aurum purple
+/// Fallback color — only used if no ThemeProvider is reachable in the
+/// widget tree (should basically never happen in normal app usage).
+const Color kAurumMorphBlue = Color(0xFFA855F7); // Aurum purple (fallback only)
 
 class AurumMorphLoader extends StatefulWidget {
   const AurumMorphLoader({
     super.key,
     this.size = 40.0,
-    this.color = kAurumMorphBlue,
+    this.color,
     this.morphDuration = const Duration(milliseconds: 650),
     this.rotateDuration = const Duration(milliseconds: 4000),
   });
@@ -33,8 +37,17 @@ class AurumMorphLoader extends StatefulWidget {
   /// Bounding box size (square) the blob is drawn in.
   final double size;
 
-  /// Solid fill color of the blob.
-  final Color color;
+  /// Solid fill color of the blob. If null (the common case — nearly
+  /// every call site in the app omits this), the loader reads the user's
+  /// live accent color from ThemeProvider — the SAME color the nav bar
+  /// and Settings → Appearance accent picker use. This is the fix for
+  /// "loading spinner is a fixed purple/pink that doesn't match my chosen
+  /// theme/accent color": previously this always fell back to a hardcoded
+  /// constant (kAurumMorphBlue) no matter what accent the user picked in
+  /// Settings, so every loading blob across the app (Home, Search, Liked,
+  /// full player buffering, artist/album loading, etc.) stayed a fixed
+  /// purple regardless of the premium accent color actually selected.
+  final Color? color;
 
   /// How long one shape-to-shape morph takes.
   final Duration morphDuration;
@@ -97,6 +110,15 @@ class _AurumMorphLoaderState extends State<AurumMorphLoader>
     final from = _shapes[_shapeIndex];
     final to = _shapes[(_shapeIndex + 1) % _shapes.length];
 
+    // Resolve the paint color once per build: explicit widget.color wins
+    // if given (e.g. a caller intentionally wants a fixed color for some
+    // specific UI moment); otherwise read the live user accent color —
+    // same source the nav bar and Settings → Appearance picker use — so
+    // this spinner always matches whatever accent the user has chosen,
+    // instead of a fixed purple/pink.
+    final resolvedColor = widget.color ??
+        (context.select<ThemeProvider, Color>((tp) => tp.accentColor));
+
     return RepaintBoundary(
       child: SizedBox(
         width: widget.size,
@@ -112,7 +134,7 @@ class _AurumMorphLoaderState extends State<AurumMorphLoader>
                 to: to,
                 t: morphT,
                 rotation: rotation,
-                color: widget.color,
+                color: resolvedColor,
               ),
             );
           },
