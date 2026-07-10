@@ -577,7 +577,23 @@ class _MiniPlayerState extends State<MiniPlayer>
           // triggered by the Selector above), and flipping a ValueNotifier
           // synchronously here could schedule a MainShell rebuild while
           // this widget's own frame is still in progress.
+          //
+          // FIX — "background pill stuck visible/mini player gone" after
+          // unrelated actions (settings change, playlist save, any
+          // SnackBar): those all show a floating SnackBar via
+          // ScaffoldMessenger, which is anchored to MainShell's single
+          // Scaffold and can force a relayout/rebuild pass around
+          // bottomNavigationBar while this callback is still queued. If
+          // that pass tore down and rebuilt this MiniPlayer instance
+          // in between scheduling and firing, the old `showingNow` value
+          // captured here is stale — writing it after the fact could
+          // re-show the backing pill Container for an instance that no
+          // longer has any real content, or hide it for one that does.
+          // Re-reading `mounted` at fire time (not just capturing the
+          // value now) ensures a dead instance can never write a stale
+          // value into this static, app-wide notifier.
           WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
             MiniPlayer.visibleNotifier.value = showingNow;
           });
         }

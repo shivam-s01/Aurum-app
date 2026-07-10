@@ -36,8 +36,23 @@ class QueueScreen extends StatelessWidget {
           },
         ),
       ),
-      body: Consumer<PlayerProvider>(
-        builder: (context, player, _) {
+      // PERF FIX: was Consumer<PlayerProvider>, rebuilding this entire
+      // reorderable list (including every song tile) on every position
+      // tick. Selector gates rebuilds to real queue/song changes only —
+      // matters most exactly when the user is tapping fast through the
+      // queue, which is when this screen tends to be open.
+      body: Selector<PlayerProvider, (int, int, String)>(
+        // Joined IDs catch reorders/removals that don't change length or
+        // currentIndex (e.g. dragging item 5 to position 8 while song 0
+        // is still playing) — cheap for typical queue sizes (tens of
+        // songs), and only recomputed when PlayerProvider notifies at all.
+        selector: (_, p) => (
+          p.queue.length,
+          p.currentIndex,
+          p.queue.map((s) => s.id).join(','),
+        ),
+        builder: (context, _, __) {
+          final player = context.read<PlayerProvider>();
           final queue = player.queue;
           if (queue.isEmpty) {
             return const AurumEmptyState(

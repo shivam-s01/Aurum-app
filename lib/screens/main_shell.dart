@@ -256,7 +256,14 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         // background can never outlive what it's supposed to be behind.
         valueListenable: MiniPlayer.visibleNotifier,
         builder: (context, showingMiniPlayer, _) {
-          return Container(
+          // RepaintBoundary: floating SnackBars (settings confirmations,
+          // "Added to playlist", etc.) are anchored to this Scaffold via
+          // ScaffoldMessenger and can trigger a relayout pass around
+          // bottomNavigationBar. Isolating this subtree's paint keeps
+          // that pass from ever visually touching the mini player/nav
+          // bar, on top of the mounted-check fix in MiniPlayer itself.
+          return RepaintBoundary(
+            child: Container(
             color: showingMiniPlayer
                 ? AurumTheme.bgCardOf(context)
                 : Colors.transparent,
@@ -278,7 +285,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                   ),
                 ],
                 ),
-              );
+              ),
+          );
         },
       ),
     );
@@ -373,7 +381,7 @@ class _AurumBottomNavBar extends StatelessWidget {
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 4),
                                 child: Container(
-                                  height: 40,
+                                  height: 28,
                                   decoration: BoxDecoration(
                                     // Flat tonal fill, not a bright gradient —
                                     // a two-stop gradient plus glow read as

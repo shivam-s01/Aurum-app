@@ -120,6 +120,18 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   String? _lastArtUrl;
   String? _lastSongId;
 
+  // Bumped every time _extractColor is (re)triggered by a song change.
+  // Palette extraction is async (PaletteGenerator awaits an image decode),
+  // so on very fast song switching, an OLDER song's extraction can finish
+  // AFTER a newer one's — e.g. song A's decode is slow, song C's is fast,
+  // so C's colors land first and A's then overwrite them a moment later.
+  // That read as the background trailing behind what the UI (artwork/
+  // title) was already showing on rapid skips. Only the extraction whose
+  // captured generation still matches the current one when it completes
+  // is allowed to commit its colors — every stale, superseded one is
+  // silently discarded, however late it finishes.
+  int _artGen = 0;
+
   // ── Favourite toggle (local) ──
   bool _isFav = false;
 
@@ -307,6 +319,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   Future<void> _extractColor(String url, {bool isLight = false}) async {
     if (url.isEmpty || url == _lastArtUrl) return;
     _lastArtUrl = url;
+    final gen = ++_artGen;
     try {
       final ImageProvider provider;
       if (url.startsWith('http')) {
@@ -317,6 +330,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       // 120x120 gives better palette quality with minimal decode cost
       final pg = await PaletteGenerator.fromImageProvider(
           provider, size: const Size(120, 120));
+
+      // Stale check: a newer song was switched to while this decode was
+      // still in flight. Bail out without touching any color/animation
+      // state — whatever the newer call already committed (or is about
+      // to) stays authoritative. This is what actually stops the
+      // background from ever trailing behind fast rapid-fire switching.
+      if (gen != _artGen) return;
 
       // 4 distinct roles: vibrant glow, dominant base, muted mid, dark anchor
       final c1 = pg.vibrantColor?.color ??
@@ -334,7 +354,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           pg.lightMutedColor?.color ??
           c1;
 
-      if (!mounted) return;
+      if (!mounted || gen != _artGen) return;
 
       // Snapshot current lerped position before morphing
       final t = _bgColorCtrl.value;
@@ -443,8 +463,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<PlayerProvider>(
-      builder: (context, player, _) {
+    return Selector<PlayerProvider, (String?, bool, bool, LoopMode, bool, int)>(
+      selector: (_, player) => (
+        player.currentSong?.id,
+        player.isPlaying,
+        player.isLoading,
+        player.loopMode,
+        player.shuffle,
+        player.queue.length,
+      ),
+      builder: (context, _, __) {
+        final player = context.read<PlayerProvider>();
         final song = player.currentSong;
         if (song == null) {
           // currentSong went null while this screen is open (e.g. stream
@@ -1081,6 +1110,25 @@ class _SeekBarState extends State<_SeekBar> {
 
   @override
   Widget build(BuildContext context) {
+    // PERF FIX: _SeekBar used to rely on `widget.player` handed down from
+    // the parent screen's Consumer, which rebuilt every tick anyway. Now
+    // that the parent is gated by Selector (see _FullPlayerScreenState),
+    // this widget listens to progress/position/buffered directly so the
+    // slider still updates smoothly every tick without pulling the rest
+    // of the (much heavier) screen along with it.
+    return Selector<PlayerProvider, (double, int, int, String, String)>(
+      selector: (_, player) => (
+        player.progress,
+        player.duration.inMilliseconds,
+        player.buffered.inMilliseconds,
+        player.positionString,
+        player.durationString,
+      ),
+      builder: (context, _, __) => _buildSeekBar(context),
+    );
+  }
+
+  Widget _buildSeekBar(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final trackActive = isLight ? AurumTheme.lightTextPrimary : Colors.white;
     final trackInactive = isLight ? AurumTheme.lightBgSurface : Colors.white.withAlpha(28);
@@ -4254,7 +4302,7 @@ class _IconBtn extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Control Button
 // ─────────────────────────────────────────────────────────────────────────────
-class _CtrlBtn extends StatefulWidget {
+class _CtrlBtn extends StatelessWidget {
   final IconData icon;
   final double size;
   final bool active;
@@ -4272,86 +4320,22 @@ class _CtrlBtn extends StatefulWidget {
   });
 
   @override
-  State<_CtrlBtn> createState() => _CtrlBtnState();
-}
-
-// FIX (Shivam feedback): Shuffle/Repeat previously just snapped between
-// active/inactive colors on rebuild with zero motion — every other control
-// (play/prev/next) has a press animation via AurumPressable, but the
-// gold-highlight state change on these two had nothing, which is why they
-// felt "flat"/cheap next to the rest of the transport row. This adds:
-//  - a smooth color cross-fade between active/inactive tint (AnimatedSwitcher
-//    alone can't tween Icon color, so we drive it with an AnimationController
-//    + ColorTween instead)
-//  - a quick pop/bounce scale (1.0 -> 1.25 -> 1.0) the moment the toggle
-//    actually flips, so activating shuffle/repeat *feels* like it registered
-// Press-scale (the 0.85 shrink on finger-down) is still handled by the
-// existing AurumPressable wrapper — this only adds the state-change motion
-// on top of it.
-class _CtrlBtnState extends State<_CtrlBtn> with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late Animation<double> _pop;
-  late bool _wasActive;
-
-  @override
-  void initState() {
-    super.initState();
-    _wasActive = widget.active;
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 260),
-    );
-    _pop = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.25), weight: 40),
-      TweenSequenceItem(tween: Tween(begin: 1.25, end: 1.0), weight: 60),
-    ]).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
-  }
-
-  @override
-  void didUpdateWidget(covariant _CtrlBtn oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.active != widget.active) {
-      _wasActive = oldWidget.active;
-      _ctrl.forward(from: 0);
-    }
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final inactiveColor = isLight
         ? AurumTheme.lightTextMuted
         : Colors.white.withAlpha(100);
-    Color colorFor(bool isActive) =>
-        widget.color ?? (isActive ? AurumTheme.gold : inactiveColor);
-    final fromColor = colorFor(_wasActive);
-    final toColor = colorFor(widget.active);
-
+    final c = color ?? (active ? AurumTheme.gold : inactiveColor);
     return Semantics(
-      label: widget.semanticLabel,
+      label: semanticLabel,
       button: true,
       child: AurumPressable(
         scaleAmount: 0.85,
         haptic: false, // callers already fire their own haptic per action
-        onTap: widget.onTap,
+        onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(10),
-          child: AnimatedBuilder(
-            animation: _ctrl,
-            builder: (context, child) {
-              final c = Color.lerp(fromColor, toColor, _ctrl.value) ?? toColor;
-              return Transform.scale(
-                scale: _pop.value,
-                child: Icon(widget.icon, size: widget.size, color: c),
-              );
-            },
-          ),
+          child: Icon(icon, size: size, color: c),
         ),
       ),
     );
