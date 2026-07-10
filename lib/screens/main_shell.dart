@@ -347,146 +347,130 @@ class _AurumBottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    // RepaintBoundary isolates this blur onto its own layer — the mini
-    // player directly above uses its own BackdropFilter too, and letting
-    // two backdrop filters share a compositing layer can make Android's
-    // Skia backend blur the wrong region (same issue already fixed once
-    // in mini_player.dart).
-    //
-    // REDESIGN — compact floating pill (icon-only, no labels): the old
-    // bar was a full-width, edge-to-edge, 66px-tall strip with stacked
-    // icon+label per tab. That reads as a standard Android nav bar, not
-    // the ultra-minimal floating pill look of premium references (Echo
-    // Nightly etc). This version drops labels entirely (3 icons are
-    // self-explanatory — Home/Search/Library), shrinks the bar to a
-    // single icon-row height, and floats it inset from the screen edges
-    // as one self-contained rounded pill instead of a full-bleed strip —
-    // it takes up as little vertical space as the tap targets allow.
+    // REDESIGN — reference-matched full-width bar: edge-to-edge strip
+    // (not an inset floating capsule), icon + label always visible on
+    // all 3 tabs, and a small soft pill sitting ONLY behind the
+    // selected tab's icon (not spanning the whole segment) — matching
+    // the reference screenshot exactly. RepaintBoundary isolates this
+    // blur onto its own layer — the mini player directly above uses
+    // its own BackdropFilter too, and letting two backdrop filters
+    // share a compositing layer can make Android's Skia backend blur
+    // the wrong region (same issue already fixed once in
+    // mini_player.dart).
     return RepaintBoundary(
       child: SafeArea(
         top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-              child: Container(
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.65 : 0.6),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(
-                    color: AurumTheme.textMutedOf(context).withOpacity(isLight ? 0.10 : 0.12),
-                    width: 0.6,
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final segmentWidth = constraints.maxWidth / _items.length;
-                      return Stack(
-                        children: [
-                          // ── Floating pill indicator ──────────────────────
-                          // Smooth, single easeOutCubic glide — no elastic/
-                          // spring overshoot. A pill that wobbles or bounces
-                          // reads as a flashy consumer-app gimmick; a plain,
-                          // slightly slow, perfectly damped glide is what
-                          // reads as restrained/expensive instead.
-                          AnimatedPositioned(
-                            duration: const Duration(milliseconds: 380),
+        child: Container(
+          height: 64,
+          decoration: BoxDecoration(
+            color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.94 : 0.96),
+            border: Border(
+              top: BorderSide(
+                color: AurumTheme.textMutedOf(context).withOpacity(isLight ? 0.08 : 0.10),
+                width: 0.6,
+              ),
+            ),
+            // Subtle upward shadow — lifts the bar off the content
+            // behind it just enough to read as a distinct surface,
+            // without turning into a heavy/floating card shadow.
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isLight ? 0.06 : 0.22),
+                blurRadius: 16,
+                offset: const Offset(0, -4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: List.generate(_items.length, (i) {
+              final item = _items[i];
+              final selected = i == currentIndex;
+              return Expanded(
+                child: _NavTapScale(
+                  selected: selected,
+                  onTap: () {
+                    if (!selected) HapticFeedback.selectionClick();
+                    onTap(i);
+                  },
+                  child: SizedBox.expand(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // ── Soft pill behind icon only, selected tab ──
+                        // Reference screenshot: the tint sits tight
+                        // around just the icon glyph, not the label
+                        // or the full tab segment — a small rounded
+                        // capsule, not a bright/hard-edged button.
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 260),
+                          curve: Curves.easeOutCubic,
+                          width: 52,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            // Soft, not hard — low opacity tonal wash,
+                            // matching the pale lavender capsule in
+                            // the reference rather than a saturated
+                            // fill.
+                            color: selected
+                                ? AurumTheme.gold.withOpacity(isLight ? 0.14 : 0.16)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          alignment: Alignment.center,
+                          child: TweenAnimationBuilder<double>(
+                            tween: Tween(
+                                begin: 1.0, end: selected ? 1.06 : 1.0),
+                            duration: const Duration(milliseconds: 220),
                             curve: Curves.easeOutCubic,
-                            left: segmentWidth * currentIndex,
-                            top: 0,
-                            bottom: 0,
-                            width: segmentWidth,
-                            child: Center(
-                              child: Container(
-                                // Fixed, content-hugging width — a small
-                                // near-square indicator sitting behind just
-                                // the icon, not the whole tab segment.
-                                width: 40,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  // Flat tonal fill, not a bright gradient —
-                                  // a two-stop gradient plus glow read as
-                                  // "app icon sticker"; a near-flat wash
-                                  // reads as a quiet, deliberate surface.
-                                  color: AurumTheme.gold.withOpacity(isLight ? 0.10 : 0.13),
-                                  borderRadius: BorderRadius.circular(16),
-                                  // No border/glow/boxShadow — a shadow here
-                                  // is what pushes this toward "neon button"
-                                  // rather than "etched surface".
-                                ),
+                            builder: (context, scale, child) =>
+                                Transform.scale(scale: scale, child: child),
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 200),
+                              transitionBuilder: (child, anim) =>
+                                  ScaleTransition(
+                                scale: anim,
+                                child:
+                                    FadeTransition(opacity: anim, child: child),
+                              ),
+                              child: Icon(
+                                selected ? item.filled : item.outline,
+                                key: ValueKey(selected),
+                                size: 22,
+                                color: selected
+                                    ? AurumTheme.gold
+                                    : AurumTheme.textMutedOf(context),
                               ),
                             ),
                           ),
-                          // ── Tap targets ───────────────────────────────────
-                          Row(
-                            children: List.generate(_items.length, (i) {
-                              final item = _items[i];
-                              final selected = i == currentIndex;
-                              return Expanded(
-                                child: _NavTapScale(
-                                  selected: selected,
-                                  onTap: () {
-                                    if (!selected) HapticFeedback.selectionClick();
-                                    onTap(i);
-                                  },
-                                  child: SizedBox.expand(
-                                    child: Center(
-                                      child: TweenAnimationBuilder<double>(
-                                        tween: Tween(
-                                            begin: 1.0,
-                                            end: selected ? 1.08 : 1.0),
-                                        duration:
-                                            const Duration(milliseconds: 220),
-                                        curve: Curves.easeOutCubic,
-                                        builder: (context, scale, child) =>
-                                            Transform.scale(
-                                                scale: scale, child: child),
-                                        child: AnimatedSwitcher(
-                                          duration: const Duration(
-                                              milliseconds: 200),
-                                          transitionBuilder: (child, anim) =>
-                                              ScaleTransition(
-                                            scale: anim,
-                                            child: FadeTransition(
-                                                opacity: anim, child: child),
-                                          ),
-                                          child: Icon(
-                                            selected
-                                                ? item.filled
-                                                : item.outline,
-                                            key: ValueKey(selected),
-                                            size: 22,
-                                            color: selected
-                                                ? AurumTheme.gold
-                                                : AurumTheme.textMutedOf(
-                                                    context),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }),
+                        ),
+                        const SizedBox(height: 3),
+                        // ── Label — always visible on all 3 tabs ──
+                        Text(
+                          item.label,
+                          style: TextStyle(
+                            fontSize: 11,
+                            letterSpacing: 0.2,
+                            fontWeight:
+                                selected ? FontWeight.w600 : FontWeight.w500,
+                            color: selected
+                                ? AurumTheme.gold
+                                : AurumTheme.textMutedOf(context).withOpacity(0.85),
                           ),
-                        ],
-                      );
-                    },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            }),
           ),
         ),
       ),
     );
   }
 }
+
 
 // ══════════════════════════════════════════════════════════════════
 // NAV TAP SCALE v2 — press-down/spring-back scale PLUS a stronger
