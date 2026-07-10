@@ -345,86 +345,230 @@ class _AurumBottomNavBar extends StatelessWidget {
     (outline: PhosphorIconsRegular.vinylRecord, filled: PhosphorIconsFill.vinylRecord, label: 'Library'),
   ];
 
+  static const double _barHeight = 68.0;
+  static const double _cornerRadius = 28.0;
+
   @override
   Widget build(BuildContext context) {
     final accent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
+    final isLight = Theme.of(context).brightness == Brightness.light;
 
-    // REDESIGN — full-width flat bar matching the reference exactly: no
-    // more center-floating rounded pill, no blur/glass, no side gaps.
-    // The bar spans edge-to-edge, sits flush at the very bottom (just
-    // SafeArea padding for gesture-nav devices), uses a plain flat
-    // solid background color (no translucency), and is compact —
-    // roughly the height of the icon+label content plus small padding,
-    // not an oversized card. Selection is shown purely by icon/label
-    // color change (accent color for the active tab) — no background
-    // chip/pill behind the icon, matching the reference's minimal look.
+    // FLAGSHIP REDESIGN v3 — the previous pass had all the right numbers
+    // on paper but two of them cancelled each other out visually:
+    // `bgCardOf` is near-white in light theme, so tinting a blur with a
+    // near-white color at 0.78 opacity over an already-near-white home
+    // screen produced literally zero visible glass — no depth, no edge,
+    // just flat white-on-white. Same logic made the capsule indicator
+    // (accent @ 0.12) invisible against that same near-white field.
+    //
+    // Fix is contrast, not architecture: the glass tint now always leans
+    // slightly toward the *opposite* end of the brightness scale from
+    // the theme (a touch of darkness under light theme, a touch of extra
+    // depth under dark theme) so the blur has something to visibly
+    // diffuse against regardless of what bgCardOf happens to resolve to.
+    // A soft upward drop-shadow was added outside the ClipRRect so the
+    // bar visually lifts off the content above it instead of reading as
+    // a flush continuation of the same flat plane. Still exactly one
+    // BackdropFilter, still fully RepaintBoundary-isolated.
+    final glassTint = isLight
+        ? Color.alphaBlend(
+            Colors.black.withOpacity(0.05), AurumTheme.bgCardOf(context))
+        : Color.alphaBlend(
+            Colors.white.withOpacity(0.03), AurumTheme.bgCardOf(context));
+
     return RepaintBoundary(
-      child: Container(
+      child: DecoratedBox(
+        // Soft upward lift so the bar reads as a distinct carved-in
+        // layer floating just above page content, not a flush flat
+        // extension of it. Single lightweight shadow, no nested effects.
         decoration: BoxDecoration(
-          color: AurumTheme.bgCardOf(context),
-          border: Border(
-            top: BorderSide(
-              color: AurumTheme.textMutedOf(context).withOpacity(0.08),
-              width: 0.6,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isLight ? 0.08 : 0.28),
+              blurRadius: 20,
+              offset: const Offset(0, -4),
             ),
-          ),
+          ],
         ),
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            height: 58,
-            child: Row(
-              children: List.generate(_items.length, (i) {
-                final item = _items[i];
-                final selected = i == currentIndex;
-                return Expanded(
-                  child: _NavTapScale(
-                    selected: selected,
-                    onTap: () {
-                      if (!selected) HapticFeedback.selectionClick();
-                      onTap(i);
-                    },
-                    child: SizedBox.expand(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(_cornerRadius),
+          ),
+          child: BackdropFilter(
+            // Blur radius 12–16 per spec — 14 sits in the middle, enough
+            // to soften whatever's behind without costing more than a
+            // single cheap Gaussian pass.
+            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+            child: Container(
+              decoration: BoxDecoration(
+                // Background opacity 0.72–0.82 per spec, now applied to
+                // a tint that always has real contrast against the page
+                // behind it instead of one that can wash out to
+                // near-white-on-white.
+                color: glassTint.withOpacity(isLight ? 0.80 : 0.82),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(_cornerRadius),
+                ),
+                border: Border(
+                  top: BorderSide(
+                    color: Colors.white.withOpacity(isLight ? 0.45 : 0.08),
+                    width: 1.0,
+                  ),
+                ),
+              ),
+              // Soft top highlight — a slim, fast-fading white gradient
+              // just inside the top edge, the classic "glass catching
+              // light" cue. Purely decorative, sits under everything
+              // else, costs nothing extra to paint (no blur, no filter).
+              foregroundDecoration: BoxDecoration(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(_cornerRadius),
+                ),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.white.withOpacity(isLight ? 0.10 : 0.05),
+                    Colors.white.withOpacity(0.0),
+                  ],
+                  stops: const [0.0, 0.18],
+                ),
+              ),
+              child: SafeArea(
+                top: false,
+                child: SizedBox(
+                  height: _barHeight,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final tabWidth = constraints.maxWidth / _items.length;
+                      return Stack(
+                        alignment: Alignment.center,
                         children: [
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 180),
-                            transitionBuilder: (child, anim) =>
-                                ScaleTransition(
-                              scale: anim,
-                              child: FadeTransition(
-                                  opacity: anim, child: child),
-                            ),
-                            child: Icon(
-                              selected ? item.filled : item.outline,
-                              key: ValueKey(selected),
-                              size: 24,
-                              color: selected
-                                  ? accent
-                                  : AurumTheme.textMutedOf(context),
+                          // ── Active tab glass capsule ────────────────
+                          // Opacity raised from the original 0.12/0.14 —
+                          // against a near-white light theme that was
+                          // visually indistinguishable from "no capsule
+                          // at all" (confirmed on-device). A solid
+                          // border now also anchors its edge explicitly
+                          // instead of relying purely on a translucent
+                          // fill + shadow to read as a shape.
+                          AnimatedPositioned(
+                            duration: const Duration(milliseconds: 360),
+                            curve: Curves.easeOutCubic,
+                            left: tabWidth * currentIndex,
+                            top: 8,
+                            bottom: 8,
+                            width: tabWidth,
+                            child: Center(
+                              child: Container(
+                                width: tabWidth - 28,
+                                height: _barHeight - 16,
+                                decoration: BoxDecoration(
+                                  color: accent.withOpacity(isLight ? 0.16 : 0.18),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(
+                                    color: accent.withOpacity(isLight ? 0.22 : 0.24),
+                                    width: 1.0,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: accent.withOpacity(isLight ? 0.16 : 0.20),
+                                      blurRadius: 12,
+                                      spreadRadius: -2,
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 3),
-                          AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 180),
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: selected
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                              color: selected
-                                  ? accent
-                                  : AurumTheme.textMutedOf(context),
-                            ),
-                            child: Text(item.label),
+                          // ── Tap targets ──────────────────────────────
+                          Row(
+                            children: List.generate(_items.length, (i) {
+                              final item = _items[i];
+                              final selected = i == currentIndex;
+                              return Expanded(
+                                child: _NavTapScale(
+                                  selected: selected,
+                                  onTap: () {
+                                    if (!selected) {
+                                      HapticFeedback.selectionClick();
+                                    }
+                                    onTap(i);
+                                  },
+                                  child: SizedBox.expand(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        // Icon: filled when active, outline
+                                        // when inactive, cross-fade + tiny
+                                        // scale morph — no bounce, no
+                                        // overshoot, restrained easeOutCubic
+                                        // throughout.
+                                        TweenAnimationBuilder<double>(
+                                          tween: Tween(
+                                            begin: 1.0,
+                                            end: selected ? 1.06 : 1.0,
+                                          ),
+                                          duration: const Duration(milliseconds: 200),
+                                          curve: Curves.easeOutCubic,
+                                          builder: (context, scale, child) =>
+                                              Transform.scale(scale: scale, child: child),
+                                          child: AnimatedSwitcher(
+                                            duration: const Duration(milliseconds: 200),
+                                            switchInCurve: Curves.easeOutCubic,
+                                            switchOutCurve: Curves.easeOutCubic,
+                                            transitionBuilder: (child, anim) =>
+                                                FadeTransition(
+                                              opacity: anim,
+                                              child: ScaleTransition(
+                                                scale: Tween(begin: 0.92, end: 1.0)
+                                                    .animate(anim),
+                                                child: child,
+                                              ),
+                                            ),
+                                            child: Icon(
+                                              selected ? item.filled : item.outline,
+                                              key: ValueKey(selected),
+                                              size: 23,
+                                              color: selected
+                                                  ? accent
+                                                  : AurumTheme.textMutedOf(context),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        // Label: smooth color + weight
+                                        // transition, fixed vertical
+                                        // position — never jumps.
+                                        AnimatedDefaultTextStyle(
+                                          duration: const Duration(milliseconds: 220),
+                                          curve: Curves.easeOutQuart,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            height: 1.0,
+                                            fontWeight: selected
+                                                ? FontWeight.w600
+                                                : FontWeight.w500,
+                                            color: selected
+                                                ? accent
+                                                : AurumTheme.textMutedOf(context),
+                                            letterSpacing: 0.1,
+                                          ),
+                                          child: Text(item.label),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
                           ),
                         ],
-                      ),
-                    ),
+                      );
+                    },
                   ),
-                );
-              }),
+                ),
+              ),
             ),
           ),
         ),
@@ -469,7 +613,7 @@ class _NavTapScaleState extends State<_NavTapScale>
   // down slightly on tapDown) is what reads as tactile; a bounce on
   // the way back up is the part that reads as playful/toy-like rather
   // than a quiet, deliberate control.
-  late final Animation<double> _scale = Tween(begin: 1.0, end: 0.94).animate(
+  late final Animation<double> _scale = Tween(begin: 1.0, end: 0.96).animate(
     CurvedAnimation(
       parent: _controller,
       curve: Curves.easeOutCubic,
