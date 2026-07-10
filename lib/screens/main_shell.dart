@@ -17,6 +17,7 @@ import 'home_screen.dart';
 import 'search_screen.dart';
 import 'library_screen.dart';
 import '../providers/player_provider.dart';
+import '../providers/theme_provider.dart';
 import '../services/update_service.dart';
 import '../services/local_music_service.dart';
 import '../services/audio_prefs.dart';
@@ -346,131 +347,91 @@ class _AurumBottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    // REDESIGN — reference-matched full-width bar: edge-to-edge strip
-    // (not an inset floating capsule), icon + label always visible on
-    // all 3 tabs, and a small soft pill sitting ONLY behind the
-    // selected tab's icon (not spanning the whole segment) — matching
-    // the reference screenshot exactly. RepaintBoundary isolates this
-    // blur onto its own layer — the mini player directly above uses
-    // its own BackdropFilter too, and letting two backdrop filters
-    // share a compositing layer can make Android's Skia backend blur
-    // the wrong region (same issue already fixed once in
-    // mini_player.dart).
+    final accent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
+
+    // REDESIGN — full-width flat bar matching the reference exactly: no
+    // more center-floating rounded pill, no blur/glass, no side gaps.
+    // The bar spans edge-to-edge, sits flush at the very bottom (just
+    // SafeArea padding for gesture-nav devices), uses a plain flat
+    // solid background color (no translucency), and is compact —
+    // roughly the height of the icon+label content plus small padding,
+    // not an oversized card. Selection is shown purely by icon/label
+    // color change (accent color for the active tab) — no background
+    // chip/pill behind the icon, matching the reference's minimal look.
     return RepaintBoundary(
-      child: SafeArea(
-        top: false,
-        child: Container(
-          height: 64,
-          decoration: BoxDecoration(
-            color: AurumTheme.bgCardOf(context).withOpacity(isLight ? 0.94 : 0.96),
-            border: Border(
-              top: BorderSide(
-                color: AurumTheme.textMutedOf(context).withOpacity(isLight ? 0.08 : 0.10),
-                width: 0.6,
-              ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          border: Border(
+            top: BorderSide(
+              color: AurumTheme.textMutedOf(context).withOpacity(0.08),
+              width: 0.6,
             ),
-            // Subtle upward shadow — lifts the bar off the content
-            // behind it just enough to read as a distinct surface,
-            // without turning into a heavy/floating card shadow.
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isLight ? 0.06 : 0.22),
-                blurRadius: 16,
-                offset: const Offset(0, -4),
-              ),
-            ],
           ),
-          child: Row(
-            children: List.generate(_items.length, (i) {
-              final item = _items[i];
-              final selected = i == currentIndex;
-              return Expanded(
-                child: _NavTapScale(
-                  selected: selected,
-                  onTap: () {
-                    if (!selected) HapticFeedback.selectionClick();
-                    onTap(i);
-                  },
-                  child: SizedBox.expand(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // ── Soft pill behind icon only, selected tab ──
-                        // Reference screenshot: the tint sits tight
-                        // around just the icon glyph, not the label
-                        // or the full tab segment — a small rounded
-                        // capsule, not a bright/hard-edged button.
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 260),
-                          curve: Curves.easeOutCubic,
-                          width: 52,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            // Soft, not hard — low opacity tonal wash,
-                            // matching the pale lavender capsule in
-                            // the reference rather than a saturated
-                            // fill.
-                            color: selected
-                                ? AurumTheme.gold.withOpacity(isLight ? 0.14 : 0.16)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          alignment: Alignment.center,
-                          child: TweenAnimationBuilder<double>(
-                            tween: Tween(
-                                begin: 1.0, end: selected ? 1.06 : 1.0),
-                            duration: const Duration(milliseconds: 220),
-                            curve: Curves.easeOutCubic,
-                            builder: (context, scale, child) =>
-                                Transform.scale(scale: scale, child: child),
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 200),
-                              transitionBuilder: (child, anim) =>
-                                  ScaleTransition(
-                                scale: anim,
-                                child:
-                                    FadeTransition(opacity: anim, child: child),
-                              ),
-                              child: Icon(
-                                selected ? item.filled : item.outline,
-                                key: ValueKey(selected),
-                                size: 22,
-                                color: selected
-                                    ? AurumTheme.gold
-                                    : AurumTheme.textMutedOf(context),
-                              ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 58,
+            child: Row(
+              children: List.generate(_items.length, (i) {
+                final item = _items[i];
+                final selected = i == currentIndex;
+                return Expanded(
+                  child: _NavTapScale(
+                    selected: selected,
+                    onTap: () {
+                      if (!selected) HapticFeedback.selectionClick();
+                      onTap(i);
+                    },
+                    child: SizedBox.expand(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 180),
+                            transitionBuilder: (child, anim) =>
+                                ScaleTransition(
+                              scale: anim,
+                              child: FadeTransition(
+                                  opacity: anim, child: child),
+                            ),
+                            child: Icon(
+                              selected ? item.filled : item.outline,
+                              key: ValueKey(selected),
+                              size: 24,
+                              color: selected
+                                  ? accent
+                                  : AurumTheme.textMutedOf(context),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 3),
-                        // ── Label — always visible on all 3 tabs ──
-                        Text(
-                          item.label,
-                          style: TextStyle(
-                            fontSize: 11,
-                            letterSpacing: 0.2,
-                            fontWeight:
-                                selected ? FontWeight.w600 : FontWeight.w500,
-                            color: selected
-                                ? AurumTheme.gold
-                                : AurumTheme.textMutedOf(context).withOpacity(0.85),
+                          const SizedBox(height: 3),
+                          AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 180),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: selected
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                              color: selected
+                                  ? accent
+                                  : AurumTheme.textMutedOf(context),
+                            ),
+                            child: Text(item.label),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              );
-            }),
+                );
+              }),
+            ),
           ),
         ),
       ),
     );
   }
 }
-
 
 // ══════════════════════════════════════════════════════════════════
 // NAV TAP SCALE v2 — press-down/spring-back scale PLUS a stronger

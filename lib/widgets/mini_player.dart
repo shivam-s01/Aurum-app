@@ -572,20 +572,45 @@ class _MiniPlayerState extends State<MiniPlayer>
           });
         }
 
-        // SELF-HEAL — if this State got recreated (theme/settings rebuild)
-        // or the postFrameCallback above ever got dropped mid-flight,
-        // `_entryCtrl` can be stuck at 0: zero opacity, 0.88 scale,
-        // translated 80px down. The mini player's background pill in
-        // MainShell still paints (miniPlayerVisible is true), but the
-        // content is fully transformed away — the "ghost pill". Instead of
-        // depending solely on the one-shot callback, check on every build:
-        // if a song is showing but the entry controller never actually
-        // started, kick it forward again. Self-corrects on next rebuild,
-        // no app restart needed.
-        if (_entryCtrl.status == AnimationStatus.dismissed) {
+        // SELF-HEAL (v2 — check VALUE, not just STATUS, and don't rely
+        // solely on forward() to fix it) — the previous guard only
+        // checked `_entryCtrl.status == AnimationStatus.dismissed`, and
+        // "fixed" a stuck controller by calling `.forward()` again. Two
+        // gaps in that: (1) status can lag/be ambiguous vs the actual
+        // rendered value across a State recreation, so a controller can
+        // be provably stuck at value 0 without status ever reporting
+        // `dismissed`; (2) if whatever caused it to get stuck in the
+        // first place (e.g. a ticker that was transiently muted, or a
+        // dropped frame callback) is still in effect, calling forward()
+        // again is no more guaranteed to progress than the original call
+        // was — the content could stay invisible indefinitely with the
+        // ghost pill still showing.
+        //
+        // This checks the actual painted opacity directly (ground truth,
+        // not controller bookkeeping) and, if a song is meant to be
+        // showing but opacity is stuck at 0, snaps the controller straight
+        // to its end value (`_entryCtrl.value = 1.0`, no animation) as
+        // an immediate guaranteed fix — content becomes visible on the
+        // very next frame regardless of whether forward() would have
+        // worked. forward() is still attempted first for the normal case
+        // (so the entrance animation plays when everything is healthy);
+        // the instant snap only fires if a subsequent frame proves the
+        // animation still didn't progress.
+        if (_entryOpacity.value == 0.0 &&
+            _entryCtrl.status != AnimationStatus.forward) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && _entryCtrl.status == AnimationStatus.dismissed) {
+            if (!mounted) return;
+            if (_entryOpacity.value == 0.0 &&
+                _entryCtrl.status != AnimationStatus.forward) {
               _entryCtrl.forward(from: 0.0);
+              // Verify next frame that it actually started progressing;
+              // if still stuck, force-complete instantly as a guaranteed
+              // fallback so the ghost pill can never persist.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && _entryOpacity.value == 0.0) {
+                  _entryCtrl.value = 1.0;
+                }
+              });
             }
           });
         }
