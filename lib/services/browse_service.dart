@@ -17,6 +17,7 @@
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
 // ─── Top-level helpers ───────────────────────────────────────────────────────
 
@@ -44,6 +45,7 @@ class BrowseTrack {
   final String album;
   final String artworkUrl;
   final int?   durationMs;
+  final bool   isFromYoutube;
 
   const BrowseTrack({
     required this.trackId,
@@ -52,6 +54,7 @@ class BrowseTrack {
     required this.album,
     required this.artworkUrl,
     this.durationMs,
+    this.isFromYoutube = false,
   });
 
   String get resolveQuery => '$title $artist';
@@ -85,6 +88,7 @@ class BrowseAlbum {
   final String artworkUrl;
   final int?   trackCount;
   final String? releaseYear;
+  final bool   isFromYoutube;
 
   const BrowseAlbum({
     required this.collectionId,
@@ -93,6 +97,7 @@ class BrowseAlbum {
     required this.artworkUrl,
     this.trackCount,
     this.releaseYear,
+    this.isFromYoutube = false,
   });
 
   factory BrowseAlbum.fromSaavn(Map<String, dynamic> j) {
@@ -120,12 +125,14 @@ class BrowseArtist {
   final String name;
   final String? genre;
   final String  imageUrl;
+  final bool    isFromYoutube;
 
   const BrowseArtist({
     required this.artistId,
     required this.name,
     this.genre,
     this.imageUrl = '',
+    this.isFromYoutube = false,
   });
 
   factory BrowseArtist.fromSaavn(Map<String, dynamic> j) {
@@ -145,11 +152,12 @@ class BrowseArtist {
     );
   }
 
-  BrowseArtist copyWith({String? imageUrl}) => BrowseArtist(
+  BrowseArtist copyWith({String? imageUrl, bool? isFromYoutube}) => BrowseArtist(
     artistId: artistId,
     name: name,
     genre: genre,
     imageUrl: imageUrl ?? this.imageUrl,
+    isFromYoutube: isFromYoutube ?? this.isFromYoutube,
   );
 }
 
@@ -240,31 +248,29 @@ class BrowseService {
 
   // Full YouTube-sourced fallback when Saavn returns zero artists for the
   // query — derives a small artist row from YT's top video results so the
-  // section never reads as empty/broken.
+  // section never reads as empty/broken. Uses youtube_explode_dart (the
+  // same library the rest of the app already relies on for YT playback)
+  // instead of scraping raw search-page HTML, which is far more fragile
+  // and prone to silently returning nothing if YouTube tweaks its markup.
   static Future<List<BrowseArtist>> _ytArtistFallback(String query) async {
     try {
-      final uri = Uri.parse('https://www.youtube.com/results')
-          .replace(queryParameters: {'search_query': '$query song'});
-      final res = await _client
-          .get(uri, headers: {'User-Agent': 'Mozilla/5.0'})
-          .timeout(const Duration(seconds: 6));
-      if (res.statusCode != 200) return [];
-      final channelMatches = RegExp(r'"longBylineText".*?"text":"([^"]+)"')
-          .allMatches(res.body)
-          .map((m) => m.group(1) ?? '')
-          .where((s) => s.isNotEmpty)
-          .toSet()
-          .take(8);
-      final thumbMatch = RegExp(r'"thumbnail":\{"thumbnails":\[\{"url":"([^"]+)"')
-          .allMatches(res.body)
-          .map((m) => m.group(1) ?? '')
-          .toList();
-      var i = 0;
+      final ytClient = yt.YoutubeExplode();
+      final results = await ytClient.search.search('$query song').timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => <yt.Video>[],
+          );
+      ytClient.close();
+      final seen = <String>{};
       final out = <BrowseArtist>[];
-      for (final name in channelMatches) {
-        final thumb = i < thumbMatch.length ? thumbMatch[i] : '';
-        out.add(BrowseArtist(artistId: name, name: _clean(name), imageUrl: thumb));
-        i++;
+      for (final v in results) {
+        final channel = v.author.trim();
+        if (channel.isEmpty || !_isRealArtist(channel) || seen.contains(channel.toLowerCase())) continue;
+        seen.add(channel.toLowerCase());
+        final thumb = v.thumbnails.mediumResUrl.isNotEmpty
+            ? v.thumbnails.mediumResUrl
+            : (v.thumbnails.standardResUrl);
+        out.add(BrowseArtist(artistId: channel, name: _clean(channel), imageUrl: thumb, isFromYoutube: true));
+        if (out.length >= 8) break;
       }
       return out;
     } catch (_) {
@@ -276,35 +282,58 @@ class BrowseService {
   // top video results loosely so the row still shows something playable.
   static Future<List<BrowseAlbum>> _ytAlbumFallback(String query) async {
     try {
-      final uri = Uri.parse('https://www.youtube.com/results')
-          .replace(queryParameters: {'search_query': '$query album'});
-      final res = await _client
-          .get(uri, headers: {'User-Agent': 'Mozilla/5.0'})
-          .timeout(const Duration(seconds: 6));
-      if (res.statusCode != 200) return [];
-      final titleMatches = RegExp(r'"title":\{"runs":\[\{"text":"([^"]+)"')
-          .allMatches(res.body)
-          .map((m) => m.group(1) ?? '')
-          .where((s) => s.isNotEmpty)
-          .toSet()
-          .take(6);
-      final thumbMatch = RegExp(r'"thumbnail":\{"thumbnails":\[\{"url":"([^"]+)"')
-          .allMatches(res.body)
-          .map((m) => m.group(1) ?? '')
-          .toList();
-      var i = 0;
+      final ytClient = yt.YoutubeExplode();
+      final results = await ytClient.search.search('$query song').timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => <yt.Video>[],
+          );
+      ytClient.close();
       final out = <BrowseAlbum>[];
-      for (final name in titleMatches) {
-        final thumb = i < thumbMatch.length ? thumbMatch[i] : '';
+      for (final v in results.take(6)) {
+        final thumb = v.thumbnails.mediumResUrl.isNotEmpty
+            ? v.thumbnails.mediumResUrl
+            : v.thumbnails.standardResUrl;
         out.add(BrowseAlbum(
-          collectionId: name,
-          name: _clean(name),
-          artist: '',
+          collectionId: v.id.value, // real YT video id — used directly for playback
+          name: _clean(v.title),
+          artist: _clean(v.author),
           artworkUrl: thumb,
+          isFromYoutube: true,
         ));
-        i++;
       }
       return out;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // Real, guaranteed-playable tracks for a YouTube-sourced artist/album —
+  // searches YouTube directly and returns tracks whose trackId is an
+  // actual YT video id, so tapping one plays immediately via the app's
+  // existing YouTube resolve path instead of round-tripping through a
+  // Saavn text search that may match nothing for a channel/video name.
+  static Future<List<BrowseTrack>> _ytTracksFor(String query) async {
+    try {
+      final ytClient = yt.YoutubeExplode();
+      final results = await ytClient.search.search(query).timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => <yt.Video>[],
+          );
+      ytClient.close();
+      return results.take(25).map((v) {
+        final thumb = v.thumbnails.mediumResUrl.isNotEmpty
+            ? v.thumbnails.mediumResUrl
+            : v.thumbnails.standardResUrl;
+        return BrowseTrack(
+          trackId: v.id.value,
+          title: _clean(v.title),
+          artist: _clean(v.author),
+          album: '',
+          artworkUrl: thumb,
+          durationMs: v.duration?.inMilliseconds,
+          isFromYoutube: true,
+        );
+      }).toList();
     } catch (_) {
       return [];
     }
@@ -350,15 +379,49 @@ class BrowseService {
     return seen.values.toList();
   }
 
+  // Known music-label / channel / playlist names that show up in Saavn's
+  // "primary_artists" field but are NOT actual singers — filtering these
+  // out was the reason tapping an "artist" like "T-Series" or "90's Gaane"
+  // opened an empty track list: BrowseService.artistTopSongs() searched
+  // Saavn for that literal string, which matches nothing since it's a
+  // label name, not a singer anyone actually recorded under.
+  static const _labelBlacklist = {
+    't-series', 'tips official', 'tips', 'zee music company', 'zee music',
+    'sony music', 'sony music entertainment', 'saregama', 'venus',
+    'venus music', 'eros now music', 'speed records', 'white hill music',
+    'desi music factory', 'jjust music', 'times music', 'universal music',
+    '90\'s gaane', 'bollywood hits', 'filmi gaane', 'various artists',
+    'unknown', 'unknown artist',
+  };
+
+  static bool _isRealArtist(String name) {
+    final lower = name.toLowerCase().trim();
+    if (lower.isEmpty) return false;
+    if (_labelBlacklist.contains(lower)) return false;
+    // Catch label-ish patterns not in the explicit list above (e.g.
+    // "XYZ Records", "XYZ Music Company") without needing to enumerate
+    // every label that exists.
+    if (lower.contains('music company') || lower.contains('records')) return false;
+    return true;
+  }
+
   // Group track results by primary artist to fake an "Artists" row.
+  // Splits combined "A, B" credits into individual real singers and
+  // drops label/channel names so every chip is tappable and actually
+  // resolves to a track list.
   static List<BrowseArtist> _deriveArtists(List<Map<String, dynamic>> raw) {
     final seen = <String>{};
     final artists = <BrowseArtist>[];
     for (final j in raw) {
-      final name = (j['primary_artists'] ?? j['singers'] ?? '').toString().trim();
-      if (name.isEmpty || seen.contains(name)) continue;
-      seen.add(name);
-      artists.add(BrowseArtist(artistId: name, name: _clean(name)));
+      final rawName = (j['primary_artists'] ?? j['singers'] ?? '').toString().trim();
+      if (rawName.isEmpty) continue;
+      for (final single in rawName.split(',')) {
+        final name = single.trim();
+        if (name.isEmpty || !_isRealArtist(name) || seen.contains(name.toLowerCase())) continue;
+        seen.add(name.toLowerCase());
+        artists.add(BrowseArtist(artistId: name, name: _clean(name)));
+        if (artists.length >= 8) break;
+      }
       if (artists.length >= 8) break;
     }
     return artists;
@@ -366,24 +429,39 @@ class BrowseService {
 
   // Fetch tracks for a derived "album" — re-searches by album name since
   // this backend has no dedicated /albums?id= endpoint.
-  static Future<List<BrowseTrack>> albumTracks(String collectionId) async {
+  //
+  // FIX: when the album card itself came from the YouTube fallback (Saavn
+  // had nothing for the query), its "name" is a YT video title, not a real
+  // Saavn album — searching Saavn for that text matched nothing and the
+  // track list opened empty. isFromYoutube routes straight to a YouTube
+  // search instead, so tapping a YT-sourced card always plays something.
+  static Future<List<BrowseTrack>> albumTracks(String collectionId, {bool isFromYoutube = false}) async {
+    if (isFromYoutube) return _ytTracksFor(collectionId);
     final encoded = Uri.encodeQueryComponent(collectionId.trim());
     final body = await _fetch('$_base/result/?query=$encoded&limit=25');
     final tracks = <BrowseTrack>[];
     for (final j in _parseList(body)) {
       try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
     }
+    // Saavn search matched nothing (common for a niche/misspelled album) —
+    // fall back to YouTube rather than showing an empty track list.
+    if (tracks.isEmpty) return _ytTracksFor(collectionId);
     return tracks;
   }
 
-  // Fetch top songs for an artist
-  static Future<List<BrowseTrack>> artistTopSongs(String artistName) async {
+  // Fetch top songs for an artist. Same YouTube-routing fix as albumTracks:
+  // a YT-sourced artist chip holds a channel/byline name that won't match
+  // anything on Saavn, so isFromYoutube (or an empty Saavn result) sends
+  // the query straight to YouTube for guaranteed-playable results.
+  static Future<List<BrowseTrack>> artistTopSongs(String artistName, {bool isFromYoutube = false}) async {
+    if (isFromYoutube) return _ytTracksFor('$artistName songs');
     final encoded = Uri.encodeQueryComponent(artistName.trim());
     final body = await _fetch('$_base/result/?query=$encoded&limit=25');
     final tracks = <BrowseTrack>[];
     for (final j in _parseList(body)) {
       try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
     }
+    if (tracks.isEmpty) return _ytTracksFor('$artistName songs');
     return tracks;
   }
 

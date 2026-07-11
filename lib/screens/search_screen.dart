@@ -377,15 +377,21 @@ class _SearchScreenState extends State<SearchScreen>
   Future<void> _playBrowseTrack(BrowseTrack track) async {
     HapticFeedback.lightImpact();
     _dismissKeyboard();
-    // Convert to Song using the resolve query, then play via PlayerProvider
+    // FIX: tracks discovered via the YouTube fallback (Saavn had nothing for
+    // that artist/album) carry a real YouTube video ID as trackId. Forcing
+    // source: SongSource.saavn on those meant the player tried to resolve a
+    // YouTube ID against Saavn and always failed silently — tapping the
+    // track did nothing. track.isFromYoutube is set explicitly wherever
+    // these tracks are created, so playback routes to the correct resolver
+    // instead of guessing from the ID's shape.
     final song = Song(
-      id:         track.trackId,  // clean Saavn ID — no prefix
+      id:         track.trackId,
       title:      track.title,
       artist:     track.artist,
       album:      track.album,
       artworkUrl: track.artworkUrl,
       duration:   track.durationMs != null ? (track.durationMs! / 1000).round() : null,
-      source:     SongSource.saavn, // will resolve via Saavn first
+      source:     track.isFromYoutube ? SongSource.youtube : SongSource.saavn,
     );
     if (mounted) {
       context.read<PlayerProvider>().playSong(song, queue: [song], index: 0);
@@ -943,13 +949,13 @@ class _BrowseTabState extends State<_BrowseTab> {
 
   Future<void> _openAlbum(BrowseAlbum album) async {
     setState(() { _openAlbumId = album.collectionId; _openAlbumName = album.name; _albumLoading = true; _albumTracks = []; _openArtistName = null; });
-    final tracks = await BrowseService.albumTracks(album.collectionId);
+    final tracks = await BrowseService.albumTracks(album.collectionId, isFromYoutube: album.isFromYoutube);
     if (mounted) setState(() { _albumTracks = tracks; _albumLoading = false; });
   }
 
   Future<void> _openArtist(BrowseArtist artist) async {
     setState(() { _openArtistName = artist.name; _artistLoading = true; _artistTracks = []; _openAlbumId = null; });
-    final tracks = await BrowseService.artistTopSongs(artist.name);
+    final tracks = await BrowseService.artistTopSongs(artist.name, isFromYoutube: artist.isFromYoutube);
     if (mounted) setState(() { _artistTracks = tracks; _artistLoading = false; });
   }
 
