@@ -119,17 +119,37 @@ class BrowseArtist {
   final String artistId;
   final String name;
   final String? genre;
+  final String  imageUrl;
 
   const BrowseArtist({
     required this.artistId,
     required this.name,
     this.genre,
+    this.imageUrl = '',
   });
 
-  factory BrowseArtist.fromSaavn(Map<String, dynamic> j) => BrowseArtist(
-    artistId: (j['id'] ?? '').toString(),
-    name:     _clean((j['name'] ?? j['title'] ?? 'Unknown').toString()),
-    genre:    null,
+  factory BrowseArtist.fromSaavn(Map<String, dynamic> j) {
+    final rawImage = j['image'];
+    final artwork = _hqArtwork(
+      rawImage is List
+          ? ((rawImage.lastWhere((e) => e is Map, orElse: () => {}) as Map)['url']
+                  ?? (rawImage.lastWhere((e) => e is Map, orElse: () => {}) as Map)['link']
+                  ?? '').toString()
+          : (rawImage ?? '').toString(),
+    );
+    return BrowseArtist(
+      artistId: (j['id'] ?? '').toString(),
+      name:     _clean((j['name'] ?? j['title'] ?? 'Unknown').toString()),
+      genre:    null,
+      imageUrl: artwork,
+    );
+  }
+
+  BrowseArtist copyWith({String? imageUrl}) => BrowseArtist(
+    artistId: artistId,
+    name: name,
+    genre: genre,
+    imageUrl: imageUrl ?? this.imageUrl,
   );
 }
 
@@ -161,10 +181,152 @@ class BrowseService {
 
     // Derive a lightweight "Albums" and "Artists" view from the track
     // results so Browse still feels rich without needing extra endpoints.
-    final albums  = _deriveAlbums(rawTracks);
-    final artists = _deriveArtists(rawTracks);
+    var albums  = _deriveAlbums(rawTracks);
+    var artists = _deriveArtists(rawTracks);
+
+    // PATCH: real artist photos. Saavn's dedicated artist-search endpoint
+    // returns a proper display picture — swap that in for each derived
+    // artist (limit concurrency so this stays fast). Falls back to a
+    // YouTube channel thumbnail if Saavn has nothing for that name.
+    if (artists.isNotEmpty) {
+      artists = await Future.wait(artists.map(_withArtistPhoto));
+    }
+
+    // PATCH: if Saavn gave us nothing at all for albums/artists (common for
+    // niche or misspelled queries), fill the section from YouTube instead
+    // of leaving it blank — a search results screen with an empty "Artists"
+    // row reads as broken, not as "no results".
+    if (artists.isEmpty && query.trim().isNotEmpty) {
+      artists = await _ytArtistFallback(query.trim());
+    }
+    if (albums.isEmpty && query.trim().isNotEmpty) {
+      albums = await _ytAlbumFallback(query.trim());
+    }
 
     return BrowseSearchResult(tracks: tracks, albums: albums, artists: artists);
+  }
+
+  // Look up a real artist photo from Saavn's artist-search endpoint by name.
+  // Keeps everything else about the derived artist (id, name) unchanged —
+  // only the image gets patched in. Falls back to a YouTube thumbnail.
+  static Future<BrowseArtist> _withArtistPhoto(BrowseArtist artist) async {
+    if (artist.imageUrl.isNotEmpty) return artist;
+    try {
+      final uri = Uri.parse('$_base/api/search/artists')
+          .replace(queryParameters: {'query': artist.name, 'limit': '1'});
+      final res = await _client.get(uri).timeout(const Duration(seconds: 5));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final results = data['data']?['results'] as List?;
+        if (results != null && results.isNotEmpty) {
+          final r = results.first as Map<String, dynamic>;
+          final imageList = r['image'];
+          final url = _hqArtwork(
+            imageList is List
+                ? ((imageList.lastWhere((e) => e is Map, orElse: () => {}) as Map)['url']
+                        ?? (imageList.lastWhere((e) => e is Map, orElse: () => {}) as Map)['link']
+                        ?? '').toString()
+                : (imageList ?? '').toString(),
+          );
+          if (url.isNotEmpty) return artist.copyWith(imageUrl: url);
+        }
+      }
+    } catch (_) {}
+    // Saavn had nothing — patch in a YouTube channel/video thumbnail.
+    final ytThumb = await _ytThumbnailFor('${artist.name} singer');
+    if (ytThumb.isNotEmpty) return artist.copyWith(imageUrl: ytThumb);
+    return artist;
+  }
+
+  // Full YouTube-sourced fallback when Saavn returns zero artists for the
+  // query — derives a small artist row from YT's top video results so the
+  // section never reads as empty/broken.
+  static Future<List<BrowseArtist>> _ytArtistFallback(String query) async {
+    try {
+      final uri = Uri.parse('https://www.youtube.com/results')
+          .replace(queryParameters: {'search_query': '$query song'});
+      final res = await _client
+          .get(uri, headers: {'User-Agent': 'Mozilla/5.0'})
+          .timeout(const Duration(seconds: 6));
+      if (res.statusCode != 200) return [];
+      final channelMatches = RegExp(r'"longBylineText".*?"text":"([^"]+)"')
+          .allMatches(res.body)
+          .map((m) => m.group(1) ?? '')
+          .where((s) => s.isNotEmpty)
+          .toSet()
+          .take(8);
+      final thumbMatch = RegExp(r'"thumbnail":\{"thumbnails":\[\{"url":"([^"]+)"')
+          .allMatches(res.body)
+          .map((m) => m.group(1) ?? '')
+          .toList();
+      var i = 0;
+      final out = <BrowseArtist>[];
+      for (final name in channelMatches) {
+        final thumb = i < thumbMatch.length ? thumbMatch[i] : '';
+        out.add(BrowseArtist(artistId: name, name: _clean(name), imageUrl: thumb));
+        i++;
+      }
+      return out;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // Full YouTube-sourced fallback for albums when Saavn has none — groups
+  // top video results loosely so the row still shows something playable.
+  static Future<List<BrowseAlbum>> _ytAlbumFallback(String query) async {
+    try {
+      final uri = Uri.parse('https://www.youtube.com/results')
+          .replace(queryParameters: {'search_query': '$query album'});
+      final res = await _client
+          .get(uri, headers: {'User-Agent': 'Mozilla/5.0'})
+          .timeout(const Duration(seconds: 6));
+      if (res.statusCode != 200) return [];
+      final titleMatches = RegExp(r'"title":\{"runs":\[\{"text":"([^"]+)"')
+          .allMatches(res.body)
+          .map((m) => m.group(1) ?? '')
+          .where((s) => s.isNotEmpty)
+          .toSet()
+          .take(6);
+      final thumbMatch = RegExp(r'"thumbnail":\{"thumbnails":\[\{"url":"([^"]+)"')
+          .allMatches(res.body)
+          .map((m) => m.group(1) ?? '')
+          .toList();
+      var i = 0;
+      final out = <BrowseAlbum>[];
+      for (final name in titleMatches) {
+        final thumb = i < thumbMatch.length ? thumbMatch[i] : '';
+        out.add(BrowseAlbum(
+          collectionId: name,
+          name: _clean(name),
+          artist: '',
+          artworkUrl: thumb,
+        ));
+        i++;
+      }
+      return out;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // Best-effort single YouTube thumbnail for a query — used as the last
+  // resort for an individual artist photo.
+  static Future<String> _ytThumbnailFor(String query) async {
+    try {
+      final uri = Uri.parse('https://www.youtube.com/results')
+          .replace(queryParameters: {'search_query': query});
+      final res = await _client
+          .get(uri, headers: {'User-Agent': 'Mozilla/5.0'})
+          .timeout(const Duration(seconds: 5));
+      if (res.statusCode == 200) {
+        final match = RegExp(r'"videoId":"([a-zA-Z0-9_-]{11})"').firstMatch(res.body);
+        if (match != null) {
+          return 'https://i.ytimg.com/vi/${match.group(1)}/mqdefault.jpg';
+        }
+      }
+    } catch (_) {}
+    return '';
   }
 
   // Group track results by album name to fake an "Albums" row.

@@ -1191,7 +1191,11 @@ class _ArtistChip extends StatelessWidget {
               color: AurumTheme.bgCardOf(context),
               border: Border.all(color: AurumTheme.gold.withOpacity(0.3), width: 1.5),
             ),
-            child: Icon(Icons.person_rounded, color: AurumTheme.gold.withOpacity(0.7), size: 28),
+            child: ClipOval(
+              child: artist.imageUrl.isEmpty
+                  ? Icon(Icons.person_rounded, color: AurumTheme.gold.withOpacity(0.7), size: 28)
+                  : AurumArtwork(url: artist.imageUrl, size: 60, borderRadius: 30),
+            ),
           ),
           const SizedBox(height: 6),
           SizedBox(
