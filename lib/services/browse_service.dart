@@ -259,6 +259,7 @@ class BrowseService {
           .then((list) => list.toList())
           .timeout(const Duration(seconds: 8), onTimeout: () => <yt.Video>[]);
       ytClient.close();
+      final seen = <String>{};
       final out = <BrowseArtist>[];
       for (final v in results) {
         final channel = v.author.trim();
