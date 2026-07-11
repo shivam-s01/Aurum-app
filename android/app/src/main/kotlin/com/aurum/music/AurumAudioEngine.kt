@@ -466,6 +466,16 @@ class AurumAudioEngine(
 
     private var fadeJob: Job? = null
     private var idleWatchdogJob: Job? = null
+    // Safety net for the one gap the existing IDLE-recovery paths don't
+    // cover: the player sitting in STATE_BUFFERING indefinitely with no
+    // exception ever thrown and no transition to STATE_IDLE. This happens
+    // rarely but really — e.g. an Android network-stack connection that
+    // goes half-open during a WiFi↔mobile-data handover and never fires
+    // the HTTP read timeout because no FIN/RST ever arrives. Without this,
+    // that specific case has no recovery path at all: not an error (so
+    // onPlayerError never fires), not idle (so handleIdleEvent never
+    // fires) — playback just silently never continues.
+    private var bufferingWatchdogJob: Job? = null
     private var currentSongLiked = false
     private var crossfadeSecs = 0.0
     private var stopAfterCurrentSong = false
@@ -512,6 +522,12 @@ class AurumAudioEngine(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 pushState()
                 if (playbackState == Player.STATE_IDLE) handleIdleEvent()
+                if (playbackState == Player.STATE_BUFFERING) {
+                    startBufferingWatchdog()
+                } else {
+                    bufferingWatchdogJob?.cancel()
+                    bufferingWatchdogJob = null
+                }
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 pushState()
@@ -931,6 +947,40 @@ class AurumAudioEngine(
         idleWatchdogJob = scope.launch {
             if (pos < 500) handleFreshStartIdle() else handleMidStreamIdle(pos)
         }
+    }
+
+    // See bufferingWatchdogJob declaration above for why this exists.
+    // Generous grace period — this must never fire for normal buffering
+    // (slow-start on a fresh connection, brief rebuffer on a rough patch
+    // of network), only for playback that's genuinely stuck. 20s is well
+    // beyond both the 16s HTTP connect timeout and 8s read timeout
+    // already configured above, so if either of those was going to fire
+    // on its own and hand off to the existing error/idle recovery paths,
+    // it already would have by the time this watchdog acts.
+    private fun startBufferingWatchdog() {
+        bufferingWatchdogJob?.cancel()
+        val sessionAtStart = playSessionId
+        val songAtStart = queueSongs.getOrNull(currentIndex)
+        val posAtStart = player.currentPosition
+        bufferingWatchdogJob = scope.launch {
+            delay(20_000)
+            if (sessionAtStart != playSessionId) return@launch
+            if (player.playbackState != Player.STATE_BUFFERING) return@launch
+            if (!player.playWhenReady) return@launch
+            if (isLoadingNewSong) return@launch
+            val song = queueSongs.getOrNull(currentIndex) ?: return@launch
+            if (songAtStart == null || song.id != songAtStart.id) return@launch
+            _log("[watchdog] Stuck buffering 20s+ on \"${song.title}\" — forcing recovery")
+            // Reuses the exact same "splice a fresh URL in at the current
+            // position" recovery handleMidStreamIdle already does for a
+            // dead/expired CDN link — this is that same failure, just
+            // detected by elapsed time instead of by an IDLE transition.
+            handleMidStreamIdle(posAtStart.coerceAtLeast(player.currentPosition))
+        }
+    }
+
+    private fun _log(msg: String) {
+        if (BuildConfig.DEBUG) android.util.Log.d("AurumAudioEngine", msg)
     }
 
     private suspend fun handleFreshStartIdle() {

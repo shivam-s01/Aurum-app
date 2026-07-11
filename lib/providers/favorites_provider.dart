@@ -8,11 +8,13 @@
 //   ✅ All existing API unchanged — fully backward compatible
 // =============================================================================
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../services/recommendation_engine.dart';
+import '../services/sync_service.dart';
 import 'download_provider.dart';
 
 class FavoritesProvider extends ChangeNotifier {
@@ -65,20 +67,27 @@ class FavoritesProvider extends ChangeNotifier {
   Future<void> _add(Song song) async {
     await _box.put(song.id, song.toJson());
     _favorites.insert(0, song);
+    unawaited(SyncService.instance.pushFavorite(song));
     notifyListeners();
   }
 
   Future<void> _remove(String id) async {
     await _box.delete(id);
     _favorites.removeWhere((s) => s.id == id);
+    unawaited(SyncService.instance.pushUnfavorite(id));
     notifyListeners();
   }
 
-  /// Called by SyncService after pulling from Supabase
+  /// Called by SyncService after pulling from Supabase. Writes locally
+  /// only — this song just came FROM the cloud, so mirroring it straight
+  /// back up would be a wasteful (and potentially loopy, if another
+  /// device is syncing at the same moment) round trip.
   Future<void> addFromRemote(Map<String, dynamic> data) async {
     final song = Song.fromJson(data);
     if (!isFavorite(song.id)) {
-      await _add(song);
+      await _box.put(song.id, song.toJson());
+      _favorites.insert(0, song);
+      notifyListeners();
     }
   }
 

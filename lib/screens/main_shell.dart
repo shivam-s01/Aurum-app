@@ -20,6 +20,13 @@ import '../providers/theme_provider.dart';
 import '../services/update_service.dart';
 import '../services/local_music_service.dart';
 import '../services/audio_prefs.dart';
+import '../services/sync_service.dart';
+import '../providers/auth_provider.dart';
+import '../providers/premium_provider.dart';
+import '../providers/playlist_provider.dart';
+import '../providers/followed_artists_provider.dart';
+import '../providers/followed_albums_provider.dart';
+import '../providers/favorites_provider.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -83,6 +90,20 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _startShakeListener();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Cold-launch sync: didChangeAppLifecycleState's resumed branch
+      // only fires on a paused→resumed transition, which a fresh app
+      // launch never passes through (it starts straight in "resumed").
+      // Without this, a user already signed in on two devices who just
+      // opens the app fresh — rather than backgrounding and returning to
+      // it — would see stale library state until the next
+      // background/foreground cycle. Placed here (post-frame) rather
+      // than directly in initState so every provider's own init() (Hive
+      // box opens, etc.) has had a chance to complete first — reading
+      // PlaylistProvider.playlists etc. before that finishes would just
+      // see an empty list and skip pushing anything local-only up.
+      // Fire-and-forget, same as the resume-path sync.
+      _handleForegroundSync();
+
       // Update check
       final prefs = await SharedPreferences.getInstance();
       final checkUpdates = prefs.getBool('check_updates') ?? true;
@@ -180,12 +201,43 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // Save queue when app goes to background
+  // Save queue when app goes to background; pull the latest cloud state
+  // when it comes back to the foreground.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _saveQueue();
+    } else if (state == AppLifecycleState.resumed) {
+      _handleForegroundSync();
+    }
+  }
+
+  // Runs a full pull-then-push sync any time the app returns to the
+  // foreground, so a playlist/favorite/follow added on another device
+  // while this device was backgrounded shows up here without the user
+  // having to sign out and back in. syncAll() itself already no-ops
+  // instantly if nobody's signed in or a sync is already in flight, and
+  // this is fire-and-forget (no await at the call site in
+  // didChangeAppLifecycleState) so resuming the app is never blocked on
+  // a network round trip.
+  Future<void> _handleForegroundSync() async {
+    if (!mounted) return;
+    final auth = context.read<AuthProvider>();
+    if (!auth.isSignedIn) return;
+    final premium = context.read<PremiumProvider>();
+    if (!premium.isPremium) return;
+    try {
+      await SyncService.instance.syncAll(
+        playlists: context.read<PlaylistProvider>(),
+        followedArtists: context.read<FollowedArtistsProvider>(),
+        followedAlbums: context.read<FollowedAlbumsProvider>(),
+        favorites: context.read<FavoritesProvider>(),
+      );
+    } catch (_) {
+      // Best-effort — a failed foreground sync just means we try again
+      // on the next resume or the next explicit sign-in; nothing here
+      // should ever surface an error to the user for a background op.
     }
   }
 

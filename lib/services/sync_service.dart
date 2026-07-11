@@ -50,6 +50,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/song.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
@@ -64,6 +65,137 @@ class SyncService {
 
   bool _isSyncing = false;
   bool get isSyncing => _isSyncing;
+
+  // Set by whoever owns premium-gating (see wiring in main.dart / the
+  // premium provider) so SyncService can decide, on its own, whether an
+  // incremental push is actually allowed — cloud sync is premium-only,
+  // same as the existing full syncAll() already enforces at the call
+  // site. Defaults to false so a push can never silently succeed for a
+  // free user before this is wired up.
+  bool Function() isPremium = () => false;
+
+  bool get _canSync => _uid != null && isPremium();
+
+  // ── Incremental single-item pushes ──────────────────────────────────────
+  //
+  // These are meant to be called right after every local Hive write —
+  // fire-and-forget, never awaited by the caller, never thrown from. A
+  // playlist edit must always succeed locally regardless of network
+  // state; the cloud push is a best-effort mirror on top of that, not a
+  // condition for the local save to "count". If it fails here (offline,
+  // Supabase hiccup, whatever), the next full syncAll() — on next
+  // sign-in, or the app-resume/periodic sync wired in main.dart — will
+  // pick this row up again because its local updatedAt will still be
+  // newer than whatever's on the server.
+
+  Future<void> pushPlaylist(AurumPlaylist pl) async {
+    if (!_canSync) return;
+    try {
+      await _client.from('playlists').upsert({
+        'id': pl.id,
+        'user_id': _uid,
+        'data': pl.toJson(),
+        'updated_at': pl.updatedAt.toIso8601String(),
+      });
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SyncService] pushPlaylist error: $e');
+    }
+  }
+
+  Future<void> pushPlaylistDeleted(String playlistId) async {
+    if (!_canSync) return;
+    final uid = _uid!;
+    try {
+      await _client
+          .from('playlists')
+          .delete()
+          .eq('id', playlistId)
+          .eq('user_id', uid);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SyncService] pushPlaylistDeleted error: $e');
+    }
+  }
+
+  Future<void> pushFollowedArtist(Map<String, dynamic> artist) async {
+    if (!_canSync) return;
+    try {
+      await _client.from('followed_artists').upsert({
+        'artist_id': artist['id'],
+        'user_id': _uid,
+        'data': artist,
+      });
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SyncService] pushFollowedArtist error: $e');
+    }
+  }
+
+  Future<void> pushUnfollowedArtist(String artistId) async {
+    if (!_canSync) return;
+    final uid = _uid!;
+    try {
+      await _client
+          .from('followed_artists')
+          .delete()
+          .eq('artist_id', artistId)
+          .eq('user_id', uid);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SyncService] pushUnfollowedArtist error: $e');
+    }
+  }
+
+  Future<void> pushFollowedAlbum(Map<String, dynamic> album) async {
+    if (!_canSync) return;
+    try {
+      await _client.from('followed_albums').upsert({
+        'album_id': album['id'],
+        'user_id': _uid,
+        'data': album,
+      });
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SyncService] pushFollowedAlbum error: $e');
+    }
+  }
+
+  Future<void> pushUnfollowedAlbum(String albumId) async {
+    if (!_canSync) return;
+    final uid = _uid!;
+    try {
+      await _client
+          .from('followed_albums')
+          .delete()
+          .eq('album_id', albumId)
+          .eq('user_id', uid);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SyncService] pushUnfollowedAlbum error: $e');
+    }
+  }
+
+  Future<void> pushFavorite(Song song) async {
+    if (!_canSync) return;
+    try {
+      await _client.from('favorites').upsert({
+        'song_id': song.id,
+        'user_id': _uid,
+        'data': song.toJson(),
+      });
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SyncService] pushFavorite error: $e');
+    }
+  }
+
+  Future<void> pushUnfavorite(String songId) async {
+    if (!_canSync) return;
+    final uid = _uid!;
+    try {
+      await _client
+          .from('favorites')
+          .delete()
+          .eq('song_id', songId)
+          .eq('user_id', uid);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SyncService] pushUnfavorite error: $e');
+    }
+  }
 
   /// Call right after a successful sign-in. Pulls remote data down, then
   /// pushes anything local-only up (merge, not overwrite).
@@ -141,7 +273,7 @@ class SyncService {
       final data = Map<String, dynamic>.from(row['data'] as Map);
       remoteIds.add(row['artist_id'] as String);
       if (!provider.isFollowing(data['id'] as String)) {
-        await provider.toggleFollow(
+        await provider.followFromRemote(
           artistId: data['id'] as String,
           name: data['name'] as String? ?? '',
           imageUrl: data['imageUrl'] as String? ?? '',
@@ -173,7 +305,7 @@ class SyncService {
       final data = Map<String, dynamic>.from(row['data'] as Map);
       remoteIds.add(row['album_id'] as String);
       if (!provider.isFollowing(data['id'] as String)) {
-        await provider.toggleFollow(
+        await provider.followFromRemote(
           albumId: data['id'] as String,
           name: data['name'] as String? ?? '',
           artworkUrl: data['artworkUrl'] as String? ?? '',

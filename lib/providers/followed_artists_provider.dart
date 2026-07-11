@@ -6,8 +6,10 @@
 //   render a "Followed Artists" row later without re-fetching.
 // =============================================================================
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../services/sync_service.dart';
 
 class FollowedArtistsProvider extends ChangeNotifier {
   static const _boxName = 'aurum_followed_artists';
@@ -37,13 +39,33 @@ class FollowedArtistsProvider extends ChangeNotifier {
   }) async {
     if (isFollowing(artistId)) {
       await _box.delete(artistId);
+      unawaited(SyncService.instance.pushUnfollowedArtist(artistId));
     } else {
-      await _box.put(artistId, {
+      final data = {
         'id': artistId,
         'name': name,
         'imageUrl': imageUrl,
-      });
+      };
+      await _box.put(artistId, data);
+      unawaited(SyncService.instance.pushFollowedArtist(data));
     }
+    notifyListeners();
+  }
+
+  /// Called by SyncService while pulling from Supabase — local write
+  /// only, so data that just came FROM the cloud doesn't immediately
+  /// get pushed straight back to it.
+  Future<void> followFromRemote({
+    required String artistId,
+    required String name,
+    required String imageUrl,
+  }) async {
+    if (isFollowing(artistId)) return;
+    await _box.put(artistId, {
+      'id': artistId,
+      'name': name,
+      'imageUrl': imageUrl,
+    });
     notifyListeners();
   }
 

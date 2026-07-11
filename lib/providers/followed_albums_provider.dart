@@ -6,8 +6,10 @@
 //   render a "Saved Albums" grid later without re-fetching.
 // =============================================================================
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../services/sync_service.dart';
 
 class FollowedAlbumsProvider extends ChangeNotifier {
   static const _boxName = 'aurum_followed_albums';
@@ -37,13 +39,33 @@ class FollowedAlbumsProvider extends ChangeNotifier {
   }) async {
     if (isFollowing(albumId)) {
       await _box.delete(albumId);
+      unawaited(SyncService.instance.pushUnfollowedAlbum(albumId));
     } else {
-      await _box.put(albumId, {
+      final data = {
         'id': albumId,
         'name': name,
         'artworkUrl': artworkUrl,
-      });
+      };
+      await _box.put(albumId, data);
+      unawaited(SyncService.instance.pushFollowedAlbum(data));
     }
+    notifyListeners();
+  }
+
+  /// Called by SyncService while pulling from Supabase — local write
+  /// only, so data that just came FROM the cloud doesn't immediately
+  /// get pushed straight back to it.
+  Future<void> followFromRemote({
+    required String albumId,
+    required String name,
+    required String artworkUrl,
+  }) async {
+    if (isFollowing(albumId)) return;
+    await _box.put(albumId, {
+      'id': albumId,
+      'name': name,
+      'artworkUrl': artworkUrl,
+    });
     notifyListeners();
   }
 

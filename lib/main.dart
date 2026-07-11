@@ -10,6 +10,7 @@ import 'services/notification_service.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
 import 'services/audio_prefs.dart';
+import 'services/sync_service.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
@@ -200,6 +201,12 @@ class AurumApp extends StatelessWidget {
             // Keep AudioPrefs in sync so service-layer (ApiService) can
             // check isPremium without a BuildContext.
             pp.addListener(() => AudioPrefs.isPremium = pp.isPremium);
+            // Same reasoning, for SyncService: incremental cloud pushes
+            // (see providers/playlist_provider.dart etc.) fire from deep
+            // inside provider mutation methods with no BuildContext
+            // available, so SyncService needs its own way to ask "is this
+            // user currently premium" right before deciding to push.
+            SyncService.instance.isPremium = () => pp.isPremium;
             return pp;
           },
         ),

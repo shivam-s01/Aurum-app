@@ -9,9 +9,11 @@
 //   ✅ Auto-persist to Hive on every mutation
 // =============================================================================
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/song.dart';
+import '../services/sync_service.dart';
 
 // ── Model ────────────────────────────────────────────────────────────────────
 
@@ -153,6 +155,7 @@ class PlaylistProvider extends ChangeNotifier {
   Future<void> deletePlaylist(String id) async {
     _playlists.removeWhere((p) => p.id == id);
     await _box.delete(id);
+    unawaited(SyncService.instance.pushPlaylistDeleted(id));
     notifyListeners();
   }
 
@@ -221,8 +224,18 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _persist(AurumPlaylist pl) async {
+  Future<void> _persistLocalOnly(AurumPlaylist pl) async {
     await _box.put(pl.id, pl.toJson());
+  }
+
+  Future<void> _persist(AurumPlaylist pl) async {
+    await _persistLocalOnly(pl);
+    // Fire-and-forget: mirrors this playlist to Supabase in the
+    // background so it shows up on the user's other signed-in devices
+    // without waiting for their next full sign-in sync. Never awaited
+    // here — a slow/offline network must never delay or block the local
+    // save this function exists for.
+    unawaited(SyncService.instance.pushPlaylist(pl));
   }
 
   void _sortByUpdated() {
@@ -235,7 +248,7 @@ class PlaylistProvider extends ChangeNotifier {
     if (existing != null) _playlists.remove(existing);
     _playlists.add(pl);
     _sortByUpdated();
-    await _persist(pl);
+    await _persistLocalOnly(pl);
     notifyListeners();
   }
 
