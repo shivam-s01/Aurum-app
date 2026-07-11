@@ -130,8 +130,20 @@ class AurumTheme {
         centerTitle: false,
         iconTheme: IconThemeData(color: textPrimary),
       ),
+      // FIX — THE actual, confirmed source of the "ghost pill": this
+      // theme sets bottomNavigationBarTheme.backgroundColor to a solid
+      // card color (navBar). Even though the app's own bottom bar widget
+      // (_AurumBottomNavBar) paints nothing itself, Flutter's Scaffold
+      // wraps whatever is passed to `bottomNavigationBar:` in its own
+      // Material, and that Material's default fill comes from THIS exact
+      // theme property. That's why the pill was solid `lightBgCard`/
+      // `darkBgCard` colored, appeared independent of any widget code
+      // change, and only ever needed a full app restart to "go away"
+      // (a theme rebuild reapplying this same value doesn't fix it,
+      // since it was never the widget tree at fault). Setting it to
+      // transparent here removes the fill at its actual source.
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: navBar,
+        backgroundColor: Colors.transparent,
         selectedItemColor: gold,
         unselectedItemColor: textMuted,
         type: BottomNavigationBarType.fixed,
