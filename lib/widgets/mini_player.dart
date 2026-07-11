@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -115,9 +116,36 @@ class _MiniPlayerState extends State<MiniPlayer> {
             offset: Offset(0, translateY),
             child: Opacity(
               opacity: opacity,
-              child: Container(
-                margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                height: 68,
+              child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: BackdropFilter(
+                // Lighter blur than the nav bar (sigma 14 vs 24) — the mini
+                // player sits directly above the nav bar capsule, so a
+                // slightly softer glass keeps them visually distinct while
+                // still letting scrolled content read through faintly
+                // instead of a flat/awkward opaque strip.
+                filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                child: Container(
+                  margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  height: 68,
+                  decoration: BoxDecoration(
+                    color: (Theme.of(context).brightness == Brightness.dark
+                            ? Colors.black
+                            : Colors.white)
+                        .withValues(
+                      alpha: Theme.of(context).brightness == Brightness.dark
+                          ? 0.42
+                          : 0.62,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: (Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white
+                              : Colors.black)
+                          .withValues(alpha: 0.08),
+                      width: 1,
+                    ),
+                  ),
                 child: Column(
                   children: [
                     _MiniProgressBar(player: player),
@@ -185,6 +213,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                       ),
                     ),
                   ],
+                ),
                 ),
               ),
             ),
