@@ -22,7 +22,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.4'
+          flutter-version: '3.35.0'
           channel: 'stable'
 
       - name: Decode Keystore
@@ -35,19 +35,6 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      # SAFETY GATE — catches broken code before it can ever become a
-      # live release. `flutter analyze` fails the whole job (non-zero
-      # exit code) on real errors: broken syntax, missing imports, type
-      # mismatches, unresolved references — exactly the class of mistake
-      # that would otherwise silently ship as a build users get prompted
-      # to install. Previously the workflow went straight from `pub get`
-      # to `flutter build apk`, so the only thing standing between any
-      # push and a live public release was the build itself succeeding —
-      # a change that compiles but breaks something at runtime (UI glitch,
-      # playback misbehavior) had nothing here to catch it. This step
-      # doesn't catch runtime bugs (nothing automated can, without real
-      # device testing), but it guarantees the app is at least
-      # structurally sound before it's ever offered to a single user.
       - name: Analyze (safety gate — stops here on real errors)
         run: flutter analyze --no-fatal-infos
 
@@ -74,16 +61,6 @@ jobs:
           name: aurum-music-release
           path: build/app/outputs/flutter-apk/app-release.apk
 
-      # Release is opt-in, not automatic. Every push still builds and
-      # analyzes above — you can always grab the APK from this run's
-      # Artifacts tab and install it on your own device to check UI/
-      # playback before anyone else ever sees it. A GitHub Release (the
-      # thing UpdateService.dart actually polls, and what triggers the
-      # "Update Available" popup on every installed app) is only created
-      # when the commit message contains "[release]" — e.g.
-      # `git commit -m "fix crossfade stutter [release]"`. A routine or
-      # experimental push with no [release] tag builds and gets analyzed
-      # exactly the same, it just stops short of going live.
       - name: Check release opt-in
         id: release_gate
         run: |
