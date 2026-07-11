@@ -18,20 +18,16 @@ android {
     ndkVersion "27.0.12077973"
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
         // Required by NewPipeExtractor on minSdk < 33 (java.time / java.nio
         // APIs it uses internally aren't available on older Android
         // without desugaring).
         coreLibraryDesugaringEnabled true
     }
 
-    buildFeatures {
-        buildConfig true
-    }
-
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "11"
     }
 
     defaultConfig {
@@ -40,6 +36,24 @@ android {
         targetSdk flutter.targetSdkVersion
         versionCode flutter.versionCode
         versionName flutter.versionName
+    }
+
+    // Per-ABI splitting — nothing is removed from the app, this only stops
+    // bundling all THREE CPU architectures' native libraries (arm64-v8a,
+    // armeabi-v7a, x86_64 — from ExoPlayer/Media3, NewPipeExtractor's
+    // native deps, etc) into one "fat" APK. Every real device only ever
+    // uses ONE of these at runtime; the other two were 100% dead weight
+    // being shipped to every single install. This is the single biggest
+    // lever on APK size with zero feature/behavior impact — splits.abi
+    // produces one APK per architecture instead, each only containing the
+    // native code that device actually needs.
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "armeabi-v7a", "x86_64"
+            universalApk false
+        }
     }
 
     signingConfigs {

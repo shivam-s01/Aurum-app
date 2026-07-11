@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -289,6 +290,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      // extendBody: true — lets page content (HomeScreen/SearchScreen/
+      // LibraryScreen) scroll underneath the floating nav bar/mini player
+      // instead of stopping short and leaving a solid-colored gap behind
+      // them. Combined with the frosted-glass capsule below, this is what
+      // makes content visibly (blurred) through the bar, matching a
+      // premium "paid app" look instead of an opaque white strip.
+      extendBody: true,
       body: IndexedStack(index: _tab, children: _screens),
       // FIX — PERMANENT fix for "mini player disappears into a stuck pill
       // after theme/settings changes, only recoverable with an app
@@ -400,19 +408,39 @@ class _AurumBottomNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
 
-    // No RepaintBoundary/DecoratedBox/BackdropFilter/Container wrapper —
-    // deliberately nothing here to paint as a "bar". SafeArea handles
-    // the bottom system inset, everything else is just the tap row.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Floating frosted-glass capsule: side margins so it doesn't touch
+    // the screen edges, ClipRRect + BackdropFilter for the blur, and a
+    // translucent tinted fill on top so page content underneath (visible
+    // thanks to Scaffold's extendBody: true) reads as a soft blurred
+    // smear rather than a flat opaque bar — the "paid app" look.
     return SafeArea(
       top: false,
-      child: SizedBox(
-        height: _barHeight,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final tabWidth = constraints.maxWidth / _items.length;
-            return Stack(
-              alignment: Alignment.center,
-              children: [
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: Container(
+              height: _barHeight,
+              decoration: BoxDecoration(
+                color: (isDark ? Colors.black : Colors.white)
+                    .withValues(alpha: isDark ? 0.45 : 0.65),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: (isDark ? Colors.white : Colors.black)
+                      .withValues(alpha: 0.08),
+                  width: 1,
+                ),
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final tabWidth = constraints.maxWidth / _items.length;
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
                 // ── Active tab capsule ──────────────────────────────
                 // Solid filled rounded-rect behind the selected tab's
                 // icon+label column, matching Echo's flat filled pill
@@ -494,6 +522,9 @@ class _AurumBottomNavBar extends StatelessWidget {
               ],
             );
           },
+              ),
+            ),
+          ),
         ),
       ),
     );

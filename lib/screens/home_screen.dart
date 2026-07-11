@@ -824,8 +824,8 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                 animation: _breatheCtrl,
                 child: ImageFiltered(
                   imageFilter: ImageFilter.blur(
-                    sigmaX: isLight ? 6 : 5,
-                    sigmaY: isLight ? 6 : 5,
+                    sigmaX: isLight ? 2.5 : 2,
+                    sigmaY: isLight ? 2.5 : 2,
                     tileMode: TileMode.clamp,
                   ),
                   child: AurumArtwork(
@@ -854,16 +854,16 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                   end: Alignment.bottomCenter,
                   colors: isLight
                       ? [
-                          Colors.white.withOpacity(0.0),
-                          Colors.white.withOpacity(0.06),
-                          Colors.black.withOpacity(0.46),
+                          Colors.white.withValues(alpha: 0.0),
+                          Colors.white.withValues(alpha: 0.0),
+                          Colors.black.withValues(alpha: 0.32),
                         ]
                       : [
-                          Colors.black.withOpacity(0.05),
-                          Colors.black.withOpacity(0.35),
-                          Colors.black.withOpacity(0.86),
+                          Colors.black.withValues(alpha: 0.0),
+                          Colors.black.withValues(alpha: 0.15),
+                          Colors.black.withValues(alpha: 0.70),
                         ],
-                  stops: const [0.0, 0.45, 1.0],
+                  stops: const [0.0, 0.55, 1.0],
                 ),
               ),
             ),

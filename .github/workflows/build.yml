@@ -36,7 +36,7 @@ jobs:
         run: flutter pub get
 
       - name: Analyze (safety gate — stops here on real errors)
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        run: flutter analyze --no-fatal-infos
 
       - name: Set build number from run number
         run: |
@@ -59,7 +59,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aurum-music-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 
       - name: Check release opt-in
         id: release_gate
@@ -77,5 +77,5 @@ jobs:
         with:
           tag_name: build${{ steps.ver.outputs.build }}
           name: Build ${{ steps.ver.outputs.build }}
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           token: ${{ secrets.GITHUB_TOKEN }}
