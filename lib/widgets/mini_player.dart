@@ -798,8 +798,6 @@ class _MiniPlayerState extends State<MiniPlayer>
               },
               child: _MiniPlayerContent(
                 player: player,
-                isDragging: _isDragging,
-                dragY: _dragY,
                 style: _style,
               ),
             ),
@@ -815,14 +813,10 @@ class _MiniPlayerState extends State<MiniPlayer>
 // ─────────────────────────────────────────────────────────────────────────────
 class _MiniPlayerContent extends StatelessWidget {
   final PlayerProvider player;
-  final bool isDragging;
-  final double dragY;
   final String style;
 
   const _MiniPlayerContent({
     required this.player,
-    required this.isDragging,
-    required this.dragY,
     this.style = 'Capsule',
   });
 
@@ -842,9 +836,6 @@ class _MiniPlayerContent extends StatelessWidget {
   }
 
   Widget _buildCapsule(BuildContext context, dynamic song) {
-    final showUpHint = dragY < -20;
-    final showDownHint = dragY > 20;
-
     // FIX — capsule background/blur/border/shadow removed entirely per
     // request: the mini player now shows ONLY its raw content (artwork,
     // title/artist, controls) with no glass pill, no rounded box, no
@@ -854,238 +845,182 @@ class _MiniPlayerContent extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       height: 68,
-      child: _miniPlayerCapsuleContent(context, song, showUpHint, showDownHint),
+      child: _miniPlayerCapsuleContent(context, song),
     );
   }
 
-  Widget _miniPlayerCapsuleContent(
-      BuildContext context, dynamic song, bool showUpHint, bool showDownHint) {
-    return Stack(
+  Widget _miniPlayerCapsuleContent(BuildContext context, dynamic song) {
+    // FIX — drag-hint overlay (red/white rounded box shown while
+    // dragging) removed entirely. It used to read `dragY` directly,
+    // which was also driven by the release-fling settle animation after
+    // the finger lifted — the hint's own fade timeline never matched the
+    // real capsule's fade timeline, so for a few frames a stray rounded,
+    // color-tinted box outlived the actual capsule content and read as a
+    // ghost "pill" sliding away on its own during swipe-down dismiss.
+    // The dismiss/open thresholds themselves (_dismissThreshold /
+    // _openThreshold in _onDragEnd) are untouched — this was purely a
+    // cosmetic overlay, not part of the actual gesture logic.
+    return Column(
+      mainAxisSize: MainAxisSize.max,
       children: [
-        // MainAxisSize.max: this Column contains an Expanded child, which
-        // needs a bounded height from its parent to distribute space.
-        // Inside a Stack (which gives non-positioned children loose
-        // constraints sized to fill the stack), MainAxisSize.min here
-        // would contradict Expanded and produce degenerate layout.
-        Column(
-          mainAxisSize: MainAxisSize.max,
-          children: [
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-              child: _MiniProgressBar(player: player),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    Hero(
-                      tag: 'aurum_artwork',
-                      flightShuttleBuilder: (ctx, anim, dir, from, to) =>
-                          ScaleTransition(scale: anim, child: to.widget),
-                      child: AurumArtwork(
-                        url: song.artworkUrl,
-                        size: 44,
-                        borderRadius: 10,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            song.title,
-                            style: TextStyle(
-                              color: AurumTheme.textPrimaryOf(context),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            song.artist,
-                            style: TextStyle(
-                              color: AurumTheme.textSecondaryOf(context),
-                              fontSize: 11,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _ControlBtn(
-                        icon: Icons.skip_previous_rounded,
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          player.skipPrev();
-                        },
-                        size: 22,
-                        context: context),
-                    const SizedBox(width: 4),
-                    _PlayBtn(player: player),
-                    const SizedBox(width: 4),
-                    _ControlBtn(
-                        icon: Icons.skip_next_rounded,
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          player.skipNext();
-                        },
-                        size: 22,
-                        context: context),
-                  ],
-                ),
-              ),
-            ),
-          ],
+        ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          child: _MiniProgressBar(player: player),
         ),
-        if (showUpHint || showDownHint)
-          Positioned.fill(
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 150),
-              opacity: (dragY.abs() / 60.0).clamp(0.0, 0.85),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: showDownHint
-                      ? Colors.red.withAlpha(30)
-                      : Colors.white.withAlpha(10),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Center(
-                  child: Icon(
-                    showDownHint
-                        ? Icons.stop_circle_outlined
-                        : Icons.keyboard_arrow_up_rounded,
-                    color: showDownHint
-                        ? Colors.red.withAlpha(180)
-                        : Colors.white.withAlpha(150),
-                    size: 28,
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Hero(
+                  tag: 'aurum_artwork',
+                  flightShuttleBuilder: (ctx, anim, dir, from, to) =>
+                      ScaleTransition(scale: anim, child: to.widget),
+                  child: AurumArtwork(
+                    url: song.artworkUrl,
+                    size: 44,
+                    borderRadius: 10,
                   ),
                 ),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        song.title,
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        song.artist,
+                        style: TextStyle(
+                          color: AurumTheme.textSecondaryOf(context),
+                          fontSize: 11,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _ControlBtn(
+                    icon: Icons.skip_previous_rounded,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      player.skipPrev();
+                    },
+                    size: 22,
+                    context: context),
+                const SizedBox(width: 4),
+                _PlayBtn(player: player),
+                const SizedBox(width: 4),
+                _ControlBtn(
+                    icon: Icons.skip_next_rounded,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      player.skipNext();
+                    },
+                    size: 22,
+                    context: context),
+              ],
             ),
           ),
+        ),
       ],
     );
   }
 
   // ── Compact Bar — premium edge-to-edge style (Settings → Appearance) ──
   Widget _buildCompactBar(BuildContext context, dynamic song) {
-    final showUpHint = dragY < -20;
-    final showDownHint = dragY > 20;
-
     // FIX — same background/blur/border/shadow removal as the Capsule
     // variant: only raw content now, no bar-shaped background behind it.
+    // Drag-hint overlay removed here too — see the comment in
+    // _miniPlayerCapsuleContent for why it caused a stray "pill" flash
+    // during swipe-down dismiss.
     return Container(
       height: 64,
-      child: Stack(
+      child: Column(
+        mainAxisSize: MainAxisSize.max,
+        children: [
+          _MiniProgressBar(player: player),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
                 children: [
-                  // Same reasoning as the Capsule variant above:
-                  // MainAxisSize.max so the Expanded child gets a real
-                  // bounded height from this Column.
-                  Column(
-                    mainAxisSize: MainAxisSize.max,
-                    children: [
-                      _MiniProgressBar(player: player),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          child: Row(
-                            children: [
-                              Hero(
-                                tag: 'aurum_artwork',
-                                flightShuttleBuilder: (ctx, anim, dir, from, to) =>
-                                    ScaleTransition(scale: anim, child: to.widget),
-                                child: AurumArtwork(
-                                  url: song.artworkUrl,
-                                  size: 40,
-                                  borderRadius: 8,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      song.title,
-                                      style: TextStyle(
-                                        color: AurumTheme.textPrimaryOf(context),
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      song.artist,
-                                      style: TextStyle(
-                                        color: AurumTheme.textSecondaryOf(context),
-                                        fontSize: 11,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              _ControlBtn(
-                                  icon: Icons.skip_previous_rounded,
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    player.skipPrev();
-                                  },
-                                  size: 20,
-                                  context: context),
-                              const SizedBox(width: 2),
-                              _PlayBtn(player: player),
-                              const SizedBox(width: 2),
-                              _ControlBtn(
-                                  icon: Icons.skip_next_rounded,
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    player.skipNext();
-                                  },
-                                  size: 20,
-                                  context: context),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (showUpHint || showDownHint)
-                    Positioned.fill(
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 150),
-                        opacity: (dragY.abs() / 60.0).clamp(0.0, 0.85),
-                        child: Container(
-                          color: showDownHint
-                              ? Colors.red.withAlpha(30)
-                              : Colors.white.withAlpha(10),
-                          child: Center(
-                            child: Icon(
-                              showDownHint
-                                  ? Icons.stop_circle_outlined
-                                  : Icons.keyboard_arrow_up_rounded,
-                              color: showDownHint
-                                  ? Colors.red.withAlpha(180)
-                                  : Colors.white.withAlpha(150),
-                              size: 26,
-                            ),
-                          ),
-                        ),
-                      ),
+                  Hero(
+                    tag: 'aurum_artwork',
+                    flightShuttleBuilder: (ctx, anim, dir, from, to) =>
+                        ScaleTransition(scale: anim, child: to.widget),
+                    child: AurumArtwork(
+                      url: song.artworkUrl,
+                      size: 40,
+                      borderRadius: 8,
                     ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          song.title,
+                          style: TextStyle(
+                            color: AurumTheme.textPrimaryOf(context),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          song.artist,
+                          style: TextStyle(
+                            color: AurumTheme.textSecondaryOf(context),
+                            fontSize: 11,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  _ControlBtn(
+                      icon: Icons.skip_previous_rounded,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        player.skipPrev();
+                      },
+                      size: 20,
+                      context: context),
+                  const SizedBox(width: 2),
+                  _PlayBtn(player: player),
+                  const SizedBox(width: 2),
+                  _ControlBtn(
+                      icon: Icons.skip_next_rounded,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        player.skipNext();
+                      },
+                      size: 20,
+                      context: context),
                 ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
