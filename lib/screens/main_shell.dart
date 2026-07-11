@@ -266,7 +266,23 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           // bottomNavigationBar. Isolating this subtree's paint keeps
           // that pass from ever visually touching the mini player/nav
           // bar.
-          return RepaintBoundary(
+          // FIX — the actual source of the "ghost pill": Scaffold's
+          // `bottomNavigationBar` slot is ALWAYS wrapped internally by
+          // Flutter in its own Material widget, which paints a solid
+          // fill color there by default — regardless of whether our own
+          // MiniPlayer/_AurumBottomNavBar widgets have any background of
+          // their own. That implicit fill is what kept showing through
+          // as a stray pill/panel behind the mini player, even after
+          // every Container/decoration in mini_player.dart and
+          // main_shell.dart was already fully transparent. Wrapping our
+          // actual content in an explicit transparent Material here
+          // makes that implicit fill paint nothing, so only our own
+          // widgets' pixels are ever visible.
+          return Material(
+            color: Colors.transparent,
+            elevation: 0,
+            surfaceTintColor: Colors.transparent,
+            child: RepaintBoundary(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -289,6 +305,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                   },
                 ),
               ],
+            ),
             ),
           );
         },

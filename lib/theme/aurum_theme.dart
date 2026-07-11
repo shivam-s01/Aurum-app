@@ -110,6 +110,17 @@ class AurumTheme {
       useMaterial3: true,
       brightness: brightness,
       scaffoldBackgroundColor: bg,
+      // FIX — belt-and-suspenders alongside bottomNavigationBarTheme
+      // below: `canvasColor` is the actual fallback color Material
+      // widgets paint when nothing more specific is set, and it's what
+      // the Scaffold's implicit bottomNavigationBar-wrapping Material
+      // falls back to whenever Material 3's elevation/surface-tint
+      // resolution kicks in on a given frame (this varies frame-to-frame
+      // depending on animation/elevation state, which is exactly why the
+      // pill appeared to come and go "randomly" instead of consistently).
+      // Forcing this transparent removes that fallback fill everywhere
+      // it could apply, not just on the one theme property.
+      canvasColor: Colors.transparent,
       colorScheme: ColorScheme(
         brightness: brightness,
         primary: gold,
