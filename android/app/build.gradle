@@ -47,14 +47,6 @@ android {
     // lever on APK size with zero feature/behavior impact — splits.abi
     // produces one APK per architecture instead, each only containing the
     // native code that device actually needs.
-    splits {
-        abi {
-            enable true
-            reset()
-            include "arm64-v8a", "armeabi-v7a", "x86_64"
-            universalApk false
-        }
-    }
 
     signingConfigs {
         release {
