@@ -35,25 +35,22 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      # FIX: this workflow used to read the build number straight out of
-      # pubspec.yaml, which only changes when someone manually edits it.
-      # Every regular code push (bug fixes, UI tweaks, etc.) left pubspec.yaml's
-      # version untouched, so this step kept computing the SAME build number
-      # as the previous release. The "Create Release" step below then tried
-      # to publish to the SAME tag every time — overwriting the prior
-      # release's asset in place rather than creating a new one. From the
-      # app's point of view, UpdateService.checkForUpdate() compares the
-      # GitHub release's build number against the number baked into the
-      # currently-installed APK; if they're equal (which they always were,
-      # since the tag never changed) `latestBuild <= currentBuild` is true
-      # and the function returns immediately — the "Update Available"
-      # popup silently never appears, even though a brand new APK with all
-      # the latest fixes really had just been built and uploaded.
-      #
-      # github.run_number is provided by GitHub Actions itself and strictly
-      # increases by 1 on every single workflow run for this repo — it can
-      # never repeat or go backwards, so every push now automatically
-      # produces a genuinely higher build number with zero manual steps.
+      # SAFETY GATE — catches broken code before it can ever become a
+      # live release. `flutter analyze` fails the whole job (non-zero
+      # exit code) on real errors: broken syntax, missing imports, type
+      # mismatches, unresolved references — exactly the class of mistake
+      # that would otherwise silently ship as a build users get prompted
+      # to install. Previously the workflow went straight from `pub get`
+      # to `flutter build apk`, so the only thing standing between any
+      # push and a live public release was the build itself succeeding —
+      # a change that compiles but breaks something at runtime (UI glitch,
+      # playback misbehavior) had nothing here to catch it. This step
+      # doesn't catch runtime bugs (nothing automated can, without real
+      # device testing), but it guarantees the app is at least
+      # structurally sound before it's ever offered to a single user.
+      - name: Analyze (safety gate — stops here on real errors)
+        run: flutter analyze --no-fatal-infos
+
       - name: Set build number from run number
         run: |
           BASE_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//' | tr -d '\r')
@@ -77,7 +74,28 @@ jobs:
           name: aurum-music-release
           path: build/app/outputs/flutter-apk/app-release.apk
 
+      # Release is opt-in, not automatic. Every push still builds and
+      # analyzes above — you can always grab the APK from this run's
+      # Artifacts tab and install it on your own device to check UI/
+      # playback before anyone else ever sees it. A GitHub Release (the
+      # thing UpdateService.dart actually polls, and what triggers the
+      # "Update Available" popup on every installed app) is only created
+      # when the commit message contains "[release]" — e.g.
+      # `git commit -m "fix crossfade stutter [release]"`. A routine or
+      # experimental push with no [release] tag builds and gets analyzed
+      # exactly the same, it just stops short of going live.
+      - name: Check release opt-in
+        id: release_gate
+        run: |
+          if [[ "${{ github.event.head_commit.message }}" == *"[release]"* ]]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "Commit message doesn't contain [release] — build artifact is available above, but no public release was created. Nobody's app will be prompted to update from this run."
+          fi
+
       - name: Create Release
+        if: steps.release_gate.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build${{ steps.ver.outputs.build }}
