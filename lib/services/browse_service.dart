@@ -255,12 +255,10 @@ class BrowseService {
   static Future<List<BrowseArtist>> _ytArtistFallback(String query) async {
     try {
       final ytClient = yt.YoutubeExplode();
-      final results = await ytClient.search.search('$query song').timeout(
-            const Duration(seconds: 8),
-            onTimeout: () => <yt.Video>[],
-          );
+      final results = await ytClient.search.search('$query song')
+          .then((list) => list.toList())
+          .timeout(const Duration(seconds: 8), onTimeout: () => <yt.Video>[]);
       ytClient.close();
-      final seen = <String>{};
       final out = <BrowseArtist>[];
       for (final v in results) {
         final channel = v.author.trim();
@@ -283,10 +281,9 @@ class BrowseService {
   static Future<List<BrowseAlbum>> _ytAlbumFallback(String query) async {
     try {
       final ytClient = yt.YoutubeExplode();
-      final results = await ytClient.search.search('$query song').timeout(
-            const Duration(seconds: 8),
-            onTimeout: () => <yt.Video>[],
-          );
+      final results = await ytClient.search.search('$query song')
+          .then((list) => list.toList())
+          .timeout(const Duration(seconds: 8), onTimeout: () => <yt.Video>[]);
       ytClient.close();
       final out = <BrowseAlbum>[];
       for (final v in results.take(6)) {
@@ -315,10 +312,9 @@ class BrowseService {
   static Future<List<BrowseTrack>> _ytTracksFor(String query) async {
     try {
       final ytClient = yt.YoutubeExplode();
-      final results = await ytClient.search.search(query).timeout(
-            const Duration(seconds: 8),
-            onTimeout: () => <yt.Video>[],
-          );
+      final results = await ytClient.search.search(query)
+          .then((list) => list.toList())
+          .timeout(const Duration(seconds: 8), onTimeout: () => <yt.Video>[]);
       ytClient.close();
       return results.take(25).map((v) {
         final thumb = v.thumbnails.mediumResUrl.isNotEmpty
