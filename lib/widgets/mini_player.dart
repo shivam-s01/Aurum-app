@@ -141,7 +141,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                     // through faintly instead of a flat/awkward opaque
                     // strip.
                     filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                    Container(
+                    child: Container(
                       height: 68,
                       decoration: BoxDecoration(
                         color: (Theme.of(context).brightness == Brightness.dark
