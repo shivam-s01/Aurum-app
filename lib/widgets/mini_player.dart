@@ -1,4 +1,3 @@
-// cache-bust rebuild trigger
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,29 +8,6 @@ import '../theme/aurum_theme.dart';
 import 'aurum_artwork.dart';
 import 'aurum_pressable.dart';
 import '../screens/full_player_screen.dart';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MiniPlayer — v4.0 (full simplification rewrite)
-//
-// Everything from the old v3.x implementation is gone on purpose: the
-// _entryCtrl/_slideInCtrl/_settleCtrl/_swipeCtrl animation controllers, the
-// static styleNotifier, the drag-hint overlay, the horizontal swipe-to-skip
-// gesture, the self-heal opacity checks, the generation-token bookkeeping.
-// All of that machinery was the source of a whole class of "mini player
-// disappears after theme change, only an app restart fixes it" bugs — too
-// much independent animated state trying to agree with each other and with
-// PlayerProvider at the same time.
-//
-// This widget now does exactly one simple thing: watch PlayerProvider
-// directly with a Consumer, and render the capsule whenever
-// `miniPlayerVisible` is true. No local mirror of visibility, no entry
-// animation to get stuck at opacity 0, nothing that needs to "self heal"
-// because there's no separate state left to fall out of sync in the first
-// place. Swipe down/up is a single plain GestureDetector driving one
-// Transform + Opacity built straight off the raw drag distance — no
-// AnimationController, so there's nothing to leak stale duration/generation
-// state across gestures either.
-// ─────────────────────────────────────────────────────────────────────────────
 
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
@@ -117,30 +93,11 @@ class _MiniPlayerState extends State<MiniPlayer> {
             offset: Offset(0, translateY),
             child: Opacity(
               opacity: opacity,
-              // FIX — margin now wraps the ClipRRect/BackdropFilter instead
-              // of sitting inside them. Previously the ClipRRect clipped to
-              // the FULL screen width (margin was applied to the Container
-              // inside it), so the BackdropFilter's blur sampled and
-              // rendered across that full width and only got rounded
-              // corners from the inner Container — the blur visually
-              // "bled" past the capsule's own edges instead of stopping
-              // exactly at them like the nav bar does. Moving the margin
-              // here means ClipRRect's bounds now ARE the capsule's actual
-              // edges, so the blur is strictly contained inside it.
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: ClipRRect(
-                  // Matched to _AurumBottomNavBar's capsule radius (28) so
-                  // the mini player and nav bar read as one continuous
-                  // floating glass stack rather than two mismatched shapes.
                   borderRadius: BorderRadius.circular(28),
                   child: BackdropFilter(
-                    // Lighter blur than the nav bar (sigma 14 vs 24) — the
-                    // mini player sits directly above the nav bar capsule,
-                    // so a slightly softer glass keeps them visually
-                    // distinct while still letting scrolled content read
-                    // through faintly instead of a flat/awkward opaque
-                    // strip.
                     filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                     child: Container(
                       height: 68,
@@ -236,14 +193,12 @@ class _MiniPlayerState extends State<MiniPlayer> {
               ),
             ),
           ),
+        );
+      },
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Mini Progress Bar — isolated so the position tick doesn't repaint the
-// whole capsule.
-// ─────────────────────────────────────────────────────────────────────────────
 class _MiniProgressBar extends StatelessWidget {
   final PlayerProvider player;
   const _MiniProgressBar({required this.player});
@@ -267,9 +222,6 @@ class _MiniProgressBar extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Play Button
-// ─────────────────────────────────────────────────────────────────────────────
 class _PlayBtn extends StatelessWidget {
   final PlayerProvider player;
   const _PlayBtn({required this.player});
@@ -311,9 +263,6 @@ class _PlayBtn extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Control Button
-// ─────────────────────────────────────────────────────────────────────────────
 class _ControlBtn extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
