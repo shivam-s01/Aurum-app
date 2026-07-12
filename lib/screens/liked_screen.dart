@@ -45,7 +45,7 @@ class LikedScreen extends StatelessWidget {
             builder: (context, fav, _) {
               if (fav.isLoading) {
                 return SliverFillRemaining(
-                  child: Center(child: AurumMorphLoader()),
+                  child: Center(child: AurumMorphLoader(size: 56)),
                 );
               }
 

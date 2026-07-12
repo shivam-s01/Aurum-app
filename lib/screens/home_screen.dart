@@ -218,18 +218,12 @@ class _HomeScreenState extends State<HomeScreen> {
           const _TopAmbientGlow(),
 
           // ── Main scroll content ──
-          // Native RefreshIndicator — see the note above _TopAmbientGlow's
-          // old _HeroPullToRefresh definition for why the custom gesture
-          // detector was replaced. This owns gesture arbitration against
-          // the hero's horizontal swipe detector correctly out of the box,
-          // so a plain downward pull at the top of the list reliably
-          // triggers a refresh every time. Styled gold/dark to match the
-          // rest of Aurum rather than looking like a stock widget.
-          RefreshIndicator(
-            color: AurumTheme.gold,
-            backgroundColor: AurumTheme.bgCardOf(context),
-            strokeWidth: 2.6,
-            displacement: 48,
+          // Custom pull-to-refresh — replaces Flutter's stock Material
+          // RefreshIndicator (a plain circular spinner) with the same
+          // spring-physics AurumMorphLoader used everywhere else in the
+          // app, so pulling to refresh on Home now shows the identical
+          // premium morph/bounce instead of a generic system spinner.
+          _AurumPullToRefresh(
             onRefresh: () => isOnline
                 ? Future.wait([_loadOnline(), _loadArtists()])
                 : context.read<LibraryProvider>().refresh(),
@@ -1403,7 +1397,7 @@ class _OfflineContent extends StatelessWidget {
     if (lib.status == LibraryStatus.idle || lib.status == LibraryStatus.loading) {
       return const Padding(
         padding: EdgeInsets.only(top: 80),
-        child: const Center(child: AurumMorphLoader()),
+        child: const Center(child: AurumMorphLoader(size: 56)),
       );
     }
     if (lib.status == LibraryStatus.noPermission) {
@@ -2660,3 +2654,170 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
 
 // ignore: avoid_void_async
 void unawaited(Future<void> f) {}
+
+// ══════════════════════════════════════════════════════════════════
+// AURUM PULL-TO-REFRESH — replaces the stock Material RefreshIndicator
+// (a plain circular spinner) with the same spring-physics AurumMorphLoader
+// used everywhere else in the app, so the Home screen's pull gesture
+// shows the identical premium morph/bounce loader instead of a generic
+// system spinner.
+//
+// Mechanics: tracks vertical overscroll at the top of the list via
+// NotificationListener<ScrollNotification>/OverscrollNotification (the
+// same signal RefreshIndicator itself listens to), reveals the loader in
+// a SizedBox that grows with pull distance up to a max reveal height,
+// and — once the user releases past the trigger threshold — pins the
+// loader at a fixed height and awaits the caller's onRefresh future
+// before collapsing back to zero. No new package dependency; this is a
+// thin, self-contained replacement scoped to Home's specific need.
+// ══════════════════════════════════════════════════════════════════
+class _AurumPullToRefresh extends StatefulWidget {
+  const _AurumPullToRefresh({
+    required this.onRefresh,
+    required this.child,
+  });
+
+  final Future<void> Function() onRefresh;
+  final Widget child;
+
+  @override
+  State<_AurumPullToRefresh> createState() => _AurumPullToRefreshState();
+}
+
+class _AurumPullToRefreshState extends State<_AurumPullToRefresh>
+    with SingleTickerProviderStateMixin {
+  static const double _triggerDistance = 72.0;
+  static const double _maxReveal = 96.0;
+  static const double _pinnedHeight = 64.0;
+
+  double _pullDistance = 0.0;
+  bool _refreshing = false;
+  bool _dragging = false;
+
+  late final AnimationController _snapCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+  );
+
+  @override
+  void dispose() {
+    _snapCtrl.dispose();
+    super.dispose();
+  }
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    if (_refreshing) return false;
+
+    if (notification is OverscrollNotification &&
+        notification.metrics.pixels <= notification.metrics.minScrollExtent) {
+      // Only accumulate pull distance for downward overscroll at the top.
+      if (notification.overscroll < 0) {
+        setState(() {
+          _dragging = true;
+          _pullDistance =
+              (_pullDistance - notification.overscroll).clamp(0.0, _maxReveal);
+        });
+      }
+    } else if (notification is ScrollEndNotification && _dragging) {
+      _dragging = false;
+      if (_pullDistance >= _triggerDistance) {
+        _startRefresh();
+      } else {
+        _snapBack();
+      }
+    } else if (notification is ScrollUpdateNotification &&
+        _dragging &&
+        notification.metrics.pixels > notification.metrics.minScrollExtent) {
+      // User scrolled back into normal range without a distinct
+      // ScrollEndNotification firing first — treat as a release.
+      _dragging = false;
+      if (_pullDistance >= _triggerDistance) {
+        _startRefresh();
+      } else {
+        _snapBack();
+      }
+    }
+    return false;
+  }
+
+  void _snapBack() {
+    final start = _pullDistance;
+    _snapCtrl.reset();
+    _snapCtrl.addListener(_snapListener(start, 0.0));
+    _snapCtrl.forward();
+  }
+
+  VoidCallback _snapListener(double from, double to) {
+    void listener() {
+      setState(() {
+        _pullDistance = from + (to - from) * Curves.easeOutCubic.transform(_snapCtrl.value);
+      });
+      if (_snapCtrl.isCompleted) _snapCtrl.removeListener(listener);
+    }
+    return listener;
+  }
+
+  Future<void> _startRefresh() async {
+    HapticFeedback.mediumImpact();
+    final start = _pullDistance;
+    setState(() {
+      _refreshing = true;
+    });
+    _snapCtrl.reset();
+    _snapCtrl.addListener(_snapListener(start, _pinnedHeight));
+    await _snapCtrl.forward();
+
+    try {
+      await widget.onRefresh();
+    } finally {
+      if (!mounted) return;
+      final from = _pullDistance;
+      _snapCtrl.reset();
+      _snapCtrl.addListener(_snapListener(from, 0.0));
+      await _snapCtrl.forward();
+      if (mounted) {
+        setState(() {
+          _refreshing = false;
+          _pullDistance = 0.0;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final revealFraction = (_pullDistance / _triggerDistance).clamp(0.0, 1.0);
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScrollNotification,
+      child: Stack(
+        children: [
+          Transform.translate(
+            offset: Offset(0, _pullDistance),
+            child: widget.child,
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: _pullDistance,
+            child: ClipRect(
+              child: OverflowBox(
+                maxHeight: _maxReveal,
+                alignment: Alignment.bottomCenter,
+                child: Center(
+                  child: Opacity(
+                    opacity: _refreshing ? 1.0 : revealFraction,
+                    child: Transform.scale(
+                      scale: 0.6 + 0.4 * revealFraction,
+                      child: const AurumMorphLoader(size: 32),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

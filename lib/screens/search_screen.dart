@@ -607,7 +607,7 @@ class _SearchScreenState extends State<SearchScreen>
     if (_loading && !_hasVisibleContent) {
       return ColoredBox(
         color: AurumTheme.bgOf(context),
-        child: const Center(key: ValueKey('loading'), child: AurumMorphLoader()),
+        child: const Center(key: ValueKey('loading'), child: AurumMorphLoader(size: 56)),
       );
     }
     if (_results.isNotEmpty) return _buildResults();
@@ -787,7 +787,7 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildLiveLoadingState(BuildContext context) {
     return Column(children: [
       _buildLiveProgressBar(context),
-      const Expanded(child: Center(child: AurumMorphLoader())),
+      const Expanded(child: Center(child: AurumMorphLoader(size: 56))),
     ]);
   }
 
@@ -974,7 +974,7 @@ class _BrowseTabState extends State<_BrowseTab> {
     if (_openArtistName != null) return _buildTrackList(context, _openArtistName!, _artistLoading, _artistTracks);
 
     if (widget.query.isEmpty) return _buildBrowseEmpty(context);
-    if (widget.loading)       return const Center(child: AurumMorphLoader());
+    if (widget.loading)       return const Center(child: AurumMorphLoader(size: 56));
     if (widget.result.isEmpty) return _buildBrowseEmpty(context);
 
     return ListView(
@@ -1045,7 +1045,7 @@ class _BrowseTabState extends State<_BrowseTab> {
           ]),
         ),
         if (loading)
-          const Expanded(child: Center(child: AurumMorphLoader()))
+          const Expanded(child: Center(child: AurumMorphLoader(size: 56)))
         else
           Expanded(
             child: ListView.builder(

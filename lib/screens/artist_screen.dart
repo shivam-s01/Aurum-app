@@ -83,7 +83,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       body: _loading
-          ? const Center(child: AurumMorphLoader())
+          ? const Center(child: AurumMorphLoader(size: 56))
           : _failed
               ? _buildError(context)
               : _buildContent(context, _artist!),
