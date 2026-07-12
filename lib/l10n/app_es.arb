@@ -86,5 +86,12 @@
   "homeScanAgain": "Escanear de nuevo",
   "homeLocalSongs": "Canciones locales",
   "homePlaybackDiagnostics": "Diagnóstico de reproducción",
-  "commonClose": "Cerrar"
+  "commonClose": "Cerrar",
+  "commonPlayAll": "Reproducir todo",
+  "likedNoSongsYet": "Aún no hay canciones que te gusten",
+  "likedTapToSave": "Toca ♥ en cualquier canción para guardarla aquí",
+  "queueTitle": "Cola",
+  "queueEmpty": "La cola está vacía",
+  "queueEmptySubtitle": "Las canciones que reproduzcas después aparecerán aquí",
+  "librarySongsCount": "{count, plural, =0{Sin canciones} =1{1 canción} other{{count} canciones}}"
 }

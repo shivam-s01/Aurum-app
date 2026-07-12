@@ -74,5 +74,12 @@
   "homeScanAgain": "Rescanner",
   "homeLocalSongs": "Chansons locales",
   "homePlaybackDiagnostics": "Diagnostics de lecture",
-  "commonClose": "Fermer"
+  "commonClose": "Fermer",
+  "commonPlayAll": "Tout lire",
+  "likedNoSongsYet": "Aucun titre aimé pour l'instant",
+  "likedTapToSave": "Appuyez sur ♥ sur une chanson pour l'enregistrer ici",
+  "queueTitle": "File d'attente",
+  "queueEmpty": "La file d'attente est vide",
+  "queueEmptySubtitle": "Les chansons que vous jouerez ensuite apparaîtront ici",
+  "librarySongsCount": "{count, plural, =0{Aucune chanson} =1{1 chanson} other{{count} chansons}}"
 }

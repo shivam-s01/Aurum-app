@@ -86,5 +86,12 @@
   "homeScanAgain": "دوبارہ اسکین کریں",
   "homeLocalSongs": "مقامی گانے",
   "homePlaybackDiagnostics": "پلے بیک تشخیص",
-  "commonClose": "بند کریں"
+  "commonClose": "بند کریں",
+  "commonPlayAll": "سب چلائیں",
+  "likedNoSongsYet": "ابھی تک کوئی پسندیدہ گانا نہیں",
+  "likedTapToSave": "یہاں محفوظ کرنے کے لیے کسی بھی گانے پر ♥ ٹیپ کریں",
+  "queueTitle": "قطار",
+  "queueEmpty": "قطار خالی ہے",
+  "queueEmptySubtitle": "جو گانے آپ آگے چلائیں گے وہ یہاں دکھائی دیں گے",
+  "librarySongsCount": "{count, plural, =0{کوئی گانا نہیں} =1{1 گانا} other{{count} گانے}}"
 }

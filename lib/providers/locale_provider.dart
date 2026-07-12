@@ -13,6 +13,13 @@ const List<Locale> kSupportedLocales = [
   Locale('es'), // Spanish
   Locale('ur'), // Urdu
   Locale('zh'), // Chinese (Simplified)
+  Locale('de'), // German
+  Locale('it'), // Italian
+  Locale('ko'), // Korean
+  Locale('ar'), // Arabic
+  Locale('tr'), // Turkish
+  Locale('id'), // Indonesian
+  Locale('vi'), // Vietnamese
 ];
 
 /// Human-readable names shown in the language picker, in each language's
@@ -29,6 +36,13 @@ const Map<String, String> kLocaleDisplayNames = {
   'es': 'Español',
   'ur': 'اردو',
   'zh': '中文',
+  'de': 'Deutsch',
+  'it': 'Italiano',
+  'ko': '한국어',
+  'ar': 'العربية',
+  'tr': 'Türkçe',
+  'id': 'Bahasa Indonesia',
+  'vi': 'Tiếng Việt',
 };
 
 class LocaleProvider extends ChangeNotifier {

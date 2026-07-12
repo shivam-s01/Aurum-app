@@ -7,12 +7,14 @@ import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_empty_state.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class LikedScreen extends StatelessWidget {
   const LikedScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       body: CustomScrollView(
@@ -35,7 +37,7 @@ class LikedScreen extends StatelessWidget {
                   const SizedBox(width: 8),
                   ShaderMask(
                     shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
-                    child: const Text('Liked Songs', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
+                    child: Text(l10n.libraryLikedSongs, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
                   ),
                 ],
               ),
@@ -54,8 +56,8 @@ class LikedScreen extends StatelessWidget {
                   child: Center(
                     child: AurumEmptyState(
                       icon: Icons.favorite_border_rounded,
-                      title: 'No liked songs yet',
-                      subtitle: 'Tap ♥ on any song to save it here',
+                      title: l10n.likedNoSongsYet,
+                      subtitle: l10n.likedTapToSave,
                     ),
                   ),
                 );
@@ -69,7 +71,7 @@ class LikedScreen extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                     child: Row(
                       children: [
-                        Text('${songs.length} songs', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
+                        Text(l10n.librarySongsCount(songs.length), style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
                         const Spacer(),
                         GestureDetector(
                           onTap: () {
@@ -86,7 +88,7 @@ class LikedScreen extends StatelessWidget {
                             child: Row(mainAxisSize: MainAxisSize.min, children: [
                               Icon(Icons.play_arrow_rounded, color: AurumTheme.bg, size: 18),
                               const SizedBox(width: 4),
-                              Text('Play All', style: TextStyle(color: AurumTheme.bg, fontSize: 13, fontWeight: FontWeight.w700)),
+                              Text(l10n.commonPlayAll, style: TextStyle(color: AurumTheme.bg, fontSize: 13, fontWeight: FontWeight.w700)),
                             ]),
                           ),
                         ),

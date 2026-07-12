@@ -74,5 +74,12 @@
   "homeScanAgain": "Сканировать снова",
   "homeLocalSongs": "Локальные песни",
   "homePlaybackDiagnostics": "Диагностика воспроизведения",
-  "commonClose": "Закрыть"
+  "commonClose": "Закрыть",
+  "commonPlayAll": "Играть все",
+  "likedNoSongsYet": "Пока нет любимых треков",
+  "likedTapToSave": "Нажмите ♥ на любой песне, чтобы сохранить её здесь",
+  "queueTitle": "Очередь",
+  "queueEmpty": "Очередь пуста",
+  "queueEmptySubtitle": "Песни, которые вы будете слушать дальше, появятся здесь",
+  "librarySongsCount": "{count, plural, =0{Нет песен} =1{1 песня} few{{count} песни} many{{count} песен} other{{count} песни}}"
 }

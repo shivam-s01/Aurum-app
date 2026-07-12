@@ -74,5 +74,12 @@
   "homeScanAgain": "再スキャン",
   "homeLocalSongs": "ローカル曲",
   "homePlaybackDiagnostics": "再生診断",
-  "commonClose": "閉じる"
+  "commonClose": "閉じる",
+  "commonPlayAll": "すべて再生",
+  "likedNoSongsYet": "まだお気に入りの曲がありません",
+  "likedTapToSave": "曲の♥をタップしてここに保存",
+  "queueTitle": "キュー",
+  "queueEmpty": "キューは空です",
+  "queueEmptySubtitle": "次に再生する曲がここに表示されます",
+  "librarySongsCount": "{count, plural, other{{count}曲}}"
 }

@@ -74,5 +74,12 @@
   "homeScanAgain": "फिर से स्कैन करें",
   "homeLocalSongs": "स्थानीय गाने",
   "homePlaybackDiagnostics": "प्लेबैक डायग्नोस्टिक्स",
-  "commonClose": "बंद करें"
+  "commonClose": "बंद करें",
+  "commonPlayAll": "सभी चलाएं",
+  "likedNoSongsYet": "अभी तक कोई पसंदीदा गाना नहीं",
+  "likedTapToSave": "यहां सेव करने के लिए किसी भी गाने पर ♥ टैप करें",
+  "queueTitle": "कतार",
+  "queueEmpty": "कतार खाली है",
+  "queueEmptySubtitle": "आप जो गाने आगे चलाएंगे वे यहां दिखेंगे",
+  "librarySongsCount": "{count, plural, =0{कोई गाना नहीं} =1{1 गाना} other{{count} गाने}}"
 }

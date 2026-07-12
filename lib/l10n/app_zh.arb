@@ -86,5 +86,12 @@
   "homeScanAgain": "重新扫描",
   "homeLocalSongs": "本地歌曲",
   "homePlaybackDiagnostics": "播放诊断",
-  "commonClose": "关闭"
+  "commonClose": "关闭",
+  "commonPlayAll": "播放全部",
+  "likedNoSongsYet": "还没有喜欢的歌曲",
+  "likedTapToSave": "点击任意歌曲上的♥即可保存到这里",
+  "queueTitle": "队列",
+  "queueEmpty": "队列为空",
+  "queueEmptySubtitle": "接下来播放的歌曲会显示在这里",
+  "librarySongsCount": "{count, plural, other{{count}首歌}}"
 }

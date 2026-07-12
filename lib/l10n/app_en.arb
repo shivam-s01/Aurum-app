@@ -86,5 +86,20 @@
   "homeScanAgain": "Scan Again",
   "homeLocalSongs": "Local Songs",
   "homePlaybackDiagnostics": "Playback Diagnostics",
-  "commonClose": "Close"
+  "commonClose": "Close",
+  "commonPlayAll": "Play All",
+  "likedNoSongsYet": "No liked songs yet",
+  "likedTapToSave": "Tap ♥ on any song to save it here",
+  "librarySongsCount": "{count, plural, =0{No songs} =1{1 song} other{{count} songs}}",
+  "@librarySongsCount": {
+    "description": "Song count label, e.g. '5 songs'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueTitle": "Queue",
+  "queueEmpty": "Queue is empty",
+  "queueEmptySubtitle": "Songs you play next will line up here"
 }

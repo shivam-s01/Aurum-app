@@ -6,21 +6,23 @@ import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_empty_state.dart';
 import '../widgets/aurum_pressable.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class QueueScreen extends StatelessWidget {
   const QueueScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bg,
       appBar: AppBar(
         backgroundColor: AurumTheme.bg,
         title: ShaderMask(
           shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
-          child: const Text(
-            'Queue',
-            style: TextStyle(
+          child: Text(
+            l10n.queueTitle,
+            style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w600,
               color: Colors.white,
@@ -55,10 +57,10 @@ class QueueScreen extends StatelessWidget {
           final player = context.read<PlayerProvider>();
           final queue = player.queue;
           if (queue.isEmpty) {
-            return const AurumEmptyState(
+            return AurumEmptyState(
               icon: Icons.queue_music_rounded,
-              title: 'Queue is empty',
-              subtitle: 'Songs you play next will line up here',
+              title: l10n.queueEmpty,
+              subtitle: l10n.queueEmptySubtitle,
             );
           }
 
