@@ -116,119 +116,126 @@ class _MiniPlayerState extends State<MiniPlayer> {
             offset: Offset(0, translateY),
             child: Opacity(
               opacity: opacity,
-              child: ClipRRect(
-              // Matched to _AurumBottomNavBar's capsule radius (28) so the
-              // mini player and nav bar read as one continuous floating
-              // glass stack rather than two mismatched shapes.
-              borderRadius: BorderRadius.circular(28),
-              child: BackdropFilter(
-                // Lighter blur than the nav bar (sigma 14 vs 24) — the mini
-                // player sits directly above the nav bar capsule, so a
-                // slightly softer glass keeps them visually distinct while
-                // still letting scrolled content read through faintly
-                // instead of a flat/awkward opaque strip.
-                filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                child: Container(
-                  // Side margins (16/16) now match the nav bar exactly.
-                  // Bottom margin is the gap to the nav bar capsule below —
-                  // the nav bar itself carries the final 10px down to the
-                  // screen edge/safe-area, so together they read as one
-                  // evenly-spaced floating stack instead of the old
-                  // mismatched 6px gap + different corner radius.
-                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  height: 68,
-                  decoration: BoxDecoration(
-                    color: (Theme.of(context).brightness == Brightness.dark
-                            ? Colors.black
-                            : Colors.white)
-                        .withValues(
-                      alpha: Theme.of(context).brightness == Brightness.dark
-                          ? 0.42
-                          : 0.62,
-                    ),
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(
-                      color: (Theme.of(context).brightness == Brightness.dark
-                              ? Colors.white
-                              : Colors.black)
-                          .withValues(alpha: 0.08),
-                      width: 1,
-                    ),
-                  ),
-                child: Column(
-                  children: [
-                    _MiniProgressBar(player: player),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Row(
-                          children: [
-                            AurumArtwork(
-                              url: song.artworkUrl,
-                              size: 44,
-                              borderRadius: 10,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: MainAxisAlignment.center,
+              // FIX — margin now wraps the ClipRRect/BackdropFilter instead
+              // of sitting inside them. Previously the ClipRRect clipped to
+              // the FULL screen width (margin was applied to the Container
+              // inside it), so the BackdropFilter's blur sampled and
+              // rendered across that full width and only got rounded
+              // corners from the inner Container — the blur visually
+              // "bled" past the capsule's own edges instead of stopping
+              // exactly at them like the nav bar does. Moving the margin
+              // here means ClipRRect's bounds now ARE the capsule's actual
+              // edges, so the blur is strictly contained inside it.
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: ClipRRect(
+                  // Matched to _AurumBottomNavBar's capsule radius (28) so
+                  // the mini player and nav bar read as one continuous
+                  // floating glass stack rather than two mismatched shapes.
+                  borderRadius: BorderRadius.circular(28),
+                  child: BackdropFilter(
+                    // Lighter blur than the nav bar (sigma 14 vs 24) — the
+                    // mini player sits directly above the nav bar capsule,
+                    // so a slightly softer glass keeps them visually
+                    // distinct while still letting scrolled content read
+                    // through faintly instead of a flat/awkward opaque
+                    // strip.
+                    filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                    Container(
+                      height: 68,
+                      decoration: BoxDecoration(
+                        color: (Theme.of(context).brightness == Brightness.dark
+                                ? Colors.black
+                                : Colors.white)
+                            .withValues(
+                          alpha: Theme.of(context).brightness == Brightness.dark
+                              ? 0.42
+                              : 0.62,
+                        ),
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: (Theme.of(context).brightness == Brightness.dark
+                                  ? Colors.white
+                                  : Colors.black)
+                              .withValues(alpha: 0.08),
+                          width: 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          _MiniProgressBar(player: player),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              child: Row(
                                 children: [
-                                  Text(
-                                    song.title,
-                                    style: TextStyle(
-                                      color: AurumTheme.textPrimaryOf(context),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                  AurumArtwork(
+                                    url: song.artworkUrl,
+                                    size: 44,
+                                    borderRadius: 10,
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    song.artist,
-                                    style: TextStyle(
-                                      color: AurumTheme.textSecondaryOf(context),
-                                      fontSize: 11,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          song.title,
+                                          style: TextStyle(
+                                            color: AurumTheme.textPrimaryOf(context),
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          song.artist,
+                                          style: TextStyle(
+                                            color: AurumTheme.textSecondaryOf(context),
+                                            fontSize: 11,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
                                     ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _ControlBtn(
+                                    icon: Icons.skip_previous_rounded,
+                                    onTap: () {
+                                      HapticFeedback.selectionClick();
+                                      player.skipPrev();
+                                    },
+                                    size: 22,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  _PlayBtn(player: player),
+                                  const SizedBox(width: 4),
+                                  _ControlBtn(
+                                    icon: Icons.skip_next_rounded,
+                                    onTap: () {
+                                      HapticFeedback.selectionClick();
+                                      player.skipNext();
+                                    },
+                                    size: 22,
                                   ),
                                 ],
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            _ControlBtn(
-                              icon: Icons.skip_previous_rounded,
-                              onTap: () {
-                                HapticFeedback.selectionClick();
-                                player.skipPrev();
-                              },
-                              size: 22,
-                            ),
-                            const SizedBox(width: 4),
-                            _PlayBtn(player: player),
-                            const SizedBox(width: 4),
-                            _ControlBtn(
-                              icon: Icons.skip_next_rounded,
-                              onTap: () {
-                                HapticFeedback.selectionClick();
-                                player.skipNext();
-                              },
-                              size: 22,
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
                 ),
               ),
             ),
           ),
         ),
-        );
       },
     );
   }
