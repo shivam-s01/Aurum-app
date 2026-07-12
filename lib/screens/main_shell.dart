@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../widgets/feedback_dialog.dart';
+import '../services/feedback_service.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -84,6 +86,28 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     });
   }
 
+  // ── Feedback auto-prompt ──────────────────────────────────────────
+  // Listens for song changes on PlayerProvider and asks FeedbackService
+  // whether it's time to show the "rate us" dialog (after 1-2 songs,
+  // then quiet for 12h — see feedback_service.dart for the exact rule).
+  String? _lastTrackedSongId;
+  VoidCallback? _feedbackListener;
+
+  void _startFeedbackTracking() {
+    final player = context.read<PlayerProvider>();
+    _feedbackListener = () {
+      final song = player.currentSong;
+      if (song == null || song.id == _lastTrackedSongId) return;
+      _lastTrackedSongId = song.id;
+      FeedbackService.onSongPlayed().then((shouldPrompt) {
+        if (shouldPrompt && mounted) {
+          showFeedbackDialog(context);
+        }
+      });
+    };
+    player.addListener(_feedbackListener!);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -91,6 +115,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _startShakeListener();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _startFeedbackTracking();
+
       // Cold-launch sync: didChangeAppLifecycleState's resumed branch
       // only fires on a paused→resumed transition, which a fresh app
       // launch never passes through (it starts straight in "resumed").
@@ -199,6 +225,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _accelSub?.cancel();
+    if (_feedbackListener != null) {
+      context.read<PlayerProvider>().removeListener(_feedbackListener!);
+    }
     super.dispose();
   }
 

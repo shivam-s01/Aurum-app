@@ -7,6 +7,7 @@ import '../theme/aurum_theme.dart';
 import '../utils/constants.dart';
 import '../services/update_service.dart';
 import '../widgets/changelog_sheet.dart';
+import '../widgets/feedback_dialog.dart';
 
 class SettingsAboutScreen extends StatefulWidget {
   const SettingsAboutScreen({super.key});
@@ -303,6 +304,12 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             subtitle: 'Show your support',
             iconColor: const Color(0xFFFFD700),
             onTap: () { HapticFeedback.lightImpact(); _showRateDialog(); },
+          ),
+          _actionTile(context,
+            icon: Icons.chat_bubble_rounded,
+            title: 'Send Feedback',
+            subtitle: 'Tell us what you think, anytime',
+            onTap: () { HapticFeedback.lightImpact(); showFeedbackDialog(context); },
           ),
           _actionTile(context,
             icon: Icons.share_rounded,

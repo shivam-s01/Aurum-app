@@ -470,6 +470,11 @@ class _SearchScreenState extends State<SearchScreen>
         // the keyboard height instead, keeps one consistent layout.
         resizeToAvoidBottomInset: false,
         backgroundColor: AurumTheme.bgOf(context),
+        // extendBody: true — matches MainShell's outer Scaffold so search
+        // results scroll underneath the floating glass nav bar/mini player
+        // instead of stopping in a flat strip above it (see main_shell.dart
+        // for the matching change + rationale).
+        extendBody: true,
         body: SafeArea(
           child: Padding(
             padding: EdgeInsets.only(

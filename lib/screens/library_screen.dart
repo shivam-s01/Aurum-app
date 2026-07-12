@@ -65,6 +65,10 @@ class LibraryScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      // extendBody: true — matches MainShell's outer Scaffold + the same
+      // fix in search_screen.dart, so Library also scrolls under the
+      // floating glass nav bar instead of stopping at a flat strip.
+      extendBody: true,
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [

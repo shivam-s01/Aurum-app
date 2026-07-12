@@ -233,11 +233,14 @@ class AurumApp extends StatelessWidget {
             statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
             statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
             systemStatusBarContrastEnforced: false,
-            systemNavigationBarColor: isDark
-                ? (themeProvider.isAmoled
-                    ? AurumTheme.amoledBgCard
-                    : AurumTheme.darkBgCard)
-                : AurumTheme.lightBgCard,
+            // Transparent, not a solid fill — the nav bar is now a floating
+            // glass capsule (see main_shell.dart's extendBody: true), with
+            // real page content visible in the margins around/behind it.
+            // A solid systemNavigationBarColor here painted a color strip
+            // that didn't match that content, which flashed as a dark/black
+            // edge during route push/pop slide transitions once the nav
+            // bar stopped being an opaque full-width bar.
+            systemNavigationBarColor: Colors.transparent,
             systemNavigationBarIconBrightness:
                 isDark ? Brightness.light : Brightness.dark,
             systemNavigationBarContrastEnforced: false,
