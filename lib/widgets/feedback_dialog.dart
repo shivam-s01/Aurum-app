@@ -74,7 +74,14 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
 
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: 28,
+        // Keeps the dialog above the keyboard instead of being pushed
+        // off-screen or clipped — without this, the TextField was
+        // visually present but its tap/focus region ended up misaligned
+        // once the keyboard inset changed the available height.
+        vertical: 24 + MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(28),
         child: BackdropFilter(
@@ -91,9 +98,11 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                 width: 1,
               ),
             ),
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              child: _sent ? _buildThankYou(context) : _buildForm(context),
+            child: SingleChildScrollView(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: _sent ? _buildThankYou(context) : _buildForm(context),
+              ),
             ),
           ),
         ),

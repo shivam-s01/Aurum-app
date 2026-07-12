@@ -126,7 +126,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                 // instead of a flat/awkward opaque strip.
                 filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                 child: Container(
-                  margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
                   height: 68,
                   decoration: BoxDecoration(
                     color: (Theme.of(context).brightness == Brightness.dark
