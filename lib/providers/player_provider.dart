@@ -142,6 +142,36 @@ class PlayerProvider extends ChangeNotifier {
   // before touching the queue and bails out if it's been superseded.
   int _uiPlaySession = 0;
 
+  // FIX — "wrong song's UI shows for ~4 seconds after tapping a new song,
+  // then snaps to the right one." Root cause: playSong() sets _currentSong
+  // optimistically the instant you tap, but the native engine (Kotlin/
+  // Media3 side) takes a moment to actually switch tracks. In that window,
+  // _onEngineState can still receive one or more *stale* state events from
+  // the engine that describe the PREVIOUS song (or, on a fresh app start
+  // before the engine has settled, the first song in the queue) — and it
+  // was unconditionally trusting state.currentSongId, overwriting the
+  // correct optimistic song back to the wrong one until the engine's
+  // genuinely-new state event finally arrived.
+  //
+  // Fix: track which song id we're expecting next. While an expectation is
+  // active, ignore engine state updates that report a different song — the
+  // optimistic value from playSong() wins until the engine actually catches
+  // up and reports the same id, at which point the expectation clears and
+  // normal reconciliation resumes.
+  String? _expectedSongId;
+
+  // FIX (see playQueue/playSong timeout doc comment in native_engine_bridge.
+  // dart): surfaces to the UI when a play attempt genuinely failed or timed
+  // out (native call hung / stream never resolved), instead of the app
+  // just sitting there with a stale loading state and no explanation.
+  // Screens can watch this to show a retry snackbar/toast.
+  String? _playbackError;
+  String? get playbackError => _playbackError;
+  void clearPlaybackError() {
+    _playbackError = null;
+    notifyListeners();
+  }
+
   // Last error reported by NativeAudioEngine.errorStream — exposed so the
   // UI (home_screen.dart) can show it via SnackBar the instant a real
   // playSong/playQueue attempt fails, without needing logcat/adb access.
@@ -290,6 +320,28 @@ class PlayerProvider extends ChangeNotifier {
     resolvedSong ??= (_queue.isNotEmpty && newIndex >= 0 && newIndex < _queue.length)
         ? _queue[newIndex]
         : _currentSong;
+
+    // FIX (see _expectedSongId doc comment above): if we're still waiting
+    // on the engine to confirm a just-tapped song, ignore any state event
+    // that reports a DIFFERENT song id — that's a stale/in-flight event
+    // from before the engine switched tracks (or, on cold start, its
+    // initial default-queue-position report). Only stop guarding once the
+    // engine's id actually matches what we're expecting, or there's
+    // nothing pending.
+    final isStaleWhileAwaitingSwitch = _expectedSongId != null &&
+        state.currentSongId != null &&
+        state.currentSongId != _expectedSongId;
+    if (isStaleWhileAwaitingSwitch) {
+      // Still apply the parts of `state` that are safe regardless of which
+      // song they're about (buffering/duration/etc. were already set
+      // above) — just skip clobbering _currentSong/_currentIndex this tick.
+      notifyListeners();
+      return;
+    }
+    if (_expectedSongId != null && state.currentSongId == _expectedSongId) {
+      _expectedSongId = null; // engine has caught up — resume normal tracking
+    }
+
     _currentSong = resolvedSong;
     _currentIndex = newIndex;
 
@@ -626,6 +678,7 @@ class PlayerProvider extends ChangeNotifier {
       _queue = List<Song>.from(queue);
       _currentIndex = index;
       _currentSong = song;
+      _expectedSongId = song.id;
       notifyListeners();
 
       // Fire prewarm for the next 3-5 songs immediately on queue load —
@@ -634,7 +687,20 @@ class PlayerProvider extends ChangeNotifier {
       // instead of stacking after it.
       _prewarmUpcoming(_currentIndex);
 
-      await _engine.playQueue(queue, index);
+      try {
+        await _engine.playQueue(queue, index);
+      } catch (e) {
+        if (mySession != _uiPlaySession) return; // superseded — ignore stale failure
+        // Native call hung/timed out or threw a PlatformException. Clear
+        // the loading state and surface an error instead of leaving the
+        // UI stuck showing "loading" forever with the song that never
+        // actually started.
+        _isLoading = false;
+        _expectedSongId = null;
+        _playbackError = 'Couldn\'t play "${song.title}". Tap to retry.';
+        notifyListeners();
+        return;
+      }
       if (mySession != _uiPlaySession) return; // superseded by a newer tap
       if (queue.length < 10 && !song.isLocal) {
         _buildInitialSmartQueue(song, alreadyInQueue: queue.map((s) => s.id).toSet(), sessionId: mySession);
@@ -643,9 +709,19 @@ class PlayerProvider extends ChangeNotifier {
       _queue = [song];
       _currentIndex = 0;
       _currentSong = song;
+      _expectedSongId = song.id;
       notifyListeners();
 
-      await _engine.playSong(song);
+      try {
+        await _engine.playSong(song);
+      } catch (e) {
+        if (mySession != _uiPlaySession) return; // superseded — ignore stale failure
+        _isLoading = false;
+        _expectedSongId = null;
+        _playbackError = 'Couldn\'t play "${song.title}". Tap to retry.';
+        notifyListeners();
+        return;
+      }
       if (mySession != _uiPlaySession) return; // superseded by a newer tap
       // FIX: previously gated on `!song.isLocal`. isLocal is also true for
       // downloaded songs (they have localPath set for offline playback),
