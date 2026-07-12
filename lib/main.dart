@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +15,8 @@ import 'services/sync_service.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/locale_provider.dart';
+import 'l10n/generated/app_localizations.dart';
 import 'providers/download_provider.dart';
 import 'providers/playlist_provider.dart';
 import 'providers/followed_artists_provider.dart';
@@ -143,6 +146,7 @@ class AurumApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => LibraryProvider()),
         ChangeNotifierProvider(
           create: (_) {
@@ -220,8 +224,8 @@ class AurumApp extends StatelessWidget {
           },
         ),
       ],
-      child: Consumer<ThemeProvider>(
-        builder: (context, themeProvider, _) {
+      child: Consumer2<ThemeProvider, LocaleProvider>(
+        builder: (context, themeProvider, localeProvider, _) {
           final isDark = themeProvider.themeMode == ThemeMode.dark ||
               themeProvider.isAmoled ||
               (themeProvider.themeMode == ThemeMode.system &&
@@ -267,6 +271,31 @@ class AurumApp extends StatelessWidget {
             theme: lightTheme,
             darkTheme: darkTheme,
             navigatorObservers: [aurumRouteObserver],
+            locale: localeProvider.locale,
+            supportedLocales: kSupportedLocales,
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            // If locale is null (user hasn't picked one — "follow system"),
+            // Flutter tries to match the device's system locale against
+            // supportedLocales. If the device is set to a language Aurum
+            // doesn't ship translations for (e.g. German), this callback
+            // falls back to English rather than Flutter's default behavior
+            // of falling back to the first supportedLocales entry
+            // regardless of fit — same practical result here since English
+            // is first, but explicit so this doesn't silently break if the
+            // list order ever changes.
+            localeResolutionCallback: (deviceLocale, supported) {
+              if (deviceLocale != null) {
+                for (final l in supported) {
+                  if (l.languageCode == deviceLocale.languageCode) return l;
+                }
+              }
+              return const Locale('en');
+            },
             home: AppLockScreen(child: _SplashOnEveryEntry(child: const MainShell())),
           );
         },

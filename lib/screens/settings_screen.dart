@@ -12,6 +12,7 @@ import 'settings_storage_screen.dart';
 import 'settings_notifications_screen.dart';
 import 'settings_about_screen.dart';
 import 'settings_privacy_screen.dart';
+import 'settings_language_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -73,6 +74,16 @@ class SettingsScreen extends StatelessWidget {
                   onTap: () {
                     HapticFeedback.lightImpact();
                     AurumPageRoute.to(context, const SettingsAppearanceScreen());
+                  },
+                ),
+                const SizedBox(height: 10),
+                _SettingsTile(
+                  icon: Icons.language_rounded,
+                  title: 'Language',
+                  subtitle: 'Choose your preferred app language',
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    AurumPageRoute.to(context, const SettingsLanguageScreen());
                   },
                 ),
                 const SizedBox(height: 10),
