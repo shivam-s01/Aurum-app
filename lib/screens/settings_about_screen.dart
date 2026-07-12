@@ -159,54 +159,6 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
     );
   }
 
-  void _showRateDialog() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AurumTheme.bgCardOf(context),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Column(children: [
-          const Text('🌟', style: TextStyle(fontSize: 48)),
-          const SizedBox(height: 8),
-          Text('Enjoying Aurum?',
-            style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontSize: 20, fontWeight: FontWeight.w700,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ]),
-        content: Text(
-          'Star us on GitHub to show your support and help the project grow!',
-          style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 14),
-          textAlign: TextAlign.center,
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Maybe Later',
-              style: TextStyle(color: AurumTheme.textMutedOf(context))),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AurumTheme.gold,
-              foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-            ),
-            onPressed: () {
-              Navigator.pop(context);
-              _launch('${AppConstants.github}/stargazers');
-            },
-            child: const Text('⭐ Star on GitHub', style: TextStyle(fontWeight: FontWeight.w700)),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _shareApp() {
     final version = _version.isEmpty ? '1.0.0' : _version;
     Share.share(
@@ -298,13 +250,6 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
           ),
 
           _sectionLabel('COMMUNITY'),
-          _actionTile(context,
-            icon: Icons.star_rounded,
-            title: 'Rate Aurum ⭐',
-            subtitle: 'Show your support',
-            iconColor: const Color(0xFFFFD700),
-            onTap: () { HapticFeedback.lightImpact(); _showRateDialog(); },
-          ),
           _actionTile(context,
             icon: Icons.chat_bubble_rounded,
             title: 'Send Feedback',

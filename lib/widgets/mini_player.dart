@@ -117,7 +117,10 @@ class _MiniPlayerState extends State<MiniPlayer> {
             child: Opacity(
               opacity: opacity,
               child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
+              // Matched to _AurumBottomNavBar's capsule radius (28) so the
+              // mini player and nav bar read as one continuous floating
+              // glass stack rather than two mismatched shapes.
+              borderRadius: BorderRadius.circular(28),
               child: BackdropFilter(
                 // Lighter blur than the nav bar (sigma 14 vs 24) — the mini
                 // player sits directly above the nav bar capsule, so a
@@ -126,7 +129,13 @@ class _MiniPlayerState extends State<MiniPlayer> {
                 // instead of a flat/awkward opaque strip.
                 filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                 child: Container(
-                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                  // Side margins (16/16) now match the nav bar exactly.
+                  // Bottom margin is the gap to the nav bar capsule below —
+                  // the nav bar itself carries the final 10px down to the
+                  // screen edge/safe-area, so together they read as one
+                  // evenly-spaced floating stack instead of the old
+                  // mismatched 6px gap + different corner radius.
+                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                   height: 68,
                   decoration: BoxDecoration(
                     color: (Theme.of(context).brightness == Brightness.dark
@@ -137,7 +146,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                           ? 0.42
                           : 0.62,
                     ),
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(28),
                     border: Border.all(
                       color: (Theme.of(context).brightness == Brightness.dark
                               ? Colors.white
@@ -238,7 +247,7 @@ class _MiniProgressBar extends StatelessWidget {
     return Selector<PlayerProvider, double>(
       selector: (_, p) => p.progress,
       builder: (context, progress, _) => ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         child: RepaintBoundary(
           child: LinearProgressIndicator(
             value: progress,

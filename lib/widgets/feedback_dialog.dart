@@ -22,15 +22,25 @@ class _FeedbackDialog extends StatefulWidget {
   State<_FeedbackDialog> createState() => _FeedbackDialogState();
 }
 
-class _FeedbackDialogState extends State<_FeedbackDialog> {
+class _FeedbackDialogState extends State<_FeedbackDialog>
+    with SingleTickerProviderStateMixin {
   int _rating = 0;
   final _controller = TextEditingController();
   bool _sending = false;
   bool _sent = false;
 
+  // Drives the icon's entrance "bubble pop" (overshoot scale-in) and its
+  // slow idle breathing glow once settled — the small bit of motion that
+  // makes the mark feel alive/crafted rather than a static system icon.
+  late final AnimationController _iconCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..forward();
+
   @override
   void dispose() {
     _controller.dispose();
+    _iconCtrl.dispose();
     super.dispose();
   }
 
@@ -71,23 +81,24 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: EdgeInsets.symmetric(
-        horizontal: 28,
-        // Keeps the dialog above the keyboard instead of being pushed
-        // off-screen or clipped — without this, the TextField was
-        // visually present but its tap/focus region ended up misaligned
-        // once the keyboard inset changed the available height.
-        vertical: 24 + MediaQuery.of(context).viewInsets.bottom,
-      ),
+      // FIX — previously this manually added viewInsets.bottom into the
+      // insetPadding itself. Dialog already resizes/repositions for the
+      // keyboard on its own; doubling up on the same inset shrank the
+      // available height the moment the TextField requested focus, which
+      // fought the keyboard animation and left it never actually opening
+      // (the field looked focusable but the keyboard sheet never rose).
+      // Plain fixed padding here — the AnimatedPadding below is what
+      // now smoothly follows the keyboard.
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(28),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
           child: Container(
-            padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
             decoration: BoxDecoration(
               color: (isDark ? Colors.black : Colors.white)
                   .withValues(alpha: isDark ? 0.55 : 0.85),
@@ -98,10 +109,21 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                 width: 1,
               ),
             ),
-            child: SingleChildScrollView(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: _sent ? _buildThankYou(context) : _buildForm(context),
+            // Smoothly slides the whole card up as the keyboard rises,
+            // instead of the old approach that tried to pre-shrink the
+            // dialog's outer inset before the keyboard was even there.
+            child: AnimatedPadding(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              padding: EdgeInsets.only(bottom: bottomInset),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
+                child: SingleChildScrollView(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: _sent ? _buildThankYou(context) : _buildForm(context),
+                  ),
+                ),
               ),
             ),
           ),
@@ -115,21 +137,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
       key: const ValueKey('form'),
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              colors: [
-                AurumTheme.gold.withValues(alpha: 0.9),
-                AurumTheme.gold.withValues(alpha: 0.5),
-              ],
-            ),
-          ),
-          child: const Icon(Icons.auto_awesome_rounded,
-              color: Colors.white, size: 26),
-        ),
+        _AurumBrandMark(controller: _iconCtrl),
         const SizedBox(height: 18),
         Text(
           'Enjoying Aurum?',
@@ -155,18 +163,29 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
           children: List.generate(5, (i) {
             final filled = i < _rating;
             return GestureDetector(
-              onTap: () => setState(() => _rating = i + 1),
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _rating = i + 1);
+              },
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Icon(
-                  filled ? Icons.star_rounded : Icons.star_outline_rounded,
-                  size: 36,
-                  color: filled
-                      ? AurumTheme.gold
-                      : Theme.of(context)
-                          .iconTheme
-                          .color
-                          ?.withValues(alpha: 0.3),
+                child: TweenAnimationBuilder<double>(
+                  key: ValueKey('star_$i${filled}'),
+                  tween: Tween(begin: filled ? 1.3 : 1.0, end: 1.0),
+                  duration: const Duration(milliseconds: 280),
+                  curve: Curves.elasticOut,
+                  builder: (context, scale, child) =>
+                      Transform.scale(scale: scale, child: child),
+                  child: Icon(
+                    filled ? Icons.star_rounded : Icons.star_outline_rounded,
+                    size: 36,
+                    color: filled
+                        ? AurumTheme.gold
+                        : Theme.of(context)
+                            .iconTheme
+                            .color
+                            ?.withValues(alpha: 0.3),
+                  ),
                 ),
               ),
             );
@@ -295,6 +314,111 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
         ),
         const SizedBox(height: 8),
       ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Aurum brand mark — the dialog's identity anchor.
+//
+// Replaces a generic Material sparkle icon with a mark that's clearly
+// "Aurum" (a music note in the app's gold gradient) inside a disc, plus
+// two bits of motion that separate a hand-tuned premium feel from a stock
+// system dialog:
+//
+//  1. Entrance "bubble pop" — scales in with a soft overshoot (elasticOut)
+//     the moment the dialog appears, like a bubble settling rather than
+//     just fading in flat.
+//  2. Idle breathing glow — once settled, a slow (2.4s) loop gently
+//     pulses the soft outer glow behind the disc, so the mark reads as
+//     alive rather than a static icon.
+// ─────────────────────────────────────────────────────────────────────────────
+class _AurumBrandMark extends StatefulWidget {
+  final AnimationController controller;
+  const _AurumBrandMark({required this.controller});
+
+  @override
+  State<_AurumBrandMark> createState() => _AurumBrandMarkState();
+}
+
+class _AurumBrandMarkState extends State<_AurumBrandMark>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _breathCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2400),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _breathCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pop = CurvedAnimation(
+      parent: widget.controller,
+      curve: Curves.elasticOut,
+    );
+    return AnimatedBuilder(
+      animation: Listenable.merge([pop, _breathCtrl]),
+      builder: (context, _) {
+        final breath = 0.5 + (_breathCtrl.value * 0.5); // 0.5 → 1.0
+        return Transform.scale(
+          scale: pop.value,
+          child: SizedBox(
+            width: 76,
+            height: 76,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Soft breathing glow behind the disc.
+                Container(
+                  width: 76,
+                  height: 76,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AurumTheme.gold
+                            .withValues(alpha: 0.35 * breath),
+                        blurRadius: 22,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                ),
+                // Main disc with the note mark.
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AurumTheme.goldLight,
+                        AurumTheme.gold,
+                        AurumTheme.goldDark,
+                      ],
+                    ),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.25),
+                      width: 1,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.music_note_rounded,
+                    color: Colors.white,
+                    size: 28,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
