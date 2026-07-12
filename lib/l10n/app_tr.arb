@@ -81,9 +81,27 @@
   "librarySongsCount": "{count, plural, =0{Şarkı yok} =1{1 şarkı} other{{count} şarkı}}",
   "@librarySongsCount": {
     "description": "Song count label, e.g. '5 songs'",
-    "placeholders": { "count": { "type": "int" } }
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "queueTitle": "Sıra",
   "queueEmpty": "Sıra boş",
-  "queueEmptySubtitle": "Sırada çalacağın şarkılar burada listelenecek"
+  "queueEmptySubtitle": "Sırada çalacağın şarkılar burada listelenecek",
+  "albumNoSongsFound": "Şarkı bulunamadı",
+  "searchHint": "Şarkılar, sanatçılar, albümler...",
+  "searchRecent": "Son Aramalar",
+  "searchClearAll": "Tümünü temizle",
+  "searchNoResultsFor": "\"{query}\" için sonuç yok",
+  "searchEverywhere": "Her yerde ara",
+  "searchSeeAllResultsFor": "\"{query}\" için tüm sonuçları gör",
+  "searchFavouriteSongs": "Favori şarkılarını ara",
+  "searchAllInOnePlace": "Şarkılar, sanatçılar, albümler — hepsi bir arada",
+  "searchTabSearch": "Ara",
+  "searchTabBrowse": "Keşfet",
+  "browseTypeToExplore": "Sanatçıları ve albümleri keşfetmek için yaz",
+  "browseNoResults": "Sonuç yok",
+  "browseAlbumFallbackTitle": "Albüm"
 }

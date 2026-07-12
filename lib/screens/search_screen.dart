@@ -15,6 +15,7 @@ import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_empty_state.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'full_player_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -543,6 +544,7 @@ class _SearchScreenState extends State<SearchScreen>
 
   // tab bar widget
   Widget _buildTabBar(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Container(
@@ -572,9 +574,9 @@ class _SearchScreenState extends State<SearchScreen>
           labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
           unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
           padding: const EdgeInsets.all(3),
-          tabs: const [
-            Tab(text: 'Search'),
-            Tab(text: 'Browse'),
+          tabs: [
+            Tab(text: l10n.searchTabSearch),
+            Tab(text: l10n.searchTabBrowse),
           ],
           onTap: (i) {
             if (i != _tabController.index) HapticFeedback.selectionClick();
@@ -617,18 +619,20 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _buildHeader(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Row(children: [
         ShaderMask(
           shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
-          child: const Text('Search', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.2)),
+          child: Text(l10n.searchTabSearch, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.2)),
         ),
       ]),
     );
   }
 
   Widget _buildSearchBar(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final focused = _focusNode.hasFocus;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -661,7 +665,7 @@ class _SearchScreenState extends State<SearchScreen>
           onSubmitted: _search,
           style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500),
           decoration: InputDecoration(
-            hintText: 'Songs, artists, albums...',
+            hintText: l10n.searchHint,
             hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
             prefixIcon: Icon(Icons.search_rounded,
                 color: focused ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 20),
@@ -684,6 +688,7 @@ class _SearchScreenState extends State<SearchScreen>
   // ── History UI ───────────────────────────────────────────────
 
   Widget _buildHistory(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return ColoredBox(
       color: AurumTheme.bgOf(context),
       child: Column(
@@ -695,11 +700,11 @@ class _SearchScreenState extends State<SearchScreen>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Recent', style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
+              Text(l10n.searchRecent, style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
               TextButton(
                 onPressed: _clearHistory,
                 style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                child: Text('Clear all', style: TextStyle(color: AurumTheme.gold.withOpacity(0.8), fontSize: 12)),
+                child: Text(l10n.searchClearAll, style: TextStyle(color: AurumTheme.gold.withOpacity(0.8), fontSize: 12)),
               ),
             ],
           ),
@@ -760,7 +765,7 @@ class _SearchScreenState extends State<SearchScreen>
             if (hasLive) Divider(color: AurumTheme.dividerOf(context), height: 1, indent: 16, endIndent: 16),
           ],
           if (hasLive) ...[
-            _sectionLabel(context, 'Songs'),
+            _sectionLabel(context, AppLocalizations.of(context)!.librarySongs),
             ..._liveResults.asMap().entries.map((e) => _StaggeredItem(
               index: e.key,
               child: SongTile(
@@ -792,10 +797,11 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _buildNoLiveResults(BuildContext context, String query) {
+    final l10n = AppLocalizations.of(context)!;
     return AurumEmptyState(
       icon: Icons.search_off_rounded,
-      title: 'No results for "$query"',
-      actionLabel: 'Search everywhere',
+      title: l10n.searchNoResultsFor(query),
+      actionLabel: l10n.searchEverywhere,
       onAction: () {
         HapticFeedback.lightImpact();
         _search(query);
@@ -828,10 +834,11 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _seeAllTile(BuildContext context, String query) {
+    final l10n = AppLocalizations.of(context)!;
     return ListTile(
       key: const ValueKey('see_all'),
       leading: Icon(Icons.travel_explore_rounded, color: AurumTheme.gold, size: 20),
-      title: Text('See all results for "$query"', style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Text(l10n.searchSeeAllResultsFor(query), style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: Icon(Icons.arrow_forward_ios_rounded, color: AurumTheme.gold.withOpacity(0.6), size: 14),
       dense: true,
       onTap: () => _search(query),
@@ -876,6 +883,7 @@ class _SearchScreenState extends State<SearchScreen>
   // ── Empty state ──────────────────────────────────────────────
 
   Widget _buildEmpty(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return ColoredBox(
       color: AurumTheme.bgOf(context),
       child: Center(
@@ -901,13 +909,13 @@ class _SearchScreenState extends State<SearchScreen>
             ),
           ),
           const SizedBox(height: 20),
-          Text('Search for your favourite songs',
+          Text(l10n.searchFavouriteSongs,
               style: TextStyle(
                   color: AurumTheme.textSecondaryOf(context),
                   fontSize: 14.5,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
-          Text('Songs, artists, albums — all in one place',
+          Text(l10n.searchAllInOnePlace,
               style: TextStyle(
                   color: AurumTheme.textMutedOf(context),
                   fontSize: 12.5)),
@@ -969,7 +977,7 @@ class _BrowseTabState extends State<_BrowseTab> {
   @override
   Widget build(BuildContext context) {
     // Drill-down: album tracks
-    if (_openAlbumId != null) return _buildTrackList(context, _openAlbumName ?? 'Album', _albumLoading, _albumTracks);
+    if (_openAlbumId != null) return _buildTrackList(context, _openAlbumName ?? AppLocalizations.of(context)!.browseAlbumFallbackTitle, _albumLoading, _albumTracks);
     // Drill-down: artist top songs
     if (_openArtistName != null) return _buildTrackList(context, _openArtistName!, _artistLoading, _artistTracks);
 
@@ -982,7 +990,7 @@ class _BrowseTabState extends State<_BrowseTab> {
       children: [
         // Artists
         if (widget.result.artists.isNotEmpty) ...[
-          _sectionLabel(context, 'Artists'),
+          _sectionLabel(context, AppLocalizations.of(context)!.libraryArtists),
           _FadedHorizontalList(
             height: 100,
             child: ListView.builder(
@@ -1002,7 +1010,7 @@ class _BrowseTabState extends State<_BrowseTab> {
         ],
         // Albums
         if (widget.result.albums.isNotEmpty) ...[
-          _sectionLabel(context, 'Albums'),
+          _sectionLabel(context, AppLocalizations.of(context)!.libraryAlbums),
           _FadedHorizontalList(
             height: 180,
             child: ListView.builder(
@@ -1022,7 +1030,7 @@ class _BrowseTabState extends State<_BrowseTab> {
         ],
         // Tracks
         if (widget.result.tracks.isNotEmpty) ...[
-          _sectionLabel(context, 'Songs'),
+          _sectionLabel(context, AppLocalizations.of(context)!.librarySongs),
           ...widget.result.tracks.asMap().entries.map((e) => _StaggeredItem(
             index: e.key,
             child: _BrowseTrackTile(track: e.value, onPlay: () => widget.onPlay(e.value)),
@@ -1063,9 +1071,10 @@ class _BrowseTabState extends State<_BrowseTab> {
   }
 
   Widget _buildBrowseEmpty(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return AurumEmptyState(
       icon: Icons.library_music_outlined,
-      title: widget.query.isEmpty ? 'Type to browse artists & albums' : 'No results',
+      title: widget.query.isEmpty ? l10n.browseTypeToExplore : l10n.browseNoResults,
     );
   }
 

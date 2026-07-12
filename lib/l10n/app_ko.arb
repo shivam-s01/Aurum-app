@@ -81,9 +81,27 @@
   "librarySongsCount": "{count, plural, other{곡 {count}개}}",
   "@librarySongsCount": {
     "description": "Song count label, e.g. '5 songs'",
-    "placeholders": { "count": { "type": "int" } }
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "queueTitle": "대기열",
   "queueEmpty": "대기열이 비어 있습니다",
-  "queueEmptySubtitle": "다음에 재생할 곡이 여기에 표시됩니다"
+  "queueEmptySubtitle": "다음에 재생할 곡이 여기에 표시됩니다",
+  "albumNoSongsFound": "노래를 찾을 수 없습니다",
+  "searchHint": "노래, 아티스트, 앨범...",
+  "searchRecent": "최근",
+  "searchClearAll": "모두 지우기",
+  "searchNoResultsFor": "\"{query}\"에 대한 결과 없음",
+  "searchEverywhere": "전체에서 검색",
+  "searchSeeAllResultsFor": "\"{query}\"의 모든 결과 보기",
+  "searchFavouriteSongs": "좋아하는 노래를 검색하세요",
+  "searchAllInOnePlace": "노래, 아티스트, 앨범 — 한 곳에서",
+  "searchTabSearch": "검색",
+  "searchTabBrowse": "둘러보기",
+  "browseTypeToExplore": "아티스트와 앨범을 둘러보려면 입력하세요",
+  "browseNoResults": "결과 없음",
+  "browseAlbumFallbackTitle": "앨범"
 }

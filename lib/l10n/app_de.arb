@@ -81,9 +81,27 @@
   "librarySongsCount": "{count, plural, =0{Keine Songs} =1{1 Song} other{{count} Songs}}",
   "@librarySongsCount": {
     "description": "Song count label, e.g. '5 songs'",
-    "placeholders": { "count": { "type": "int" } }
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "queueTitle": "Warteschlange",
   "queueEmpty": "Warteschlange ist leer",
-  "queueEmptySubtitle": "Als Nächstes gespielte Songs erscheinen hier"
+  "queueEmptySubtitle": "Als Nächstes gespielte Songs erscheinen hier",
+  "albumNoSongsFound": "Keine Songs gefunden",
+  "searchHint": "Songs, Künstler, Alben...",
+  "searchRecent": "Zuletzt",
+  "searchClearAll": "Alles löschen",
+  "searchNoResultsFor": "Keine Ergebnisse für \"{query}\"",
+  "searchEverywhere": "Überall suchen",
+  "searchSeeAllResultsFor": "Alle Ergebnisse für \"{query}\" ansehen",
+  "searchFavouriteSongs": "Suche nach deinen Lieblingssongs",
+  "searchAllInOnePlace": "Songs, Künstler, Alben — alles an einem Ort",
+  "searchTabSearch": "Suchen",
+  "searchTabBrowse": "Durchsuchen",
+  "browseTypeToExplore": "Tippe, um Künstler und Alben zu durchsuchen",
+  "browseNoResults": "Keine Ergebnisse",
+  "browseAlbumFallbackTitle": "Album"
 }

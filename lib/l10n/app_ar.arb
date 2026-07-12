@@ -81,9 +81,27 @@
   "librarySongsCount": "{count, plural, zero{لا توجد أغاني} one{أغنية واحدة} two{أغنيتان} few{{count} أغانٍ} many{{count} أغنية} other{{count} أغنية}}",
   "@librarySongsCount": {
     "description": "Song count label, e.g. '5 songs'",
-    "placeholders": { "count": { "type": "int" } }
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "queueTitle": "قائمة الانتظار",
   "queueEmpty": "قائمة الانتظار فارغة",
-  "queueEmptySubtitle": "ستظهر هنا الأغاني التي ستشغّلها لاحقًا"
+  "queueEmptySubtitle": "ستظهر هنا الأغاني التي ستشغّلها لاحقًا",
+  "albumNoSongsFound": "لم يتم العثور على أغاني",
+  "searchHint": "الأغاني، الفنانون، الألبومات...",
+  "searchRecent": "الأخيرة",
+  "searchClearAll": "مسح الكل",
+  "searchNoResultsFor": "لا توجد نتائج لـ \"{query}\"",
+  "searchEverywhere": "البحث في كل مكان",
+  "searchSeeAllResultsFor": "عرض كل النتائج لـ \"{query}\"",
+  "searchFavouriteSongs": "ابحث عن أغانيك المفضلة",
+  "searchAllInOnePlace": "الأغاني، الفنانون، الألبومات — كلها في مكان واحد",
+  "searchTabSearch": "بحث",
+  "searchTabBrowse": "تصفح",
+  "browseTypeToExplore": "اكتب لتصفح الفنانين والألبومات",
+  "browseNoResults": "لا توجد نتائج",
+  "browseAlbumFallbackTitle": "ألبوم"
 }

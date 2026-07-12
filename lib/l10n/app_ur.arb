@@ -93,5 +93,19 @@
   "queueTitle": "قطار",
   "queueEmpty": "قطار خالی ہے",
   "queueEmptySubtitle": "جو گانے آپ آگے چلائیں گے وہ یہاں دکھائی دیں گے",
-  "librarySongsCount": "{count, plural, =0{کوئی گانا نہیں} =1{1 گانا} other{{count} گانے}}"
+  "librarySongsCount": "{count, plural, =0{کوئی گانا نہیں} =1{1 گانا} other{{count} گانے}}",
+  "albumNoSongsFound": "کوئی گانا نہیں ملا",
+  "searchHint": "گانے، فنکار، البمز...",
+  "searchRecent": "حالیہ",
+  "searchClearAll": "سب صاف کریں",
+  "searchNoResultsFor": "\"{query}\" کے لیے کوئی نتیجہ نہیں",
+  "searchEverywhere": "ہر جگہ تلاش کریں",
+  "searchSeeAllResultsFor": "\"{query}\" کے تمام نتائج دیکھیں",
+  "searchFavouriteSongs": "اپنے پسندیدہ گانے تلاش کریں",
+  "searchAllInOnePlace": "گانے، فنکار، البمز — سب ایک جگہ",
+  "searchTabSearch": "تلاش",
+  "searchTabBrowse": "براؤز",
+  "browseTypeToExplore": "فنکاروں اور البمز کو براؤز کرنے کے لیے ٹائپ کریں",
+  "browseNoResults": "کوئی نتیجہ نہیں",
+  "browseAlbumFallbackTitle": "البم"
 }

@@ -93,5 +93,19 @@
   "queueTitle": "队列",
   "queueEmpty": "队列为空",
   "queueEmptySubtitle": "接下来播放的歌曲会显示在这里",
-  "librarySongsCount": "{count, plural, other{{count}首歌}}"
+  "librarySongsCount": "{count, plural, other{{count}首歌}}",
+  "albumNoSongsFound": "未找到歌曲",
+  "searchHint": "歌曲、艺人、专辑...",
+  "searchRecent": "最近搜索",
+  "searchClearAll": "清除全部",
+  "searchNoResultsFor": "未找到\"{query}\"的结果",
+  "searchEverywhere": "全局搜索",
+  "searchSeeAllResultsFor": "查看\"{query}\"的所有结果",
+  "searchFavouriteSongs": "搜索你喜欢的歌曲",
+  "searchAllInOnePlace": "歌曲、艺人、专辑 — 一应俱全",
+  "searchTabSearch": "搜索",
+  "searchTabBrowse": "浏览",
+  "browseTypeToExplore": "输入以浏览艺人和专辑",
+  "browseNoResults": "没有结果",
+  "browseAlbumFallbackTitle": "专辑"
 }

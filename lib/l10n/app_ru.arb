@@ -81,5 +81,19 @@
   "queueTitle": "Очередь",
   "queueEmpty": "Очередь пуста",
   "queueEmptySubtitle": "Песни, которые вы будете слушать дальше, появятся здесь",
-  "librarySongsCount": "{count, plural, =0{Нет песен} =1{1 песня} few{{count} песни} many{{count} песен} other{{count} песни}}"
+  "librarySongsCount": "{count, plural, =0{Нет песен} =1{1 песня} few{{count} песни} many{{count} песен} other{{count} песни}}",
+  "albumNoSongsFound": "Песни не найдены",
+  "searchHint": "Песни, исполнители, альбомы...",
+  "searchRecent": "Недавние",
+  "searchClearAll": "Очистить все",
+  "searchNoResultsFor": "Нет результатов для «{query}»",
+  "searchEverywhere": "Искать везде",
+  "searchSeeAllResultsFor": "Показать все результаты для «{query}»",
+  "searchFavouriteSongs": "Найдите любимые песни",
+  "searchAllInOnePlace": "Песни, исполнители, альбомы — всё в одном месте",
+  "searchTabSearch": "Поиск",
+  "searchTabBrowse": "Обзор",
+  "browseTypeToExplore": "Введите текст, чтобы просмотреть исполнителей и альбомы",
+  "browseNoResults": "Нет результатов",
+  "browseAlbumFallbackTitle": "Альбом"
 }

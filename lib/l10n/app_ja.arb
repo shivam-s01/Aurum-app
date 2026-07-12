@@ -81,5 +81,19 @@
   "queueTitle": "キュー",
   "queueEmpty": "キューは空です",
   "queueEmptySubtitle": "次に再生する曲がここに表示されます",
-  "librarySongsCount": "{count, plural, other{{count}曲}}"
+  "librarySongsCount": "{count, plural, other{{count}曲}}",
+  "albumNoSongsFound": "曲が見つかりません",
+  "searchHint": "曲、アーティスト、アルバム...",
+  "searchRecent": "最近の検索",
+  "searchClearAll": "すべてクリア",
+  "searchNoResultsFor": "「{query}」の結果はありません",
+  "searchEverywhere": "すべてを検索",
+  "searchSeeAllResultsFor": "「{query}」のすべての結果を見る",
+  "searchFavouriteSongs": "お気に入りの曲を検索",
+  "searchAllInOnePlace": "曲、アーティスト、アルバム — すべてが一箇所に",
+  "searchTabSearch": "検索",
+  "searchTabBrowse": "ブラウズ",
+  "browseTypeToExplore": "アーティストやアルバムを閲覧するには入力してください",
+  "browseNoResults": "結果がありません",
+  "browseAlbumFallbackTitle": "アルバム"
 }

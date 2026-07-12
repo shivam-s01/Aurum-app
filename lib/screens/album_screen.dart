@@ -17,6 +17,7 @@ import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_save_button.dart';
 import '../widgets/song_tile.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -55,6 +56,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final player = context.read<PlayerProvider>();
 
     return Scaffold(
@@ -125,14 +127,14 @@ class _AlbumScreenState extends State<AlbumScreen> {
                               : AurumTheme.gold,
                           borderRadius: BorderRadius.circular(24),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.play_arrow_rounded,
+                            const Icon(Icons.play_arrow_rounded,
                                 color: Colors.black),
-                            SizedBox(width: 6),
-                            Text('Play',
-                                style: TextStyle(
+                            const SizedBox(width: 6),
+                            Text(l10n.commonPlay,
+                                style: const TextStyle(
                                   color: Colors.black,
                                   fontWeight: FontWeight.w700,
                                   fontSize: 15,
@@ -168,7 +170,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
           else if (_songs.isEmpty)
             SliverFillRemaining(
               child: Center(
-                child: Text('No songs found',
+                child: Text(l10n.albumNoSongsFound,
                     style:
                         TextStyle(color: AurumTheme.textMutedOf(context))),
               ),

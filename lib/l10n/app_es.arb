@@ -93,5 +93,19 @@
   "queueTitle": "Cola",
   "queueEmpty": "La cola está vacía",
   "queueEmptySubtitle": "Las canciones que reproduzcas después aparecerán aquí",
-  "librarySongsCount": "{count, plural, =0{Sin canciones} =1{1 canción} other{{count} canciones}}"
+  "librarySongsCount": "{count, plural, =0{Sin canciones} =1{1 canción} other{{count} canciones}}",
+  "albumNoSongsFound": "No se encontraron canciones",
+  "searchHint": "Canciones, artistas, álbumes...",
+  "searchRecent": "Recientes",
+  "searchClearAll": "Borrar todo",
+  "searchNoResultsFor": "Sin resultados para \"{query}\"",
+  "searchEverywhere": "Buscar en todas partes",
+  "searchSeeAllResultsFor": "Ver todos los resultados de \"{query}\"",
+  "searchFavouriteSongs": "Busca tus canciones favoritas",
+  "searchAllInOnePlace": "Canciones, artistas, álbumes — todo en un solo lugar",
+  "searchTabSearch": "Buscar",
+  "searchTabBrowse": "Explorar",
+  "browseTypeToExplore": "Escribe para explorar artistas y álbumes",
+  "browseNoResults": "Sin resultados",
+  "browseAlbumFallbackTitle": "Álbum"
 }

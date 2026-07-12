@@ -81,9 +81,27 @@
   "librarySongsCount": "{count, plural, other{{count} bài hát}}",
   "@librarySongsCount": {
     "description": "Song count label, e.g. '5 songs'",
-    "placeholders": { "count": { "type": "int" } }
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "queueTitle": "Hàng đợi",
   "queueEmpty": "Hàng đợi trống",
-  "queueEmptySubtitle": "Các bài hát bạn phát tiếp theo sẽ hiện ở đây"
+  "queueEmptySubtitle": "Các bài hát bạn phát tiếp theo sẽ hiện ở đây",
+  "albumNoSongsFound": "Không tìm thấy bài hát nào",
+  "searchHint": "Bài hát, nghệ sĩ, album...",
+  "searchRecent": "Gần đây",
+  "searchClearAll": "Xóa tất cả",
+  "searchNoResultsFor": "Không có kết quả cho \"{query}\"",
+  "searchEverywhere": "Tìm kiếm mọi nơi",
+  "searchSeeAllResultsFor": "Xem tất cả kết quả cho \"{query}\"",
+  "searchFavouriteSongs": "Tìm bài hát yêu thích của bạn",
+  "searchAllInOnePlace": "Bài hát, nghệ sĩ, album — tất cả trong một nơi",
+  "searchTabSearch": "Tìm kiếm",
+  "searchTabBrowse": "Duyệt",
+  "browseTypeToExplore": "Nhập để duyệt nghệ sĩ & album",
+  "browseNoResults": "Không có kết quả",
+  "browseAlbumFallbackTitle": "Album"
 }

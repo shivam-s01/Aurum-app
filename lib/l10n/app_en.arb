@@ -101,5 +101,27 @@
   },
   "queueTitle": "Queue",
   "queueEmpty": "Queue is empty",
-  "queueEmptySubtitle": "Songs you play next will line up here"
+  "queueEmptySubtitle": "Songs you play next will line up here",
+  "albumNoSongsFound": "No songs found",
+  "searchHint": "Songs, artists, albums...",
+  "searchRecent": "Recent",
+  "searchClearAll": "Clear all",
+  "searchNoResultsFor": "No results for \"{query}\"",
+  "@searchNoResultsFor": {
+    "description": "Shown when a search yields no results",
+    "placeholders": { "query": { "type": "String" } }
+  },
+  "searchEverywhere": "Search everywhere",
+  "searchSeeAllResultsFor": "See all results for \"{query}\"",
+  "@searchSeeAllResultsFor": {
+    "description": "Tap to run a full search for the current query",
+    "placeholders": { "query": { "type": "String" } }
+  },
+  "searchFavouriteSongs": "Search for your favourite songs",
+  "searchAllInOnePlace": "Songs, artists, albums — all in one place",
+  "searchTabSearch": "Search",
+  "searchTabBrowse": "Browse",
+  "browseTypeToExplore": "Type to browse artists & albums",
+  "browseNoResults": "No results",
+  "browseAlbumFallbackTitle": "Album"
 }

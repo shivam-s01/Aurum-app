@@ -81,9 +81,27 @@
   "librarySongsCount": "{count, plural, other{{count} lagu}}",
   "@librarySongsCount": {
     "description": "Song count label, e.g. '5 songs'",
-    "placeholders": { "count": { "type": "int" } }
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "queueTitle": "Antrean",
   "queueEmpty": "Antrean kosong",
-  "queueEmptySubtitle": "Lagu yang akan kamu putar selanjutnya akan muncul di sini"
+  "queueEmptySubtitle": "Lagu yang akan kamu putar selanjutnya akan muncul di sini",
+  "albumNoSongsFound": "Tidak ada lagu ditemukan",
+  "searchHint": "Lagu, artis, album...",
+  "searchRecent": "Terbaru",
+  "searchClearAll": "Hapus semua",
+  "searchNoResultsFor": "Tidak ada hasil untuk \"{query}\"",
+  "searchEverywhere": "Cari di mana saja",
+  "searchSeeAllResultsFor": "Lihat semua hasil untuk \"{query}\"",
+  "searchFavouriteSongs": "Cari lagu favoritmu",
+  "searchAllInOnePlace": "Lagu, artis, album — semua di satu tempat",
+  "searchTabSearch": "Cari",
+  "searchTabBrowse": "Jelajahi",
+  "browseTypeToExplore": "Ketik untuk menjelajahi artis & album",
+  "browseNoResults": "Tidak ada hasil",
+  "browseAlbumFallbackTitle": "Album"
 }

@@ -81,5 +81,19 @@
   "queueTitle": "File d'attente",
   "queueEmpty": "La file d'attente est vide",
   "queueEmptySubtitle": "Les chansons que vous jouerez ensuite apparaîtront ici",
-  "librarySongsCount": "{count, plural, =0{Aucune chanson} =1{1 chanson} other{{count} chansons}}"
+  "librarySongsCount": "{count, plural, =0{Aucune chanson} =1{1 chanson} other{{count} chansons}}",
+  "albumNoSongsFound": "Aucune chanson trouvée",
+  "searchHint": "Chansons, artistes, albums...",
+  "searchRecent": "Récent",
+  "searchClearAll": "Tout effacer",
+  "searchNoResultsFor": "Aucun résultat pour « {query} »",
+  "searchEverywhere": "Rechercher partout",
+  "searchSeeAllResultsFor": "Voir tous les résultats pour « {query} »",
+  "searchFavouriteSongs": "Recherchez vos chansons préférées",
+  "searchAllInOnePlace": "Chansons, artistes, albums — tout au même endroit",
+  "searchTabSearch": "Rechercher",
+  "searchTabBrowse": "Parcourir",
+  "browseTypeToExplore": "Tapez pour parcourir artistes et albums",
+  "browseNoResults": "Aucun résultat",
+  "browseAlbumFallbackTitle": "Album"
 }

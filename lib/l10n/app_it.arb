@@ -81,9 +81,27 @@
   "librarySongsCount": "{count, plural, =0{Nessun brano} =1{1 brano} other{{count} brani}}",
   "@librarySongsCount": {
     "description": "Song count label, e.g. '5 songs'",
-    "placeholders": { "count": { "type": "int" } }
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "queueTitle": "Coda",
   "queueEmpty": "La coda è vuota",
-  "queueEmptySubtitle": "I brani che riprodurrai in seguito appariranno qui"
+  "queueEmptySubtitle": "I brani che riprodurrai in seguito appariranno qui",
+  "albumNoSongsFound": "Nessun brano trovato",
+  "searchHint": "Brani, artisti, album...",
+  "searchRecent": "Recenti",
+  "searchClearAll": "Cancella tutto",
+  "searchNoResultsFor": "Nessun risultato per \"{query}\"",
+  "searchEverywhere": "Cerca ovunque",
+  "searchSeeAllResultsFor": "Vedi tutti i risultati per \"{query}\"",
+  "searchFavouriteSongs": "Cerca i tuoi brani preferiti",
+  "searchAllInOnePlace": "Brani, artisti, album — tutto in un unico posto",
+  "searchTabSearch": "Cerca",
+  "searchTabBrowse": "Esplora",
+  "browseTypeToExplore": "Digita per esplorare artisti e album",
+  "browseNoResults": "Nessun risultato",
+  "browseAlbumFallbackTitle": "Album"
 }
