@@ -1,13 +1,17 @@
 {
   "@@locale": "en",
-
   "navHome": "Home",
-  "@navHome": {"description": "Bottom nav bar label — Home tab"},
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
   "navSearch": "Search",
-  "@navSearch": {"description": "Bottom nav bar label — Search tab"},
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
   "navLibrary": "Library",
-  "@navLibrary": {"description": "Bottom nav bar label — Library tab"},
-
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
   "commonCancel": "Cancel",
   "commonSave": "Save",
   "commonDone": "Done",
@@ -26,7 +30,6 @@
   "commonOk": "OK",
   "commonYes": "Yes",
   "commonNo": "No",
-
   "settingsTitle": "Settings",
   "settingsAccount": "ACCOUNT",
   "settingsPlayerAudio": "Player & Audio",
@@ -35,15 +38,15 @@
   "settingsStorage": "Storage",
   "settingsAbout": "About",
   "settingsLanguage": "Language",
-  "@settingsLanguage": {"description": "Settings row — opens language picker"},
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
   "settingsLanguageSubtitle": "Choose your preferred app language",
-
   "playerNowPlaying": "Now Playing",
   "playerUpNext": "Up Next",
   "playerLyrics": "Lyrics",
   "playerQueue": "Queue",
   "playerInfo": "Info",
-
   "librarySongs": "Songs",
   "libraryPlaylists": "Playlists",
   "libraryArtists": "Artists",
@@ -51,23 +54,37 @@
   "libraryLikedSongs": "Liked Songs",
   "libraryDownloaded": "Downloaded",
   "libraryEmptyState": "Nothing here yet",
-
   "homeTrendingPlaylists": "Trending Playlists",
   "homeAfternoonPicks": "Afternoon Picks",
   "homeBollywoodMix": "Bollywood Mix",
   "homeDevotional": "Devotional",
   "homeTrendingNow": "Trending Now",
   "homeNewReleases": "New Releases",
-
   "feedbackTitle": "Enjoying Aurum?",
   "feedbackSubtitle": "Your feedback helps us make it even better.",
   "feedbackHint": "Tell us what's on your mind (optional)",
   "feedbackSend": "Send Feedback",
   "feedbackNotNow": "Not now",
   "feedbackThankYouTitle": "Thank you!",
-
   "premiumSoundTitle": "Premium Sound",
   "premiumSoundSubtitle": "Richer, fuller sound on every track — works with any source quality",
   "bassBoostTitle": "Bass Boost",
-  "bassBoostSubtitle": "Enhance low frequencies for a deeper sound"
+  "bassBoostSubtitle": "Enhance low frequencies for a deeper sound",
+  "homePickSomething": "Pick something to play",
+  "homePopularArtists": "Popular Artists",
+  "homeOnline": "Online",
+  "homeOffline": "Offline",
+  "homePlaybackSource": "Playback Source",
+  "homePlaybackSourceSubtitle": "Choose where Aurum plays music from",
+  "homeOnlineStreaming": "Online Streaming",
+  "homeStreamOnlineDesc": "Stream music online",
+  "homeOfflineLibrary": "Offline Library",
+  "homeOfflineLibraryDesc": "Play downloaded songs only",
+  "homeGrantPermission": "Grant Permission",
+  "homeStoragePermissionNeeded": "Storage permission needed",
+  "homeNoLocalSongs": "No local songs found",
+  "homeScanAgain": "Scan Again",
+  "homeLocalSongs": "Local Songs",
+  "homePlaybackDiagnostics": "Playback Diagnostics",
+  "commonClose": "Close"
 }

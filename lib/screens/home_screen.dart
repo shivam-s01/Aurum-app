@@ -23,6 +23,7 @@ import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/mini_player.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_transitions.dart';
 import 'package:shimmer/shimmer.dart';
 import 'settings_screen.dart';
@@ -382,14 +383,14 @@ class _HomeScreenState extends State<HomeScreen> {
               showDialog(
                 context: context,
                 builder: (_) => AlertDialog(
-                  title: const Text('Playback Diagnostics'),
+                  title: Text(AppLocalizations.of(context)!.homePlaybackDiagnostics),
                   content: SingleChildScrollView(
                     child: SelectableText(result),
                   ),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('Close'),
+                      child: Text(AppLocalizations.of(context)!.commonClose),
                     ),
                   ],
                 ),
@@ -717,7 +718,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                'Pick something to play',
+                AppLocalizations.of(context)!.homePickSomething,
                 style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
                   fontSize: 14,
@@ -1186,7 +1187,7 @@ class _OnlineContent extends StatelessWidget {
           const SizedBox(height: 16),
           TextButton(
             onPressed: onRetry,
-            child: Text('Retry', style: TextStyle(color: AurumTheme.gold)),
+            child: Text(AppLocalizations.of(context)!.commonRetry, style: TextStyle(color: AurumTheme.gold)),
           ),
         ]),
       ),
@@ -1221,7 +1222,7 @@ class _OnlineContent extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(left: 12),
                   child: Text(
-                    'See all',
+                    AppLocalizations.of(context)!.commonSeeAll,
                     style: TextStyle(
                       color: AurumTheme.gold.withOpacity(0.85),
                       fontSize: 13,
@@ -1405,16 +1406,16 @@ class _OfflineContent extends StatelessWidget {
     }
     if (lib.status == LibraryStatus.noPermission) {
       return _msg(context, Icons.folder_off_rounded,
-          'Storage permission needed', 'Grant Permission', () => lib.load());
+          AppLocalizations.of(context)!.homeStoragePermissionNeeded, AppLocalizations.of(context)!.homeGrantPermission, () => lib.load());
     }
     if (lib.allSongs.isEmpty) {
       return _msg(context, Icons.music_off_rounded,
-          'No local songs found', 'Scan Again', () => lib.refresh());
+          AppLocalizations.of(context)!.homeNoLocalSongs, AppLocalizations.of(context)!.homeScanAgain, () => lib.refresh());
     }
 
     final sections = lib.sections.isNotEmpty
         ? lib.sections
-        : [SongSection(title: 'Local Songs', songs: lib.allSongs)];
+        : [SongSection(title: AppLocalizations.of(context)!.homeLocalSongs, songs: lib.allSongs)];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1631,7 +1632,7 @@ class _StatusPillState extends State<_StatusPill> {
               ),
               const SizedBox(width: 7),
               Text(
-                isOnline ? 'Online' : 'Offline',
+                isOnline ? AppLocalizations.of(context)!.homeOnline : AppLocalizations.of(context)!.homeOffline,
                 style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
                   fontSize: 12.5,
@@ -1700,7 +1701,7 @@ class _SourceSheet extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'Playback Source',
+                      AppLocalizations.of(context)!.homePlaybackSource,
                       style: TextStyle(
                         color: AurumTheme.textPrimaryOf(context),
                         fontSize: 16,
@@ -1709,7 +1710,7 @@ class _SourceSheet extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Choose where Aurum plays music from',
+                      AppLocalizations.of(context)!.homePlaybackSourceSubtitle,
                       style: TextStyle(
                         color: AurumTheme.textSecondaryOf(context),
                         fontSize: 12.5,
@@ -1718,8 +1719,8 @@ class _SourceSheet extends StatelessWidget {
                     const SizedBox(height: 18),
                     _SourceOption(
                       icon: Icons.cloud_outlined,
-                      label: 'Online Streaming',
-                      subtitle: 'Stream music online',
+                      label: AppLocalizations.of(context)!.homeOnlineStreaming,
+                      subtitle: AppLocalizations.of(context)!.homeStreamOnlineDesc,
                       selected: src.isOnline,
                       onTap: () {
                         if (!src.isOnline) src.toggle();
@@ -1729,8 +1730,8 @@ class _SourceSheet extends StatelessWidget {
                     const SizedBox(height: 10),
                     _SourceOption(
                       icon: Icons.phone_iphone_rounded,
-                      label: 'Offline Library',
-                      subtitle: 'Play downloaded songs only',
+                      label: AppLocalizations.of(context)!.homeOfflineLibrary,
+                      subtitle: AppLocalizations.of(context)!.homeOfflineLibraryDesc,
                       selected: !src.isOnline,
                       onTap: () {
                         if (src.isOnline) src.toggle();
@@ -2004,7 +2005,7 @@ class _ArtistStrip extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Popular Artists',
+            AppLocalizations.of(context)!.homePopularArtists,
             style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
               fontSize: 17,
@@ -2143,7 +2144,7 @@ class _CuratedPlaylistsSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Trending Playlists',
+            AppLocalizations.of(context)!.homeTrendingPlaylists,
             style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
               fontSize: 17,

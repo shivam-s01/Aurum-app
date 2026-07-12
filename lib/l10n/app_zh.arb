@@ -1,13 +1,17 @@
 {
   "@@locale": "zh",
-
   "navHome": "首页",
-  "@navHome": {"description": "Bottom nav bar label — Home tab"},
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
   "navSearch": "搜索",
-  "@navSearch": {"description": "Bottom nav bar label — Search tab"},
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
   "navLibrary": "音乐库",
-  "@navLibrary": {"description": "Bottom nav bar label — Library tab"},
-
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
   "commonCancel": "取消",
   "commonSave": "保存",
   "commonDone": "完成",
@@ -26,7 +30,6 @@
   "commonOk": "确定",
   "commonYes": "是",
   "commonNo": "否",
-
   "settingsTitle": "设置",
   "settingsAccount": "账户",
   "settingsPlayerAudio": "播放器与音频",
@@ -35,15 +38,15 @@
   "settingsStorage": "存储空间",
   "settingsAbout": "关于",
   "settingsLanguage": "语言",
-  "@settingsLanguage": {"description": "Settings row — opens language picker"},
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
   "settingsLanguageSubtitle": "选择您偏好的应用语言",
-
   "playerNowPlaying": "正在播放",
   "playerUpNext": "接下来播放",
   "playerLyrics": "歌词",
   "playerQueue": "播放队列",
   "playerInfo": "信息",
-
   "librarySongs": "歌曲",
   "libraryPlaylists": "播放列表",
   "libraryArtists": "艺术家",
@@ -51,23 +54,37 @@
   "libraryLikedSongs": "喜欢的歌曲",
   "libraryDownloaded": "已下载",
   "libraryEmptyState": "这里还没有内容",
-
   "homeTrendingPlaylists": "热门播放列表",
   "homeAfternoonPicks": "午后精选",
   "homeBollywoodMix": "宝莱坞金曲",
   "homeDevotional": "灵修音乐",
   "homeTrendingNow": "当前热门",
   "homeNewReleases": "最新发行",
-
   "feedbackTitle": "喜欢 Aurum 吗？",
   "feedbackSubtitle": "您的反馈能帮助我们做得更好。",
   "feedbackHint": "告诉我们您的想法（可选）",
   "feedbackSend": "发送反馈",
   "feedbackNotNow": "暂不",
   "feedbackThankYouTitle": "谢谢！",
-
   "premiumSoundTitle": "高级音效",
   "premiumSoundSubtitle": "每首曲目都更丰富、更饱满 — 适用于任何音源质量",
   "bassBoostTitle": "低音增强",
-  "bassBoostSubtitle": "增强低频，带来更深沉的音效"
+  "bassBoostSubtitle": "增强低频，带来更深沉的音效",
+  "homePickSomething": "选择要播放的内容",
+  "homePopularArtists": "热门艺术家",
+  "homeOnline": "在线",
+  "homeOffline": "离线",
+  "homePlaybackSource": "播放来源",
+  "homePlaybackSourceSubtitle": "选择 Aurum 播放音乐的来源",
+  "homeOnlineStreaming": "在线流媒体",
+  "homeStreamOnlineDesc": "在线流式播放音乐",
+  "homeOfflineLibrary": "离线音乐库",
+  "homeOfflineLibraryDesc": "仅播放已下载的歌曲",
+  "homeGrantPermission": "授予权限",
+  "homeStoragePermissionNeeded": "需要存储权限",
+  "homeNoLocalSongs": "未找到本地歌曲",
+  "homeScanAgain": "重新扫描",
+  "homeLocalSongs": "本地歌曲",
+  "homePlaybackDiagnostics": "播放诊断",
+  "commonClose": "关闭"
 }

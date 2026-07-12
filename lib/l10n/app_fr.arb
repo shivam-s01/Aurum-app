@@ -1,10 +1,8 @@
 {
   "@@locale": "fr",
-
   "navHome": "Accueil",
   "navSearch": "Recherche",
   "navLibrary": "Bibliothèque",
-
   "commonCancel": "Annuler",
   "commonSave": "Enregistrer",
   "commonDone": "Terminé",
@@ -23,7 +21,6 @@
   "commonOk": "OK",
   "commonYes": "Oui",
   "commonNo": "Non",
-
   "settingsTitle": "Paramètres",
   "settingsAccount": "COMPTE",
   "settingsPlayerAudio": "Lecteur et audio",
@@ -33,13 +30,11 @@
   "settingsAbout": "À propos",
   "settingsLanguage": "Langue",
   "settingsLanguageSubtitle": "Choisissez la langue de l'application",
-
   "playerNowPlaying": "Lecture en cours",
   "playerUpNext": "À suivre",
   "playerLyrics": "Paroles",
   "playerQueue": "File d'attente",
   "playerInfo": "Infos",
-
   "librarySongs": "Titres",
   "libraryPlaylists": "Playlists",
   "libraryArtists": "Artistes",
@@ -47,23 +42,37 @@
   "libraryLikedSongs": "Titres aimés",
   "libraryDownloaded": "Téléchargés",
   "libraryEmptyState": "Rien ici pour le moment",
-
   "homeTrendingPlaylists": "Playlists tendance",
   "homeAfternoonPicks": "Sélection de l'après-midi",
   "homeBollywoodMix": "Mix Bollywood",
   "homeDevotional": "Dévotionnel",
   "homeTrendingNow": "Tendance actuelle",
   "homeNewReleases": "Nouvelles sorties",
-
   "feedbackTitle": "Vous aimez Aurum ?",
   "feedbackSubtitle": "Vos retours nous aident à l'améliorer encore plus.",
   "feedbackHint": "Dites-nous ce que vous pensez (facultatif)",
   "feedbackSend": "Envoyer un avis",
   "feedbackNotNow": "Pas maintenant",
   "feedbackThankYouTitle": "Merci !",
-
   "premiumSoundTitle": "Son Premium",
   "premiumSoundSubtitle": "Un son plus riche et plus plein sur chaque titre — fonctionne avec toute qualité source",
   "bassBoostTitle": "Amplification des basses",
-  "bassBoostSubtitle": "Renforce les basses fréquences pour un son plus profond"
+  "bassBoostSubtitle": "Renforce les basses fréquences pour un son plus profond",
+  "homePickSomething": "Choisissez quelque chose à écouter",
+  "homePopularArtists": "Artistes populaires",
+  "homeOnline": "En ligne",
+  "homeOffline": "Hors ligne",
+  "homePlaybackSource": "Source de lecture",
+  "homePlaybackSourceSubtitle": "Choisissez d'où Aurum joue la musique",
+  "homeOnlineStreaming": "Diffusion en ligne",
+  "homeStreamOnlineDesc": "Diffuser la musique en ligne",
+  "homeOfflineLibrary": "Bibliothèque hors ligne",
+  "homeOfflineLibraryDesc": "Lire uniquement les chansons téléchargées",
+  "homeGrantPermission": "Accorder l'autorisation",
+  "homeStoragePermissionNeeded": "Autorisation de stockage requise",
+  "homeNoLocalSongs": "Aucune chanson locale trouvée",
+  "homeScanAgain": "Rescanner",
+  "homeLocalSongs": "Chansons locales",
+  "homePlaybackDiagnostics": "Diagnostics de lecture",
+  "commonClose": "Fermer"
 }

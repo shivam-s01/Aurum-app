@@ -1,10 +1,8 @@
 {
   "@@locale": "ta",
-
   "navHome": "முகப்பு",
   "navSearch": "தேடல்",
   "navLibrary": "நூலகம்",
-
   "commonCancel": "ரத்து செய்",
   "commonSave": "சேமி",
   "commonDone": "முடிந்தது",
@@ -23,7 +21,6 @@
   "commonOk": "சரி",
   "commonYes": "ஆம்",
   "commonNo": "இல்லை",
-
   "settingsTitle": "அமைப்புகள்",
   "settingsAccount": "கணக்கு",
   "settingsPlayerAudio": "பிளேயர் & ஆடியோ",
@@ -33,13 +30,11 @@
   "settingsAbout": "பற்றி",
   "settingsLanguage": "மொழி",
   "settingsLanguageSubtitle": "உங்கள் விருப்பமான ஆப் மொழியைத் தேர்ந்தெடுக்கவும்",
-
   "playerNowPlaying": "இப்போது இயங்குகிறது",
   "playerUpNext": "அடுத்து",
   "playerLyrics": "பாடல் வரிகள்",
   "playerQueue": "வரிசை",
   "playerInfo": "தகவல்",
-
   "librarySongs": "பாடல்கள்",
   "libraryPlaylists": "பிளேலிஸ்ட்கள்",
   "libraryArtists": "கலைஞர்கள்",
@@ -47,23 +42,37 @@
   "libraryLikedSongs": "விருப்பமான பாடல்கள்",
   "libraryDownloaded": "பதிவிறக்கியவை",
   "libraryEmptyState": "இங்கே இன்னும் எதுவும் இல்லை",
-
   "homeTrendingPlaylists": "டிரெண்டிங் பிளேலிஸ்ட்கள்",
   "homeAfternoonPicks": "மதிய நேர தேர்வுகள்",
   "homeBollywoodMix": "பாலிவுட் மிக்ஸ்",
   "homeDevotional": "பக்தி பாடல்கள்",
   "homeTrendingNow": "இப்போது டிரெண்டிங்",
   "homeNewReleases": "புதிய வெளியீடுகள்",
-
   "feedbackTitle": "Aurum பிடிக்குதா?",
   "feedbackSubtitle": "உங்கள் கருத்து இதை இன்னும் சிறப்பாக்க உதவுகிறது.",
   "feedbackHint": "உங்கள் எண்ணத்தைச் சொல்லுங்கள் (விருப்பத்தேர்வு)",
   "feedbackSend": "கருத்து அனுப்பு",
   "feedbackNotNow": "இப்போது வேண்டாம்",
   "feedbackThankYouTitle": "நன்றி!",
-
   "premiumSoundTitle": "பிரீமியம் சவுண்ட்",
   "premiumSoundSubtitle": "ஒவ்வொரு டிராக்கிலும் நிறைவான, வளமான ஒலி — எந்த மூல தரத்திலும் வேலை செய்யும்",
   "bassBoostTitle": "பேஸ் பூஸ்ட்",
-  "bassBoostSubtitle": "ஆழமான ஒலிக்காக குறைந்த அதிர்வெண்களை மேம்படுத்தும்"
+  "bassBoostSubtitle": "ஆழமான ஒலிக்காக குறைந்த அதிர்வெண்களை மேம்படுத்தும்",
+  "homePickSomething": "இயக்க ஏதேனும் தேர்ந்தெடுக்கவும்",
+  "homePopularArtists": "பிரபல கலைஞர்கள்",
+  "homeOnline": "ஆன்லைன்",
+  "homeOffline": "ஆஃப்லைன்",
+  "homePlaybackSource": "பிளேபேக் மூலம்",
+  "homePlaybackSourceSubtitle": "Aurum எங்கிருந்து இசையை இயக்க வேண்டும் என்பதைத் தேர்ந்தெடுக்கவும்",
+  "homeOnlineStreaming": "ஆன்லைன் ஸ்ட்ரீமிங்",
+  "homeStreamOnlineDesc": "இசையை ஆன்லைனில் ஸ்ட்ரீம் செய்யவும்",
+  "homeOfflineLibrary": "ஆஃப்லைன் நூலகம்",
+  "homeOfflineLibraryDesc": "பதிவிறக்கிய பாடல்களை மட்டும் இயக்கவும்",
+  "homeGrantPermission": "அனுமதி வழங்கவும்",
+  "homeStoragePermissionNeeded": "சேமிப்பக அனுமதி தேவை",
+  "homeNoLocalSongs": "உள்ளூர் பாடல்கள் எதுவும் இல்லை",
+  "homeScanAgain": "மீண்டும் ஸ்கேன் செய்யவும்",
+  "homeLocalSongs": "உள்ளூர் பாடல்கள்",
+  "homePlaybackDiagnostics": "பிளேபேக் டயக்னாஸ்டிக்ஸ்",
+  "commonClose": "மூடு"
 }

@@ -1,10 +1,8 @@
 {
   "@@locale": "hi",
-
   "navHome": "होम",
   "navSearch": "खोजें",
   "navLibrary": "लाइब्रेरी",
-
   "commonCancel": "रद्द करें",
   "commonSave": "सहेजें",
   "commonDone": "हो गया",
@@ -23,7 +21,6 @@
   "commonOk": "ठीक है",
   "commonYes": "हां",
   "commonNo": "नहीं",
-
   "settingsTitle": "सेटिंग्स",
   "settingsAccount": "खाता",
   "settingsPlayerAudio": "प्लेयर और ऑडियो",
@@ -33,13 +30,11 @@
   "settingsAbout": "जानकारी",
   "settingsLanguage": "भाषा",
   "settingsLanguageSubtitle": "अपनी पसंदीदा ऐप भाषा चुनें",
-
   "playerNowPlaying": "अभी बज रहा है",
   "playerUpNext": "आगे",
   "playerLyrics": "बोल",
   "playerQueue": "कतार",
   "playerInfo": "जानकारी",
-
   "librarySongs": "गाने",
   "libraryPlaylists": "प्लेलिस्ट",
   "libraryArtists": "कलाकार",
@@ -47,23 +42,37 @@
   "libraryLikedSongs": "पसंदीदा गाने",
   "libraryDownloaded": "डाउनलोड किए गए",
   "libraryEmptyState": "अभी यहां कुछ नहीं है",
-
   "homeTrendingPlaylists": "ट्रेंडिंग प्लेलिस्ट",
   "homeAfternoonPicks": "दोपहर की पसंद",
   "homeBollywoodMix": "बॉलीवुड मिक्स",
   "homeDevotional": "भक्ति गीत",
   "homeTrendingNow": "अभी ट्रेंडिंग",
   "homeNewReleases": "नई रिलीज़",
-
   "feedbackTitle": "Aurum पसंद आ रहा है?",
   "feedbackSubtitle": "आपकी प्रतिक्रिया हमें इसे और बेहतर बनाने में मदद करती है।",
   "feedbackHint": "अपने विचार बताएं (वैकल्पिक)",
   "feedbackSend": "प्रतिक्रिया भेजें",
   "feedbackNotNow": "अभी नहीं",
   "feedbackThankYouTitle": "धन्यवाद!",
-
   "premiumSoundTitle": "प्रीमियम साउंड",
   "premiumSoundSubtitle": "हर ट्रैक पर भरपूर, समृद्ध ध्वनि — किसी भी सोर्स क्वालिटी के साथ काम करता है",
   "bassBoostTitle": "बास बूस्ट",
-  "bassBoostSubtitle": "गहरी ध्वनि के लिए निम्न आवृत्तियों को बढ़ाएं"
+  "bassBoostSubtitle": "गहरी ध्वनि के लिए निम्न आवृत्तियों को बढ़ाएं",
+  "homePickSomething": "कुछ चलाने के लिए चुनें",
+  "homePopularArtists": "लोकप्रिय कलाकार",
+  "homeOnline": "ऑनलाइन",
+  "homeOffline": "ऑफ़लाइन",
+  "homePlaybackSource": "प्लेबैक स्रोत",
+  "homePlaybackSourceSubtitle": "चुनें कि Aurum संगीत कहाँ से चलाए",
+  "homeOnlineStreaming": "ऑनलाइन स्ट्रीमिंग",
+  "homeStreamOnlineDesc": "संगीत ऑनलाइन स्ट्रीम करें",
+  "homeOfflineLibrary": "ऑफ़लाइन लाइब्रेरी",
+  "homeOfflineLibraryDesc": "केवल डाउनलोड किए गए गाने चलाएं",
+  "homeGrantPermission": "अनुमति दें",
+  "homeStoragePermissionNeeded": "स्टोरेज अनुमति आवश्यक है",
+  "homeNoLocalSongs": "कोई स्थानीय गाने नहीं मिले",
+  "homeScanAgain": "फिर से स्कैन करें",
+  "homeLocalSongs": "स्थानीय गाने",
+  "homePlaybackDiagnostics": "प्लेबैक डायग्नोस्टिक्स",
+  "commonClose": "बंद करें"
 }

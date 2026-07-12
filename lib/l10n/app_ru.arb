@@ -1,10 +1,8 @@
 {
   "@@locale": "ru",
-
   "navHome": "Главная",
   "navSearch": "Поиск",
   "navLibrary": "Библиотека",
-
   "commonCancel": "Отмена",
   "commonSave": "Сохранить",
   "commonDone": "Готово",
@@ -23,7 +21,6 @@
   "commonOk": "ОК",
   "commonYes": "Да",
   "commonNo": "Нет",
-
   "settingsTitle": "Настройки",
   "settingsAccount": "АККАУНТ",
   "settingsPlayerAudio": "Плеер и звук",
@@ -33,13 +30,11 @@
   "settingsAbout": "О приложении",
   "settingsLanguage": "Язык",
   "settingsLanguageSubtitle": "Выберите предпочитаемый язык приложения",
-
   "playerNowPlaying": "Сейчас играет",
   "playerUpNext": "Далее",
   "playerLyrics": "Текст песни",
   "playerQueue": "Очередь",
   "playerInfo": "Инфо",
-
   "librarySongs": "Песни",
   "libraryPlaylists": "Плейлисты",
   "libraryArtists": "Исполнители",
@@ -47,23 +42,37 @@
   "libraryLikedSongs": "Любимые песни",
   "libraryDownloaded": "Загруженные",
   "libraryEmptyState": "Здесь пока ничего нет",
-
   "homeTrendingPlaylists": "Популярные плейлисты",
   "homeAfternoonPicks": "Дневная подборка",
   "homeBollywoodMix": "Болливуд микс",
   "homeDevotional": "Духовная музыка",
   "homeTrendingNow": "Сейчас популярно",
   "homeNewReleases": "Новинки",
-
   "feedbackTitle": "Нравится Aurum?",
   "feedbackSubtitle": "Ваш отзыв помогает нам сделать приложение ещё лучше.",
   "feedbackHint": "Поделитесь своим мнением (необязательно)",
   "feedbackSend": "Отправить отзыв",
   "feedbackNotNow": "Не сейчас",
   "feedbackThankYouTitle": "Спасибо!",
-
   "premiumSoundTitle": "Премиум звук",
   "premiumSoundSubtitle": "Более насыщенный и полный звук в каждом треке — работает с любым качеством источника",
   "bassBoostTitle": "Усиление баса",
-  "bassBoostSubtitle": "Усиливает низкие частоты для более глубокого звука"
+  "bassBoostSubtitle": "Усиливает низкие частоты для более глубокого звука",
+  "homePickSomething": "Выберите, что слушать",
+  "homePopularArtists": "Популярные исполнители",
+  "homeOnline": "Онлайн",
+  "homeOffline": "Офлайн",
+  "homePlaybackSource": "Источник воспроизведения",
+  "homePlaybackSourceSubtitle": "Выберите, откуда Aurum будет воспроизводить музыку",
+  "homeOnlineStreaming": "Онлайн-стриминг",
+  "homeStreamOnlineDesc": "Стримить музыку онлайн",
+  "homeOfflineLibrary": "Офлайн-библиотека",
+  "homeOfflineLibraryDesc": "Воспроизводить только загруженные песни",
+  "homeGrantPermission": "Предоставить разрешение",
+  "homeStoragePermissionNeeded": "Требуется разрешение на хранилище",
+  "homeNoLocalSongs": "Локальные песни не найдены",
+  "homeScanAgain": "Сканировать снова",
+  "homeLocalSongs": "Локальные песни",
+  "homePlaybackDiagnostics": "Диагностика воспроизведения",
+  "commonClose": "Закрыть"
 }

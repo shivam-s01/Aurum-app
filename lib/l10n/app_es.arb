@@ -1,13 +1,17 @@
 {
   "@@locale": "es",
-
   "navHome": "Inicio",
-  "@navHome": {"description": "Bottom nav bar label — Home tab"},
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
   "navSearch": "Buscar",
-  "@navSearch": {"description": "Bottom nav bar label — Search tab"},
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
   "navLibrary": "Biblioteca",
-  "@navLibrary": {"description": "Bottom nav bar label — Library tab"},
-
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
   "commonCancel": "Cancelar",
   "commonSave": "Guardar",
   "commonDone": "Hecho",
@@ -26,7 +30,6 @@
   "commonOk": "Aceptar",
   "commonYes": "Sí",
   "commonNo": "No",
-
   "settingsTitle": "Ajustes",
   "settingsAccount": "CUENTA",
   "settingsPlayerAudio": "Reproductor y Audio",
@@ -35,15 +38,15 @@
   "settingsStorage": "Almacenamiento",
   "settingsAbout": "Acerca de",
   "settingsLanguage": "Idioma",
-  "@settingsLanguage": {"description": "Settings row — opens language picker"},
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
   "settingsLanguageSubtitle": "Elige el idioma preferido de la app",
-
   "playerNowPlaying": "Reproduciendo ahora",
   "playerUpNext": "A continuación",
   "playerLyrics": "Letra",
   "playerQueue": "Cola",
   "playerInfo": "Información",
-
   "librarySongs": "Canciones",
   "libraryPlaylists": "Listas",
   "libraryArtists": "Artistas",
@@ -51,23 +54,37 @@
   "libraryLikedSongs": "Canciones que te gustan",
   "libraryDownloaded": "Descargado",
   "libraryEmptyState": "Aún no hay nada aquí",
-
   "homeTrendingPlaylists": "Listas en tendencia",
   "homeAfternoonPicks": "Selección de la tarde",
   "homeBollywoodMix": "Mix de Bollywood",
   "homeDevotional": "Devocional",
   "homeTrendingNow": "Tendencias ahora",
   "homeNewReleases": "Nuevos lanzamientos",
-
   "feedbackTitle": "¿Disfrutando Aurum?",
   "feedbackSubtitle": "Tus comentarios nos ayudan a mejorar.",
   "feedbackHint": "Cuéntanos qué piensas (opcional)",
   "feedbackSend": "Enviar comentario",
   "feedbackNotNow": "Ahora no",
   "feedbackThankYouTitle": "¡Gracias!",
-
   "premiumSoundTitle": "Sonido Premium",
   "premiumSoundSubtitle": "Sonido más rico y completo en cada pista — funciona con cualquier calidad de origen",
   "bassBoostTitle": "Realce de graves",
-  "bassBoostSubtitle": "Mejora las frecuencias bajas para un sonido más profundo"
+  "bassBoostSubtitle": "Mejora las frecuencias bajas para un sonido más profundo",
+  "homePickSomething": "Elige algo para reproducir",
+  "homePopularArtists": "Artistas populares",
+  "homeOnline": "En línea",
+  "homeOffline": "Sin conexión",
+  "homePlaybackSource": "Fuente de reproducción",
+  "homePlaybackSourceSubtitle": "Elige de dónde reproduce música Aurum",
+  "homeOnlineStreaming": "Transmisión en línea",
+  "homeStreamOnlineDesc": "Transmitir música en línea",
+  "homeOfflineLibrary": "Biblioteca sin conexión",
+  "homeOfflineLibraryDesc": "Reproducir solo canciones descargadas",
+  "homeGrantPermission": "Conceder permiso",
+  "homeStoragePermissionNeeded": "Se necesita permiso de almacenamiento",
+  "homeNoLocalSongs": "No se encontraron canciones locales",
+  "homeScanAgain": "Escanear de nuevo",
+  "homeLocalSongs": "Canciones locales",
+  "homePlaybackDiagnostics": "Diagnóstico de reproducción",
+  "commonClose": "Cerrar"
 }

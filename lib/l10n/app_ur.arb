@@ -1,13 +1,17 @@
 {
   "@@locale": "ur",
-
   "navHome": "ہوم",
-  "@navHome": {"description": "Bottom nav bar label — Home tab"},
+  "@navHome": {
+    "description": "Bottom nav bar label — Home tab"
+  },
   "navSearch": "تلاش",
-  "@navSearch": {"description": "Bottom nav bar label — Search tab"},
+  "@navSearch": {
+    "description": "Bottom nav bar label — Search tab"
+  },
   "navLibrary": "لائبریری",
-  "@navLibrary": {"description": "Bottom nav bar label — Library tab"},
-
+  "@navLibrary": {
+    "description": "Bottom nav bar label — Library tab"
+  },
   "commonCancel": "منسوخ کریں",
   "commonSave": "محفوظ کریں",
   "commonDone": "ہو گیا",
@@ -26,7 +30,6 @@
   "commonOk": "ٹھیک ہے",
   "commonYes": "ہاں",
   "commonNo": "نہیں",
-
   "settingsTitle": "ترتیبات",
   "settingsAccount": "اکاؤنٹ",
   "settingsPlayerAudio": "پلیئر اور آڈیو",
@@ -35,15 +38,15 @@
   "settingsStorage": "اسٹوریج",
   "settingsAbout": "کے بارے میں",
   "settingsLanguage": "زبان",
-  "@settingsLanguage": {"description": "Settings row — opens language picker"},
+  "@settingsLanguage": {
+    "description": "Settings row — opens language picker"
+  },
   "settingsLanguageSubtitle": "اپنی پسندیدہ ایپ زبان منتخب کریں",
-
   "playerNowPlaying": "ابھی چل رہا ہے",
   "playerUpNext": "اگلا",
   "playerLyrics": "بول",
   "playerQueue": "قطار",
   "playerInfo": "معلومات",
-
   "librarySongs": "گانے",
   "libraryPlaylists": "پلے لسٹس",
   "libraryArtists": "فنکار",
@@ -51,23 +54,37 @@
   "libraryLikedSongs": "پسندیدہ گانے",
   "libraryDownloaded": "ڈاؤن لوڈ شدہ",
   "libraryEmptyState": "ابھی یہاں کچھ نہیں ہے",
-
   "homeTrendingPlaylists": "رجحان ساز پلے لسٹس",
   "homeAfternoonPicks": "دوپہر کی پسند",
   "homeBollywoodMix": "بالی ووڈ مکس",
   "homeDevotional": "عقیدتی",
   "homeTrendingNow": "ابھی رجحان میں",
   "homeNewReleases": "نئی ریلیزز",
-
   "feedbackTitle": "کیا آپ Aurum سے لطف اندوز ہو رہے ہیں؟",
   "feedbackSubtitle": "آپ کی رائے ہمیں بہتر بنانے میں مدد دیتی ہے۔",
   "feedbackHint": "ہمیں بتائیں آپ کے ذہن میں کیا ہے (اختیاری)",
   "feedbackSend": "رائے بھیجیں",
   "feedbackNotNow": "ابھی نہیں",
   "feedbackThankYouTitle": "شکریہ!",
-
   "premiumSoundTitle": "پریمیم ساؤنڈ",
   "premiumSoundSubtitle": "ہر ٹریک پر بھرپور اور مکمل آواز — کسی بھی سورس کوالٹی کے ساتھ کام کرتا ہے",
   "bassBoostTitle": "بیس بوسٹ",
-  "bassBoostSubtitle": "گہری آواز کے لیے کم فریکوئنسیز کو بہتر بنائیں"
+  "bassBoostSubtitle": "گہری آواز کے لیے کم فریکوئنسیز کو بہتر بنائیں",
+  "homePickSomething": "چلانے کے لیے کچھ منتخب کریں",
+  "homePopularArtists": "مقبول فنکار",
+  "homeOnline": "آن لائن",
+  "homeOffline": "آف لائن",
+  "homePlaybackSource": "پلے بیک ذریعہ",
+  "homePlaybackSourceSubtitle": "منتخب کریں کہ Aurum موسیقی کہاں سے چلائے",
+  "homeOnlineStreaming": "آن لائن اسٹریمنگ",
+  "homeStreamOnlineDesc": "موسیقی آن لائن اسٹریم کریں",
+  "homeOfflineLibrary": "آف لائن لائبریری",
+  "homeOfflineLibraryDesc": "صرف ڈاؤن لوڈ شدہ گانے چلائیں",
+  "homeGrantPermission": "اجازت دیں",
+  "homeStoragePermissionNeeded": "اسٹوریج کی اجازت درکار ہے",
+  "homeNoLocalSongs": "کوئی مقامی گانے نہیں ملے",
+  "homeScanAgain": "دوبارہ اسکین کریں",
+  "homeLocalSongs": "مقامی گانے",
+  "homePlaybackDiagnostics": "پلے بیک تشخیص",
+  "commonClose": "بند کریں"
 }

@@ -1,10 +1,8 @@
 {
   "@@locale": "ja",
-
   "navHome": "ホーム",
   "navSearch": "検索",
   "navLibrary": "ライブラリ",
-
   "commonCancel": "キャンセル",
   "commonSave": "保存",
   "commonDone": "完了",
@@ -23,7 +21,6 @@
   "commonOk": "OK",
   "commonYes": "はい",
   "commonNo": "いいえ",
-
   "settingsTitle": "設定",
   "settingsAccount": "アカウント",
   "settingsPlayerAudio": "プレーヤーとオーディオ",
@@ -33,13 +30,11 @@
   "settingsAbout": "アプリについて",
   "settingsLanguage": "言語",
   "settingsLanguageSubtitle": "お好みのアプリ言語を選択してください",
-
   "playerNowPlaying": "再生中",
   "playerUpNext": "次に再生",
   "playerLyrics": "歌詞",
   "playerQueue": "キュー",
   "playerInfo": "情報",
-
   "librarySongs": "曲",
   "libraryPlaylists": "プレイリスト",
   "libraryArtists": "アーティスト",
@@ -47,23 +42,37 @@
   "libraryLikedSongs": "お気に入りの曲",
   "libraryDownloaded": "ダウンロード済み",
   "libraryEmptyState": "まだ何もありません",
-
   "homeTrendingPlaylists": "トレンドのプレイリスト",
   "homeAfternoonPicks": "午後のおすすめ",
   "homeBollywoodMix": "ボリウッドミックス",
   "homeDevotional": "デヴォーショナル",
   "homeTrendingNow": "今トレンド",
   "homeNewReleases": "新着リリース",
-
   "feedbackTitle": "Aurumはいかがですか？",
   "feedbackSubtitle": "皆様のフィードバックがアプリの改善に役立ちます。",
   "feedbackHint": "ご意見をお聞かせください（任意）",
   "feedbackSend": "フィードバックを送信",
   "feedbackNotNow": "今はしない",
   "feedbackThankYouTitle": "ありがとうございます！",
-
   "premiumSoundTitle": "プレミアムサウンド",
   "premiumSoundSubtitle": "どんなソース音質でも、すべての曲でより豊かでフルなサウンドに",
   "bassBoostTitle": "ベースブースト",
-  "bassBoostSubtitle": "低音を強調してより深いサウンドに"
+  "bassBoostSubtitle": "低音を強調してより深いサウンドに",
+  "homePickSomething": "再生する曲を選んでください",
+  "homePopularArtists": "人気のアーティスト",
+  "homeOnline": "オンライン",
+  "homeOffline": "オフライン",
+  "homePlaybackSource": "再生ソース",
+  "homePlaybackSourceSubtitle": "Aurumが音楽を再生する場所を選択してください",
+  "homeOnlineStreaming": "オンラインストリーミング",
+  "homeStreamOnlineDesc": "音楽をオンラインでストリーミング",
+  "homeOfflineLibrary": "オフラインライブラリ",
+  "homeOfflineLibraryDesc": "ダウンロード済みの曲のみ再生",
+  "homeGrantPermission": "許可を与える",
+  "homeStoragePermissionNeeded": "ストレージ権限が必要です",
+  "homeNoLocalSongs": "ローカル曲が見つかりません",
+  "homeScanAgain": "再スキャン",
+  "homeLocalSongs": "ローカル曲",
+  "homePlaybackDiagnostics": "再生診断",
+  "commonClose": "閉じる"
 }
