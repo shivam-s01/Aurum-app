@@ -109,13 +109,21 @@
   "searchNoResultsFor": "No results for \"{query}\"",
   "@searchNoResultsFor": {
     "description": "Shown when a search yields no results",
-    "placeholders": { "query": { "type": "String" } }
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
   },
   "searchEverywhere": "Search everywhere",
   "searchSeeAllResultsFor": "See all results for \"{query}\"",
   "@searchSeeAllResultsFor": {
     "description": "Tap to run a full search for the current query",
-    "placeholders": { "query": { "type": "String" } }
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
   },
   "searchFavouriteSongs": "Search for your favourite songs",
   "searchAllInOnePlace": "Songs, artists, albums — all in one place",
@@ -178,7 +186,11 @@
   "spSleepTimerStopsIn": "Stops in {time}",
   "@spSleepTimerStopsIn": {
     "description": "Shows remaining sleep timer duration, e.g. 'Stops in 05:30'",
-    "placeholders": { "time": { "type": "String" } }
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
   },
   "spSleepTimerSetSubtitle": "Set a timer to stop playback",
   "spCancel": "Cancel",
@@ -200,7 +212,11 @@
   "spHistorySongsCount": "{count} songs",
   "@spHistorySongsCount": {
     "description": "History duration slider label",
-    "placeholders": { "count": { "type": "int" } }
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "spSleepTimerSheetTitle": "Sleep Timer",
   "spSleepTimerSheetSubtitle": "Playback will stop after the selected time",
@@ -209,7 +225,11 @@
   "spStartTimer": "Start Timer · {duration}",
   "@spStartTimer": {
     "description": "Start timer button, e.g. 'Start Timer · 30m'",
-    "placeholders": { "duration": { "type": "String" } }
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
   },
   "spCancelActiveTimer": "Cancel Active Timer",
   "spPremiumHighBitrateFeature": "High Bitrate (320kbps)",
@@ -245,7 +265,11 @@
   "saFontUnlockFeature": "{font} Font",
   "@saFontUnlockFeature": {
     "description": "Feature name for premium gate, e.g. 'Rounded Font'",
-    "placeholders": { "font": { "type": "String" } }
+    "placeholders": {
+      "font": {
+        "type": "String"
+      }
+    }
   },
   "saFontUnlockDesc": "Sign in with Google to unlock this font.",
   "saCardStyleCompactDesc": "Small artwork, text beside",
@@ -255,12 +279,20 @@
   "saPlayerStyleUnlockFeature": "{style} Player Style",
   "@saPlayerStyleUnlockFeature": {
     "description": "Feature name for premium gate, e.g. 'Card Player Style'",
-    "placeholders": { "style": { "type": "String" } }
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
   },
   "saPlayerStyleUnlockDesc": "Sign in with Google to unlock the {style} style.",
   "@saPlayerStyleUnlockDesc": {
     "description": "Description for player style premium gate",
-    "placeholders": { "style": { "type": "String" } }
+    "placeholders": {
+      "style": {
+        "type": "String"
+      }
+    }
   },
   "saPlayerBgStyle": "Player Background Style",
   "saPlayerBgStyleSubtitle": "How the player background looks",
@@ -305,7 +337,11 @@
   "ssClearConfirmTitle": "Clear {title}?",
   "@ssClearConfirmTitle": {
     "description": "Confirmation dialog title, e.g. 'Clear Song Cache?'",
-    "placeholders": { "title": { "type": "String" } }
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
   },
   "ssClearConfirmBody": "This cannot be undone.",
   "ssCancel": "Cancel",
@@ -316,11 +352,75 @@
   "ssUsedLabel": "Used: {size}",
   "@ssUsedLabel": {
     "description": "Storage used label, e.g. 'Used: 45.2MB'",
-    "placeholders": { "size": { "type": "String" } }
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
   },
   "ssMaxLabel": "Max: {size}",
   "@ssMaxLabel": {
     "description": "Storage max label, e.g. 'Max: 500MB'",
-    "placeholders": { "size": { "type": "String" } }
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sprAppLock": "🔒 APP LOCK",
+  "sprAppLockTitle": "App Lock",
+  "sprAppLockSubtitleSet": "Set a PIN to lock the app",
+  "sprAppLockSubtitleChange": "PIN is set — tap to change",
+  "sprSetPin": "Set PIN",
+  "sprChangePin": "Change PIN",
+  "sprSetPinSubtitle": "Required to enable App Lock",
+  "sprChangePinSubtitle": "Change your 4-digit PIN",
+  "sprBiometricUnlock": "Biometric Unlock",
+  "sprBiometricUnlockSubtitle": "Use fingerprint instead of PIN",
+  "sprAutoLockAfter": "Auto-Lock After",
+  "sprAutoLockAfterSubtitle": "How long in background before locking",
+  "sprDelayImmediately": "Immediately",
+  "sprDelayAfter1Min": "After 1 min",
+  "sprDelayAfter5Min": "After 5 min",
+  "sprDelayAfter10Min": "After 10 min",
+  "sprDelayAfter30Min": "After 30 min",
+  "sprDontLockWhilePlaying": "Don't Lock While Playing",
+  "sprDontLockWhilePlayingSubtitle": "App won't lock as long as a song is playing",
+  "sprIncognito": "🕵️ INCOGNITO",
+  "sprIncognitoMode": "Incognito Mode",
+  "sprIncognitoModeSubtitle": "Songs won't appear in history or affect recommendations",
+  "sprIncognitoOnInfo": "Incognito is ON — listening history is paused and recommendations won't update.",
+  "sprHideListeningStats": "Hide Listening Stats",
+  "sprHideListeningStatsSubtitle": "Don't track play counts or time listened",
+  "sprClearData": "🗑️ CLEAR DATA",
+  "sprClearHistory": "Clear Listening History",
+  "sprClearHistorySubtitle": "Remove all recently played songs",
+  "sprResetRecommendations": "Reset Recommendations",
+  "sprResetRecommendationsSubtitle": "Clear affinity scores and start fresh",
+  "sprClearAllData": "Clear All App Data",
+  "sprClearAllDataSubtitle": "Reset everything — playlists, settings, history",
+  "sprClearTitle": "Clear {title}?",
+  "sprClearCannotUndo": "This cannot be undone.",
+  "sprCancel": "Cancel",
+  "sprClear": "Clear",
+  "sprHistoryTitle": "Listening History",
+  "sprRecommendationsTitle": "Recommendations",
+  "sprAllAppDataTitle": "All App Data",
+  "sprPinMustBe4Digits": "PIN must be 4 digits",
+  "sprPinsDontMatch": "PINs don't match. Try again.",
+  "sprConfirmPin": "Confirm PIN",
+  "sprSetPinSheetTitle": "Set PIN",
+  "sprChangePinSheetTitle": "Change PIN",
+  "sprEnterPinAgain": "Enter the PIN again to confirm",
+  "sprChoose4DigitPin": "Choose a 4-digit PIN",
+  "sprRemovePin": "Remove PIN",
+  "sprNext": "Next",
+  "sprConfirm": "Confirm",
+  "@sprClearTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
   }
 }

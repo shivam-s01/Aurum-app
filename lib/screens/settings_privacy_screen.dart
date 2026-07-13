@@ -6,6 +6,7 @@ import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
 import '../services/recommendation_engine.dart';
 import '../providers/recently_played_provider.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class SettingsPrivacyScreen extends StatefulWidget {
   const SettingsPrivacyScreen({super.key});
@@ -19,8 +20,24 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
   bool   _incognitoMode   = false;
   bool   _hideListenStats = false;
   String _appLockPin      = '';
-  String _lockDelay       = 'After 10 min';
+  // Internal, language-independent key. Display label is resolved via
+  // _delayLabel() at build time so switching app language doesn't break
+  // the stored preference.
+  String _lockDelayKey    = 'after10';
   bool   _dontLockPlaying = false;
+
+  static const _delayKeys = ['immediately', 'after1', 'after5', 'after10', 'after30'];
+
+  String _delayLabel(AppLocalizations l10n, String key) {
+    switch (key) {
+      case 'immediately': return l10n.sprDelayImmediately;
+      case 'after1':      return l10n.sprDelayAfter1Min;
+      case 'after5':      return l10n.sprDelayAfter5Min;
+      case 'after30':     return l10n.sprDelayAfter30Min;
+      case 'after10':
+      default:            return l10n.sprDelayAfter10Min;
+    }
+  }
 
   @override
   void initState() {
@@ -36,7 +53,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
       _incognitoMode   = p.getBool('incognito_mode')      ?? false;
       _hideListenStats = p.getBool('hide_listen_stats')   ?? false;
       _appLockPin      = p.getString('app_lock_pin')      ?? '';
-      _lockDelay       = p.getString('lock_delay_label')  ?? 'After 10 min';
+      _lockDelayKey    = p.getString('lock_delay_key')     ?? 'after10';
       _dontLockPlaying = p.getBool('dont_lock_while_playing') ?? false;
     });
   }
@@ -72,22 +89,23 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
-      appBar: _appBar(context, 'Privacy'),
+      appBar: _appBar(context, l10n.settingsPrivacy),
       body: ListView(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
 
           // ── APP LOCK ──────────────────────────────────────────────────
-          _sectionLabel('🔒 APP LOCK'),
+          _sectionLabel(l10n.sprAppLock),
           _switchTile(context,
             icon: Icons.lock_rounded,
-            title: 'App Lock',
+            title: l10n.sprAppLockTitle,
             subtitle: _appLockPin.isEmpty
-                ? 'Set a PIN to lock the app'
-                : 'PIN is set — tap to change',
+                ? l10n.sprAppLockSubtitleSet
+                : l10n.sprAppLockSubtitleChange,
             value: _appLock,
             onChanged: (v) async {
               if (v && _appLockPin.isEmpty) {
@@ -102,16 +120,16 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
           if (_appLock || _appLockPin.isNotEmpty) ...[
             _navTile(context,
               icon: Icons.pin_rounded,
-              title: _appLockPin.isEmpty ? 'Set PIN' : 'Change PIN',
+              title: _appLockPin.isEmpty ? l10n.sprSetPin : l10n.sprChangePin,
               subtitle: _appLockPin.isEmpty
-                  ? 'Required to enable App Lock'
-                  : 'Change your 4-digit PIN',
+                  ? l10n.sprSetPinSubtitle
+                  : l10n.sprChangePinSubtitle,
               onTap: () { HapticFeedback.lightImpact(); _showPinSheet(context); },
             ),
             _switchTile(context,
               icon: Icons.fingerprint_rounded,
-              title: 'Biometric Unlock',
-              subtitle: 'Use fingerprint instead of PIN',
+              title: l10n.sprBiometricUnlock,
+              subtitle: l10n.sprBiometricUnlockSubtitle,
               value: _biometricLock,
               onChanged: (v) {
                 setState(() => _biometricLock = v);
@@ -120,16 +138,17 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
             ),
             _dropdownTile(context,
               icon: Icons.timer_rounded,
-              title: 'Auto-Lock After',
-              subtitle: 'How long in background before locking',
-              value: _lockDelay,
-              options: const ['Immediately', 'After 1 min', 'After 5 min', 'After 10 min', 'After 30 min'],
+              title: l10n.sprAutoLockAfter,
+              subtitle: l10n.sprAutoLockAfterSubtitle,
+              value: _lockDelayKey,
+              options: _delayKeys,
+              optionLabel: (key) => _delayLabel(l10n, key),
               onChanged: (v) async {
-                setState(() => _lockDelay = v!);
-                await _save('lock_delay_label', v!);
+                setState(() => _lockDelayKey = v!);
+                await _save('lock_delay_key', v!);
                 const delays = {
-                  'Immediately': 0, 'After 1 min': 1, 'After 5 min': 5,
-                  'After 10 min': 10, 'After 30 min': 30,
+                  'immediately': 0, 'after1': 1, 'after5': 5,
+                  'after10': 10, 'after30': 30,
                 };
                 final p = await SharedPreferences.getInstance();
                 await p.setInt('lock_delay_mins', delays[v] ?? 10);
@@ -137,8 +156,8 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
             ),
             _switchTile(context,
               icon: Icons.music_note_rounded,
-              title: 'Don\'t Lock While Playing',
-              subtitle: 'App won\'t lock as long as a song is playing',
+              title: l10n.sprDontLockWhilePlaying,
+              subtitle: l10n.sprDontLockWhilePlayingSubtitle,
               value: _dontLockPlaying,
               onChanged: (v) {
                 setState(() => _dontLockPlaying = v);
@@ -148,11 +167,11 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
           ],
 
           // ── INCOGNITO ─────────────────────────────────────────────────
-          _sectionLabel('🕵️ INCOGNITO'),
+          _sectionLabel(l10n.sprIncognito),
           _switchTile(context,
             icon: Icons.visibility_off_rounded,
-            title: 'Incognito Mode',
-            subtitle: 'Songs won\'t appear in history or affect recommendations',
+            title: l10n.sprIncognitoMode,
+            subtitle: l10n.sprIncognitoModeSubtitle,
             value: _incognitoMode,
             onChanged: (v) {
               setState(() => _incognitoMode = v);
@@ -163,13 +182,13 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
           if (_incognitoMode)
             _infoTile(context,
               icon: Icons.info_outline_rounded,
-              message: 'Incognito is ON — listening history is paused and recommendations won\'t update.',
+              message: l10n.sprIncognitoOnInfo,
               color: AurumTheme.gold,
             ),
           _switchTile(context,
             icon: Icons.bar_chart_rounded,
-            title: 'Hide Listening Stats',
-            subtitle: 'Don\'t track play counts or time listened',
+            title: l10n.sprHideListeningStats,
+            subtitle: l10n.sprHideListeningStatsSubtitle,
             value: _hideListenStats,
             onChanged: (v) {
               setState(() => _hideListenStats = v);
@@ -179,28 +198,28 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
           ),
 
           // ── CLEAR DATA ────────────────────────────────────────────────
-          _sectionLabel('🗑️ CLEAR DATA'),
+          _sectionLabel(l10n.sprClearData),
           _dangerTile(context,
             icon: Icons.history_rounded,
-            title: 'Clear Listening History',
-            subtitle: 'Remove all recently played songs',
-            onTap: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Listening History', () async {
+            title: l10n.sprClearHistory,
+            subtitle: l10n.sprClearHistorySubtitle,
+            onTap: () { HapticFeedback.mediumImpact(); _confirmClear(context, l10n, l10n.sprHistoryTitle, () async {
               await context.read<RecentlyPlayedProvider>().clearHistory();
             }); },
           ),
           _dangerTile(context,
             icon: Icons.recommend_rounded,
-            title: 'Reset Recommendations',
-            subtitle: 'Clear affinity scores and start fresh',
-            onTap: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Recommendations', () async {
+            title: l10n.sprResetRecommendations,
+            subtitle: l10n.sprResetRecommendationsSubtitle,
+            onTap: () { HapticFeedback.mediumImpact(); _confirmClear(context, l10n, l10n.sprRecommendationsTitle, () async {
               await RecommendationEngine.resetAll();
             }); },
           ),
           _dangerTile(context,
             icon: Icons.delete_sweep_rounded,
-            title: 'Clear All App Data',
-            subtitle: 'Reset everything — playlists, settings, history',
-            onTap: () { HapticFeedback.heavyImpact(); _confirmClear(context, 'All App Data', () async {
+            title: l10n.sprClearAllData,
+            subtitle: l10n.sprClearAllDataSubtitle,
+            onTap: () { HapticFeedback.heavyImpact(); _confirmClear(context, l10n, l10n.sprAllAppDataTitle, () async {
               final p = await SharedPreferences.getInstance();
               await p.clear();
             }); },
@@ -211,22 +230,22 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
     );
   }
 
-  void _confirmClear(BuildContext context, String title, VoidCallback onConfirm) {
+  void _confirmClear(BuildContext context, AppLocalizations l10n, String title, VoidCallback onConfirm) {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AurumTheme.bgCardOf(context),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Clear $title?',
+        title: Text(l10n.sprClearTitle(title),
           style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 16, fontWeight: FontWeight.w600)),
-        content: Text('This cannot be undone.',
+        content: Text(l10n.sprClearCannotUndo,
           style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: TextStyle(color: AurumTheme.textSecondaryOf(context)))),
+            child: Text(l10n.sprCancel, style: TextStyle(color: AurumTheme.textSecondaryOf(context)))),
           TextButton(
             onPressed: () { Navigator.pop(context); onConfirm(); },
-            child: const Text('Clear', style: TextStyle(color: Colors.redAccent)),
+            child: Text(l10n.sprClear, style: const TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
@@ -259,17 +278,17 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
     super.dispose();
   }
 
-  void _next() {
+  void _next(AppLocalizations l10n) {
     if (_step1Controller.text.length < 4) {
-      setState(() => _error = 'PIN must be 4 digits');
+      setState(() => _error = l10n.sprPinMustBe4Digits);
       return;
     }
     setState(() { _step2 = true; _error = ''; });
   }
 
-  void _confirm() {
+  void _confirm(AppLocalizations l10n) {
     if (_step1Controller.text != _step2Controller.text) {
-      setState(() => _error = 'PINs don\'t match. Try again.');
+      setState(() => _error = l10n.sprPinsDontMatch);
       _step2Controller.clear();
       return;
     }
@@ -279,6 +298,7 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: EdgeInsets.only(
         left: 20, right: 20, top: 20,
@@ -299,7 +319,7 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
           ),
           const SizedBox(height: 20),
           Text(
-            _step2 ? 'Confirm PIN' : (widget.currentPin.isEmpty ? 'Set PIN' : 'Change PIN'),
+            _step2 ? l10n.sprConfirmPin : (widget.currentPin.isEmpty ? l10n.sprSetPinSheetTitle : l10n.sprChangePinSheetTitle),
             style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
               fontSize: 18, fontWeight: FontWeight.w700,
@@ -307,7 +327,7 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
           ),
           const SizedBox(height: 4),
           Text(
-            _step2 ? 'Enter the PIN again to confirm' : 'Choose a 4-digit PIN',
+            _step2 ? l10n.sprEnterPinAgain : l10n.sprChoose4DigitPin,
             style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
           ),
           const SizedBox(height: 20),
@@ -334,7 +354,7 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
               ),
               errorText: _error.isEmpty ? null : _error,
             ),
-            onSubmitted: (_) => _step2 ? _confirm() : _next(),
+            onSubmitted: (_) => _step2 ? _confirm(l10n) : _next(l10n),
           ),
           const SizedBox(height: 16),
           Row(children: [
@@ -347,13 +367,13 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text('Remove PIN', style: TextStyle(color: Colors.redAccent)),
+                  child: Text(l10n.sprRemovePin, style: const TextStyle(color: Colors.redAccent)),
                 ),
               ),
             if (widget.currentPin.isNotEmpty && !_step2) const SizedBox(width: 12),
             Expanded(
               child: ElevatedButton(
-                onPressed: _step2 ? _confirm : _next,
+                onPressed: () => _step2 ? _confirm(l10n) : _next(l10n),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AurumTheme.gold,
                   foregroundColor: Colors.black,
@@ -361,7 +381,7 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   elevation: 0,
                 ),
-                child: Text(_step2 ? 'Confirm' : 'Next',
+                child: Text(_step2 ? l10n.sprConfirm : l10n.sprNext,
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
               ),
             ),
@@ -485,7 +505,9 @@ Widget _dangerTile(BuildContext context, {
 Widget _dropdownTile(BuildContext context, {
   required IconData icon, required String title, required String subtitle,
   required String value, required List<String> options, required ValueChanged<String?> onChanged,
+  String Function(String)? optionLabel,
 }) {
+  final label = optionLabel ?? (String o) => o;
   return Container(
     margin: const EdgeInsets.only(bottom: 8),
     decoration: BoxDecoration(
@@ -508,7 +530,7 @@ Widget _dropdownTile(BuildContext context, {
         dropdownColor: AurumTheme.bgCardOf(context),
         style: TextStyle(color: AurumTheme.gold, fontSize: 12, fontWeight: FontWeight.w600),
         icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.gold, size: 18),
-        items: options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
+        items: options.map((o) => DropdownMenuItem(value: o, child: Text(label(o)))).toList(),
         onChanged: onChanged,
       ),
     ),
