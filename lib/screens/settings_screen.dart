@@ -13,12 +13,14 @@ import 'settings_notifications_screen.dart';
 import 'settings_about_screen.dart';
 import 'settings_privacy_screen.dart';
 import 'settings_language_screen.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     // Get the native engine from PlayerProvider so we can pass it to player settings
     final engine = context.read<PlayerProvider>().handler;
 
@@ -38,9 +40,9 @@ class SettingsScreen extends StatelessWidget {
               title: ShaderMask(
                 shaderCallback: (b) =>
                     AurumTheme.goldGradient.createShader(b),
-                child: const Text(
-                  'Settings',
-                  style: TextStyle(
+                child: Text(
+                  l10n.settingsTitle,
+                  style: const TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
                     color: Colors.white,
@@ -59,8 +61,8 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 20),
                 _SettingsTile(
                   icon: Icons.equalizer_rounded,
-                  title: 'Player & Audio',
-                  subtitle: 'Playback, EQ, crossfade & behavior',
+                  title: l10n.settingsPlayerAudio,
+                  subtitle: l10n.settingsPlayerAudioSubtitle,
                   onTap: () {
                     HapticFeedback.lightImpact();
                     AurumPageRoute.to(context, SettingsPlayerScreen(audioEngine: engine));
@@ -69,8 +71,8 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.palette_rounded,
-                  title: 'Appearance',
-                  subtitle: 'Theme, colors, player style & animations',
+                  title: l10n.settingsAppearance,
+                  subtitle: l10n.settingsAppearanceSubtitle,
                   onTap: () {
                     HapticFeedback.lightImpact();
                     AurumPageRoute.to(context, const SettingsAppearanceScreen());
@@ -79,8 +81,8 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.language_rounded,
-                  title: 'Language',
-                  subtitle: 'Choose your preferred app language',
+                  title: l10n.settingsLanguage,
+                  subtitle: l10n.settingsLanguageSubtitle,
                   onTap: () {
                     HapticFeedback.lightImpact();
                     AurumPageRoute.to(context, const SettingsLanguageScreen());
@@ -89,8 +91,8 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.storage_rounded,
-                  title: 'Storage',
-                  subtitle: 'Downloads, song cache & image cache',
+                  title: l10n.settingsStorage,
+                  subtitle: l10n.settingsStorageSubtitle,
                   onTap: () {
                     HapticFeedback.lightImpact();
                     AurumPageRoute.to(context, const SettingsStorageScreen());
@@ -99,8 +101,8 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.notifications_rounded,
-                  title: 'Notifications',
-                  subtitle: 'Media notification style & artwork',
+                  title: l10n.settingsNotifications,
+                  subtitle: l10n.settingsNotificationsSubtitle,
                   onTap: () {
                     HapticFeedback.lightImpact();
                     AurumPageRoute.to(context, const SettingsNotificationsScreen());
@@ -109,8 +111,8 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.shield_rounded,
-                  title: 'Privacy',
-                  subtitle: 'App lock, incognito mode & data',
+                  title: l10n.settingsPrivacy,
+                  subtitle: l10n.settingsPrivacySubtitle,
                   onTap: () {
                     HapticFeedback.lightImpact();
                     AurumPageRoute.to(context, const SettingsPrivacyScreen());
@@ -119,8 +121,8 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 10),
                 _SettingsTile(
                   icon: Icons.info_outline_rounded,
-                  title: 'About',
-                  subtitle: 'Version, updates, privacy & developer',
+                  title: l10n.settingsAbout,
+                  subtitle: l10n.settingsAboutSubtitle,
                   onTap: () {
                     HapticFeedback.lightImpact();
                     AurumPageRoute.to(context, const SettingsAboutScreen());
@@ -246,17 +248,17 @@ class _SettingsTileState extends State<_SettingsTile>
 class _PremiumSettingsTile extends StatelessWidget {
   const _PremiumSettingsTile();
 
-  static const _premiumFeatures = [
-    '320kbps streaming',
-    'Unlimited skips',
-    'Like & follow',
-    'Create playlists',
-    'Cloud sync',
-    'Exclusive themes',
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final premiumFeatures = [
+      l10n.premiumFeature320kbps,
+      l10n.premiumFeatureUnlimitedSkips,
+      l10n.premiumFeatureLikeFollow,
+      l10n.premiumFeatureCreatePlaylists,
+      l10n.premiumFeatureCloudSync,
+      l10n.premiumFeatureExclusiveThemes,
+    ];
     final isPremium = context.watch<PremiumProvider>().isPremium;
 
     if (isPremium) {
@@ -287,13 +289,13 @@ class _PremiumSettingsTile extends StatelessWidget {
           Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Aurum Premium',
+              Text(l10n.premiumBrandName,
                   style: TextStyle(
                     color: AurumTheme.gold,
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
                   )),
-              Text('All features unlocked',
+              Text(l10n.premiumAllFeaturesUnlocked,
                   style: TextStyle(
                     color: AurumTheme.textMutedOf(context),
                     fontSize: 12,
@@ -307,7 +309,7 @@ class _PremiumSettingsTile extends StatelessWidget {
               color: AurumTheme.gold.withOpacity(0.15),
               border: Border.all(color: AurumTheme.gold.withOpacity(0.4)),
             ),
-            child: Text('Active',
+            child: Text(l10n.premiumActive,
                 style: TextStyle(
                   color: AurumTheme.gold,
                   fontSize: 11,
@@ -357,13 +359,13 @@ class _PremiumSettingsTile extends StatelessWidget {
             Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Upgrade to Premium',
+                Text(l10n.premiumUpgradeTitle,
                     style: TextStyle(
                       color: AurumTheme.textPrimaryOf(context),
                       fontSize: 15,
                       fontWeight: FontWeight.w800,
                     )),
-                Text('Unlock everything in Aurum',
+                Text(l10n.premiumUnlockEverything,
                     style: TextStyle(
                       color: AurumTheme.textMutedOf(context),
                       fontSize: 12,
@@ -379,7 +381,7 @@ class _PremiumSettingsTile extends StatelessWidget {
           child: Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: _premiumFeatures.map((f) => Container(
+            children: premiumFeatures.map((f) => Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: AurumTheme.gold.withOpacity(0.1),
@@ -430,9 +432,9 @@ class _PremiumSettingsTile extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text(
-                  '✦  Get Aurum Premium',
-                  style: TextStyle(
+                child: Text(
+                  l10n.premiumGetButton,
+                  style: const TextStyle(
                     color: Colors.black,
                     fontSize: 14,
                     fontWeight: FontWeight.w800,

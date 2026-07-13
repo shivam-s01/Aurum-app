@@ -10,6 +10,7 @@ import '../providers/recently_played_provider.dart';
 import '../providers/premium_provider.dart';
 import '../widgets/premium_gate.dart';
 import '../widgets/aurum_pressable.dart';
+import '../l10n/generated/app_localizations.dart';
 
 // =============================================================================
 // Sleep Timer Service — singleton so it survives screen navigation
@@ -167,14 +168,19 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   // AudioPrefs.qualityOrder() (free accounts capped at 160kbps); this tile
   // just makes that boundary visible and intentional in the UI instead of
   // free users picking "High" and silently getting capped audio.
-  static const _qualityOptions = [
-    ('Auto',   'Best available for each song', false),
-    ('Low',    '48–96kbps · saves data',        false),
-    ('Medium', 'Up to 160kbps',                 false),
-    ('High',   '320kbps · studio quality',      true), // locked = premium-only
+  // Internal values MUST stay these exact English strings — they're persisted
+  // to SharedPreferences and matched literally by AudioPrefs.qualityOrder()
+  // and the native Kotlin side. Only the on-screen label is localized.
+  static const _qualityKeys = ['Auto', 'Low', 'Medium', 'High'];
+  List<(String key, String label, String subtitle, bool locked)> _qualityOptions(AppLocalizations l10n) => [
+    ('Auto',   l10n.spQualityAuto,   l10n.spQualityAutoDesc,   false),
+    ('Low',    l10n.spQualityLow,    l10n.spQualityLowDesc,    false),
+    ('Medium', l10n.spQualityMedium, l10n.spQualityMediumDesc, false),
+    ('High',   l10n.spQualityHigh,   l10n.spQualityHighDesc,   true), // locked = premium-only
   ];
 
   Widget _streamQualityTile(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isPremium = context.watch<PremiumProvider>().isPremium;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -200,11 +206,11 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Stream Quality',
+                    Text(l10n.spStreamQuality,
                         style: TextStyle(
                             color: AurumTheme.textPrimaryOf(context),
                             fontSize: 14, fontWeight: FontWeight.w500)),
-                    Text('Audio bitrate for online streaming',
+                    Text(l10n.spStreamQualitySubtitle,
                         style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
                   ],
                 ),
@@ -212,10 +218,10 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
             ]),
           ),
           const SizedBox(height: 4),
-          ..._qualityOptions.map((opt) {
-            final (label, subtitle, locked) = opt;
+          ..._qualityOptions(l10n).map((opt) {
+            final (key, label, subtitle, locked) = opt;
             final isLocked = locked && !isPremium;
-            final selected = _streamQuality == label;
+            final selected = _streamQuality == key;
             return AurumPressable(
               scaleAmount: 0.985,
               haptic: false,
@@ -227,15 +233,15 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                   // alone does not unlock.
                   PremiumGate.show(
                     context,
-                    feature: 'High Bitrate (320kbps)',
-                    description: 'Unlock studio-quality 320kbps streaming with Aurum Plus.',
+                    feature: l10n.spPremiumHighBitrateFeature,
+                    description: l10n.spPremiumHighBitrateDesc,
                   );
                   return;
                 }
                 HapticFeedback.selectionClick();
-                setState(() => _streamQuality = label);
-                _save('stream_quality', label);
-                AudioPrefs.setStreamQuality(label);
+                setState(() => _streamQuality = key);
+                _save('stream_quality', key);
+                AudioPrefs.setStreamQuality(key);
               },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -272,11 +278,11 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                                 gradient: AurumTheme.goldGradient,
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                                Icon(Icons.lock_rounded, color: Colors.black, size: 9),
-                                SizedBox(width: 2),
-                                Text('PLUS',
-                                    style: TextStyle(
+                              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                const Icon(Icons.lock_rounded, color: Colors.black, size: 9),
+                                const SizedBox(width: 2),
+                                Text(l10n.spPlusBadge,
+                                    style: const TextStyle(
                                         color: Colors.black,
                                         fontSize: 9,
                                         fontWeight: FontWeight.w900,
@@ -339,22 +345,23 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final timer = SleepTimerService.instance;
 
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
-      appBar: _appBar(context, 'Player & Audio'),
+      appBar: _appBar(context, l10n.settingsPlayerAudio),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
 
           // ── PLAYBACK ──────────────────────────────────────────────────────
-          _sectionLabel('🔊 PLAYBACK'),
+          _sectionLabel(l10n.spPlayback),
           _streamQualityTile(context),
           _switchTile(context,
               icon: Icons.data_saver_on_rounded,
-              title: 'Data Saver',
-              subtitle: 'Force low quality on mobile data',
+              title: l10n.spDataSaver,
+              subtitle: l10n.spDataSaverSubtitle,
               value: _dataSaver,
               onChanged: (v) {
                 setState(() => _dataSaver = v);
@@ -363,8 +370,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               }),
           _switchTile(context,
               icon: Icons.remove_done_rounded,
-              title: 'Gapless Playback',
-              subtitle: 'No silence between tracks',
+              title: l10n.spGaplessPlayback,
+              subtitle: l10n.spGaplessPlaybackSubtitle,
               value: _gapless,
               onChanged: (v) {
                 setState(() => _gapless = v);
@@ -381,8 +388,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
           // Volume Normalization
           _switchTile(context,
               icon: Icons.equalizer_rounded,
-              title: 'Volume Normalization',
-              subtitle: 'Keeps all songs at a consistent volume level',
+              title: l10n.spVolumeNormalization,
+              subtitle: l10n.spVolumeNormalizationSubtitle,
               value: _volumeNormalization,
               onChanged: (v) async {
                 setState(() => _volumeNormalization = v);
@@ -393,8 +400,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
           // Bass Boost
           _switchTile(context,
               icon: Icons.surround_sound_rounded,
-              title: 'Bass Boost',
-              subtitle: 'Enhance low frequencies for a deeper sound',
+              title: l10n.spBassBoost,
+              subtitle: l10n.spBassBoostSubtitle,
               value: _bassBoost,
               onChanged: (v) async {
                 setState(() => _bassBoost = v);
@@ -404,26 +411,26 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
           // ── SLEEP TIMER ───────────────────────────────────────────────────
           const SizedBox(height: 16),
-          _sectionLabel('😴 SLEEP TIMER'),
+          _sectionLabel(l10n.spSleepTimer),
           _buildSleepTimerTile(context, timer),
 
           // ── EQUALIZER ─────────────────────────────────────────────────────
           const SizedBox(height: 16),
-          _sectionLabel('🎛️ EQUALIZER'),
+          _sectionLabel(l10n.spEqualizer),
           _navTile(context,
               icon: Icons.graphic_eq_rounded,
-              title: 'Equalizer',
-              subtitle: '10-band EQ with presets',
+              title: l10n.spEqualizerTitle,
+              subtitle: l10n.spEqualizerSubtitle,
               onTap: () => Navigator.of(context)
                   .push(_slideRoute(EqualizerScreen(audioEngine: widget.audioEngine)))),
 
           // ── BEHAVIOR ──────────────────────────────────────────────────────
           const SizedBox(height: 16),
-          _sectionLabel('🎮 BEHAVIOR'),
+          _sectionLabel(l10n.spBehavior),
           _switchTile(context,
               icon: Icons.queue_music_rounded,
-              title: 'Keep Player Queue on Reopen',
-              subtitle: 'Restore queue after closing app',
+              title: l10n.spKeepQueue,
+              subtitle: l10n.spKeepQueueSubtitle,
               value: _keepQueue,
               onChanged: (v) {
                 setState(() => _keepQueue = v);
@@ -431,8 +438,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               }),
           _switchTile(context,
               icon: Icons.clear_all_rounded,
-              title: 'Stop on Swipe from Recents',
-              subtitle: 'Stop playback when app is swiped away',
+              title: l10n.spStopOnSwipe,
+              subtitle: l10n.spStopOnSwipeSubtitle,
               value: _stopOnSwipe,
               onChanged: (v) async {
                 setState(() => _stopOnSwipe = v);
@@ -441,8 +448,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               }),
           _switchTile(context,
               icon: Icons.call_rounded,
-              title: 'Pause on Incoming Call',
-              subtitle: 'Auto-pauses when phone rings',
+              title: l10n.spPauseOnCall,
+              subtitle: l10n.spPauseOnCallSubtitle,
               value: _pauseOnCall,
               onChanged: (v) {
                 setState(() => _pauseOnCall = v);
@@ -451,8 +458,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               }),
           _switchTile(context,
               icon: Icons.notifications_active_rounded,
-              title: 'Duck Volume for Notifications',
-              subtitle: 'OFF = notifications never lower or pause your song',
+              title: l10n.spDuckNotifications,
+              subtitle: l10n.spDuckNotificationsSubtitle,
               value: _duckOnNotifications,
               onChanged: (v) {
                 setState(() => _duckOnNotifications = v);
@@ -461,8 +468,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               }),
           _switchTile(context,
               icon: Icons.vibration_rounded,
-              title: 'Shake to Skip Song',
-              subtitle: 'Shake phone to go to next track',
+              title: l10n.spShakeToSkip,
+              subtitle: l10n.spShakeToSkipSubtitle,
               value: _shakeToSkip,
               onChanged: (v) async {
                 setState(() => _shakeToSkip = v);
@@ -471,8 +478,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               }),
           _switchTile(context,
               icon: Icons.swipe_rounded,
-              title: 'Swipe to Change Song',
-              subtitle: 'Swipe on player artwork to skip',
+              title: l10n.spSwipeToChange,
+              subtitle: l10n.spSwipeToChangeSubtitle,
               value: _swipeToChange,
               onChanged: (v) {
                 setState(() => _swipeToChange = v);
@@ -489,6 +496,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
   // ── Speed Slider ─────────────────────────────────────────────────────────
   Widget _buildSpeedSlider(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -512,9 +520,9 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               ),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Playback Speed',
+                Text(l10n.spPlaybackSpeed,
                     style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-                Text('Applies to both local and online songs',
+                Text(l10n.spPlaybackSpeedSubtitle,
                     style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
               ])),
               Container(
@@ -524,7 +532,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  _playbackSpeed == 1.0 ? 'Normal' : '${_playbackSpeed}×',
+                  _playbackSpeed == 1.0 ? l10n.spNormal : '${_playbackSpeed}×',
                   style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -553,6 +561,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
   // ── Crossfade Slider ──────────────────────────────────────────────────────
   Widget _buildCrossfadeSlider(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -576,9 +585,9 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               ),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Crossfade',
+                Text(l10n.spCrossfade,
                     style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-                Text('Smooth blend between tracks',
+                Text(l10n.spCrossfadeSubtitle,
                     style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
               ])),
               Container(
@@ -588,7 +597,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  _crossfadeDuration == 0 ? 'Off' : '${_crossfadeDuration.toInt()}s',
+                  _crossfadeDuration == 0 ? l10n.spOff : '${_crossfadeDuration.toInt()}s',
                   style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -617,6 +626,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
   // ── Sleep Timer Tile ──────────────────────────────────────────────────────
   Widget _buildSleepTimerTile(BuildContext context, SleepTimerService timer) {
+    final l10n = AppLocalizations.of(context)!;
     final isActive = timer.isActive;
     final remaining = timer.remaining;
     final mm = remaining.inMinutes.remainder(60).toString().padLeft(2, '0');
@@ -643,14 +653,14 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
           child: Icon(Icons.bedtime_rounded, color: AurumTheme.gold, size: 18),
         ),
         title: Text(
-          isActive ? 'Sleep Timer Active' : 'Sleep Timer',
+          isActive ? l10n.spSleepTimerActive : l10n.spSleepTimerTitle,
           style: TextStyle(
             color: AurumTheme.textPrimaryOf(context),
             fontSize: 14, fontWeight: FontWeight.w500,
           ),
         ),
         subtitle: Text(
-          isActive ? 'Stops in $mm:$ss' : 'Set a timer to stop playback',
+          isActive ? l10n.spSleepTimerStopsIn('$mm:$ss') : l10n.spSleepTimerSetSubtitle,
           style: TextStyle(
             color: isActive ? AurumTheme.gold : AurumTheme.textMutedOf(context),
             fontSize: 12,
@@ -666,8 +676,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
                   ),
-                  child: const Text('Cancel',
-                      style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.w600)),
+                  child: Text(l10n.spCancel,
+                      style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.w600)),
                 ),
               )
             : Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 20),
@@ -678,6 +688,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
   // ── History Slider ────────────────────────────────────────────────────────
   Widget _buildHistorySlider(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -689,10 +700,10 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
         child: Column(children: [
           Row(children: [
-            Text('History Duration',
+            Text(l10n.spHistoryDuration,
                 style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
             const Spacer(),
-            Text('${(10 + (_historyDuration / 100.0 * 190).round())} songs',
+            Text(l10n.spHistorySongsCount(10 + (_historyDuration / 100.0 * 190).round()),
                 style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
           ]),
           Slider(
@@ -744,6 +755,7 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
       child: Column(
@@ -761,12 +773,12 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
             ),
           ),
           const SizedBox(height: 20),
-          Text('Sleep Timer',
+          Text(l10n.spSleepTimerSheetTitle,
               style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
                   fontSize: 18, fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
-          Text('Playback will stop after the selected time',
+          Text(l10n.spSleepTimerSheetSubtitle,
               style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
           const SizedBox(height: 20),
 
@@ -812,9 +824,9 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
               children: [
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Finish Current Song',
+                    Text(l10n.spFinishCurrentSong,
                         style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-                    Text('Let the current song end before stopping',
+                    Text(l10n.spFinishCurrentSongSubtitle,
                         style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
                   ]),
                 ),
@@ -851,7 +863,7 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
                 elevation: 0,
               ),
               child: Text(
-                'Start Timer · ${_selectedMinutes < 60 ? "${_selectedMinutes}m" : "${_selectedMinutes ~/ 60}h"}',
+                l10n.spStartTimer(_selectedMinutes < 60 ? "${_selectedMinutes}m" : "${_selectedMinutes ~/ 60}h"),
                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
               ),
             ),
@@ -869,9 +881,9 @@ class SleepTimerSheetState extends State<SleepTimerSheet> {
                   foregroundColor: Colors.redAccent,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
-                child: const Text(
-                  'Cancel Active Timer',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                child: Text(
+                  l10n.spCancelActiveTimer,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                 ),
               ),
             ),
@@ -949,18 +961,19 @@ class EqualizerScreenState extends State<EqualizerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
-      appBar: _appBar(context, 'Equalizer', actions: [
+      appBar: _appBar(context, l10n.spEqualizerTitle, actions: [
         TextButton(
           onPressed: () => _applyPreset('Flat'),
-          child: const Text('Reset', style: TextStyle(color: AurumTheme.gold, fontSize: 14)),
+          child: Text(l10n.spEqReset, style: const TextStyle(color: AurumTheme.gold, fontSize: 14)),
         ),
       ]),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
-          _sectionLabel('PRESETS'),
+          _sectionLabel(l10n.spEqPresets),
           Wrap(
             spacing: 8, runSpacing: 8,
             children: _presets.keys.map((preset) {
@@ -987,7 +1000,7 @@ class EqualizerScreenState extends State<EqualizerScreen> {
             }).toList(),
           ),
           const SizedBox(height: 24),
-          _sectionLabel('10-BAND EQ'),
+          _sectionLabel(l10n.spEq10Band),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
