@@ -30,6 +30,7 @@ import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../shorts/screens/shorts_entry.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -42,11 +43,47 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   final _homeKey = GlobalKey<State<HomeScreen>>();
 
+  // NOTE: Shorts is intentionally NOT in this list. It is a full-screen
+  // immersive feed pushed via Navigator (see _handleNavTap) rather than
+  // an IndexedStack tab, so it never inherits the persistent MiniPlayer/
+  // nav bar chrome or interferes with the main queue's IndexedStack
+  // state. _screens stays 3 items; _tab only ever indexes 0..2 here.
   late final _screens = [
     HomeScreen(key: _homeKey),
     const SearchScreen(),
     const LibraryScreen(),
   ];
+
+  // Maps _AurumBottomNavBar's 4-item display index (Home, Search,
+  // Shorts, Library) to this screen's 3-item _screens/_tab index.
+  // Shorts (bar index 2) has no _screens entry, so it's excluded from
+  // this mapping and handled separately in _handleNavTap.
+  static const Map<int, int> _barIndexToTab = {0: 0, 1: 1, 3: 2};
+
+  void _handleNavTap(int barIndex) {
+    primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+
+    if (barIndex == _AurumBottomNavBar.shortsTabIndex) {
+      HapticFeedback.selectionClick();
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const ShortsEntry(),
+          fullscreenDialog: true,
+        ),
+      );
+      return;
+    }
+
+    final tab = _barIndexToTab[barIndex];
+    if (tab != null) setState(() => _tab = tab);
+  }
+
+  // Reverse mapping so the nav bar highlights the correct icon for
+  // the currently active _screens tab (Shorts has no persistent
+  // highlight since it's not a resident tab).
+  int get _activeBarIndex =>
+      _barIndexToTab.entries.firstWhere((e) => e.value == _tab).key;
 
   // ── Shake-to-skip ─────────────────────────────────────────────────
   // Global accelerometer listener, active for the whole lifetime of
@@ -386,12 +423,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 // comment there). Just render it plainly; no style/song
                 // state can affect it anymore, so no listener is needed here.
                 _AurumBottomNavBar(
-                  currentIndex: _tab,
-                  onTap: (i) {
-                    primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
-                    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-                    setState(() => _tab = i);
-                  },
+                  currentIndex: _activeBarIndex,
+                  onTap: _handleNavTap,
                 ),
               ],
             ),
@@ -425,11 +458,19 @@ class _AurumBottomNavBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
 
+  // index 2 ("Shorts") is a special case: tapping it does NOT switch
+  // the IndexedStack — it pushes the full-screen Shorts feed as its
+  // own route (see onTap handling in MainShell). It stays out of
+  // _tab's normal 0..2 range so the capsule highlight never rests on
+  // it after returning.
   static const _items = [
     (outline: PhosphorIconsRegular.houseSimple, filled: PhosphorIconsFill.houseSimple, label: 'Home'),
     (outline: PhosphorIconsRegular.magnifyingGlass, filled: PhosphorIconsFill.magnifyingGlass, label: 'Search'),
+    (outline: PhosphorIconsRegular.playCircle, filled: PhosphorIconsFill.playCircle, label: 'Shorts'),
     (outline: PhosphorIconsRegular.vinylRecord, filled: PhosphorIconsFill.vinylRecord, label: 'Library'),
   ];
+
+  static const int shortsTabIndex = 2;
 
   static const double _barHeight = 64.0;
 
