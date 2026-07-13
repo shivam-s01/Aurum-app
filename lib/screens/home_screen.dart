@@ -54,23 +54,26 @@ class HomeScreen extends StatefulWidget {
 // generic mood buckets — these queries are written to surface recent
 // releases first on Saavn's search ranking (which favors recency +
 // popularity for these kinds of phrasing).
-const List<_PlaylistMeta> _kCuratedPlaylists = [
-  _PlaylistMeta('Trending Now',        'bollywood songs 2026',            '🔥', Color(0xFF8B1A1A)),
-  _PlaylistMeta('New Releases',        'new bollywood songs 2026',        '🆕', Color(0xFF1A3A8B)),
-  _PlaylistMeta('2025 Chartbusters',   'top bollywood songs 2025',        '⭐', Color(0xFF7B3F00)),
-  _PlaylistMeta('Arijit Singh Hits',   'arijit singh new songs 2025',     '🎤', Color(0xFF3A2A00)),
-  _PlaylistMeta('Romantic This Week',  'bollywood romantic songs 2025',   '❤️', Color(0xFF8B1A1A)),
-  _PlaylistMeta('Party Anthems',       'bollywood party songs 2025',      '🎉', Color(0xFF1A3A8B)),
-  _PlaylistMeta('Fresh Bollywood',     'latest bollywood songs',          '✨', Color(0xFF2A1A00)),
-  _PlaylistMeta('Movie Blockbusters',  'bollywood movie songs 2025 2026', '🎬', Color(0xFF1A3A3A)),
+// `id` is a stable, non-localized key used for routing logic (see
+// _fetchSongsForThisCard); `name` is the localized display label.
+List<_PlaylistMeta> _kCuratedPlaylists(AppLocalizations l10n) => [
+  _PlaylistMeta('trendingNow', l10n.homePlaylistTrendingNow, 'bollywood songs 2026', '🔥', const Color(0xFF8B1A1A)),
+  _PlaylistMeta('newReleases', l10n.homePlaylistNewReleases, 'new bollywood songs 2026', '🆕', const Color(0xFF1A3A8B)),
+  _PlaylistMeta('chartbusters2025', l10n.homePlaylistChartbusters2025, 'top bollywood songs 2025', '⭐', const Color(0xFF7B3F00)),
+  _PlaylistMeta('arijitSinghHits', l10n.homePlaylistArijitSinghHits, 'arijit singh new songs 2025', '🎤', const Color(0xFF3A2A00)),
+  _PlaylistMeta('romanticThisWeek', l10n.homePlaylistRomanticThisWeek, 'bollywood romantic songs 2025', '❤️', const Color(0xFF8B1A1A)),
+  _PlaylistMeta('partyAnthems', l10n.homePlaylistPartyAnthems, 'bollywood party songs 2025', '🎉', const Color(0xFF1A3A8B)),
+  _PlaylistMeta('freshBollywood', l10n.homePlaylistFreshBollywood, 'latest bollywood songs', '✨', const Color(0xFF2A1A00)),
+  _PlaylistMeta('movieBlockbusters', l10n.homePlaylistMovieBlockbusters, 'bollywood movie songs 2025 2026', '🎬', const Color(0xFF1A3A3A)),
 ];
 
 class _PlaylistMeta {
+  final String id;
   final String name;
   final String query;
   final String emoji;
   final Color color;
-  const _PlaylistMeta(this.name, this.query, this.emoji, this.color);
+  const _PlaylistMeta(this.id, this.name, this.query, this.emoji, this.color);
 }
 
 // Note: previously cached query→artwork permanently across the whole app
@@ -200,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           _onlineLoading = false;
-          if (_onlineSections.isEmpty) _onlineError = 'Failed to load. Check connection.';
+          if (_onlineSections.isEmpty) _onlineError = AppLocalizations.of(context)!.homeFailedToLoadCheckConnection;
         });
       }
     }
@@ -1109,7 +1112,7 @@ class _OnlineContent extends StatelessWidget {
     if (sections.isEmpty) {
       return _buildError(
         context,
-        message: error ?? "Couldn't load songs right now.\nPull down or tap retry.",
+        message: error ?? AppLocalizations.of(context)!.homeCouldntLoadSongsRetry,
       );
     }
     return Column(
@@ -1180,7 +1183,7 @@ class _OnlineContent extends StatelessWidget {
               color: AurumTheme.textMutedOf(context)),
           const SizedBox(height: 12),
           Text(
-            message ?? error ?? 'Failed to load.',
+            message ?? error ?? AppLocalizations.of(context)!.homeFailedToLoad,
             textAlign: TextAlign.center,
             style: TextStyle(color: AurumTheme.textMutedOf(context)),
           ),
@@ -2138,13 +2141,15 @@ class _CuratedPlaylistsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final curated = _kCuratedPlaylists(l10n);
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            AppLocalizations.of(context)!.homeTrendingPlaylists,
+            l10n.homeTrendingPlaylists,
             style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
               fontSize: 17,
@@ -2167,12 +2172,12 @@ class _CuratedPlaylistsSection extends StatelessWidget {
               // gives the last card the same clean peek/inset the first
               // one already had, instead of an asymmetric hard cut.
               padding: const EdgeInsets.only(right: 4),
-              itemCount: _kCuratedPlaylists.length,
+              itemCount: curated.length,
               itemBuilder: (_, i) => _PlaylistCard(
                 // New key per refresh forces a fresh State → fresh fetch,
                 // so art + songs genuinely rotate on pull-to-refresh.
-                key: ValueKey('${_kCuratedPlaylists[i].name}_$refreshKey'),
-                playlist: _kCuratedPlaylists[i],
+                key: ValueKey('${curated[i].id}_$refreshKey'),
+                playlist: curated[i],
               ),
             ),
           ),
@@ -2209,7 +2214,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
   // "Trending Now" / "Party Anthems" / etc, so only this one card's
   // fetch path changes.
   Future<List<Song>> _fetchSongsForThisCard({int limit = 65}) {
-    if (widget.playlist.name == 'New Releases') {
+    if (widget.playlist.id == 'newReleases') {
       return ApiService.fetchNewReleaseSongs(limit: limit);
     }
     return ApiService.fetchPlaylistSongs(widget.playlist.query, limit: limit);
@@ -2259,7 +2264,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
             child: Center(child: AurumM3Loader(width: 16, height: 2)),
           ),
           const SizedBox(width: 10),
-          Text('Loading ${widget.playlist.name}...'),
+          Text(AppLocalizations.of(context)!.homeLoadingPlaylist(widget.playlist.name)),
         ]),
         duration: const Duration(seconds: 3),
         backgroundColor: AurumTheme.bgCardOf(context),

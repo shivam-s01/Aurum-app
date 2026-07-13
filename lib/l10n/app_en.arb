@@ -422,5 +422,184 @@
         "type": "String"
       }
     }
-  }
+  },
+  "homeCouldntLoadSongsRetry": "Couldn't load songs right now.\nPull down or tap retry.",
+  "homeFailedToLoad": "Failed to load.",
+  "homeFailedToLoadCheckConnection": "Failed to load. Check connection.",
+  "homeLoadingPlaylist": "Loading {name}...",
+  "@homeLoadingPlaylist": {
+    "description": "Snackbar shown while a curated playlist is loading",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "homePlaylistArijitSinghHits": "Arijit Singh Hits",
+  "homePlaylistChartbusters2025": "2025 Chartbusters",
+  "homePlaylistFreshBollywood": "Fresh Bollywood",
+  "homePlaylistMovieBlockbusters": "Movie Blockbusters",
+  "homePlaylistNewReleases": "New Releases",
+  "homePlaylistPartyAnthems": "Party Anthems",
+  "homePlaylistRomanticThisWeek": "Romantic This Week",
+  "homePlaylistTrendingNow": "Trending Now",
+  "loginSyncSubtitle": "Sign in to sync your library\nacross every device",
+  "loginMaybeLater": "Maybe later",
+  "loginBenefitSyncDevices": "Sync playlists & favorites across every device",
+  "loginBenefitResumeWhereLeft": "Pick up exactly where you left off",
+  "loginBenefitLibrarySafe": "Your library is safe even if you switch phones",
+  "loginBenefitPersonalizedProfile": "A personalized profile with your Google name & photo",
+  "loginContinueWithGoogle": "Continue with Google",
+  "commonClear": "Clear",
+  "commonCreate": "Create",
+  "libraryActionCannotBeUndone": "This cannot be undone.",
+  "libraryAddToPlaylist": "Add to playlist",
+  "libraryAddedToPlaylist": "Added to \"{name}\"",
+  "@libraryAddedToPlaylist": {
+    "description": "Snackbar shown after adding a song to a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAlbumTag": "Album",
+  "libraryAlbumsYouSaveAppearHere": "Albums you save will appear here.",
+  "libraryAlreadyInPlaylist": "Already in \"{name}\"",
+  "@libraryAlreadyInPlaylist": {
+    "description": "Snackbar shown when song already exists in the playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryArtistCount": "{count, plural, =1{1 artist} other{{count} artists}}",
+  "@libraryArtistCount": {
+    "description": "Followed artist count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryArtistTag": "Artist",
+  "libraryArtistsYouFollowAppearHere": "Artists you follow will appear here.",
+  "libraryClearHistoryConfirm": "{count, plural, =1{1 song will be removed.} other{All {count} songs will be removed.}}",
+  "@libraryClearHistoryConfirm": {
+    "description": "Confirmation text before clearing play history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryClearHistoryTitle": "Clear History?",
+  "libraryCollection": "Collection",
+  "libraryComingSoon": "Coming Soon",
+  "libraryCreateFirstPlaylistDesc": "Create your first playlist and\nstart curating your music.",
+  "libraryCreatePlaylist": "Create Playlist",
+  "libraryDefaultPlaylistName": "My Playlist",
+  "libraryDeletePlaylist": "Delete playlist",
+  "libraryDeletePlaylistConfirm": "Delete \"{name}\"?",
+  "@libraryDeletePlaylistConfirm": {
+    "description": "Confirmation dialog title for deleting a playlist",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDescriptionOptionalLabel": "Description (optional)",
+  "libraryDownloadFailedTapRetry": "Failed — tap to retry",
+  "libraryDownloadFromPlayerDesc": "Download a song from the player to listen offline.",
+  "libraryDownloadedCountHeader": "{count, plural, =1{1 DOWNLOADED} other{{count} DOWNLOADED}}",
+  "@libraryDownloadedCountHeader": {
+    "description": "Section header above completed downloads list",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryDownloadingHeader": "DOWNLOADING",
+  "libraryDownloadingPercent": "Downloading • {percent}%",
+  "@libraryDownloadingPercent": {
+    "description": "Download progress subtitle",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryEditPlaylist": "Edit Playlist",
+  "libraryHistory": "History",
+  "libraryHistoryEarlierToday": "Earlier today",
+  "libraryHistoryJustNow": "Just now",
+  "libraryHistoryOlder": "Older",
+  "libraryHistoryRecent": "Recent",
+  "libraryHistoryYesterday": "Yesterday",
+  "libraryLiked": "Liked",
+  "libraryLikedCount": "{count, plural, =0{0 liked} =1{1 liked} other{{count} liked}}",
+  "@libraryLikedCount": {
+    "description": "Liked songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLocalFiles": "Local Files",
+  "libraryLoginToOrganizeDesc": "Sign in with Google to organize your music into playlists.",
+  "libraryNeedsPermissionToReadMusic": "Aurum needs permission to read your music.",
+  "libraryNewPlaylist": "New Playlist",
+  "libraryNewPlaylistLower": "New playlist",
+  "libraryNoAlbumsSavedYet": "No albums saved yet",
+  "libraryNoArtistsSavedYet": "No artists saved yet",
+  "libraryNoDownloadsYet": "No downloads yet",
+  "libraryNoHistoryYet": "No history yet",
+  "libraryNoLocalSongsFound": "No local songs found",
+  "libraryNoPlaylistsYet": "No playlists yet",
+  "libraryNoSongsYetInPlaylist": "No songs yet",
+  "libraryNothingHereYet": "Nothing here yet",
+  "libraryOnDeviceCount": "{count} on device",
+  "@libraryOnDeviceCount": {
+    "description": "Local/on-device songs count in library stat line",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPermissionRequired": "Permission Required",
+  "libraryPlaySomethingToSeeHistory": "Play something to see history",
+  "libraryPlaylistCount": "{count, plural, =1{1 playlist} other{{count} playlists}}",
+  "@libraryPlaylistCount": {
+    "description": "Count of playlists, e.g. '3 playlists'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistNameLabel": "Playlist name",
+  "libraryPlaylistNotFound": "Playlist not found",
+  "libraryRecentlyPlayed": "Recently Played",
+  "libraryRemoveDownload": "Remove download",
+  "libraryRemoveFromPlaylist": "Remove from playlist",
+  "libraryRemoveFromSavedAlbums": "Remove from saved albums",
+  "libraryRenamePlaylist": "Rename playlist",
+  "librarySearchAndAddSongsHere": "Search for songs and add them here",
+  "librarySeeAllSongs": "{count, plural, =1{See all 1 song} other{See all {count} songs}}",
+  "@librarySeeAllSongs": {
+    "description": "Link to see all songs in recently played history",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySongsYouPlayAppearHere": "Songs you play will appear here",
+  "libraryUnfollowArtist": "Unfollow artist",
+  "libraryYourCollection": "Your collection"
 }

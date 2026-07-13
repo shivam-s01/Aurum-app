@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
@@ -92,6 +93,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.darkBg,
       body: Stack(
@@ -167,7 +169,7 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Sign in to sync your library\nacross every device',
+                            l10n.loginSyncSubtitle,
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: AurumTheme.darkTextSecondary,
@@ -214,7 +216,7 @@ class _LoginScreenState extends State<LoginScreen>
                         TextButton(
                           onPressed: _busy ? null : () => Navigator.of(context).pop(false),
                           child: Text(
-                            'Maybe later',
+                            l10n.loginMaybeLater,
                             style: TextStyle(
                               color: AurumTheme.darkTextMuted,
                               fontSize: 13.5,
@@ -251,11 +253,11 @@ class _BenefitsList extends StatefulWidget {
 class _BenefitsListState extends State<_BenefitsList> with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
 
-  static const _items = [
-    (Icons.cloud_sync_rounded, 'Sync playlists & favorites across every device'),
-    (Icons.history_rounded, 'Pick up exactly where you left off'),
-    (Icons.lock_outline_rounded, 'Your library is safe even if you switch phones'),
-    (Icons.person_outline_rounded, 'A personalized profile with your Google name & photo'),
+  static List<(IconData, String)> _items(AppLocalizations l10n) => [
+    (Icons.cloud_sync_rounded, l10n.loginBenefitSyncDevices),
+    (Icons.history_rounded, l10n.loginBenefitResumeWhereLeft),
+    (Icons.lock_outline_rounded, l10n.loginBenefitLibrarySafe),
+    (Icons.person_outline_rounded, l10n.loginBenefitPersonalizedProfile),
   ];
 
   @override
@@ -263,7 +265,7 @@ class _BenefitsListState extends State<_BenefitsList> with SingleTickerProviderS
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: 500 + _items.length * 120),
+      duration: const Duration(milliseconds: 500 + 4 * 120),
     )..forward();
   }
 
@@ -275,16 +277,18 @@ class _BenefitsListState extends State<_BenefitsList> with SingleTickerProviderS
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final items = _items(l10n);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: List.generate(_items.length, (i) {
+      children: List.generate(items.length, (i) {
         final start = (i * 0.15).clamp(0.0, 0.7);
         final end = (start + 0.5).clamp(0.0, 1.0);
         final anim = CurvedAnimation(
           parent: _ctrl,
           curve: Interval(start, end, curve: Curves.easeOutCubic),
         );
-        final (icon, label) = _items[i];
+        final (icon, label) = items[i];
         return FadeTransition(
           opacity: anim,
           child: SlideTransition(
@@ -352,7 +356,7 @@ class _GoogleContinueButton extends StatelessWidget {
                       const _GoogleMark(size: 20),
                       const SizedBox(width: 12),
                       Text(
-                        'Continue with Google',
+                        AppLocalizations.of(context)!.loginContinueWithGoogle,
                         style: TextStyle(
                           color: Colors.black.withOpacity(0.87),
                           fontSize: 15.5,

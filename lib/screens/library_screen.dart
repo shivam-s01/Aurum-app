@@ -28,6 +28,7 @@ import 'dart:math' as math;
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
@@ -63,6 +64,7 @@ class LibraryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       // extendBody: true — matches MainShell's outer Scaffold + the same
@@ -81,11 +83,11 @@ class LibraryScreen extends StatelessWidget {
                 const SizedBox(height: 18),
                 _buildQuickAccess(context),
                 const SizedBox(height: 20),
-                _buildSectionLabel(context, 'Collection'),
+                _buildSectionLabel(context, l10n.libraryCollection),
                 const SizedBox(height: 4),
                 _buildCollectionList(context),
                 const SizedBox(height: 26),
-                _buildSectionLabel(context, 'Recently Played'),
+                _buildSectionLabel(context, l10n.libraryRecentlyPlayed),
                 _buildRecentlyPlayed(context),
                 const SizedBox(height: 100),
               ],
@@ -97,6 +99,7 @@ class LibraryScreen extends StatelessWidget {
   }
 
   Widget _buildAppBar(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return SliverAppBar(
       expandedHeight: 90,
       floating: true,
@@ -112,7 +115,7 @@ class LibraryScreen extends StatelessWidget {
       ],
       flexibleSpace: FlexibleSpaceBar(
         titlePadding: const EdgeInsets.fromLTRB(20, 0, 0, 14),
-        title: Text('Library',
+        title: Text(l10n.navLibrary,
             style: TextStyle(
                 color: AurumTheme.gold,
                 fontSize: 25,
@@ -129,6 +132,7 @@ class LibraryScreen extends StatelessWidget {
   // the page background — is what makes this read as a designed module
   // rather than a stray header row.
   Widget _buildIdentityHeader(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final history = context.watch<RecentlyPlayedProvider>().history;
     final favCount = context.watch<FavoritesProvider>().favorites.length;
     final lib = context.watch<LibraryProvider>();
@@ -182,7 +186,7 @@ class LibraryScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    totalTracked == 0 ? 'Nothing here yet' : 'Your collection',
+                    totalTracked == 0 ? l10n.libraryNothingHereYet : l10n.libraryYourCollection,
                     style: TextStyle(
                       color: AurumTheme.textPrimaryOf(context),
                       fontSize: 15,
@@ -192,7 +196,7 @@ class LibraryScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _statLine(favCount, plCount, followedCount, localCount),
+                    _statLine(l10n, favCount, plCount, followedCount, localCount),
                     style: TextStyle(
                       color: AurumTheme.textMutedOf(context),
                       fontSize: 12.5,
@@ -209,37 +213,38 @@ class LibraryScreen extends StatelessWidget {
     );
   }
 
-  String _statLine(int fav, int pl, int artists, int local) {
+  String _statLine(AppLocalizations l10n, int fav, int pl, int artists, int local) {
     final parts = <String>[];
-    parts.add('$fav liked');
-    parts.add('$pl ${pl == 1 ? 'playlist' : 'playlists'}');
-    parts.add('$artists ${artists == 1 ? 'artist' : 'artists'}');
-    if (local > 0) parts.add('$local on device');
+    parts.add(l10n.libraryLikedCount(fav));
+    parts.add(l10n.libraryPlaylistCount(pl));
+    parts.add(l10n.libraryArtistCount(artists));
+    if (local > 0) parts.add(l10n.libraryOnDeviceCount(local));
     return parts.join('  ·  ');
   }
 
   Widget _buildQuickAccess(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
           _QuickChip(
             icon: Icons.favorite_rounded,
-            label: 'Liked',
+            label: l10n.libraryLiked,
             color: Colors.pinkAccent,
             onTap: () => AurumPageRoute.to(context, const LikedScreen()),
           ),
           const SizedBox(width: 8),
           _QuickChip(
             icon: Icons.download_rounded,
-            label: 'Downloads',
+            label: l10n.settingsDownloads,
             color: AurumTheme.gold,
             onTap: () => AurumPageRoute.to(context, const DownloadsScreen()),
           ),
           const SizedBox(width: 8),
           _QuickChip(
             icon: Icons.history_rounded,
-            label: 'History',
+            label: l10n.libraryHistory,
             color: Colors.teal,
             onTap: () => AurumPageRoute.to(context, const _HistoryScreen()),
           ),
@@ -266,6 +271,7 @@ class LibraryScreen extends StatelessWidget {
   // colour + hairline border + soft shadow), so this reads like a shelf
   // of premium tiles rather than a plain settings-style list.
   Widget _buildCollectionList(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final favCount = context.watch<FavoritesProvider>().favorites.length;
     final lib = context.watch<LibraryProvider>();
     final plCount = context.watch<PlaylistProvider>().count;
@@ -277,35 +283,35 @@ class LibraryScreen extends StatelessWidget {
     final items = [
       _CollectionItem(
         icon: Icons.favorite_rounded,
-        label: 'Liked Songs',
+        label: l10n.libraryLikedSongs,
         subtitle: '$favCount',
         color: Colors.pinkAccent,
         onTap: () => AurumSlidePageRoute.to(context, const LikedScreen()),
       ),
       _CollectionItem(
         icon: Icons.queue_music_rounded,
-        label: 'Playlists',
+        label: l10n.libraryPlaylists,
         subtitle: plCount == 0 ? '' : '$plCount',
         color: Colors.purpleAccent,
         onTap: () => AurumSlidePageRoute.to(context, const PlaylistsScreen()),
       ),
       _CollectionItem(
         icon: Icons.album_rounded,
-        label: 'Albums',
+        label: l10n.libraryAlbums,
         subtitle: followedAlbumsCount == 0 ? '' : '$followedAlbumsCount',
         color: Colors.deepPurple,
         onTap: () => AurumSlidePageRoute.to(context, const _AlbumsScreen()),
       ),
       _CollectionItem(
         icon: Icons.person_rounded,
-        label: 'Artists',
+        label: l10n.libraryArtists,
         subtitle: followedCount == 0 ? '' : '$followedCount',
         color: Colors.blueAccent,
         onTap: () => AurumSlidePageRoute.to(context, const _ArtistsScreen()),
       ),
       _CollectionItem(
         icon: Icons.folder_rounded,
-        label: 'Local Files',
+        label: l10n.libraryLocalFiles,
         subtitle: lib.hasLoaded ? '${lib.allSongs.length}' : '',
         color: Colors.green,
         onTap: () async {
@@ -331,6 +337,7 @@ class LibraryScreen extends StatelessWidget {
   }
 
   Widget _buildRecentlyPlayed(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final history = context.watch<RecentlyPlayedProvider>().history;
 
     if (history.isEmpty) {
@@ -343,7 +350,7 @@ class LibraryScreen extends StatelessWidget {
                   size: 40,
                   color: AurumTheme.textMutedOf(context).withOpacity(0.3)),
               const SizedBox(height: 8),
-              Text('Play something to see history',
+              Text(l10n.libraryPlaySomethingToSeeHistory,
                   style: TextStyle(
                       color: AurumTheme.textMutedOf(context), fontSize: 13)),
             ],
@@ -367,7 +374,7 @@ class LibraryScreen extends StatelessWidget {
             child: TextButton(
               onPressed: () => AurumPageRoute.to(context, const _HistoryScreen()),
               child: Text(
-                'See all ${history.length} songs',
+                l10n.librarySeeAllSongs(history.length),
                 style: TextStyle(
                     color: AurumTheme.gold,
                     fontSize: 13,
@@ -389,6 +396,7 @@ class PlaylistsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Consumer<PlaylistProvider>(
       builder: (context, pp, _) {
         return Scaffold(
@@ -424,8 +432,8 @@ class PlaylistsScreen extends StatelessWidget {
                       ShaderMask(
                         shaderCallback: (b) =>
                             AurumTheme.goldGradient.createShader(b),
-                        child: const Text('Playlists',
-                            style: TextStyle(
+                        child: Text(l10n.libraryPlaylists,
+                            style: const TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w700,
                                 color: Colors.white)),
@@ -447,7 +455,7 @@ class PlaylistsScreen extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
                     child: Text(
-                      '${pp.count} playlist${pp.count == 1 ? '' : 's'}',
+                      l10n.libraryPlaylistCount(pp.count),
                       style: TextStyle(
                           color: AurumTheme.textMutedOf(context),
                           fontSize: 12),
@@ -482,10 +490,11 @@ class PlaylistsScreen extends StatelessWidget {
   }
 
   Future<void> _showCreateDialog(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     PremiumGate.guard(
       context,
-      feature: 'Create Playlist',
-      description: 'Sign in with Google to organize your music into playlists.',
+      feature: l10n.libraryCreatePlaylist,
+      description: l10n.libraryLoginToOrganizeDesc,
       requiresLoginOnly: true,
       onAllowed: () async {
         await showDialog(
@@ -512,6 +521,7 @@ class PlaylistDetailScreen extends StatefulWidget {
 class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final pp = context.watch<PlaylistProvider>();
     final pl = pp.getById(widget.playlistId);
 
@@ -519,7 +529,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       return Scaffold(
         backgroundColor: AurumTheme.bgOf(context),
         body: Center(
-          child: Text('Playlist not found',
+          child: Text(l10n.libraryPlaylistNotFound,
               style: TextStyle(color: AurumTheme.textMutedOf(context))),
         ),
       );
@@ -587,13 +597,13 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                             color: Colors.purpleAccent, size: 36),
                       ),
                       const SizedBox(height: 20),
-                      Text('No songs yet',
+                      Text(l10n.libraryNoSongsYetInPlaylist,
                           style: TextStyle(
                               color: AurumTheme.textPrimaryOf(context),
                               fontSize: 18,
                               fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
-                      Text('Search for songs and add them here',
+                      Text(l10n.librarySearchAndAddSongsHere,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                               color: AurumTheme.textMutedOf(context),
@@ -633,6 +643,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   }
 
   void _showPlaylistOptions(BuildContext context, AurumPlaylist pl) {
+    final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     showModalBottomSheet(
       context: context,
@@ -656,7 +667,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
             ListTile(
               leading:
                   const Icon(Icons.edit_rounded, color: AurumTheme.gold),
-              title: Text('Rename playlist',
+              title: Text(l10n.libraryRenamePlaylist,
                   style:
                       TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () {
@@ -667,8 +678,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
             ListTile(
               leading: const Icon(Icons.delete_outline_rounded,
                   color: Colors.redAccent),
-              title: const Text('Delete playlist',
-                  style: TextStyle(color: Colors.redAccent)),
+              title: Text(l10n.libraryDeletePlaylist,
+                  style: const TextStyle(color: Colors.redAccent)),
               onTap: () {
                 Navigator.pop(ctx);
                 _confirmDelete(context, pl);
@@ -689,24 +700,25 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   }
 
   Future<void> _confirmDelete(BuildContext context, AurumPlaylist pl) async {
+    final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AurumTheme.bgElevatedOf(context),
-        title: Text('Delete "${pl.name}"?',
+        title: Text(l10n.libraryDeletePlaylistConfirm(pl.name),
             style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
-        content: Text('This cannot be undone.',
+        content: Text(l10n.libraryActionCannotBeUndone,
             style: TextStyle(color: AurumTheme.textMutedOf(context))),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: Text('Cancel',
+              child: Text(l10n.commonCancel,
                   style: TextStyle(
                       color: AurumTheme.textMutedOf(context)))),
           TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Delete',
-                  style: TextStyle(color: Colors.redAccent))),
+              child: Text(l10n.commonDelete,
+                  style: const TextStyle(color: Colors.redAccent))),
         ],
       ),
     );
@@ -843,6 +855,7 @@ class _PlaylistActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     if (playlist.songs.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -870,7 +883,7 @@ class _PlaylistActionRow extends StatelessWidget {
                     Icon(Icons.play_arrow_rounded,
                         color: AurumTheme.bgOf(context), size: 22),
                     const SizedBox(width: 6),
-                    Text('Play',
+                    Text(l10n.commonPlay,
                         style: TextStyle(
                             color: AurumTheme.bgOf(context),
                             fontSize: 15,
@@ -907,7 +920,7 @@ class _PlaylistActionRow extends StatelessWidget {
                     const Icon(Icons.shuffle_rounded,
                         color: Colors.purpleAccent, size: 20),
                     const SizedBox(width: 6),
-                    Text('Shuffle',
+                    Text(l10n.commonShuffle,
                         style: TextStyle(
                             color: AurumTheme.textPrimaryOf(context),
                             fontSize: 15,
@@ -940,6 +953,7 @@ class _PlaylistSongTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isCurrentSong = context.select<PlayerProvider, bool>(
       (p) => p.currentSong?.id == song.id,
     );
@@ -995,7 +1009,7 @@ class _PlaylistSongTile extends StatelessWidget {
                     const Icon(Icons.remove_circle_outline_rounded,
                         color: Colors.redAccent, size: 18),
                     const SizedBox(width: 8),
-                    Text('Remove from playlist',
+                    Text(l10n.libraryRemoveFromPlaylist,
                         style: TextStyle(
                             color: AurumTheme.textPrimaryOf(context),
                             fontSize: 14)),
@@ -1112,6 +1126,7 @@ class _EmptyPlaylists extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(40),
@@ -1138,14 +1153,14 @@ class _EmptyPlaylists extends StatelessWidget {
                   color: Colors.purpleAccent, size: 48),
             ),
             const SizedBox(height: 24),
-            Text('No playlists yet',
+            Text(l10n.libraryNoPlaylistsYet,
                 style: TextStyle(
                     color: AurumTheme.textPrimaryOf(context),
                     fontSize: 20,
                     fontWeight: FontWeight.w800)),
             const SizedBox(height: 10),
             Text(
-              'Create your first playlist and\nstart curating your music.',
+              l10n.libraryCreateFirstPlaylistDesc,
               textAlign: TextAlign.center,
               style: TextStyle(
                   color: AurumTheme.textMutedOf(context),
@@ -1175,7 +1190,7 @@ class _EmptyPlaylists extends StatelessWidget {
                     Icon(Icons.add_rounded,
                         color: AurumTheme.bgOf(context), size: 20),
                     const SizedBox(width: 8),
-                    Text('Create Playlist',
+                    Text(l10n.libraryCreatePlaylist,
                         style: TextStyle(
                             color: AurumTheme.bgOf(context),
                             fontSize: 16,
@@ -1217,10 +1232,11 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
       backgroundColor: AurumTheme.bgElevatedOf(context),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text('New Playlist',
+      title: Text(l10n.libraryNewPlaylist,
           style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
               fontWeight: FontWeight.w800)),
@@ -1229,25 +1245,25 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
         children: [
           _AurumTextField(
             controller: _nameCtrl,
-            label: 'Playlist name',
+            label: l10n.libraryPlaylistNameLabel,
             autofocus: true,
           ),
           const SizedBox(height: 12),
           _AurumTextField(
             controller: _descCtrl,
-            label: 'Description (optional)',
+            label: l10n.libraryDescriptionOptionalLabel,
           ),
         ],
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: Text('Cancel',
+          child: Text(l10n.commonCancel,
               style:
                   TextStyle(color: AurumTheme.textMutedOf(context))),
         ),
         AurumPressable(
-          onTap: _creating ? null : _create,
+          onTap: _creating ? null : () => _create(l10n),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(
@@ -1259,7 +1275,7 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
                     width: 16,
                     height: 16,
                     child: Center(child: AurumM3Loader(width: 16, height: 2)))
-                : Text('Create',
+                : Text(l10n.commonCreate,
                     style: TextStyle(
                         color: AurumTheme.bgOf(context),
                         fontWeight: FontWeight.w700)),
@@ -1269,15 +1285,15 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
     );
   }
 
-  Future<void> _create() async {
+  Future<void> _create(AppLocalizations l10n) async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
-      _nameCtrl.text = 'My Playlist';
+      _nameCtrl.text = l10n.libraryDefaultPlaylistName;
     }
     setState(() => _creating = true);
     final pl = await context.read<PlaylistProvider>().createPlaylist(
           name: _nameCtrl.text.trim().isEmpty
-              ? 'My Playlist'
+              ? l10n.libraryDefaultPlaylistName
               : _nameCtrl.text.trim(),
           description: _descCtrl.text.trim(),
           initialSong: widget.initialSong,
@@ -1325,26 +1341,27 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
       backgroundColor: AurumTheme.bgElevatedOf(context),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text('Edit Playlist',
+      title: Text(l10n.libraryEditPlaylist,
           style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
               fontWeight: FontWeight.w800)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _AurumTextField(controller: _nameCtrl, label: 'Playlist name'),
+          _AurumTextField(controller: _nameCtrl, label: l10n.libraryPlaylistNameLabel),
           const SizedBox(height: 12),
           _AurumTextField(
-              controller: _descCtrl, label: 'Description (optional)'),
+              controller: _descCtrl, label: l10n.libraryDescriptionOptionalLabel),
         ],
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: Text('Cancel',
+          child: Text(l10n.commonCancel,
               style:
                   TextStyle(color: AurumTheme.textMutedOf(context))),
         ),
@@ -1363,7 +1380,7 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
               gradient: AurumTheme.goldGradient,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Text('Save',
+            child: Text(l10n.commonSave,
                 style: TextStyle(
                     color: AurumTheme.bgOf(context),
                     fontWeight: FontWeight.w700)),
@@ -1382,6 +1399,7 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
 Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
   final pp = context.read<PlaylistProvider>();
   final isLight = Theme.of(context).brightness == Brightness.light;
+  final l10n = AppLocalizations.of(context)!;
 
   await showModalBottomSheet(
     context: context,
@@ -1422,7 +1440,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Add to playlist',
+                            Text(l10n.libraryAddToPlaylist,
                                 style: TextStyle(
                                     color:
                                         AurumTheme.textPrimaryOf(context),
@@ -1458,15 +1476,15 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                     child: const Icon(Icons.add_rounded,
                         color: AurumTheme.gold, size: 22),
                   ),
-                  title: Text('New playlist',
+                  title: Text(l10n.libraryNewPlaylistLower,
                       style: TextStyle(
                           color: AurumTheme.textPrimaryOf(context),
                           fontWeight: FontWeight.w600)),
                   onTap: () {
                     PremiumGate.guard(
                       context,
-                      feature: 'Create Playlist',
-                      description: 'Sign in with Google to organize your music into playlists.',
+                      feature: l10n.libraryCreatePlaylist,
+                      description: l10n.libraryLoginToOrganizeDesc,
                       requiresLoginOnly: true,
                       onAllowed: () {
                         Navigator.pop(ctx);
@@ -1483,7 +1501,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                 Expanded(
                   child: pp.playlists.isEmpty
                       ? Center(
-                          child: Text('No playlists yet',
+                          child: Text(l10n.libraryNoPlaylistsYet,
                               style: TextStyle(
                                   color: AurumTheme.textMutedOf(context))))
                       : ListView.builder(
@@ -1519,7 +1537,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                                       color: AurumTheme.textPrimaryOf(context),
                                       fontWeight: FontWeight.w600)),
                               subtitle: Text(
-                                  '${pl.songCount} song${pl.songCount == 1 ? '' : 's'}',
+                                  l10n.librarySongsCount(pl.songCount),
                                   style: TextStyle(
                                       color: AurumTheme.textMutedOf(context),
                                       fontSize: 12)),
@@ -1538,8 +1556,8 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                                         ScaffoldMessenger.of(context)
                                             .showSnackBar(SnackBar(
                                           content: Text(added
-                                              ? 'Added to "${pl.name}"'
-                                              : 'Already in "${pl.name}"'),
+                                              ? l10n.libraryAddedToPlaylist(pl.name)
+                                              : l10n.libraryAlreadyInPlaylist(pl.name)),
                                           backgroundColor:
                                               added ? AurumTheme.gold : null,
                                           behavior: SnackBarBehavior.floating,
@@ -1648,16 +1666,17 @@ class _HistoryScreenState extends State<_HistoryScreen>
     return '';
   }
 
-  static String _groupLabel(int index, int total) {
-    if (index == 0) return 'Just now';
-    if (index < 5) return 'Recent';
-    if (index < 15) return 'Earlier today';
-    if (index < 30) return 'Yesterday';
-    return 'Older';
+  static String _groupLabel(int index, int total, AppLocalizations l10n) {
+    if (index == 0) return l10n.libraryHistoryJustNow;
+    if (index < 5) return l10n.libraryHistoryRecent;
+    if (index < 15) return l10n.libraryHistoryEarlierToday;
+    if (index < 30) return l10n.libraryHistoryYesterday;
+    return l10n.libraryHistoryOlder;
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Consumer<RecentlyPlayedProvider>(
       builder: (context, rp, _) {
         final history = rp.history;
@@ -1683,7 +1702,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
                         IconButton(
                           icon: Icon(Icons.shuffle_rounded,
                               color: AurumTheme.gold, size: 22),
-                          tooltip: 'Shuffle',
+                          tooltip: l10n.commonShuffle,
                           onPressed: () {
                             HapticFeedback.selectionClick();
                             final shuffled = [...history]..shuffle();
@@ -1712,9 +1731,9 @@ class _HistoryScreenState extends State<_HistoryScreen>
                             color: AurumTheme.gold, size: 16),
                       ),
                       const SizedBox(width: 8),
-                      const Text(
-                        'Recently Played',
-                        style: TextStyle(
+                      Text(
+                        l10n.libraryRecentlyPlayed,
+                        style: const TextStyle(
                           color: AurumTheme.gold,
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
@@ -1744,13 +1763,13 @@ class _HistoryScreenState extends State<_HistoryScreen>
                               size: 36),
                         ),
                         const SizedBox(height: 20),
-                        Text('No history yet',
+                        Text(l10n.libraryNoHistoryYet,
                             style: TextStyle(
                                 color: AurumTheme.textPrimaryOf(context),
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600)),
                         const SizedBox(height: 8),
-                        Text('Songs you play will appear here',
+                        Text(l10n.librarySongsYouPlayAppearHere,
                             style: TextStyle(
                                 color: AurumTheme.textMutedOf(context),
                                 fontSize: 13)),
@@ -1767,7 +1786,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
                       child: Row(children: [
                         Text(
-                          '${history.length} songs',
+                          l10n.librarySongsCount(history.length),
                           style: TextStyle(
                               color: AurumTheme.textMutedOf(context),
                               fontSize: 13),
@@ -1799,7 +1818,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
                               Icon(Icons.play_arrow_rounded,
                                   color: AurumTheme.bg, size: 16),
                               const SizedBox(width: 4),
-                              Text('Play All',
+                              Text(l10n.commonPlayAll,
                                   style: TextStyle(
                                       color: AurumTheme.bg,
                                       fontSize: 12,
@@ -1818,13 +1837,13 @@ class _HistoryScreenState extends State<_HistoryScreen>
                                     AurumTheme.bgElevatedOf(context),
                                 shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(20)),
-                                title: Text('Clear History?',
+                                title: Text(l10n.libraryClearHistoryTitle,
                                     style: TextStyle(
                                         color:
                                             AurumTheme.textPrimaryOf(context),
                                         fontWeight: FontWeight.w800)),
                                 content: Text(
-                                    'All ${history.length} songs will be removed.',
+                                    l10n.libraryClearHistoryConfirm(history.length),
                                     style: TextStyle(
                                         color:
                                             AurumTheme.textMutedOf(context))),
@@ -1832,15 +1851,15 @@ class _HistoryScreenState extends State<_HistoryScreen>
                                   TextButton(
                                       onPressed: () =>
                                           Navigator.pop(ctx, false),
-                                      child: Text('Cancel',
+                                      child: Text(l10n.commonCancel,
                                           style: TextStyle(
                                               color: AurumTheme
                                                   .textMutedOf(context)))),
                                   TextButton(
                                       onPressed: () =>
                                           Navigator.pop(ctx, true),
-                                      child: const Text('Clear',
-                                          style: TextStyle(
+                                      child: Text(l10n.commonClear,
+                                          style: const TextStyle(
                                               color: Colors.redAccent))),
                                 ],
                               ),
@@ -1864,8 +1883,8 @@ class _HistoryScreenState extends State<_HistoryScreen>
                               const Icon(Icons.delete_outline_rounded,
                                   color: Colors.redAccent, size: 15),
                               const SizedBox(width: 4),
-                              const Text('Clear',
-                                  style: TextStyle(
+                              Text(l10n.commonClear,
+                                  style: const TextStyle(
                                       color: Colors.redAccent,
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600)),
@@ -1882,9 +1901,9 @@ class _HistoryScreenState extends State<_HistoryScreen>
                   delegate: SliverChildBuilderDelegate(
                     (context, i) {
                       final song = history[i];
-                      final currentGroup = _groupLabel(i, history.length);
+                      final currentGroup = _groupLabel(i, history.length, l10n);
                       final prevGroup = i > 0
-                          ? _groupLabel(i - 1, history.length)
+                          ? _groupLabel(i - 1, history.length, l10n)
                           : null;
                       final showHeader = currentGroup != prevGroup;
 
@@ -1986,12 +2005,13 @@ class _LocalFilesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final lib = context.watch<LibraryProvider>();
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       appBar: AppBar(
         backgroundColor: AurumTheme.bgOf(context),
-        title: Text('Local Files',
+        title: Text(l10n.libraryLocalFiles,
             style: TextStyle(
                 color: AurumTheme.textPrimaryOf(context),
                 fontWeight: FontWeight.w700)),
@@ -2030,13 +2050,13 @@ class _LocalFilesScreen extends StatelessWidget {
                             color: AurumTheme.gold, size: 32),
                       ),
                       const SizedBox(height: 20),
-                      Text('Permission Required',
+                      Text(l10n.libraryPermissionRequired,
                           style: TextStyle(
                               color: AurumTheme.textPrimaryOf(context),
                               fontSize: 16,
                               fontWeight: FontWeight.w600)),
                       const SizedBox(height: 8),
-                      Text('Aurum needs permission to read your music.',
+                      Text(l10n.libraryNeedsPermissionToReadMusic,
                           style: TextStyle(
                               color: AurumTheme.textMutedOf(context),
                               fontSize: 13)),
@@ -2050,7 +2070,7 @@ class _LocalFilesScreen extends StatelessWidget {
                             gradient: AurumTheme.goldGradient,
                             borderRadius: BorderRadius.circular(24),
                           ),
-                          child: Text('Grant Permission',
+                          child: Text(l10n.homeGrantPermission,
                               style: TextStyle(
                                   color: AurumTheme.bg,
                                   fontWeight: FontWeight.w700)),
@@ -2061,7 +2081,7 @@ class _LocalFilesScreen extends StatelessWidget {
                 )
               : lib.allSongs.isEmpty
                   ? Center(
-                      child: Text('No local songs found',
+                      child: Text(l10n.libraryNoLocalSongsFound,
                           style: TextStyle(
                               color: AurumTheme.textMutedOf(context))))
                   : ListView.builder(
@@ -2086,6 +2106,7 @@ class DownloadsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final downloads = context.watch<DownloadProvider>();
     final inProgress = downloads.inProgress;
     final completed = downloads.completed;
@@ -2116,8 +2137,8 @@ class DownloadsScreen extends StatelessWidget {
                   ShaderMask(
                     shaderCallback: (b) =>
                         AurumTheme.goldGradient.createShader(b),
-                    child: const Text('Downloads',
-                        style: TextStyle(
+                    child: Text(l10n.settingsDownloads,
+                        style: const TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w700,
                             color: Colors.white)),
@@ -2147,14 +2168,14 @@ class DownloadsScreen extends StatelessWidget {
                             color: AurumTheme.gold, size: 36),
                       ),
                       const SizedBox(height: 20),
-                      Text('No downloads yet',
+                      Text(l10n.libraryNoDownloadsYet,
                           style: TextStyle(
                               color: AurumTheme.textPrimaryOf(context),
                               fontSize: 18,
                               fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
                       Text(
-                        'Download a song from the player to listen offline.',
+                        l10n.libraryDownloadFromPlayerDesc,
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color: AurumTheme.textMutedOf(context),
@@ -2168,7 +2189,7 @@ class DownloadsScreen extends StatelessWidget {
             )
           else ...[
             if (inProgress.isNotEmpty) ...[
-              SliverToBoxAdapter(child: _sectionHeader(context, 'DOWNLOADING')),
+              SliverToBoxAdapter(child: _sectionHeader(context, l10n.libraryDownloadingHeader)),
               SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, i) => _DownloadTile(item: inProgress[i]),
@@ -2180,7 +2201,7 @@ class DownloadsScreen extends StatelessWidget {
             if (completed.isNotEmpty) ...[
               SliverToBoxAdapter(
                   child: _sectionHeader(
-                      context, '${completed.length} DOWNLOADED')),
+                      context, l10n.libraryDownloadedCountHeader(completed.length))),
               SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, i) => _DownloadTile(
@@ -2226,6 +2247,7 @@ class _DownloadTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final song = item.song;
     final isLight = Theme.of(context).brightness == Brightness.light;
 
@@ -2263,11 +2285,11 @@ class _DownloadTile extends StatelessWidget {
               fontWeight: FontWeight.w600)),
       subtitle: item.isDownloading
           ? Text(
-              'Downloading • ${(item.progress * 100).toStringAsFixed(0)}%',
+              l10n.libraryDownloadingPercent((item.progress * 100).toStringAsFixed(0)),
               style: const TextStyle(color: AurumTheme.gold, fontSize: 12))
           : item.isFailed
-              ? const Text('Failed — tap to retry',
-                  style: TextStyle(color: Colors.redAccent, fontSize: 12))
+              ? Text(l10n.libraryDownloadFailedTapRetry,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 12))
               : Text(song.artist,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -2295,9 +2317,9 @@ class _DownloadTile extends StatelessWidget {
               },
               itemBuilder: (_) => [
                 if (item.isFailed)
-                  const PopupMenuItem(value: 'retry', child: Text('Retry')),
-                const PopupMenuItem(
-                    value: 'delete', child: Text('Remove download')),
+                  PopupMenuItem(value: 'retry', child: Text(l10n.commonRetry)),
+                PopupMenuItem(
+                    value: 'delete', child: Text(l10n.libraryRemoveDownload)),
               ],
             ),
       onTap: () {
@@ -2347,6 +2369,7 @@ class _AlbumsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final followed = context.watch<FollowedAlbumsProvider>().followed;
 
     return Scaffold(
@@ -2374,8 +2397,8 @@ class _AlbumsScreen extends StatelessWidget {
                   ShaderMask(
                     shaderCallback: (b) =>
                         AurumTheme.goldGradient.createShader(b),
-                    child: const Text('Albums',
-                        style: TextStyle(
+                    child: Text(l10n.libraryAlbums,
+                        style: const TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w700,
                             color: Colors.white)),
@@ -2405,13 +2428,13 @@ class _AlbumsScreen extends StatelessWidget {
                             color: Colors.deepPurple, size: 36),
                       ),
                       const SizedBox(height: 20),
-                      Text('No albums saved yet',
+                      Text(l10n.libraryNoAlbumsSavedYet,
                           style: TextStyle(
                               color: AurumTheme.textPrimaryOf(context),
                               fontSize: 18,
                               fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
-                      Text('Albums you save will appear here.',
+                      Text(l10n.libraryAlbumsYouSaveAppearHere,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                               color: AurumTheme.textMutedOf(context),
@@ -2450,6 +2473,7 @@ class _FollowedAlbumTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final id = (album['id'] ?? '').toString();
     final name = (album['name'] ?? '').toString();
     final artworkUrl = (album['artworkUrl'] ?? '').toString();
@@ -2494,7 +2518,7 @@ class _FollowedAlbumTile extends StatelessWidget {
                   size: 12, color: AurumTheme.gold.withOpacity(0.85)),
               const SizedBox(width: 4),
               Text(
-                'Album',
+                l10n.libraryAlbumTag,
                 style: TextStyle(
                   color: AurumTheme.textMutedOf(context),
                   fontSize: 11.5,
@@ -2511,6 +2535,7 @@ class _FollowedAlbumTile extends StatelessWidget {
   void _showUnsaveSheet(
       BuildContext context, String id, String name, String artworkUrl) {
     final rootContext = context;
+    final l10n = AppLocalizations.of(context)!;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -2550,7 +2575,7 @@ class _FollowedAlbumTile extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.bookmark_remove_rounded,
                   color: Colors.redAccent),
-              title: const Text('Remove from saved albums'),
+              title: Text(l10n.libraryRemoveFromSavedAlbums),
               onTap: () {
                 Navigator.pop(sheetContext);
                 rootContext.read<FollowedAlbumsProvider>().toggleFollow(
@@ -2572,6 +2597,7 @@ class _ArtistsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final followed = context.watch<FollowedArtistsProvider>().followed;
 
     return Scaffold(
@@ -2599,8 +2625,8 @@ class _ArtistsScreen extends StatelessWidget {
                   ShaderMask(
                     shaderCallback: (b) =>
                         AurumTheme.goldGradient.createShader(b),
-                    child: const Text('Artists',
-                        style: TextStyle(
+                    child: Text(l10n.libraryArtists,
+                        style: const TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w700,
                             color: Colors.white)),
@@ -2630,13 +2656,13 @@ class _ArtistsScreen extends StatelessWidget {
                             color: Colors.blueAccent, size: 36),
                       ),
                       const SizedBox(height: 20),
-                      Text('No artists saved yet',
+                      Text(l10n.libraryNoArtistsSavedYet,
                           style: TextStyle(
                               color: AurumTheme.textPrimaryOf(context),
                               fontSize: 18,
                               fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
-                      Text('Artists you follow will appear here.',
+                      Text(l10n.libraryArtistsYouFollowAppearHere,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                               color: AurumTheme.textMutedOf(context),
@@ -2669,6 +2695,7 @@ class _FollowedArtistTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final id = (artist['id'] ?? '').toString();
     final name = (artist['name'] ?? '').toString();
     final imageUrl = (artist['imageUrl'] ?? '').toString();
@@ -2728,7 +2755,7 @@ class _FollowedArtistTile extends StatelessWidget {
                               size: 13, color: AurumTheme.gold.withOpacity(0.85)),
                           const SizedBox(width: 4),
                           Text(
-                            'Artist',
+                            l10n.libraryArtistTag,
                             style: TextStyle(
                               color: AurumTheme.textMutedOf(context),
                               fontSize: 12.5,
@@ -2756,6 +2783,7 @@ class _FollowedArtistTile extends StatelessWidget {
   void _showUnfollowSheet(
       BuildContext context, String id, String name, String imageUrl) {
     final rootContext = context;
+    final l10n = AppLocalizations.of(context)!;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -2794,7 +2822,7 @@ class _FollowedArtistTile extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.person_remove_rounded,
                   color: Colors.redAccent),
-              title: const Text('Unfollow artist'),
+              title: Text(l10n.libraryUnfollowArtist),
               onTap: () {
                 Navigator.pop(sheetContext);
                 rootContext.read<FollowedArtistsProvider>().toggleFollow(
@@ -2824,6 +2852,7 @@ class _ComingSoonScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       body: CustomScrollView(
@@ -2877,7 +2906,7 @@ class _ComingSoonScreen extends StatelessWidget {
                       child: Icon(icon, color: color, size: 36),
                     ),
                     const SizedBox(height: 20),
-                    Text('Coming Soon',
+                    Text(l10n.libraryComingSoon,
                         style: TextStyle(
                             color: AurumTheme.textPrimaryOf(context),
                             fontSize: 18,
