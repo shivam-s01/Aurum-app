@@ -8,6 +8,7 @@ import '../providers/auth_provider.dart';
 import '../widgets/premium_gate.dart';
 import '../widgets/aurum_pressable.dart';
 import '../services/audio_prefs.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class SettingsAppearanceScreen extends StatefulWidget {
   const SettingsAppearanceScreen({super.key});
@@ -86,35 +87,36 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final tp = context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
-      appBar: _appBar(context, 'Appearance'),
+      appBar: _appBar(context, l10n.settingsAppearance),
       body: ListView(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
           // ── Theme ──
-          _sectionLabel('🌙 THEME'),
+          _sectionLabel(l10n.saTheme),
           _card(context, child: Column(children: [
-            _themeTile(context, tp, Icons.dark_mode_rounded, 'Dark', 'Easy on the eyes', AurumThemeMode.dark),
+            _themeTile(context, tp, Icons.dark_mode_rounded, l10n.saThemeDark, l10n.saThemeDarkDesc, AurumThemeMode.dark),
             _divider(context),
-            _themeTile(context, tp, Icons.contrast_rounded, 'AMOLED Black', 'Pure black, saves battery', AurumThemeMode.amoled),
+            _themeTile(context, tp, Icons.contrast_rounded, l10n.saThemeAmoled, l10n.saThemeAmoledDesc, AurumThemeMode.amoled),
             _divider(context),
-            _themeTile(context, tp, Icons.light_mode_rounded, 'Light', 'Clean and minimal', AurumThemeMode.light),
+            _themeTile(context, tp, Icons.light_mode_rounded, l10n.saThemeLight, l10n.saThemeLightDesc, AurumThemeMode.light),
             _divider(context),
-            _themeTile(context, tp, Icons.phone_android_rounded, 'System Default', 'Follow your phone theme', AurumThemeMode.system),
+            _themeTile(context, tp, Icons.phone_android_rounded, l10n.saThemeSystem, l10n.saThemeSystemDesc, AurumThemeMode.system),
           ])),
           const SizedBox(height: 8),
           _inlineSwitch(context,
-            title: 'Dynamic Theme Color',
-            subtitle: 'Extract color from song artwork',
+            title: l10n.saDynamicThemeColor,
+            subtitle: l10n.saDynamicThemeColorSubtitle,
             value: _dynamicThemeColor,
             onChanged: (v) { setState(() => _dynamicThemeColor = v); _save('dynamic_theme_color', v); },
           ),
           _inlineSwitch(context,
-            title: 'High Refresh Rate (120Hz)',
-            subtitle: 'Smoother UI on supported devices',
+            title: l10n.saHighRefreshRate,
+            subtitle: l10n.saHighRefreshRateSubtitle,
             value: _highRefreshRate,
             onChanged: (v) { setState(() => _highRefreshRate = v); _save('high_refresh_rate', v); },
           ),
@@ -123,7 +125,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             padding: const EdgeInsets.all(14),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Text('Accent Color', style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
+                Text(l10n.saAccentColor, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
                 const Spacer(),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
@@ -135,7 +137,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.login_rounded, color: AurumTheme.gold, size: 10),
                     const SizedBox(width: 3),
-                    Text('Extra colors = Sign in', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+                    Text(l10n.saExtraColorsSignIn, style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
                   ]),
                 ),
               ]),
@@ -155,8 +157,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                       onTap: () {
                         if (locked) {
                           PremiumGate.show(context,
-                            feature: 'Custom Accent Colors',
-                            description: 'Sign in with Google to unlock more accent colors.',
+                            feature: l10n.saCustomAccentColorsFeature,
+                            description: l10n.saCustomAccentColorsDesc,
                             requiresLoginOnly: true,
                           );
                           return;
@@ -196,49 +198,49 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             ]),
           )),
           // ── Font Style ──
-          _sectionLabel('🔤 FONT STYLE'),
+          _sectionLabel(l10n.saFontStyle),
           _buildFontSelector(context),
 
           // ── Now Playing Card Style ──
-          _sectionLabel('🎴 NOW PLAYING CARD'),
+          _sectionLabel(l10n.saNowPlayingCard),
           _buildCardStyleSelector(context),
 
           // ── Artwork Shape ──
-          _sectionLabel('🖼️ ARTWORK SHAPE'),
+          _sectionLabel(l10n.saArtworkShape),
           _buildArtworkShapeSelector(context),
 
           // ── Player ──
-          _sectionLabel('🎭 PLAYER'),
+          _sectionLabel(l10n.saPlayer),
           _dropdownTile(context,
-            title: 'Player Background Style',
-            subtitle: 'How the player background looks',
+            title: l10n.saPlayerBgStyle,
+            subtitle: l10n.saPlayerBgStyleSubtitle,
             value: _playerBgStyle,
-            options: ['Gradient', 'Blur', 'Solid'],
+            options: const ['Gradient', 'Blur', 'Solid'],
             onChanged: (v) { setState(() => _playerBgStyle = v!); _save('player_bg_style', v!); AudioPrefs.setPlayerBgStyle(v); },
           ),
           _inlineSwitch(context,
-            title: 'Dynamic Player Color',
-            subtitle: 'Change player color from artwork',
+            title: l10n.saDynamicPlayerColor,
+            subtitle: l10n.saDynamicPlayerColorSubtitle,
             value: _dynamicPlayerColor,
             onChanged: (v) { setState(() => _dynamicPlayerColor = v); _save('dynamic_player_color', v); AudioPrefs.setDynamicPlayerColor(v); },
           ),
           _dropdownTile(context,
-            title: 'Player Button Colors',
-            subtitle: 'Color of play/skip buttons',
+            title: l10n.saPlayerButtonColors,
+            subtitle: l10n.saPlayerButtonColorsSubtitle,
             value: _playerButtonColors,
-            options: ['Primary', 'White', 'Accent'],
+            options: const ['Primary', 'White', 'Accent'],
             onChanged: (v) { setState(() => _playerButtonColors = v!); _save('player_button_colors', v!); context.read<ThemeProvider>().setPlayerButtonColorMode(v); },
           ),
           _dropdownTile(context,
-            title: 'Player Slider Style',
-            subtitle: 'Seek bar appearance',
+            title: l10n.saPlayerSliderStyle,
+            subtitle: l10n.saPlayerSliderStyleSubtitle,
             value: _playerSliderStyle,
-            options: ['Slim', 'Thick', 'Rounded', 'Waveform'],
+            options: const ['Slim', 'Thick', 'Rounded', 'Waveform'],
             onChanged: (v) { setState(() => _playerSliderStyle = v!); _save('player_slider_style', v!); context.read<ThemeProvider>().setPlayerSliderStyle(v); },
           ),
           _inlineSwitch(context,
-            title: 'Show Blurred Background',
-            subtitle: 'Artwork blur behind player',
+            title: l10n.saShowBlurredBg,
+            subtitle: l10n.saShowBlurredBgSubtitle,
             value: _showBlurredBg,
             onChanged: (v) { setState(() => _showBlurredBg = v); _save('show_blurred_bg', v); AudioPrefs.setShowBlurredBg(v); },
           ),
@@ -250,23 +252,23 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // of a class of "mini player disappears, only fixed by app
           // restart" bugs).
           // ── Lyrics ──
-          _sectionLabel('🎤 LYRICS'),
+          _sectionLabel(l10n.saLyrics),
           _dropdownTile(context,
-            title: 'Lyrics Text Position',
-            subtitle: 'Alignment of lyrics on screen',
+            title: l10n.saLyricsTextPosition,
+            subtitle: l10n.saLyricsTextPositionSubtitle,
             value: _lyricsTextPosition,
-            options: ['Left', 'Centre'],
+            options: const ['Left', 'Centre'],
             onChanged: (v) { setState(() => _lyricsTextPosition = v!); _save('lyrics_text_position', v!); AudioPrefs.setLyricsPosition(v); },
           ),
           _sliderTile(context,
-            title: 'Lyrics Text Size',
+            title: l10n.saLyricsTextSize,
             value: _lyricsTextSize,
             min: 10, max: 28, divisions: 9,
             displayValue: '${_lyricsTextSize.toInt()}sp',
             onChanged: (v) { setState(() => _lyricsTextSize = v); _save('lyrics_text_size', v); AudioPrefs.setLyricsTextSize(v); },
           ),
           _sliderTile(context,
-            title: 'Lyrics Line Spacing',
+            title: l10n.saLyricsLineSpacing,
             value: _lyricsLineSpacing,
             min: 1.0, max: 3.0, divisions: 8,
             displayValue: _lyricsLineSpacing.toStringAsFixed(1),
@@ -278,28 +280,28 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // active-line glow has nothing to attach to. Re-add these once
           // synced lyrics are implemented.
           // ── Animations ──
-          _sectionLabel('✨ ANIMATIONS'),
+          _sectionLabel(l10n.saAnimations),
           _inlineSwitch(context,
-            title: 'Enable Animations',
-            subtitle: 'Master toggle for all animations',
+            title: l10n.saEnableAnimations,
+            subtitle: l10n.saEnableAnimationsSubtitle,
             value: _enableAnimations,
             onChanged: (v) { setState(() => _enableAnimations = v); _save('enable_animations', v); AudioPrefs.setEnableAnimations(v); },
           ),
           _inlineSwitch(context,
-            title: 'Back Animations',
-            subtitle: 'Animate navigation back gesture',
+            title: l10n.saBackAnimations,
+            subtitle: l10n.saBackAnimationsSubtitle,
             value: _backAnimations,
             onChanged: (v) { setState(() => _backAnimations = v); _save('back_animations', v); AudioPrefs.setBackAnimations(v); },
           ),
           _inlineSwitch(context,
-            title: 'Scroll Animations',
-            subtitle: 'Fade in items while scrolling',
+            title: l10n.saScrollAnimations,
+            subtitle: l10n.saScrollAnimationsSubtitle,
             value: _scrollAnimations,
             onChanged: (v) { setState(() => _scrollAnimations = v); _save('scroll_animations', v); },
           ),
           _inlineSwitch(context,
-            title: 'Background Gradient Animation',
-            subtitle: 'Animated color shift in player',
+            title: l10n.saBgGradientAnimation,
+            subtitle: l10n.saBgGradientAnimationSubtitle,
             value: _bgGradientAnimation,
             onChanged: (v) { setState(() => _bgGradientAnimation = v); _save('bg_gradient_animation', v); AudioPrefs.setBgGradientAnimation(v); },
           ),
@@ -310,6 +312,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
 
   // ── Font Selector ────────────────────────────────────────────────────────
   Widget _buildFontSelector(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     const fonts = {
       'Default':  'Aa',
       'Rounded':  'Aa',
@@ -328,7 +331,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Text('App Font', style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+            Text(l10n.saAppFont, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
             const Spacer(),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
@@ -340,7 +343,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Icon(Icons.login_rounded, color: AurumTheme.gold, size: 10),
                 const SizedBox(width: 3),
-                Text('Rounded & Mono = Sign in', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+                Text(l10n.saRoundedMonoSignIn, style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
               ]),
             ),
           ]),
@@ -355,8 +358,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                   onTap: () {
                     if (locked) {
                       PremiumGate.show(context,
-                        feature: '${e.key} Font',
-                        description: 'Sign in with Google to unlock this font.',
+                        feature: l10n.saFontUnlockFeature(e.key),
+                        description: l10n.saFontUnlockDesc,
                         requiresLoginOnly: true,
                       );
                       return;
@@ -417,15 +420,16 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
 
   // ── Now Playing Card Style ────────────────────────────────────────────────
   Widget _buildCardStyleSelector(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     const styles = {
       'Compact':   Icons.view_headline_rounded,
       'Card':      Icons.crop_square_rounded,
       'Immersive': Icons.fullscreen_rounded,
     };
-    const subtitles = {
-      'Compact':   'Small artwork, text beside',
-      'Card':      'Balanced artwork + info',
-      'Immersive': 'Full-width artwork, minimal UI',
+    final subtitles = {
+      'Compact':   l10n.saCardStyleCompactDesc,
+      'Card':      l10n.saCardStyleCardDesc,
+      'Immersive': l10n.saCardStyleImmersiveDesc,
     };
     // 'Compact' is free; 'Card' and 'Immersive' are premium
     const premiumStyles = {'Card', 'Immersive'};
@@ -443,8 +447,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                 HapticFeedback.selectionClick();
                 if (locked) {
                   PremiumGate.show(context,
-                    feature: '${e.key} Player Style',
-                    description: 'Sign in with Google to unlock the ${e.key} style.',
+                    feature: l10n.saPlayerStyleUnlockFeature(e.key),
+                    description: l10n.saPlayerStyleUnlockDesc(e.key),
                     requiresLoginOnly: true,
                   );
                   return;
@@ -483,7 +487,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       Icon(Icons.workspace_premium_rounded, color: AurumTheme.gold, size: 9),
                       const SizedBox(width: 2),
-                      Text('Premium', style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
+                      Text(l10n.saPremiumBadge, style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
                     ]),
                   ),
                 ],
@@ -507,7 +511,13 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
 
   // ── Artwork Shape ─────────────────────────────────────────────────────────
   Widget _buildArtworkShapeSelector(BuildContext context) {
-    const shapes = ['Square', 'Rounded', 'Circle'];
+    final l10n = AppLocalizations.of(context)!;
+    const shapes = ['Square', 'Rounded', 'Circle']; // internal keys — persisted, matched by AudioPrefs
+    final labels = {
+      'Square': l10n.saShapeSquare,
+      'Rounded': l10n.saShapeRounded,
+      'Circle': l10n.saShapeCircle,
+    };
     final previews = {
       'Square':  BorderRadius.circular(4),
       'Rounded': BorderRadius.circular(12),
@@ -547,7 +557,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                     child: sel ? const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 18) : null,
                   ),
                   const SizedBox(height: 8),
-                  Text(s,
+                  Text(labels[s]!,
                       style: TextStyle(
                         color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context),
                         fontSize: 11,

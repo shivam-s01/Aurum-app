@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class SettingsStorageScreen extends StatefulWidget {
   const SettingsStorageScreen({super.key});
@@ -100,21 +101,22 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
   }
 
   void _confirmClear(BuildContext context, String title, VoidCallback onConfirm) {
+    final l10n = AppLocalizations.of(context)!;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AurumTheme.bgCardOf(context),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Clear $title?',
+        title: Text(l10n.ssClearConfirmTitle(title),
           style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 16, fontWeight: FontWeight.w600)),
-        content: Text('This cannot be undone.',
+        content: Text(l10n.ssClearConfirmBody,
           style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: TextStyle(color: AurumTheme.textSecondaryOf(context)))),
+            child: Text(l10n.ssCancel, style: TextStyle(color: AurumTheme.textSecondaryOf(context)))),
           TextButton(
             onPressed: () { Navigator.pop(context); onConfirm(); },
-            child: const Text('Clear', style: TextStyle(color: Colors.redAccent)),
+            child: Text(l10n.ssClear, style: const TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
@@ -123,9 +125,10 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
-      appBar: _appBar(context, 'Storage'),
+      appBar: _appBar(context, l10n.settingsStorage),
       body: _loading
           ? const Center(child: AurumMorphLoader(size: 56))
           : ListView(
@@ -134,18 +137,19 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
               children: [
 
                 // ── DOWNLOADS ─────────────────────────────────────────────
-                _sectionLabel('📥 DOWNLOADS'),
+                _sectionLabel(l10n.ssDownloads),
                 _storageCard(context,
-                  title: 'Downloaded Songs',
+                  title: l10n.ssDownloadedSongs,
                   used: _fmt(_downloadedSize),
-                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'All Downloads', _clearDownloads); },
+                  clearLabel: l10n.ssClearAllDownloads,
+                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, l10n.ssAllDownloadsTitle, _clearDownloads); },
                 ),
 
                 // Download Quality
                 _dropdownTile(context,
                   icon: Icons.high_quality_rounded,
-                  title: 'Download Quality',
-                  subtitle: 'Audio quality for downloaded songs',
+                  title: l10n.ssDownloadQuality,
+                  subtitle: l10n.ssDownloadQualitySubtitle,
                   value: _downloadQuality,
                   options: const ['96kbps', '128kbps', '320kbps'],
                   onChanged: (v) { setState(() => _downloadQuality = v!); _save('download_quality', v!); },
@@ -154,8 +158,8 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 // Auto-download liked songs
                 _switchTile(context,
                   icon: Icons.favorite_rounded,
-                  title: 'Auto-Download Liked Songs',
-                  subtitle: 'Automatically download songs you like',
+                  title: l10n.ssAutoDownloadLiked,
+                  subtitle: l10n.ssAutoDownloadLikedSubtitle,
                   value: _autoDownloadLiked,
                   onChanged: (v) { setState(() => _autoDownloadLiked = v); _save('auto_download_liked', v); },
                 ),
@@ -163,16 +167,16 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 // WiFi only
                 _switchTile(context,
                   icon: Icons.wifi_rounded,
-                  title: 'Download on WiFi Only',
-                  subtitle: 'Never use mobile data for downloads',
+                  title: l10n.ssWifiOnly,
+                  subtitle: l10n.ssWifiOnlySubtitle,
                   value: _downloadWifiOnly,
                   onChanged: (v) { setState(() => _downloadWifiOnly = v); _save('download_wifi_only', v); },
                 ),
 
                 // ── SONG CACHE ─────────────────────────────────────────────
-                _sectionLabel('🎵 SONG CACHE'),
+                _sectionLabel(l10n.ssSongCache),
                 _cacheSliderCard(context,
-                  title: 'Max Song Cache Size',
+                  title: l10n.ssMaxSongCacheSize,
                   value: _maxSongCache,
                   max: 2000,
                   usedBytes: _songCacheUsed,
@@ -183,14 +187,14 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                     setState(() => _maxSongCache = v);
                     await _save('max_song_cache', v);
                   },
-                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Song Cache', () => _clearDir('song_cache')); },
-                  clearLabel: 'Clear Song Cache',
+                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, l10n.ssSongCacheTitle, () => _clearDir('song_cache')); },
+                  clearLabel: l10n.ssClearSongCache,
                 ),
 
                 // ── IMAGE CACHE ────────────────────────────────────────────
-                _sectionLabel('🖼️ IMAGE CACHE'),
+                _sectionLabel(l10n.ssImageCache),
                 _cacheSliderCard(context,
-                  title: 'Max Image Cache Size',
+                  title: l10n.ssMaxImageCacheSize,
                   value: _maxImageCache,
                   max: 500,
                   usedBytes: _imageCacheUsed,
@@ -201,8 +205,8 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                     PaintingBinding.instance.imageCache.maximumSizeBytes =
                         (v * 1024 * 1024).toInt();
                   },
-                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, 'Image Cache', () => _clearDir('image_cache')); },
-                  clearLabel: 'Clear Image Cache',
+                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, l10n.ssImageCacheTitle, () => _clearDir('image_cache')); },
+                  clearLabel: l10n.ssClearImageCache,
                 ),
               ],
             ),
@@ -213,6 +217,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
   Widget _storageCard(BuildContext context, {
     required String title,
     required String used,
+    required String clearLabel,
     required VoidCallback onClear,
   }) {
     return Container(
@@ -241,8 +246,8 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
               ),
-              child: const Center(child: Text('Clear All Downloads',
-                style: TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.w600))),
+              child: Center(child: Text(clearLabel,
+                style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.w600))),
             ),
           ),
         ]),
@@ -260,6 +265,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
     required VoidCallback onClear,
     required String clearLabel,
   }) {
+    final l10n = AppLocalizations.of(context)!;
     final usedMB   = usedBytes / (1024 * 1024);
     final fraction = (usedMB / (max == 0 ? 1 : max)).clamp(0.0, 1.0);
     return Container(
@@ -279,10 +285,10 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
           ]),
           Slider(value: value, min: 0, max: max, divisions: 20, onChanged: onChanged),
           Row(children: [
-            Text('Used: ${_fmt(usedBytes)}',
+            Text(l10n.ssUsedLabel(_fmt(usedBytes)),
               style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 12)),
             const Spacer(),
-            Text('Max: $displayMax',
+            Text(l10n.ssMaxLabel(displayMax),
               style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
           ]),
           const SizedBox(height: 8),
