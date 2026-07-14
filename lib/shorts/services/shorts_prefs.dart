@@ -17,6 +17,7 @@ class ShortsPrefs {
   static const _kArtistFreq = 'shorts_artist_freq'; // json map artist->count
   static const _kWifiOnlyVideo = 'shorts_wifi_only_video';
   static const _kFirstPaintRotation = 'shorts_first_paint_rotation';
+  static const _kActiveCategory = 'shorts_active_category';
 
   static SharedPreferences? _prefsCache;
 
@@ -162,6 +163,26 @@ class ShortsPrefs {
     await p.setBool(_kWifiOnlyVideo, value);
   }
 
+  // ── Active category (single, Chrome-tab-style toggle) ───────
+  // Exactly ONE category is ever "active" for the feed at a time —
+  // switching in the top toggle bar persists here so the choice
+  // survives an app restart. Falls back to the first category from
+  // the old multi-select onboarding list, then to a hardcoded
+  // default, so existing installs don't land on an empty feed.
+  static Future<String?> getActiveCategory() async {
+    final p = await _prefs;
+    final active = p.getString(_kActiveCategory);
+    if (active != null && active.isNotEmpty) return active;
+    final legacy = p.getStringList(_kCategories) ?? const [];
+    if (legacy.isNotEmpty) return legacy.first;
+    return null;
+  }
+
+  static Future<void> setActiveCategory(String category) async {
+    final p = await _prefs;
+    await p.setString(_kActiveCategory, category);
+  }
+
   // ── First-paint rotation ────────────────────────────────────
   // Bumped once per app/feed launch (init() or preferences-driven
   // restart). Used to rotate ShortsRecommendationEngine's very
@@ -193,5 +214,6 @@ class ShortsPrefs {
     await p.remove(_kArtistFreq);
     await p.remove(_kWifiOnlyVideo);
     await p.remove(_kFirstPaintRotation);
+    await p.remove(_kActiveCategory);
   }
 }

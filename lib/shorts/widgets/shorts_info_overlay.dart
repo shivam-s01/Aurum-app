@@ -99,7 +99,7 @@ class ShortsInfoOverlay extends StatelessWidget {
           const SizedBox(height: 10),
           ShortsWaveformBar(
             progress: progress,
-            seed: item.id,
+            seed: item.videoId,
           ),
         ],
       ),

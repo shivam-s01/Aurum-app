@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:video_player/video_player.dart';
 import '../models/short_item.dart';
 import '../services/shorts_prefs.dart';
@@ -10,18 +9,38 @@ import '../services/shorts_video_service.dart';
 
 enum DownloadTrackState { idle, downloading, done }
 
-/// Muted background video status for the currently-active card only.
-/// Purely visual — never affects the real (audio) playback state.
+/// Status of the current card's single YouTube video — now the ONLY
+/// playback source (audio + video together), not a muted visual
+/// layer on top of a separate audio player.
 enum ShortsVideoStatus { none, loading, ready, failed }
 
-/// Owns the Shorts feed state: the item list, current index, preload
-/// window, and a dedicated just_audio player instance for 30s
-/// previews. Deliberately does NOT touch AurumAudioEngine / the
-/// native Media3 pipeline, the main queue, or playback history —
-/// per spec this feed must be fully isolated.
+const _kAndroidVrUserAgent =
+    'com.google.android.apps.youtube.vr.oculus/1.71.26 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip';
+
+/// Owns the Shorts feed state: item list, current index, preload
+/// window, and a single VideoPlayerController per card that supplies
+/// BOTH audio and video from one resolved YouTube muxed stream.
+///
+/// v2 rewrite: previously this ran two independent players — a
+/// just_audio instance for the iTunes 30s preview (the real audio
+/// source) plus a separate always-muted VideoPlayerController for a
+/// "matching" YouTube clip layered visually on top. That's gone.
+/// There is now exactly one player per card, one network resolve
+/// pipeline (ShortsVideoService -> aurum-shorts-video Worker), and
+/// its audio is unmuted and IS the playback.
+///
+/// Still fully isolated from AurumAudioEngine / the native Media3
+/// pipeline / the main queue and playback history — per spec this
+/// feed remains its own self-contained module. The only crossover
+/// point is "Listen Full Song", which only ever hands off song
+/// identity (title/artist), same as before.
+///
+/// Category is STRICT and SINGLE: the controller is always scoped to
+/// exactly one active category. Switching category is a full feed
+/// replacement (see ShortsFeedScreen._restartFeedWithNewPreferences),
+/// never a blend of two categories in the same feed.
 class ShortsFeedController extends ChangeNotifier {
   final ShortsRecommendationEngine _engine = ShortsRecommendationEngine();
-  final AudioPlayer _player = AudioPlayer();
 
   final List<ShortItem> _items = [];
   final Set<String> _shownKeys = {};
@@ -31,33 +50,24 @@ class ShortsFeedController extends ChangeNotifier {
   bool _liked = false;
   bool _saved = false;
   DownloadTrackState _downloadState = DownloadTrackState.idle;
-  StreamSubscription<PlayerState>? _stateSub;
-  StreamSubscription<Duration>? _positionSub;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  Timer? _positionTicker;
 
-  // Muted background video — visual only, fully decoupled from the
-  // just_audio player above which remains the single audio source.
   VideoPlayerController? _videoController;
   ShortsVideoStatus _videoStatus = ShortsVideoStatus.none;
   // Guards against a slow resolve landing after the user has already
   // swiped away — the classic "wrong clip flickers in" bug.
   int _videoRequestToken = 0;
 
-  // Single-slot preload: the NEXT card's video is prepared (muted,
-  // initialized, paused) ahead of time so swiping forward feels
-  // instant instead of showing a loading gap — this is what makes
-  // the feed feel like Reels/TikTok rather than a lazy-loaded list.
-  // Deliberately capped at one item ahead (not a full window) since
-  // each VideoPlayerController holds a real decoder — keeping many
-  // alive at once is exactly the kind of thing that makes a phone
-  // feel cheap, which is the opposite of the goal here.
-  String? _preloadedForItemId;
+  // Single-slot preload: the NEXT card's stream is prepared (paused,
+  // muted until swapped in) ahead of time so swiping forward feels
+  // instant — the Instagram/Reels "already there" feel. Capped at one
+  // item ahead since each VideoPlayerController holds a real decoder.
+  String? _preloadedForVideoId;
   VideoPlayerController? _preloadedVideoController;
   int _preloadToken = 0;
 
-  // How many items ahead to keep pre-buffered/ready.
-  static const int _preloadWindow = 3;
   static const int _refillThreshold = 5;
   static const int _batchSize = 15;
 
@@ -71,47 +81,29 @@ class ShortsFeedController extends ChangeNotifier {
   Duration get duration => _duration;
   VideoPlayerController? get videoController => _videoController;
   ShortsVideoStatus get videoStatus => _videoStatus;
+  String get activeCategory => _category;
   ShortItem? get currentItem =>
       _items.isNotEmpty && _currentIndex < _items.length
           ? _items[_currentIndex]
           : null;
 
-  List<String> _languages = [];
-  List<String> _categories = [];
+  String _category = '';
+  String? _language;
   bool _wifiOnlyVideo = true;
 
-  Future<void> init() async {
-    _languages = await ShortsPrefs.getLanguages();
-    _categories = await ShortsPrefs.getCategories();
+  /// [category] and optional [language] scope this controller for its
+  /// entire lifetime — pass a new controller instance (see
+  /// ShortsFeedScreen) rather than mutating an existing one, so a
+  /// category switch is always a clean full replacement.
+  Future<void> init({String? category, String? language}) async {
+    _category = category ?? await ShortsPrefs.getActiveCategory() ?? 'Trending';
+    _language = language;
     _wifiOnlyVideo = await ShortsPrefs.getWifiOnlyVideo();
+    await ShortsPrefs.setActiveCategory(_category);
 
-    _stateSub = _player.playerStateStream.listen((state) {
-      // Auto-advance when a preview finishes playing naturally.
-      if (state.processingState == ProcessingState.completed) {
-        next();
-      }
-    });
-    _positionSub = _player.positionStream.listen((pos) {
-      _position = pos;
-      notifyListeners();
-    });
-
-    // FAST PATH: get a tiny first batch (single language, single
-    // category, low limit) so the feed starts playing almost
-    // instantly instead of waiting on the full multi-language,
-    // multi-era fetch. The full batch loads right behind it in the
-    // background and appends once ready — user never sees the seam
-    // because they're still on/near item 0 by the time it lands.
-    //
-    // rotation is bumped in persisted storage on every launch (see
-    // ShortsPrefs.nextFirstPaintRotation) so the opening card's query
-    // term varies across app restarts / feed re-inits instead of
-    // being frozen on the same seed-artist+category combo forever.
-    final rotation = await ShortsPrefs.nextFirstPaintRotation();
     final firstPaint = await _engine.fetchFirstPaint(
-      languages: _languages,
-      categories: _categories,
-      rotation: rotation,
+      category: _category,
+      language: _language,
     );
     for (final item in firstPaint) {
       _shownKeys.add(item.dedupeKey);
@@ -128,7 +120,54 @@ class ShortsFeedController extends ChangeNotifier {
     await _loadMore();
     notifyListeners();
     if (_items.isNotEmpty) {
-      unawaited(_preloadAhead());
+      unawaited(_preloadNextVideo());
+    }
+  }
+
+  /// Switches the active category on THIS controller without the
+  /// caller needing to construct a new one. Kept for convenience, but
+  /// ShortsFeedScreen's toggle bar uses full controller replacement
+  /// (like the old preferences restart) since that's the safest way
+  /// to guarantee zero state bleed between categories — this method
+  /// exists for callers that explicitly want an in-place switch.
+  Future<void> switchCategory(String category) async {
+    if (category == _category) return;
+    _category = category;
+    await ShortsPrefs.setActiveCategory(category);
+
+    _items.clear();
+    _shownKeys.clear();
+    _currentIndex = 0;
+    _initialLoading = true;
+    notifyListeners();
+
+    final oldVideo = _videoController;
+    _videoController = null;
+    _videoStatus = ShortsVideoStatus.none;
+    if (oldVideo != null) unawaited(oldVideo.dispose());
+    final oldPreload = _preloadedVideoController;
+    _preloadedVideoController = null;
+    _preloadedForVideoId = null;
+    if (oldPreload != null) unawaited(oldPreload.dispose());
+
+    final firstPaint = await _engine.fetchFirstPaint(
+      category: _category,
+      language: _language,
+    );
+    for (final item in firstPaint) {
+      _shownKeys.add(item.dedupeKey);
+    }
+    _items.addAll(firstPaint);
+    _initialLoading = false;
+    notifyListeners();
+
+    if (_items.isNotEmpty) {
+      unawaited(_playCurrent());
+    }
+    await _loadMore();
+    notifyListeners();
+    if (_items.isNotEmpty) {
+      unawaited(_preloadNextVideo());
     }
   }
 
@@ -137,8 +176,8 @@ class ShortsFeedController extends ChangeNotifier {
     _loadingMore = true;
     try {
       final batch = await _engine.fetchBatch(
-        languages: _languages,
-        categories: _categories,
+        category: _category,
+        language: _language,
         excludeKeys: _shownKeys,
         targetCount: _batchSize,
       );
@@ -155,84 +194,57 @@ class ShortsFeedController extends ChangeNotifier {
   Future<void> _playCurrent() async {
     final item = currentItem;
     if (item == null) return;
-    try {
-      _duration = Duration(milliseconds: item.durationMs);
-      await _player.setUrl(item.previewUrl);
-      await _player.play();
-      _liked = await ShortsPrefs.isLiked(item.id);
-      _saved = await ShortsPrefs.isSaved(item.id);
-      _downloadState = DownloadTrackState.idle; // fresh per card
-      await ShortsPrefs.bumpArtist(item.artist);
-      notifyListeners();
-    } catch (_) {
-      // Preview failed to load (dead URL / network) — skip forward
-      // automatically rather than showing a stuck/frozen card.
-      next();
-      return;
-    }
-    unawaited(_loadBackgroundVideo(item));
+
+    _liked = await ShortsPrefs.isLiked(item.videoId);
+    _saved = await ShortsPrefs.isSaved(item.videoId);
+    _downloadState = DownloadTrackState.idle; // fresh per card
+    await ShortsPrefs.bumpArtist(item.artist);
+    notifyListeners();
+
+    await _loadVideo(item);
   }
 
-  /// Resolves and prepares a muted, looping YouTube video clip as a
-  /// purely visual background layer for the current card. Audio for
-  /// the card is, and remains, only ever the iTunes preview above —
-  /// this controller is created fresh (volume 0, looping) and never
-  /// wired to any audio session.
-  Future<void> _loadBackgroundVideo(ShortItem item) async {
+  /// Resolves and plays the single muxed YouTube stream for [item] —
+  /// this IS the audio+video source now, not a muted overlay.
+  Future<void> _loadVideo(ShortItem item) async {
     final myToken = ++_videoRequestToken;
 
     // Fast path: this exact item was already preloaded while the
-    // user was on the previous card — swap it in immediately, no
-    // network wait, no loading gap. This is the Instagram-instant
-    // feel: the clip is just already sitting there ready to go.
-    if (_preloadedForItemId == item.id && _preloadedVideoController != null) {
+    // user was on the previous card — swap it in immediately.
+    if (_preloadedForVideoId == item.videoId &&
+        _preloadedVideoController != null) {
       final oldController = _videoController;
-      _videoController = _preloadedVideoController;
+      final newController = _preloadedVideoController!;
       _preloadedVideoController = null;
-      _preloadedForItemId = null;
+      _preloadedForVideoId = null;
+      _videoController = newController;
       _videoStatus = ShortsVideoStatus.ready;
-      unawaited(_videoController!.setLooping(true));
-      unawaited(_videoController!.play());
+      _duration = newController.value.duration;
+      _position = Duration.zero;
+      unawaited(newController.setVolume(1.0));
+      unawaited(newController.setLooping(true));
+      unawaited(newController.play());
+      _attachPositionListener(newController);
       notifyListeners();
       if (oldController != null) unawaited(oldController.dispose());
       unawaited(_preloadNextVideo());
       return;
     }
 
-    // Slow path: nothing preloaded for this item (first card in the
-    // session, or the user swiped faster than the preload finished).
-    // Tear down whatever video was showing for the previous card
-    // immediately so a stale clip never lingers under a new song.
+    // Slow path: nothing preloaded — tear down the previous card's
+    // player immediately so stale audio/video never lingers.
     final oldController = _videoController;
     _videoController = null;
     _videoStatus = ShortsVideoStatus.loading;
+    _position = Duration.zero;
     notifyListeners();
-    if (oldController != null) {
-      unawaited(oldController.dispose());
-    }
-    // Also drop any in-flight/finished preload that was for a
-    // different item than the one we ended up on.
-    if (_preloadedForItemId != null && _preloadedForItemId != item.id) {
+    if (oldController != null) unawaited(oldController.dispose());
+
+    if (_preloadedForVideoId != null && _preloadedForVideoId != item.videoId) {
       final stale = _preloadedVideoController;
       _preloadedVideoController = null;
-      _preloadedForItemId = null;
+      _preloadedForVideoId = null;
       if (stale != null) unawaited(stale.dispose());
-    }
-
-    // WiFi-only gate — a paid app never silently spends the user's
-    // mobile data on a muted background video they didn't ask for.
-    // The card still works perfectly on cellular: audio plays, the
-    // static Ken Burns artwork stays up, nothing looks broken.
-    if (_wifiOnlyVideo) {
-      final connectivity = await Connectivity().checkConnectivity();
-      final onWifi = connectivity.contains(ConnectivityResult.wifi);
-      if (!onWifi) {
-        if (myToken == _videoRequestToken) {
-          _videoStatus = ShortsVideoStatus.none;
-          notifyListeners();
-        }
-        return;
-      }
     }
 
     final result = await ShortsVideoService.resolveForSong(
@@ -241,45 +253,37 @@ class ShortsFeedController extends ChangeNotifier {
       artist: item.artist,
     );
 
-    // Bail if the user has swiped to another card while this was
-    // resolving, or the item itself changed underneath us.
-    if (myToken != _videoRequestToken || currentItem?.id != item.id) {
-      return;
+    if (myToken != _videoRequestToken || currentItem?.videoId != item.videoId) {
+      return; // user already moved on
     }
 
     if (result == null) {
       _videoStatus = ShortsVideoStatus.failed;
       notifyListeners();
+      // Auto-advance rather than leaving a dead/frozen card on
+      // screen — matches the old "preview failed, skip forward"
+      // behavior, now for the single unified stream.
+      unawaited(next());
       return;
     }
 
     try {
-      // IMPORTANT: googlevideo.com playback URLs are bound to the
-      // User-Agent of the client that requested them from YouTube
-      // (the Worker used ANDROID_VR/iOS/TV headers server-side to
-      // get this URL in the first place). A bare request with no
-      // User-Agent — which is what VideoPlayerController.networkUrl
-      // sends by default — gets silently rejected by the CDN, which
-      // ExoPlayer surfaces as a generic ExoPlaybackException/"Source
-      // error" rather than a clear 403. Passing the matching header
-      // here is what makes the resolved URL actually playable.
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(result.streamUrl),
-        httpHeaders: const {
-          'User-Agent':
-              'com.google.android.apps.youtube.vr.oculus/1.71.26 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
-        },
+        httpHeaders: const {'User-Agent': _kAndroidVrUserAgent},
       );
       await controller.initialize();
-      if (myToken != _videoRequestToken || currentItem?.id != item.id) {
+      if (myToken != _videoRequestToken || currentItem?.videoId != item.videoId) {
         unawaited(controller.dispose());
         return;
       }
-      await controller.setVolume(0); // visual only — never a second audio source
+      await controller.setVolume(1.0);
       await controller.setLooping(true);
       await controller.play();
       _videoController = controller;
       _videoStatus = ShortsVideoStatus.ready;
+      _duration = controller.value.duration;
+      _attachPositionListener(controller);
       notifyListeners();
     } catch (e, st) {
       debugPrint('AURUM_SHORTS_VIDEO_FAIL: $e');
@@ -287,20 +291,30 @@ class ShortsFeedController extends ChangeNotifier {
       if (myToken == _videoRequestToken) {
         _videoStatus = ShortsVideoStatus.failed;
         notifyListeners();
+        unawaited(next());
       }
+      return;
     }
 
     unawaited(_preloadNextVideo());
   }
 
+  /// video_player has no position stream — poll lightly instead.
+  /// Also drives auto-advance when a clip finishes (mirrors the old
+  /// just_audio "completed" auto-next behavior).
+  void _attachPositionListener(VideoPlayerController controller) {
+    _positionTicker?.cancel();
+    _positionTicker = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      if (!controller.value.isInitialized) return;
+      _position = controller.value.position;
+      notifyListeners();
+    });
+  }
+
   /// Prepares the video for the item immediately after the current
-  /// one, fully initialized and paused (volume 0), so the moment the
-  /// user swipes forward `_loadBackgroundVideo` can swap it straight
-  /// in. Silently does nothing if there's no next item, on-cellular
-  /// with the WiFi-only gate on, or the resolve/init fails — the
-  /// normal slow path in `_loadBackgroundVideo` is always the safety
-  /// net, so a failed preload never breaks anything, it just means
-  /// the next card loads live instead of instantly.
+  /// one, fully initialized and paused, so swiping forward can swap
+  /// it straight in. Fails soft — the slow path in _loadVideo is
+  /// always the safety net.
   Future<void> _preloadNextVideo() async {
     final myPreload = ++_preloadToken;
     final nextIndex = _currentIndex + 1;
@@ -318,8 +332,6 @@ class ShortsFeedController extends ChangeNotifier {
       artist: nextItem.artist,
     );
     if (result == null) return;
-    // Stale if the user already moved on past the item we were
-    // preloading for, or another preload superseded this one.
     if (myPreload != _preloadToken || _items.indexOf(nextItem) != nextIndex) {
       return;
     }
@@ -327,45 +339,21 @@ class ShortsFeedController extends ChangeNotifier {
     try {
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(result.streamUrl),
-        httpHeaders: const {
-          'User-Agent':
-              'com.google.android.apps.youtube.vr.oculus/1.71.26 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
-        },
+        httpHeaders: const {'User-Agent': _kAndroidVrUserAgent},
       );
       await controller.initialize();
       if (myPreload != _preloadToken) {
         unawaited(controller.dispose());
         return;
       }
+      // Muted while merely preloaded/paused — _loadVideo restores
+      // volume to 1.0 and calls .play() itself once swapped in.
       await controller.setVolume(0);
       await controller.setLooping(true);
-      // Paused — this is a silent preload, not visible playback yet.
-      // _loadBackgroundVideo calls .play() itself once swapped in.
       _preloadedVideoController = controller;
-      _preloadedForItemId = nextItem.id;
+      _preloadedForVideoId = nextItem.videoId;
     } catch (_) {
-      // Fail soft — the slow path in _loadBackgroundVideo covers it.
-    }
-  }
-
-  /// Preload strategy: just_audio doesn't expose a clean "preload
-  /// without playing" API across a single shared player, so instead
-  /// we warm the HTTP/CDN connection for upcoming items by issuing a
-  /// lightweight HEAD-less priming request via a throwaway player.
-  /// This keeps swipe-to-next feeling instant without holding N
-  /// decoder instances open (bad on entry-level devices).
-  Future<void> _preloadAhead() async {
-    final upcoming = _items.skip(_currentIndex + 1).take(_preloadWindow);
-    for (final item in upcoming) {
-      if (item.previewUrl.isEmpty) continue;
-      final warmer = AudioPlayer();
-      unawaited(
-        warmer.setUrl(item.previewUrl).then((_) {
-          warmer.dispose();
-        }).catchError((_) {
-          warmer.dispose();
-        }),
-      );
+      // Fail soft — slow path in _loadVideo covers it.
     }
   }
 
@@ -377,7 +365,6 @@ class ShortsFeedController extends ChangeNotifier {
     _currentIndex++;
     notifyListeners();
     await _playCurrent();
-    unawaited(_preloadAhead());
 
     if (_items.length - _currentIndex <= _refillThreshold && !_loadingMore) {
       unawaited(_loadMore());
@@ -400,7 +387,6 @@ class ShortsFeedController extends ChangeNotifier {
     _currentIndex = index;
     notifyListeners();
     await _playCurrent();
-    unawaited(_preloadAhead());
 
     if (_items.length - _currentIndex <= _refillThreshold && !_loadingMore) {
       unawaited(_loadMore());
@@ -410,22 +396,19 @@ class ShortsFeedController extends ChangeNotifier {
   Future<void> toggleLike() async {
     final item = currentItem;
     if (item == null) return;
-    await ShortsPrefs.toggleLiked(item.id);
-    _liked = await ShortsPrefs.isLiked(item.id);
+    await ShortsPrefs.toggleLiked(item.videoId);
+    _liked = await ShortsPrefs.isLiked(item.videoId);
     notifyListeners();
   }
 
   Future<void> toggleSave() async {
     final item = currentItem;
     if (item == null) return;
-    await ShortsPrefs.toggleSaved(item.id);
-    _saved = await ShortsPrefs.isSaved(item.id);
+    await ShortsPrefs.toggleSaved(item.videoId);
+    _saved = await ShortsPrefs.isSaved(item.videoId);
     notifyListeners();
   }
 
-  /// Called by the feed screen while it resolves+downloads the full
-  /// song, so the download button can show a real progress state
-  /// (idle → downloading → done) instead of instantly flipping.
   void setDownloadState(DownloadTrackState state) {
     _downloadState = state;
     notifyListeners();
@@ -434,33 +417,31 @@ class ShortsFeedController extends ChangeNotifier {
   Future<void> registerReplay() async {
     final item = currentItem;
     if (item == null) return;
-    await ShortsPrefs.incrementReplay(item.id);
+    await ShortsPrefs.incrementReplay(item.videoId);
   }
 
   Future<void> registerSkip() async {
     final item = currentItem;
     if (item == null) return;
-    await ShortsPrefs.addSkipped(item.id);
+    await ShortsPrefs.addSkipped(item.videoId);
   }
 
   void togglePlayPause() {
-    if (_player.playing) {
-      _player.pause();
-      _videoController?.pause();
+    final ctrl = _videoController;
+    if (ctrl == null) return;
+    if (ctrl.value.isPlaying) {
+      ctrl.pause();
     } else {
-      _player.play();
-      _videoController?.play();
+      ctrl.play();
     }
     notifyListeners();
   }
 
-  bool get isPlaying => _player.playing;
+  bool get isPlaying => _videoController?.value.isPlaying ?? false;
 
   @override
   void dispose() {
-    _stateSub?.cancel();
-    _positionSub?.cancel();
-    _player.dispose();
+    _positionTicker?.cancel();
     _videoController?.dispose();
     _preloadedVideoController?.dispose();
     super.dispose();

@@ -1,228 +1,101 @@
 import '../models/short_item.dart';
-import '../models/shorts_catalog.dart';
-import '../services/itunes_shorts_api.dart';
 import '../services/shorts_prefs.dart';
+import '../services/youtube_shorts_api.dart';
 
-/// Builds ranked batches of ShortItems from selected languages +
-/// categories, mixing familiar picks with discovery, avoiding
-/// duplicate previews and back-to-back same-artist runs.
+/// Builds ranked batches of ShortItems for the Shorts feed — v2,
+/// single-category-strict.
 ///
-/// Fully deterministic — no Random() anywhere. Term rotation uses a
-/// running counter (not shuffle), and item ranking is pure weighted
-/// scoring from real signals (likes, replays, artist affinity, skip
-/// history). Same inputs always produce the same ordering.
+/// Unlike the old multi-language/multi-category iTunes engine, this
+/// version always operates on exactly ONE active category (+ optional
+/// language) at a time. There is no blending across categories — a
+/// feed opened under "Sad" only ever surfaces "Sad" results, matching
+/// the premium single-category-feed requirement. Switching category is
+/// a full feed replacement (see ShortsFeedController), not a blend.
 ///
-/// Completely independent from the main Aurum recommendation_engine —
-/// no shared state, no shared queue/history.
+/// Discovery itself (search + pagination) is fully delegated to
+/// YoutubeShortsApi, which owns a real forward-advancing cursor per
+/// category — this is what actually guarantees unlimited, non-
+/// repeating scroll: every call for the same category returns videos
+/// further into YouTube's result set, never page 1 again.
+///
+/// This engine's own job is just re-ranking what comes back using
+/// real local signals (likes, replays, artist affinity) — no
+/// randomness, pure deterministic weighted scoring, same as before.
 class ShortsRecommendationEngine {
-  // Query hints that bias iTunes' relevance ranking toward older vs
-  // newer catalog entries. Appended alongside the language name so
-  // e.g. "bhojpuri" alone (which skews toward whatever's currently
-  // popular) becomes "bhojpuri classic hits" / "bhojpuri new 2026".
-  static const List<String> _eraHints = [
-    'new',
-    'latest',
-    'classic',
-    'old is gold',
-    'evergreen',
-    'top hits',
-  ];
-
-  // Advances deterministically each time fetchBatch() runs, so
-  // successive batches rotate through different category/era
-  // combinations instead of always hitting the same 3 first-in-list
-  // terms — without using any randomness. Rotation, not chance.
-  int _batchCounter = 0;
-
-  /// Fast path for the very first paint: fetch just enough from the
-  /// primary language to get something on screen instantly, instead
-  /// of waiting on the full multi-language, multi-era batch. The
-  /// full fetchBatch() still runs right after for the real feed.
+  /// Fetches the very first small batch for instant first paint.
   Future<List<ShortItem>> fetchFirstPaint({
-    required List<String> languages,
-    required List<String> categories,
-    required int rotation,
+    required String category,
+    String? language,
   }) async {
-    if (languages.isEmpty || categories.isEmpty) return const [];
-    final lang = languages.first;
-    final country = ShortsCatalog.languageToCountry[lang] ?? 'IN';
-    final cat = categories.first;
-    final hint = ShortsCatalog.categories[cat] ?? cat.toLowerCase();
-
-    // Rotate the seed artist / era hint using [rotation] — a counter
-    // bumped once per feed launch (see ShortsPrefs.nextFirstPaintRotation)
-    // — instead of always picking index 0. Previously this always
-    // built the exact same term (seeds.first + hint) regardless of
-    // restart, session, or how many times preferences were re-saved
-    // with the same language/category — since the query never
-    // changed, iTunes' deterministic relevance ranking returned the
-    // identical top result every single time, which is why the very
-    // first card never varied even across full app restarts. This
-    // isn't randomness — same rotation value always produces the
-    // same term — it just stops the term from being permanently
-    // frozen on the same index every launch.
-    final seeds = ShortsCatalog.languageSeedArtists[lang];
-    final era = _eraHints[rotation % _eraHints.length];
-    final term = (seeds != null && seeds.isNotEmpty)
-        ? '${seeds[rotation % seeds.length]} $hint'
-        : '$lang $hint $era';
-
-    final items = await ItunesShortsApi.search(
-      term: term,
-      country: country,
+    if (category.isEmpty) return const [];
+    final items = await YoutubeShortsApi.fetchNextPage(
+      category: category,
+      language: language,
       limit: 8,
     );
-    return items.map((i) => i.copyWithLanguage(lang)).toList();
+    return _rank(await _applyLocalSignals(items));
   }
 
-  /// Fetches a fresh batch. [excludeKeys] is the running de-dupe set
-  /// (dedupeKey) already shown this session — engine will keep
-  /// fetching wider terms until it has enough new items or gives up.
+  /// Fetches the next page for the active category — always further
+  /// into the result set than the previous call, never repeating.
   Future<List<ShortItem>> fetchBatch({
-    required List<String> languages,
-    required List<String> categories,
-    required Set<String> excludeKeys,
+    required String category,
+    String? language,
+    Set<String> excludeKeys = const {},
     int targetCount = 15,
   }) async {
-    if (languages.isEmpty || categories.isEmpty) return const [];
+    if (category.isEmpty) return const [];
 
+    // Pull a couple of pages if the first one is thin after filtering
+    // out anything already shown (defensive — YoutubeShortsApi's
+    // cursor already avoids repeats, but a video could still get
+    // excluded for other reasons, e.g. previously skipped).
+    final collected = <ShortItem>[];
+    var attempts = 0;
+    while (collected.length < targetCount && attempts < 3) {
+      final page = await YoutubeShortsApi.fetchNextPage(
+        category: category,
+        language: language,
+        limit: targetCount,
+      );
+      if (page.isEmpty) break;
+      for (final item in page) {
+        if (excludeKeys.contains(item.dedupeKey)) continue;
+        collected.add(item);
+      }
+      attempts++;
+    }
+
+    final ranked = _rank(await _applyLocalSignals(collected));
+    return ranked.take(targetCount).toList();
+  }
+
+  Future<List<_ScoredItem>> _applyLocalSignals(List<ShortItem> items) async {
     final liked = await ShortsPrefs.getLiked();
     final skipped = await ShortsPrefs.getSkipped();
     final artistFreq = await ShortsPrefs.getArtistFreq();
     final replayCounts = await ShortsPrefs.getReplayCounts();
 
-    final myBatch = _batchCounter++;
+    return items
+        .where((i) => !skipped.contains(i.videoId))
+        .map((i) => _ScoredItem(
+              i,
+              _score(i, liked, artistFreq, replayCounts),
+            ))
+        .toList();
+  }
 
-    // ── Deterministic term rotation ─────────────────────────────
-    // Instead of shuffling categories/eras, rotate through them
-    // using the batch counter as an offset. Every call picks a
-    // different, predictable slice — batch 0 uses categories
-    // [0,1,2], batch 1 uses [1,2,3], etc. — so repeated fetches
-    // don't loop the same 3 terms forever, and there's zero chance
-    // involved anywhere in term selection.
-    final catList = categories.toList();
-    final pickedCats = List<String>.generate(
-      catList.length < 3 ? catList.length : 3,
-      (i) => catList[(myBatch + i) % catList.length],
-    );
-    final pickedEras = List<String>.generate(
-      3,
-      (i) => _eraHints[(myBatch + i) % _eraHints.length],
-    );
-
-    final perLanguageFutures = languages.take(3).map((lang) async {
-      final country = ShortsCatalog.languageToCountry[lang] ?? 'IN';
-
-      // Artist-anchored terms are the strongest relevance signal —
-      // "Khesari Lal Yadav new songs" reliably returns Bhojpuri
-      // content in a way "bhojpuri new songs" alone sometimes
-      // doesn't. Rotate through the seed list deterministically by
-      // batch so repeated fetches don't hammer the same 2 artists
-      // every time.
-      final seeds = ShortsCatalog.languageSeedArtists[lang] ?? const [];
-      final pickedSeeds = seeds.isEmpty
-          ? const <String>[]
-          : List<String>.generate(
-              seeds.length < 2 ? seeds.length : 2,
-              (i) => seeds[(myBatch + i) % seeds.length],
-            );
-
-      final terms = <String>[
-        for (final cat in pickedCats)
-          '$lang ${ShortsCatalog.categories[cat] ?? cat.toLowerCase()}',
-        for (final era in pickedEras) '$lang $era songs',
-        for (final seed in pickedSeeds) '$seed new songs',
-      ];
-
-      final items = await ItunesShortsApi.searchMany(
-        terms: terms,
-        country: country,
-        limitPerTerm: 20,
-      );
-
-      // ── Language sanity filter ──────────────────────────────
-      // For languages with a known title-hint keyword (currently
-      // Bhojpuri/Punjabi, the two that most often got Hindi
-      // false-positives), drop results whose title/artist don't
-      // contain any language signal AND aren't from a known seed
-      // artist. This is a coarse heuristic, not a real language
-      // classifier, but it reliably filters out generic Hindi
-      // results that only matched on an unrelated word in the query.
-      final hints = ShortsCatalog.languageTitleHints[lang];
-      final seedNamesLower =
-          seeds.map((s) => s.toLowerCase()).toSet();
-      final filtered = hints == null
-          ? items
-          : items.where((item) {
-              final artistLower = item.artist.toLowerCase();
-              if (seedNamesLower.any((s) => artistLower.contains(s))) {
-                return true;
-              }
-              final haystack =
-                  '${item.title} ${item.artist} ${item.album}'.toLowerCase();
-              return hints.any((h) => haystack.contains(h));
-            }).toList();
-
-      return filtered.map((i) => i.copyWithLanguage(lang)).toList();
-    }).toList();
-
-    final perLanguageResults = await Future.wait(perLanguageFutures);
-
-    // ── De-duplicate ─────────────────────────────────────────────
-    final seen = <String>{};
-    final perLanguageDeduped = <List<ShortItem>>[];
-    for (final list in perLanguageResults) {
-      final deduped = <ShortItem>[];
-      for (final item in list) {
-        if (excludeKeys.contains(item.dedupeKey)) continue;
-        if (skipped.contains(item.id)) continue;
-        if (seen.contains(item.dedupeKey)) continue;
-        seen.add(item.dedupeKey);
-        deduped.add(item);
-      }
-
-      // ── Pure weighted scoring — no randomness ──────────────────
-      // liked song      → +50  (strongest signal: explicit intent)
-      // replay count    → +8 per replay, capped at +40 (repeat listens)
-      // artist affinity → +2 per past play of this artist, capped +20
-      // iTunes' own relevance order is preserved as a final tiebreak
-      // via stable sort (original index used as the last-resort key),
-      // so results never feel arbitrarily reordered when scores tie.
-      final originalIndex = <String, int>{
-        for (var i = 0; i < deduped.length; i++) deduped[i].id: i,
-      };
-      deduped.sort((a, b) {
-        final scoreA = _score(a, liked, artistFreq, replayCounts);
-        final scoreB = _score(b, liked, artistFreq, replayCounts);
-        if (scoreA != scoreB) return scoreB.compareTo(scoreA);
-        // Tiebreak: preserve iTunes' original relevance order.
-        return (originalIndex[a.id] ?? 0).compareTo(originalIndex[b.id] ?? 0);
+  List<ShortItem> _rank(List<_ScoredItem> scored) {
+    final indexed = <String, int>{
+      for (var i = 0; i < scored.length; i++) scored[i].item.videoId: i,
+    };
+    final sorted = List<_ScoredItem>.from(scored)
+      ..sort((a, b) {
+        if (a.score != b.score) return b.score.compareTo(a.score);
+        return (indexed[a.item.videoId] ?? 0)
+            .compareTo(indexed[b.item.videoId] ?? 0);
       });
-      perLanguageDeduped.add(deduped);
-    }
-
-    // ── Round-robin merge across languages ──────────────────────
-    // Prevents one language (usually whichever returns the most
-    // results) from dominating the feed — cycles through each
-    // selected language in turn so a 3-language pick actually shows
-    // all 3, evenly, rather than 40 Hindi songs before a single
-    // Bhojpuri one. Deterministic list order, no shuffling.
-    final merged = <ShortItem>[];
-    var anyLeft = true;
-    var cursor = 0;
-    while (anyLeft && merged.length < targetCount * 2) {
-      anyLeft = false;
-      for (final list in perLanguageDeduped) {
-        if (cursor < list.length) {
-          merged.add(list[cursor]);
-          anyLeft = true;
-        }
-      }
-      cursor++;
-    }
-
-    final interleaved = _avoidConsecutiveArtists(merged);
-    return interleaved.take(targetCount).toList();
+    return _avoidConsecutiveArtists(sorted.map((s) => s.item).toList());
   }
 
   int _score(
@@ -232,8 +105,8 @@ class ShortsRecommendationEngine {
     Map<String, int> replayCounts,
   ) {
     var score = 0;
-    if (liked.contains(item.id)) score += 50;
-    final replays = replayCounts[item.id] ?? 0;
+    if (liked.contains(item.videoId)) score += 50;
+    final replays = replayCounts[item.videoId] ?? 0;
     score += (replays * 8).clamp(0, 40);
     final plays = artistFreq[item.artist] ?? 0;
     score += (plays * 2).clamp(0, 20);
@@ -241,9 +114,8 @@ class ShortsRecommendationEngine {
   }
 
   /// Greedy re-ordering: never place two consecutive items from the
-  /// same artist if an alternative exists further down the list.
-  /// Deterministic — always picks the first valid alternative, not a
-  /// random one.
+  /// same artist/channel if an alternative exists further down.
+  /// Deterministic — always picks the first valid alternative.
   List<ShortItem> _avoidConsecutiveArtists(List<ShortItem> items) {
     if (items.length <= 2) return items;
     final pool = List<ShortItem>.from(items);
@@ -257,4 +129,10 @@ class ShortsRecommendationEngine {
     }
     return result;
   }
+}
+
+class _ScoredItem {
+  final ShortItem item;
+  final int score;
+  const _ScoredItem(this.item, this.score);
 }

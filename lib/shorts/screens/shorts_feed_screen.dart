@@ -9,15 +9,22 @@ import '../../services/api_service.dart';
 import '../models/short_item.dart';
 import '../providers/shorts_feed_controller.dart';
 import '../widgets/shorts_action_rail.dart';
+import '../widgets/shorts_category_toggle_bar.dart';
 import '../widgets/shorts_info_overlay.dart';
 import '../widgets/shorts_visual_card.dart';
 import 'shorts_preferences_screen.dart';
 
 /// Full-screen vertical Shorts feed. Reels-style swipe navigation.
-/// Runs its own ShortsFeedController + its own just_audio instance —
+/// Runs its own ShortsFeedController + its own video player instance —
 /// never touches the main Aurum queue, history, or native engine.
 /// Only "Listen Full Song" crosses the boundary, and only by handing
 /// off song identity (title/artist/artwork) to the real player.
+///
+/// v2: single YouTube-sourced player per card (audio+video together,
+/// no more separate iTunes-preview audio layer), plus a Chrome-tabs
+/// style category toggle bar pinned to the top — switching category
+/// triggers an immediate full feed replacement, strictly scoped to
+/// that one category.
 class ShortsFeedScreen extends StatefulWidget {
   const ShortsFeedScreen({super.key});
 
@@ -30,11 +37,11 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
   PageController _pageController = PageController();
   bool _showHeart = false;
   bool _resolvingFullSong = false;
-  // Bumped on every preferences-driven restart. Used as a Widget key
-  // for the PageView so Flutter treats the post-restart feed as a
-  // brand-new widget instance rather than reusing internal scroll
-  // state tied to the previous PageController/controller pairing —
-  // that stale reuse was part of what made refresh feel "stuck".
+  // Bumped on every category switch / preferences-driven restart.
+  // Used as a Widget key for the PageView so Flutter treats the
+  // post-switch feed as a brand-new widget instance rather than
+  // reusing internal scroll state tied to the previous
+  // PageController/controller pairing.
   int _feedGeneration = 0;
 
   @override
@@ -50,22 +57,17 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
     super.dispose();
   }
 
-  /// Rebuilds the feed from scratch with a brand-new controller —
-  /// used after the user changes their language/category preferences
-  /// in ShortsPreferencesScreen. The old controller (and its player,
-  /// shown-item history) is fully disposed so nothing from the old
-  /// preference set leaks into the new feed.
-  Future<void> _restartFeedWithNewPreferences() async {
+  /// Rebuilds the feed from scratch with a brand-new controller,
+  /// scoped to [category] — used both by the top toggle bar (instant
+  /// category switch) and after the user changes preferences. The
+  /// old controller (and its player, shown-item history) is fully
+  /// disposed so nothing from the old category/preference set leaks
+  /// into the new feed.
+  Future<void> _restartFeed({String? category}) async {
     final oldController = _controller;
     final oldPageController = _pageController;
     final fresh = ShortsFeedController();
 
-    // Swap in a brand-new PageController + bump the generation key
-    // together with the new feed controller. Reusing the old
-    // PageController across a full feed replacement was fragile —
-    // it could retain a page/offset from the previous feed that no
-    // longer made sense once the new (usually shorter, freshly
-    // fetched) item list swapped in, effectively hanging the view.
     setState(() {
       _controller = fresh;
       _pageController = PageController();
@@ -73,12 +75,10 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
     });
 
     // Let init() fully populate items BEFORE touching the
-    // PageController. Calling jumpToPage(0) while the new
-    // controller's item list is still empty was the root cause of
-    // the "refresh gets stuck" bug — PageView has nothing to jump
-    // to yet, so the page silently fails to reset and the UI hangs
-    // showing the loading spinner indefinitely.
-    await fresh.init();
+    // PageController — calling jumpToPage(0) while the new
+    // controller's item list is still empty is what causes a
+    // "refresh gets stuck" hang.
+    await fresh.init(category: category);
 
     if (!mounted) {
       oldController.dispose();
@@ -88,6 +88,11 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
 
     oldController.dispose();
     oldPageController.dispose();
+  }
+
+  Future<void> _onCategoryChanged(String category) async {
+    if (category == _controller.activeCategory) return;
+    await _restartFeed(category: category);
   }
 
   /// Warms the image cache for the next couple of cards so swiping
@@ -120,29 +125,35 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
     _flashHeart();
   }
 
-  /// Resolves a ShortItem (30s preview) to a real, fully-streamable
-  /// Song via the existing Saavn search pipeline — shared by both
-  /// "Listen Full Song" and "Download".
+  /// Resolves a ShortItem (a YouTube video) to a real, fully-
+  /// streamable Song via the existing Saavn search pipeline — shared
+  /// by both "Listen Full Song" and "Download". This still crosses
+  /// into the main app's song/queue world by DESIGN (it's the one
+  /// intentional bridge), but only ever via title+artist identity,
+  /// never via the Shorts video stream itself.
   Future<aurum.Song> _resolveFullSong(ShortItem item) async {
     final query = '${item.artist} ${item.title}';
     final results = await ApiService.quickSearch(query, limit: 5);
     if (results.isNotEmpty) return results.first;
-    // Fallback: minimal Song from the preview itself.
+    // Fallback: minimal Song from the video's own identity. No
+    // playable streamUrl of our own to hand over here — Saavn search
+    // came up empty, so the main player will need to resolve it
+    // itself the same way it does for any manually-searched song.
     return aurum.Song(
-      id: item.id,
+      id: item.videoId,
       title: item.title,
       artist: item.artist,
-      album: item.album,
+      album: '',
       artworkUrl: item.artworkUrl,
-      streamUrl: item.previewUrl,
-      duration: (item.durationMs / 1000).round(),
+      streamUrl: null,
+      duration: item.durationSecs,
     );
   }
 
   Future<void> _onListenFull(ShortItem item) async {
     if (_resolvingFullSong) return;
     setState(() => _resolvingFullSong = true);
-    _controller.togglePlayPause(); // pause the preview
+    _controller.togglePlayPause(); // pause the Shorts clip
 
     try {
       final songToPlay = await _resolveFullSong(item);
@@ -214,20 +225,17 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) _precacheUpcomingArtwork(ctrl, ctrl.currentIndex);
             });
-
             return Stack(
+              fit: StackFit.expand,
               children: [
                 PageView.builder(
                   key: ValueKey(_feedGeneration),
                   controller: _pageController,
                   scrollDirection: Axis.vertical,
-                  // Premium/Reels-style feel: a slightly "heavier" page
-                  // physics than the default so a swipe always resolves
-                  // cleanly to the next/previous page rather than
-                  // sometimes landing in a half-scrolled state — that
-                  // half-scrolled rebound is what reads as "janky"
-                  // rather than smooth, even when frame rate itself is
-                  // fine.
+                  // Clamping (not bouncing) physics — prevents the
+                  // feed from sometimes landing in a half-scrolled
+                  // state, which is what reads as "janky" rather than
+                  // smooth, even when frame rate itself is fine.
                   physics: const PageScrollPhysics(
                     parent: ClampingScrollPhysics(),
                   ),
@@ -238,12 +246,12 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                     if (movingForward) {
                       ctrl.registerSkip();
                     }
-                    // Deferred to the next frame so the page-change
-                    // callback (which fires WHILE the swipe animation
-                    // is still settling) never triggers a
+                    // Deferred to next frame so the page-change
+                    // callback (fires WHILE the swipe animation is
+                    // still settling) never triggers a
                     // notifyListeners()-driven rebuild in the same
-                    // frame as the scroll animation — that overlap was
-                    // the main source of visible stutter on swipe.
+                    // frame as the scroll animation — that overlap
+                    // was the main source of visible stutter.
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (mounted) ctrl.jumpTo(index);
                     });
@@ -281,7 +289,7 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                                   : Duration.zero,
                               duration: isCurrent
                                   ? ctrl.duration
-                                  : Duration(milliseconds: item.durationMs),
+                                  : Duration(seconds: item.durationSecs),
                             ),
                           ),
                           Positioned(
@@ -323,7 +331,7 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                                   ),
                                 );
                                 if (changed == true && mounted) {
-                                  await _restartFeedWithNewPreferences();
+                                  await _restartFeed();
                                 } else {
                                   ctrl.togglePlayPause(); // resume
                                 }
@@ -340,11 +348,22 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                 Positioned(
                   top: 8,
                   left: 8,
+                  right: 8,
                   child: SafeArea(
-                    child: IconButton(
-                      icon: const Icon(Icons.close_rounded,
-                          color: Colors.white, size: 26),
-                      onPressed: () => Navigator.of(context).maybePop(),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded,
+                              color: Colors.white, size: 26),
+                          onPressed: () => Navigator.of(context).maybePop(),
+                        ),
+                        Expanded(
+                          child: ShortsCategoryToggleBar(
+                            activeCategory: ctrl.activeCategory,
+                            onCategoryChanged: _onCategoryChanged,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
