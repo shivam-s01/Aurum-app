@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart' as prov;
 import '../../models/song.dart' as aurum;
 import '../../providers/download_provider.dart';
@@ -87,6 +88,21 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
 
     oldController.dispose();
     oldPageController.dispose();
+  }
+
+  /// Warms the image cache for the next couple of cards so swiping
+  /// forward never shows a blank/loading flash while the artwork
+  /// decodes — this is what makes the feed feel instant rather than
+  /// merely "not broken".
+  void _precacheUpcomingArtwork(ShortsFeedController ctrl, int currentIndex) {
+    final upcoming = ctrl.items.skip(currentIndex + 1).take(2);
+    for (final item in upcoming) {
+      if (item.artworkUrl.isEmpty) continue;
+      precacheImage(
+        CachedNetworkImageProvider(item.artworkUrl),
+        context,
+      ).catchError((_) {});
+    }
   }
 
   void _flashHeart() {
@@ -195,6 +211,9 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
             if (ctrl.items.isEmpty) {
               return _EmptyFeedState(onRetry: () => ctrl.init());
             }
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _precacheUpcomingArtwork(ctrl, ctrl.currentIndex);
+            });
 
             return Stack(
               children: [
@@ -202,19 +221,40 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                   key: ValueKey(_feedGeneration),
                   controller: _pageController,
                   scrollDirection: Axis.vertical,
+                  // Premium/Reels-style feel: a slightly "heavier" page
+                  // physics than the default so a swipe always resolves
+                  // cleanly to the next/previous page rather than
+                  // sometimes landing in a half-scrolled state — that
+                  // half-scrolled rebound is what reads as "janky"
+                  // rather than smooth, even when frame rate itself is
+                  // fine.
+                  physics: const PageScrollPhysics(
+                    parent: ClampingScrollPhysics(),
+                  ),
+                  pageSnapping: true,
                   itemCount: ctrl.items.length,
                   onPageChanged: (index) {
                     final movingForward = index > ctrl.currentIndex;
                     if (movingForward) {
                       ctrl.registerSkip();
                     }
-                    ctrl.jumpTo(index);
+                    // Deferred to the next frame so the page-change
+                    // callback (which fires WHILE the swipe animation
+                    // is still settling) never triggers a
+                    // notifyListeners()-driven rebuild in the same
+                    // frame as the scroll animation — that overlap was
+                    // the main source of visible stutter on swipe.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) ctrl.jumpTo(index);
+                    });
+                    _precacheUpcomingArtwork(ctrl, index);
                   },
                   itemBuilder: (context, index) {
                     final item = ctrl.items[index];
                     final isCurrent = index == ctrl.currentIndex;
 
-                    return GestureDetector(
+                    return RepaintBoundary(
+                      child: GestureDetector(
                       onDoubleTap: _onDoubleTap,
                       onTap: () => ctrl.togglePlayPause(),
                       child: Stack(
@@ -292,6 +332,7 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                             ),
                           ),
                         ],
+                      ),
                       ),
                     );
                   },

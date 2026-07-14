@@ -101,6 +101,11 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
             child: CachedNetworkImage(
               imageUrl: widget.artworkUrl,
               fit: BoxFit.cover,
+              // Blurred this heavily, full artwork resolution is
+              // wasted decode work on every single swipe — a much
+              // smaller decode target looks identical once blurred
+              // this hard, and cuts real CPU/GPU cost per card.
+              memCacheWidth: 200,
               errorWidget: (_, __, ___) => const SizedBox.shrink(),
             ),
           ),
