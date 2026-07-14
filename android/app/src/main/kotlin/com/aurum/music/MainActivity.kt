@@ -35,6 +35,10 @@ class MainActivity : FlutterFragmentActivity() {
     // ExoPlayer instance instead of building a second one.
     private var audioEngineChannelHandler: AurumEngineChannelHandler? = null
 
+    // Owns the native Shorts video engine (search+resolve+ExoPlayer
+    // pool) — fully separate from the audio engine/main queue above.
+    private var shortsChannelHandler: AurumShortsChannelHandler? = null
+
     // THE fix for "background/lock-screen kuch nahi ho raha": previously
     // nothing ever bound to or started AurumMediaSessionService, so its
     // onCreate()/onGetSession() never ran and no MediaSession was ever
@@ -65,6 +69,14 @@ class MainActivity : FlutterFragmentActivity() {
 
         audioEngineChannelHandler = AurumEngineChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         bindMediaSessionService()
+
+        // Native Shorts engine + its SurfaceView PlatformView.
+        val shortsHandler = AurumShortsChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
+        shortsChannelHandler = shortsHandler
+        flutterEngine.platformViewsController.registry.registerViewFactory(
+            AurumShortsChannelHandler.VIEW_TYPE,
+            AurumShortsViewFactory(shortsHandler.engine)
+        )
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -306,6 +318,8 @@ class MainActivity : FlutterFragmentActivity() {
         mediaSessionServiceConnection = null
         audioEngineChannelHandler?.release()
         audioEngineChannelHandler = null
+        shortsChannelHandler?.engine?.release()
+        shortsChannelHandler = null
         super.onDestroy()
     }
 }

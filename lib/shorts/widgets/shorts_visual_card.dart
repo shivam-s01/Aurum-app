@@ -1,27 +1,29 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:video_player/video_player.dart';
 import '../services/shorts_palette.dart';
+import 'shorts_native_surface.dart';
 
 /// Premium visual treatment for a Shorts card. The base layer is
 /// always the artwork with a slow Ken Burns zoom/pan — the
-/// guaranteed-to-work loading/fallback look. Once a matching muted
-/// YouTube video clip finishes resolving for the active card, it
-/// crossfades in on top, Reels-style. The clip is purely visual —
-/// it is always muted; the only audio for the card is the iTunes
-/// preview owned by ShortsFeedController, completely separate from
-/// this widget.
+/// guaranteed-to-work loading/fallback look. Once the native
+/// AurumShortsEngine has the matching YouTube stream ready for the
+/// active card, its SurfaceView crossfades in on top, Reels-style.
+///
+/// v3: video decode/render is fully native now (ExoPlayer -> SurfaceView
+/// via AurumShortsEngine) — no VideoPlayerController, no Dart-side video
+/// texture. `videoReady` is driven by the controller's videoStatus
+/// (mirrored from native), not a local controller's initialized flag.
 class ShortsVisualCard extends StatefulWidget {
   final String artworkUrl;
   final bool isActive; // only the current on-screen card animates
-  final VideoPlayerController? videoController;
+  final bool videoReady; // true once native reports status == ready
 
   const ShortsVisualCard({
     super.key,
     required this.artworkUrl,
     required this.isActive,
-    this.videoController,
+    this.videoReady = false,
   });
 
   @override
@@ -86,9 +88,7 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
 
   @override
   Widget build(BuildContext context) {
-    final ctrl = widget.videoController;
-    final showVideo =
-        widget.isActive && ctrl != null && ctrl.value.isInitialized;
+    final showVideo = widget.isActive && widget.videoReady;
 
     return Stack(
       fit: StackFit.expand,
@@ -136,22 +136,16 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
             ),
           ),
         ),
-        // Muted background video clip — crossfades in once resolved
-        // and ready for the active card. Always muted; audio for
-        // this card is the iTunes preview only, played elsewhere.
+        // Native video surface — crossfades in once the native engine
+        // reports the active card's stream as ready. Audio+video both
+        // come from the same native ExoPlayer instance now (unified
+        // stream, not a muted overlay).
         AnimatedOpacity(
           opacity: showVideo ? 1.0 : 0.0,
           duration: const Duration(milliseconds: 420),
           curve: Curves.easeOut,
           child: showVideo
-              ? FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: ctrl.value.size.width,
-                    height: ctrl.value.size.height,
-                    child: IgnorePointer(child: VideoPlayer(ctrl)),
-                  ),
-                )
+              ? const IgnorePointer(child: ShortsNativeSurface())
               : const SizedBox.shrink(),
         ),
         // Ambient glow orbs — palette-colored, drifting slowly.

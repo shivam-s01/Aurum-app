@@ -271,8 +271,8 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                           ShortsVisualCard(
                             artworkUrl: item.artworkUrl,
                             isActive: isCurrent,
-                            videoController:
-                                isCurrent ? ctrl.videoController : null,
+                            videoReady: isCurrent &&
+                                ctrl.videoStatus == ShortsVideoStatus.ready,
                           ),
                           if (isCurrent && _showHeart)
                             const Center(
