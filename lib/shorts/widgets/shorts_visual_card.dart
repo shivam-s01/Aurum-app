@@ -1,22 +1,27 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:video_player/video_player.dart';
 import '../services/shorts_palette.dart';
 
-/// "Video-like" premium visual treatment for a Shorts card without
-/// any actual video: slow continuous Ken Burns zoom/pan on the
-/// artwork, two soft ambient glow orbs colored from the extracted
-/// palette drifting behind it, and a palette-tinted gradient scrim.
-/// Purely client-side animation — no network cost beyond the single
-/// artwork fetch + one small palette extraction.
+/// Premium visual treatment for a Shorts card. The base layer is
+/// always the artwork with a slow Ken Burns zoom/pan — the
+/// guaranteed-to-work loading/fallback look. Once a matching muted
+/// YouTube video clip finishes resolving for the active card, it
+/// crossfades in on top, Reels-style. The clip is purely visual —
+/// it is always muted; the only audio for the card is the iTunes
+/// preview owned by ShortsFeedController, completely separate from
+/// this widget.
 class ShortsVisualCard extends StatefulWidget {
   final String artworkUrl;
   final bool isActive; // only the current on-screen card animates
+  final VideoPlayerController? videoController;
 
   const ShortsVisualCard({
     super.key,
     required this.artworkUrl,
     required this.isActive,
+    this.videoController,
   });
 
   @override
@@ -81,6 +86,10 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
 
   @override
   Widget build(BuildContext context) {
+    final ctrl = widget.videoController;
+    final showVideo =
+        widget.isActive && ctrl != null && ctrl.value.isInitialized;
+
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -96,7 +105,9 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
             ),
           ),
         ),
-        // Base artwork with slow Ken Burns zoom/pan.
+        // Base artwork with slow Ken Burns zoom/pan — always present
+        // underneath so the crossfade to video (and the fallback
+        // while loading/on failure) is seamless either way.
         AnimatedBuilder(
           animation: _zoomCtrl,
           builder: (context, child) {
@@ -119,6 +130,24 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
                   color: Colors.white24, size: 48),
             ),
           ),
+        ),
+        // Muted background video clip — crossfades in once resolved
+        // and ready for the active card. Always muted; audio for
+        // this card is the iTunes preview only, played elsewhere.
+        AnimatedOpacity(
+          opacity: showVideo ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 420),
+          curve: Curves.easeOut,
+          child: showVideo
+              ? FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: ctrl.value.size.width,
+                    height: ctrl.value.size.height,
+                    child: IgnorePointer(child: VideoPlayer(ctrl)),
+                  ),
+                )
+              : const SizedBox.shrink(),
         ),
         // Ambient glow orbs — palette-colored, drifting slowly.
         AnimatedBuilder(

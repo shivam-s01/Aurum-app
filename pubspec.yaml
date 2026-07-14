@@ -38,6 +38,7 @@ dependencies:
 
   # YouTube
   youtube_explode_dart: ^2.2.1
+  video_player: ^2.9.2
 
   # UI
   scrollable_positioned_list: ^0.3.8
