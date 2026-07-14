@@ -15,6 +15,7 @@ class ShortsPrefs {
   static const _kSkipped = 'shorts_skipped_ids';
   static const _kReplayCounts = 'shorts_replay_counts'; // json map id->count
   static const _kArtistFreq = 'shorts_artist_freq'; // json map artist->count
+  static const _kWifiOnlyVideo = 'shorts_wifi_only_video';
 
   static SharedPreferences? _prefsCache;
 
@@ -146,6 +147,20 @@ class ShortsPrefs {
     return Map<String, int>.from(jsonDecode(raw) as Map);
   }
 
+  // ── Background video (Shorts visual clip) settings ─────────────
+  // Defaults to true — a paid, premium-feeling app should never
+  // silently burn a user's mobile data on background video without
+  // an explicit opt-in.
+  static Future<bool> getWifiOnlyVideo() async {
+    final p = await _prefs;
+    return p.getBool(_kWifiOnlyVideo) ?? true;
+  }
+
+  static Future<void> setWifiOnlyVideo(bool value) async {
+    final p = await _prefs;
+    await p.setBool(_kWifiOnlyVideo, value);
+  }
+
   /// For settings/debug — wipe all shorts prefs (not onboarding data
   /// from other features).
   static Future<void> resetAll() async {
@@ -158,5 +173,6 @@ class ShortsPrefs {
     await p.remove(_kSkipped);
     await p.remove(_kReplayCounts);
     await p.remove(_kArtistFreq);
+    await p.remove(_kWifiOnlyVideo);
   }
 }
