@@ -11,6 +11,7 @@ class ShortsPrefs {
   static const _kLanguages = 'shorts_languages';
   static const _kCategories = 'shorts_categories';
   static const _kLiked = 'shorts_liked_ids';
+  static const _kSaved = 'shorts_saved_ids';
   static const _kSkipped = 'shorts_skipped_ids';
   static const _kReplayCounts = 'shorts_replay_counts'; // json map id->count
   static const _kArtistFreq = 'shorts_artist_freq'; // json map artist->count
@@ -74,6 +75,27 @@ class ShortsPrefs {
     return liked.contains(id);
   }
 
+  static Future<Set<String>> getSaved() async {
+    final p = await _prefs;
+    return (p.getStringList(_kSaved) ?? const []).toSet();
+  }
+
+  static Future<void> toggleSaved(String id) async {
+    final p = await _prefs;
+    final set = (p.getStringList(_kSaved) ?? const []).toSet();
+    if (set.contains(id)) {
+      set.remove(id);
+    } else {
+      set.add(id);
+    }
+    await p.setStringList(_kSaved, set.toList());
+  }
+
+  static Future<bool> isSaved(String id) async {
+    final saved = await getSaved();
+    return saved.contains(id);
+  }
+
   static Future<void> addSkipped(String id) async {
     final p = await _prefs;
     final set = (p.getStringList(_kSkipped) ?? const []).toSet();
@@ -98,6 +120,13 @@ class ShortsPrefs {
         : <String, int>{};
     map[id] = (map[id] ?? 0) + 1;
     await p.setString(_kReplayCounts, jsonEncode(map));
+  }
+
+  static Future<Map<String, int>> getReplayCounts() async {
+    final p = await _prefs;
+    final raw = p.getString(_kReplayCounts);
+    if (raw == null) return {};
+    return Map<String, int>.from(jsonDecode(raw) as Map);
   }
 
   static Future<void> bumpArtist(String artist) async {
@@ -125,6 +154,7 @@ class ShortsPrefs {
     await p.remove(_kLanguages);
     await p.remove(_kCategories);
     await p.remove(_kLiked);
+    await p.remove(_kSaved);
     await p.remove(_kSkipped);
     await p.remove(_kReplayCounts);
     await p.remove(_kArtistFreq);
