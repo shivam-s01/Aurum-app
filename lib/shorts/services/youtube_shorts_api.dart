@@ -33,7 +33,7 @@ class YoutubeShortsApi {
   static const _searchTimeout = Duration(seconds: 8);
 
   // key: "category::language" -> live paginated search cursor.
-  static final Map<String, SearchList?> _cursors = {};
+  static final Map<String, VideoSearchList?> _cursors = {};
   // Guards against two overlapping fetches for the same key racing
   // and both calling nextPage() off the same cursor.
   static final Map<String, Future<List<ShortItem>>> _inFlight = {};
@@ -77,7 +77,7 @@ class YoutubeShortsApi {
     int limit,
   ) async {
     try {
-      SearchList? cursor = _cursors[key];
+      VideoSearchList? cursor = _cursors[key];
 
       if (cursor == null) {
         final query = _buildQuery(category, language);
@@ -85,10 +85,6 @@ class YoutubeShortsApi {
       } else {
         final more = await cursor.nextPage().timeout(_searchTimeout);
         if (more == null) {
-          // Cursor exhausted — reset so a future call starts a fresh
-          // search rather than getting stuck returning nothing
-          // forever. With how large YouTube's result set is for any
-          // real category term this should be very rare in practice.
           _cursors[key] = null;
           return const [];
         }
@@ -98,7 +94,6 @@ class YoutubeShortsApi {
       _cursors[key] = cursor;
 
       return cursor
-          .whereType<Video>()
           .take(limit)
           .map((v) => _toShortItem(v, category))
           .where((s) => s.isPlayable)
