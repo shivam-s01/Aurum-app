@@ -102,9 +102,16 @@ class ShortsFeedController extends ChangeNotifier {
     // multi-era fetch. The full batch loads right behind it in the
     // background and appends once ready — user never sees the seam
     // because they're still on/near item 0 by the time it lands.
+    //
+    // rotation is bumped in persisted storage on every launch (see
+    // ShortsPrefs.nextFirstPaintRotation) so the opening card's query
+    // term varies across app restarts / feed re-inits instead of
+    // being frozen on the same seed-artist+category combo forever.
+    final rotation = await ShortsPrefs.nextFirstPaintRotation();
     final firstPaint = await _engine.fetchFirstPaint(
       languages: _languages,
       categories: _categories,
+      rotation: rotation,
     );
     for (final item in firstPaint) {
       _shownKeys.add(item.dedupeKey);
@@ -274,7 +281,9 @@ class ShortsFeedController extends ChangeNotifier {
       _videoController = controller;
       _videoStatus = ShortsVideoStatus.ready;
       notifyListeners();
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('AURUM_SHORTS_VIDEO_FAIL: $e');
+      debugPrint('$st');
       if (myToken == _videoRequestToken) {
         _videoStatus = ShortsVideoStatus.failed;
         notifyListeners();

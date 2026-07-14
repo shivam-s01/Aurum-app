@@ -16,6 +16,7 @@ class ShortsPrefs {
   static const _kReplayCounts = 'shorts_replay_counts'; // json map id->count
   static const _kArtistFreq = 'shorts_artist_freq'; // json map artist->count
   static const _kWifiOnlyVideo = 'shorts_wifi_only_video';
+  static const _kFirstPaintRotation = 'shorts_first_paint_rotation';
 
   static SharedPreferences? _prefsCache;
 
@@ -161,6 +162,23 @@ class ShortsPrefs {
     await p.setBool(_kWifiOnlyVideo, value);
   }
 
+  // ── First-paint rotation ────────────────────────────────────
+  // Bumped once per app/feed launch (init() or preferences-driven
+  // restart). Used to rotate ShortsRecommendationEngine's very
+  // first query term (seed artist / era hint) so the opening card
+  // isn't permanently frozen on the same iTunes top result every
+  // time the user reopens Shorts or re-saves the same
+  // language/category selection. Persisted (not just in-memory)
+  // specifically so a full app restart also gets a new value —
+  // that was the actual complaint: "restart karo, same song again".
+  static Future<int> nextFirstPaintRotation() async {
+    final p = await _prefs;
+    final current = p.getInt(_kFirstPaintRotation) ?? 0;
+    final next = current + 1;
+    await p.setInt(_kFirstPaintRotation, next);
+    return next;
+  }
+
   /// For settings/debug — wipe all shorts prefs (not onboarding data
   /// from other features).
   static Future<void> resetAll() async {
@@ -174,5 +192,6 @@ class ShortsPrefs {
     await p.remove(_kReplayCounts);
     await p.remove(_kArtistFreq);
     await p.remove(_kWifiOnlyVideo);
+    await p.remove(_kFirstPaintRotation);
   }
 }

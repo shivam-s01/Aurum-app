@@ -41,6 +41,7 @@ class ShortsRecommendationEngine {
   Future<List<ShortItem>> fetchFirstPaint({
     required List<String> languages,
     required List<String> categories,
+    required int rotation,
   }) async {
     if (languages.isEmpty || categories.isEmpty) return const [];
     final lang = languages.first;
@@ -48,14 +49,23 @@ class ShortsRecommendationEngine {
     final cat = categories.first;
     final hint = ShortsCatalog.categories[cat] ?? cat.toLowerCase();
 
-    // Use a seed-artist term when available — same accuracy reasoning
-    // as fetchBatch: plain "bhojpuri <category>" queries sometimes
-    // surface mismatched Hindi results, but an artist name anchors
-    // the search to genuinely-that-language content.
+    // Rotate the seed artist / era hint using [rotation] — a counter
+    // bumped once per feed launch (see ShortsPrefs.nextFirstPaintRotation)
+    // — instead of always picking index 0. Previously this always
+    // built the exact same term (seeds.first + hint) regardless of
+    // restart, session, or how many times preferences were re-saved
+    // with the same language/category — since the query never
+    // changed, iTunes' deterministic relevance ranking returned the
+    // identical top result every single time, which is why the very
+    // first card never varied even across full app restarts. This
+    // isn't randomness — same rotation value always produces the
+    // same term — it just stops the term from being permanently
+    // frozen on the same index every launch.
     final seeds = ShortsCatalog.languageSeedArtists[lang];
+    final era = _eraHints[rotation % _eraHints.length];
     final term = (seeds != null && seeds.isNotEmpty)
-        ? '${seeds.first} $hint'
-        : '$lang $hint';
+        ? '${seeds[rotation % seeds.length]} $hint'
+        : '$lang $hint $era';
 
     final items = await ItunesShortsApi.search(
       term: term,

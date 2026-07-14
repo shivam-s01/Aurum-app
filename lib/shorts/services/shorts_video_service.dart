@@ -236,6 +236,7 @@ class ShortsVideoService {
 
       final url = decoded['url'] as String?;
       if (url == null || url.isEmpty) return null;
+      final client = decoded['client'] as String? ?? 'ANDROID_VR';
 
       // IMPORTANT: we do NOT hand the raw googlevideo.com URL to
       // VideoPlayerController directly. That URL is bound to the
@@ -245,12 +246,28 @@ class ShortsVideoService {
       // ExoPlayer surfaces as a generic "Source error" rather than a
       // clear 403. Instead we route playback through the Worker's own
       // /api/video-proxy, which re-fetches with the correct header
-      // server-side and streams the bytes through — the same pattern
-      // the main app's audio pipeline already uses for its yt-proxy
-      // route, and the most robust fix since it doesn't depend on us
-      // guessing/maintaining the right header client-side.
+      // server-side and streams the bytes through.
+      //
+      // We pass the ALREADY-RESOLVED url + client through explicitly
+      // rather than just the videoId. Previously the proxy re-ran the
+      // *entire* resolve chain (android_vr -> ios -> tv -> piped) from
+      // scratch on every single proxy request, on top of the resolve
+      // we'd already just done here. That's up to two independent
+      // 15s-budgeted resolve chains back-to-back before a single byte
+      // of video streams — and since each resolve is non-deterministic
+      // (whichever client chain wins that race), the second resolve
+      // could even land on a different client/URL than the first. Net
+      // effect: long stalls and occasional silent failures, which is
+      // exactly the "stuck on static artwork" symptom. Passing the
+      // resolved url+client straight through means the proxy does
+      // zero re-resolving — it just fetches that exact URL with the
+      // matching UA and streams it.
       final proxyUrl = Uri.parse('$_worker/api/video-proxy').replace(
-        queryParameters: {'id': youtubeId},
+        queryParameters: {
+          'id': youtubeId,
+          'url': url,
+          'client': client,
+        },
       );
 
       return ShortsVideoResult(
