@@ -48,8 +48,17 @@ class ShortsRecommendationEngine {
     final cat = categories.first;
     final hint = ShortsCatalog.categories[cat] ?? cat.toLowerCase();
 
+    // Use a seed-artist term when available — same accuracy reasoning
+    // as fetchBatch: plain "bhojpuri <category>" queries sometimes
+    // surface mismatched Hindi results, but an artist name anchors
+    // the search to genuinely-that-language content.
+    final seeds = ShortsCatalog.languageSeedArtists[lang];
+    final term = (seeds != null && seeds.isNotEmpty)
+        ? '${seeds.first} $hint'
+        : '$lang $hint';
+
     final items = await ItunesShortsApi.search(
-      term: '$lang $hint',
+      term: term,
       country: country,
       limit: 8,
     );
@@ -93,10 +102,26 @@ class ShortsRecommendationEngine {
 
     final perLanguageFutures = languages.take(3).map((lang) async {
       final country = ShortsCatalog.languageToCountry[lang] ?? 'IN';
+
+      // Artist-anchored terms are the strongest relevance signal —
+      // "Khesari Lal Yadav new songs" reliably returns Bhojpuri
+      // content in a way "bhojpuri new songs" alone sometimes
+      // doesn't. Rotate through the seed list deterministically by
+      // batch so repeated fetches don't hammer the same 2 artists
+      // every time.
+      final seeds = ShortsCatalog.languageSeedArtists[lang] ?? const [];
+      final pickedSeeds = seeds.isEmpty
+          ? const <String>[]
+          : List<String>.generate(
+              seeds.length < 2 ? seeds.length : 2,
+              (i) => seeds[(myBatch + i) % seeds.length],
+            );
+
       final terms = <String>[
         for (final cat in pickedCats)
           '$lang ${ShortsCatalog.categories[cat] ?? cat.toLowerCase()}',
         for (final era in pickedEras) '$lang $era songs',
+        for (final seed in pickedSeeds) '$seed new songs',
       ];
 
       final items = await ItunesShortsApi.searchMany(
@@ -104,7 +129,31 @@ class ShortsRecommendationEngine {
         country: country,
         limitPerTerm: 20,
       );
-      return items.map((i) => i.copyWithLanguage(lang)).toList();
+
+      // ── Language sanity filter ──────────────────────────────
+      // For languages with a known title-hint keyword (currently
+      // Bhojpuri/Punjabi, the two that most often got Hindi
+      // false-positives), drop results whose title/artist don't
+      // contain any language signal AND aren't from a known seed
+      // artist. This is a coarse heuristic, not a real language
+      // classifier, but it reliably filters out generic Hindi
+      // results that only matched on an unrelated word in the query.
+      final hints = ShortsCatalog.languageTitleHints[lang];
+      final seedNamesLower =
+          seeds.map((s) => s.toLowerCase()).toSet();
+      final filtered = hints == null
+          ? items
+          : items.where((item) {
+              final artistLower = item.artist.toLowerCase();
+              if (seedNamesLower.any((s) => artistLower.contains(s))) {
+                return true;
+              }
+              final haystack =
+                  '${item.title} ${item.artist} ${item.album}'.toLowerCase();
+              return hints.any((h) => haystack.contains(h));
+            }).toList();
+
+      return filtered.map((i) => i.copyWithLanguage(lang)).toList();
     }).toList();
 
     final perLanguageResults = await Future.wait(perLanguageFutures);

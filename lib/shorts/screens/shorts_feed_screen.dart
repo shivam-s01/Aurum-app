@@ -26,14 +26,19 @@ class ShortsFeedScreen extends StatefulWidget {
 
 class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
   ShortsFeedController _controller = ShortsFeedController();
-  late final PageController _pageController;
+  PageController _pageController = PageController();
   bool _showHeart = false;
   bool _resolvingFullSong = false;
+  // Bumped on every preferences-driven restart. Used as a Widget key
+  // for the PageView so Flutter treats the post-restart feed as a
+  // brand-new widget instance rather than reusing internal scroll
+  // state tied to the previous PageController/controller pairing —
+  // that stale reuse was part of what made refresh feel "stuck".
+  int _feedGeneration = 0;
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
     _controller.init();
   }
 
@@ -50,17 +55,38 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
   /// shown-item history) is fully disposed so nothing from the old
   /// preference set leaks into the new feed.
   Future<void> _restartFeedWithNewPreferences() async {
-    final old = _controller;
+    final oldController = _controller;
+    final oldPageController = _pageController;
     final fresh = ShortsFeedController();
+
+    // Swap in a brand-new PageController + bump the generation key
+    // together with the new feed controller. Reusing the old
+    // PageController across a full feed replacement was fragile —
+    // it could retain a page/offset from the previous feed that no
+    // longer made sense once the new (usually shorter, freshly
+    // fetched) item list swapped in, effectively hanging the view.
     setState(() {
       _controller = fresh;
+      _pageController = PageController();
+      _feedGeneration++;
     });
-    // Jump the PageView back to the top for the new feed.
-    if (_pageController.hasClients) {
-      _pageController.jumpToPage(0);
-    }
+
+    // Let init() fully populate items BEFORE touching the
+    // PageController. Calling jumpToPage(0) while the new
+    // controller's item list is still empty was the root cause of
+    // the "refresh gets stuck" bug — PageView has nothing to jump
+    // to yet, so the page silently fails to reset and the UI hangs
+    // showing the loading spinner indefinitely.
     await fresh.init();
-    old.dispose();
+
+    if (!mounted) {
+      oldController.dispose();
+      oldPageController.dispose();
+      return;
+    }
+
+    oldController.dispose();
+    oldPageController.dispose();
   }
 
   void _flashHeart() {
@@ -173,6 +199,7 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
             return Stack(
               children: [
                 PageView.builder(
+                  key: ValueKey(_feedGeneration),
                   controller: _pageController,
                   scrollDirection: Axis.vertical,
                   itemCount: ctrl.items.length,

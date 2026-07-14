@@ -75,4 +75,47 @@ class ShortsCatalog {
     'French': 'FR',
     'Russian': 'RU',
   };
+
+  /// Well-known artists per language, used as extra search seed terms.
+  /// iTunes' plain-text relevance ranking under the IN storefront
+  /// skews heavily toward Hindi/mainstream Bollywood regardless of
+  /// what language word you put in the query — "bhojpuri party" can
+  /// still surface Hindi results if iTunes' catalog coverage for that
+  /// exact phrase is thin. Anchoring searches to real artist names
+  /// known for that language is a much stronger relevance signal and
+  /// reliably pulls in genuinely-that-language content.
+  static const Map<String, List<String>> languageSeedArtists = {
+    'Bhojpuri': [
+      'Khesari Lal Yadav',
+      'Pawan Singh',
+      'Kalpana',
+      'Ritesh Pandey',
+      'Neelkamal Singh',
+    ],
+    'Punjabi': [
+      'Diljit Dosanjh',
+      'Sidhu Moose Wala',
+      'AP Dhillon',
+      'Karan Aujla',
+      'Guru Randhawa',
+    ],
+    'Tamil': ['Anirudh Ravichander', 'A.R. Rahman', 'Sid Sriram'],
+    'Telugu': ['Devi Sri Prasad', 'S. Thaman'],
+    'Malayalam': ['M. Jayachandran', 'Sushin Shyam'],
+    'Kannada': ['Arjun Janya', 'V. Harikrishna'],
+    'Marathi': ['Ajay-Atul'],
+    'Gujarati': ['Kinjal Dave', 'Geeta Rabari'],
+    'Bengali': ['Arijit Singh Bengali', 'Anupam Roy'],
+    'Hindi': ['Arijit Singh', 'Neha Kakkar', 'Jubin Nautiyal'],
+  };
+
+  /// Coarse keyword signals used to sanity-check a result actually
+  /// belongs to the claimed language, catching cases where iTunes
+  /// returned a mismatched (usually Hindi) result despite a
+  /// language-scoped query. Not exhaustive — a heuristic safety net,
+  /// not a hard language classifier.
+  static const Map<String, List<String>> languageTitleHints = {
+    'Bhojpuri': ['bhojpuri', 'bhojpuriya'],
+    'Punjabi': ['punjabi', 'panjabi'],
+  };
 }
