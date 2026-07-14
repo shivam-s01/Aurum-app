@@ -247,8 +247,21 @@ class ShortsFeedController extends ChangeNotifier {
     }
 
     try {
+      // IMPORTANT: googlevideo.com playback URLs are bound to the
+      // User-Agent of the client that requested them from YouTube
+      // (the Worker used ANDROID_VR/iOS/TV headers server-side to
+      // get this URL in the first place). A bare request with no
+      // User-Agent — which is what VideoPlayerController.networkUrl
+      // sends by default — gets silently rejected by the CDN, which
+      // ExoPlayer surfaces as a generic ExoPlaybackException/"Source
+      // error" rather than a clear 403. Passing the matching header
+      // here is what makes the resolved URL actually playable.
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(result.streamUrl),
+        httpHeaders: const {
+          'User-Agent':
+              'com.google.android.apps.youtube.vr.oculus/1.71.26 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
+        },
       );
       await controller.initialize();
       if (myToken != _videoRequestToken || currentItem?.id != item.id) {
@@ -305,6 +318,10 @@ class ShortsFeedController extends ChangeNotifier {
     try {
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(result.streamUrl),
+        httpHeaders: const {
+          'User-Agent':
+              'com.google.android.apps.youtube.vr.oculus/1.71.26 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
+        },
       );
       await controller.initialize();
       if (myPreload != _preloadToken) {

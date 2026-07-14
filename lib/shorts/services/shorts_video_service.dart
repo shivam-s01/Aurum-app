@@ -226,15 +226,7 @@ class ShortsVideoService {
   static Future<ShortsVideoResult?> _resolveStream(String youtubeId) async {
     try {
       final uri = Uri.parse('$_worker/api/video-resolve').replace(
-        queryParameters: {
-          'id': youtubeId,
-          // Cap requested quality — this feed is a small muted
-          // background layer, never full-screen focal video, so
-          // there's no reason to pull 1080p and burn data/battery
-          // decoding it. Worker falls back to its own default if it
-          // doesn't understand the param, so this is safe either way.
-          'maxQuality': '480p',
-        },
+        queryParameters: {'id': youtubeId},
       );
       final res = await http.get(uri).timeout(_resolveTimeout);
       if (res.statusCode != 200) return null;
@@ -245,8 +237,24 @@ class ShortsVideoService {
       final url = decoded['url'] as String?;
       if (url == null || url.isEmpty) return null;
 
+      // IMPORTANT: we do NOT hand the raw googlevideo.com URL to
+      // VideoPlayerController directly. That URL is bound to the
+      // User-Agent the Worker used server-side to obtain it from
+      // YouTube (ANDROID_VR/iOS/TV) — a bare client request with no
+      // matching header gets silently rejected by the CDN, which
+      // ExoPlayer surfaces as a generic "Source error" rather than a
+      // clear 403. Instead we route playback through the Worker's own
+      // /api/video-proxy, which re-fetches with the correct header
+      // server-side and streams the bytes through — the same pattern
+      // the main app's audio pipeline already uses for its yt-proxy
+      // route, and the most robust fix since it doesn't depend on us
+      // guessing/maintaining the right header client-side.
+      final proxyUrl = Uri.parse('$_worker/api/video-proxy').replace(
+        queryParameters: {'id': youtubeId},
+      );
+
       return ShortsVideoResult(
-        streamUrl: url,
+        streamUrl: proxyUrl.toString(),
         youtubeId: (decoded['videoId'] ?? youtubeId) as String,
       );
     } on TimeoutException {
