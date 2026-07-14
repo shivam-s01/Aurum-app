@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../theme/aurum_theme.dart';
 import '../models/short_item.dart';
+import 'shorts_waveform_bar.dart';
 
 /// Bottom-anchored info block for a Shorts card: small artwork,
 /// title/artist, animated progress bar with gradient fade backdrop.
@@ -19,8 +20,10 @@ class ShortsInfoOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = duration.inMilliseconds > 0
-        ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
+    final double progress = duration.inMilliseconds > 0
+        ? (position.inMilliseconds / duration.inMilliseconds)
+            .clamp(0.0, 1.0)
+            .toDouble()
         : 0.0;
 
     return Container(
@@ -93,15 +96,10 @@ class ShortsInfoOverlay extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 3,
-              backgroundColor: Colors.white.withOpacity(0.15),
-              valueColor: const AlwaysStoppedAnimation(AurumTheme.gold),
-            ),
+          const SizedBox(height: 10),
+          ShortsWaveformBar(
+            progress: progress,
+            seed: item.id,
           ),
         ],
       ),

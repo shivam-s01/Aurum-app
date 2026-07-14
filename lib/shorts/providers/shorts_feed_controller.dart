@@ -5,6 +5,8 @@ import '../models/short_item.dart';
 import '../services/shorts_prefs.dart';
 import '../services/shorts_recommendation_engine.dart';
 
+enum DownloadTrackState { idle, downloading, done }
+
 /// Owns the Shorts feed state: the item list, current index, preload
 /// window, and a dedicated just_audio player instance for 30s
 /// previews. Deliberately does NOT touch AurumAudioEngine / the
@@ -20,6 +22,8 @@ class ShortsFeedController extends ChangeNotifier {
   bool _loadingMore = false;
   bool _initialLoading = true;
   bool _liked = false;
+  bool _saved = false;
+  DownloadTrackState _downloadState = DownloadTrackState.idle;
   StreamSubscription<PlayerState>? _stateSub;
   StreamSubscription<Duration>? _positionSub;
   Duration _position = Duration.zero;
@@ -34,6 +38,8 @@ class ShortsFeedController extends ChangeNotifier {
   int get currentIndex => _currentIndex;
   bool get initialLoading => _initialLoading;
   bool get isLiked => _liked;
+  bool get isSaved => _saved;
+  DownloadTrackState get downloadState => _downloadState;
   Duration get position => _position;
   Duration get duration => _duration;
   ShortItem? get currentItem =>
@@ -59,11 +65,31 @@ class ShortsFeedController extends ChangeNotifier {
       notifyListeners();
     });
 
-    await _loadMore();
+    // FAST PATH: get a tiny first batch (single language, single
+    // category, low limit) so the feed starts playing almost
+    // instantly instead of waiting on the full multi-language,
+    // multi-era fetch. The full batch loads right behind it in the
+    // background and appends once ready — user never sees the seam
+    // because they're still on/near item 0 by the time it lands.
+    final firstPaint = await _engine.fetchFirstPaint(
+      languages: _languages,
+      categories: _categories,
+    );
+    for (final item in firstPaint) {
+      _shownKeys.add(item.dedupeKey);
+    }
+    _items.addAll(firstPaint);
     _initialLoading = false;
     notifyListeners();
+
     if (_items.isNotEmpty) {
-      await _playCurrent();
+      unawaited(_playCurrent());
+    }
+
+    // Full batch — runs in background, doesn't block first paint.
+    await _loadMore();
+    notifyListeners();
+    if (_items.isNotEmpty) {
       unawaited(_preloadAhead());
     }
   }
@@ -82,6 +108,7 @@ class ShortsFeedController extends ChangeNotifier {
         _shownKeys.add(item.dedupeKey);
       }
       _items.addAll(batch);
+      notifyListeners();
     } finally {
       _loadingMore = false;
     }
@@ -95,6 +122,8 @@ class ShortsFeedController extends ChangeNotifier {
       await _player.setUrl(item.previewUrl);
       await _player.play();
       _liked = await ShortsPrefs.isLiked(item.id);
+      _saved = await ShortsPrefs.isSaved(item.id);
+      _downloadState = DownloadTrackState.idle; // fresh per card
       await ShortsPrefs.bumpArtist(item.artist);
       notifyListeners();
     } catch (_) {
@@ -168,6 +197,22 @@ class ShortsFeedController extends ChangeNotifier {
     if (item == null) return;
     await ShortsPrefs.toggleLiked(item.id);
     _liked = await ShortsPrefs.isLiked(item.id);
+    notifyListeners();
+  }
+
+  Future<void> toggleSave() async {
+    final item = currentItem;
+    if (item == null) return;
+    await ShortsPrefs.toggleSaved(item.id);
+    _saved = await ShortsPrefs.isSaved(item.id);
+    notifyListeners();
+  }
+
+  /// Called by the feed screen while it resolves+downloads the full
+  /// song, so the download button can show a real progress state
+  /// (idle → downloading → done) instead of instantly flipping.
+  void setDownloadState(DownloadTrackState state) {
+    _downloadState = state;
     notifyListeners();
   }
 
