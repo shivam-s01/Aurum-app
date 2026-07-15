@@ -89,18 +89,34 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
       children: [
         // Blurred fill layer behind — cheap way to cover edges the
         // zoomed/panned foreground doesn't reach, no letterboxing.
-        Positioned.fill(
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-            child: CachedNetworkImage(
-              imageUrl: widget.artworkUrl,
-              fit: BoxFit.cover,
-              // Blurred this heavily, full artwork resolution is
-              // wasted decode work on every single swipe — a much
-              // smaller decode target looks identical once blurred
-              // this hard, and cuts real CPU/GPU cost per card.
-              memCacheWidth: 200,
-              errorWidget: (_, __, ___) => const SizedBox.shrink(),
+        //
+        // BUGFIX (battery/perf): this layer previously had no
+        // RepaintBoundary. _zoomCtrl and _orbCtrl both run continuous
+        // repeat() loops for as long as this card is the active one on
+        // screen — 14s and 20s cycles respectively, ticking forever, not
+        // just during a transition. Without a boundary isolating this
+        // static blur from those animated siblings in the Stack, Flutter
+        // was repainting this expensive 30σ blur on every single animation
+        // frame (~60x/sec) the whole time a card was visible, instead of
+        // once when the artwork loads. On a feed you can sit on for a
+        // while, or scroll through quickly, that's a continuous and
+        // completely unnecessary GPU/battery cost. The blur's source
+        // image never changes while active, so it only needs to be
+        // painted once.
+        RepaintBoundary(
+          child: Positioned.fill(
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: CachedNetworkImage(
+                imageUrl: widget.artworkUrl,
+                fit: BoxFit.cover,
+                // Blurred this heavily, full artwork resolution is
+                // wasted decode work on every single swipe — a much
+                // smaller decode target looks identical once blurred
+                // this hard, and cuts real CPU/GPU cost per card.
+                memCacheWidth: 200,
+                errorWidget: (_, __, ___) => const SizedBox.shrink(),
+              ),
             ),
           ),
         ),

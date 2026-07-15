@@ -21,11 +21,20 @@ class AurumArtwork extends StatelessWidget {
   final double size;
   final double borderRadius;
 
+  // BUGFIX (perf): default true preserves existing behavior everywhere
+  // (song tiles, mini player, etc. still get the polish fade). Set false
+  // for instances that are already hidden behind their own opacity/blur
+  // layer — e.g. the full player's blurred background — where the fade is
+  // invisible to the user but still costs a re-composite of whatever
+  // filter sits on top of it every single frame for its duration.
+  final bool fadeIn;
+
   const AurumArtwork({
     super.key,
     required this.url,
     required this.size,
     this.borderRadius = 8,
+    this.fadeIn = true,
   });
 
   int? get _cacheSize {
@@ -50,6 +59,7 @@ class AurumArtwork extends StatelessWidget {
         size: size,
         borderRadius: borderRadius,
         placeholder: _placeholder(context),
+        fadeIn: fadeIn,
       );
     }
 
@@ -57,19 +67,18 @@ class AurumArtwork extends StatelessWidget {
     if (url.startsWith('/') || url.startsWith('file://')) {
       final path =
           url.startsWith('file://') ? url.replaceFirst('file://', '') : url;
+      final fileImage = Image.file(
+        File(path),
+        key: ValueKey(path),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        cacheWidth: _cacheSize,
+        errorBuilder: (_, __, ___) => _placeholder(context),
+      );
       return ClipRRect(
         borderRadius: BorderRadius.circular(borderRadius),
-        child: _FadeInImage(
-          child: Image.file(
-            File(path),
-            key: ValueKey(path),
-            width: size,
-            height: size,
-            fit: BoxFit.cover,
-            cacheWidth: _cacheSize,
-            errorBuilder: (_, __, ___) => _placeholder(context),
-          ),
-        ),
+        child: fadeIn ? _FadeInImage(child: fileImage) : fileImage,
       );
     }
 
@@ -82,9 +91,13 @@ class AurumArtwork extends StatelessWidget {
         height: size,
         fit: BoxFit.cover,
         memCacheWidth: _cacheSize,
-        fadeInDuration: const Duration(milliseconds: 280),
+        fadeInDuration: fadeIn
+            ? const Duration(milliseconds: 280)
+            : Duration.zero,
         fadeInCurve: Curves.easeOut,
-        fadeOutDuration: const Duration(milliseconds: 120),
+        fadeOutDuration: fadeIn
+            ? const Duration(milliseconds: 120)
+            : Duration.zero,
         fadeOutCurve: Curves.easeIn,
         placeholder: (_, __) => _shimmer(context),
         errorWidget: (_, __, ___) => _placeholder(context),
@@ -162,12 +175,14 @@ class _ContentUriImage extends StatefulWidget {
   final double size;
   final double borderRadius;
   final Widget placeholder;
+  final bool fadeIn;
 
   const _ContentUriImage({
     required this.uri,
     required this.size,
     required this.borderRadius,
     required this.placeholder,
+    this.fadeIn = true,
   });
 
   @override
@@ -242,21 +257,20 @@ class _ContentUriImageState extends State<_ContentUriImage> {
 
     if (_bytes == null || _bytes!.isEmpty) return widget.placeholder;
 
+    final memImage = Image.memory(
+      _bytes!,
+      key: ValueKey(widget.uri),
+      width: widget.size,
+      height: widget.size,
+      fit: BoxFit.cover,
+      cacheWidth: (widget.size.isFinite && widget.size > 0)
+          ? (widget.size * 2).toInt()
+          : null,
+      errorBuilder: (_, __, ___) => widget.placeholder,
+    );
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
-      child: _FadeInImage(
-        child: Image.memory(
-          _bytes!,
-          key: ValueKey(widget.uri),
-          width: widget.size,
-          height: widget.size,
-          fit: BoxFit.cover,
-          cacheWidth: (widget.size.isFinite && widget.size > 0)
-              ? (widget.size * 2).toInt()
-              : null,
-          errorBuilder: (_, __, ___) => widget.placeholder,
-        ),
-      ),
+      child: widget.fadeIn ? _FadeInImage(child: memImage) : memImage,
     );
   }
 }

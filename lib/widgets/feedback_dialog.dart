@@ -12,6 +12,20 @@ Future<void> showFeedbackDialog(BuildContext context) {
   return showDialog(
     context: context,
     barrierColor: Colors.black.withValues(alpha: 0.5),
+    // BUGFIX: "keyboard doesn't open, dialog vanishes in ~1s the moment
+    // you tap the feedback text field". barrierDismissible defaults to
+    // true, and when the keyboard rises it shrinks the available
+    // viewport, which shifts/relayouts the dialog's content (the
+    // AnimatedPadding below reacts to viewInsets.bottom mid-animation).
+    // On Android in particular, a tap-down that starts on the TextField
+    // can end up resolving as a tap-up over the barrier once that
+    // relayout has shifted things by even a few pixels — and with the
+    // barrier dismissible, Flutter reads that as "user tapped outside"
+    // and pops the dialog before the keyboard even finishes rising.
+    // There's already an explicit "Not now" button for dismissal, so
+    // outside-tap-to-dismiss was never load-bearing UX here — disabling
+    // it removes the race entirely.
+    barrierDismissible: false,
     builder: (_) => const _FeedbackDialog(),
   );
 }
@@ -27,12 +41,6 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
     with SingleTickerProviderStateMixin {
   int _rating = 0;
   final _controller = TextEditingController();
-  // FIX (keyboard opens then instantly closes): giving the message field
-  // its own stable FocusNode (instead of an implicit/anonymous one) stops
-  // it from being torn down and recreated if this dialog's ancestor tree
-  // rebuilds right as the keyboard starts opening — that rebuild is what
-  // silently dropped focus a moment after the field was tapped.
-  final _messageFocus = FocusNode();
   bool _sending = false;
   bool _sent = false;
 
@@ -47,7 +55,6 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   @override
   void dispose() {
     _controller.dispose();
-    _messageFocus.dispose();
     _iconCtrl.dispose();
     super.dispose();
   }
@@ -89,50 +96,66 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final screenSize = MediaQuery.of(context).size;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    // FIX (dialog grows into a long page when keyboard opens): the card's
-    // height used to be driven by its content + keyboard inset together,
-    // so opening the keyboard made the whole dialog taller. Now the card
-    // has one fixed height regardless of keyboard state — capped to a
-    // comfortable fraction of the screen so it still fits on small
-    // devices. The keyboard's own show/hide slide is Flutter's native
-    // animation and is completely untouched here; only our card's own
-    // size is now constant, so the keyboard still opens with its normal
-    // premium smooth slide, it just no longer drags the dialog along
-    // with it.
-    final cardHeight = (screenSize.height * 0.62).clamp(420.0, 560.0);
+    // BUGFIX: with only AnimatedPadding pushing content up for the
+    // keyboard and no upper bound on the dialog's own height, a tall
+    // keyboard (300px+) on a device with limited vertical space could
+    // push the card's effective height past what's actually left on
+    // screen — a silent overflow in release mode, which is what read as
+    // "opens then vanishes/goes blank" rather than a clean resize.
+    // Capping maxHeight against the keyboard-shrunk viewport (with the
+    // dialog's own 24px vertical insetPadding accounted for) guarantees
+    // the card can never ask for more room than actually exists, so
+    // SingleChildScrollView below takes over instead of overflowing.
+    final maxDialogHeight =
+        MediaQuery.of(context).size.height - bottomInset - 48;
 
     return Dialog(
       backgroundColor: Colors.transparent,
+      // FIX — previously this manually added viewInsets.bottom into the
+      // insetPadding itself. Dialog already resizes/repositions for the
+      // keyboard on its own; doubling up on the same inset shrank the
+      // available height the moment the TextField requested focus, which
+      // fought the keyboard animation and left it never actually opening
+      // (the field looked focusable but the keyboard sheet never rose).
+      // Plain fixed padding here — the AnimatedPadding below is what
+      // now smoothly follows the keyboard.
       insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-          child: Container(
-            height: cardHeight,
-            decoration: BoxDecoration(
-              color: (isDark ? Colors.black : Colors.white)
-                  .withValues(alpha: isDark ? 0.55 : 0.85),
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(
-                color: (isDark ? Colors.white : Colors.black)
-                    .withValues(alpha: 0.08),
-                width: 1,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: maxDialogHeight > 0 ? maxDialogHeight : double.infinity,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+            child: Container(
+              decoration: BoxDecoration(
+                color: (isDark ? Colors.black : Colors.white)
+                    .withValues(alpha: isDark ? 0.55 : 0.85),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: (isDark ? Colors.white : Colors.black)
+                      .withValues(alpha: 0.08),
+                  width: 1,
+                ),
               ),
-            ),
-            padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
-            // Content scrolls internally if it (plus the keyboard, via
-            // the bottom padding below) doesn't fit — the card itself
-            // never resizes, so no growth/shrink, no re-composited
-            // BackdropFilter, no focus loss.
-            child: SingleChildScrollView(
-              padding: EdgeInsets.only(bottom: bottomInset),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: _sent ? _buildThankYou(context) : _buildForm(context),
+              // Smoothly slides the whole card up as the keyboard rises,
+              // instead of the old approach that tried to pre-shrink the
+              // dialog's outer inset before the keyboard was even there.
+              child: AnimatedPadding(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                padding: EdgeInsets.only(bottom: bottomInset),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
+                  child: SingleChildScrollView(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: _sent ? _buildThankYou(context) : _buildForm(context),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -203,7 +226,6 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
         const SizedBox(height: 20),
         TextField(
           controller: _controller,
-          focusNode: _messageFocus,
           maxLines: 3,
           minLines: 2,
           textCapitalization: TextCapitalization.sentences,

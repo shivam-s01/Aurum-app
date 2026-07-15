@@ -606,11 +606,23 @@ class _SearchScreenState extends State<SearchScreen>
     // the new search resolves; _buildResults()/_buildLivePanel() below
     // render a slim top progress line instead so the transition reads as
     // "refreshing", not "reloading the whole page".
+    // BUGFIX: this branch (and _buildEmpty/_buildHistory/_buildLivePanel/
+    // _buildResults below) used to each wrap themselves in their own
+    // ColoredBox(color: bgOf(context)). The outer AnimatedSwitcher above
+    // already sits on top of a solid ColoredBox background (see the "Tab 0"
+    // wrapper), so every one of these was a second, redundant background
+    // layer. During the 280ms cross-fade/scale transition between two
+    // states (e.g. empty → live the instant you start typing),
+    // AnimatedSwitcher keeps BOTH the outgoing and incoming subtrees on
+    // screen at once — so two overlapping ColoredBoxes, each fading/scaling
+    // independently, briefly produced a visible flash/wash across the
+    // whole screen that looked like the theme was changing. It wasn't a
+    // theme bug — it was two stacked opaque backgrounds animating against
+    // each other. Removing the inner ColoredBox from every branch means
+    // the switcher now only ever cross-fades the actual content on a
+    // single, stable background.
     if (_loading && !_hasVisibleContent) {
-      return ColoredBox(
-        color: AurumTheme.bgOf(context),
-        child: const Center(key: ValueKey('loading'), child: AurumMorphLoader(size: 56)),
-      );
+      return const Center(key: ValueKey('loading'), child: AurumMorphLoader(size: 56));
     }
     if (_results.isNotEmpty) return _buildResults();
     if (_controller.text.trim().isNotEmpty) return _buildLivePanel(context);
@@ -689,9 +701,7 @@ class _SearchScreenState extends State<SearchScreen>
 
   Widget _buildHistory(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return ColoredBox(
-      color: AurumTheme.bgOf(context),
-      child: Column(
+    return Column(
       key: const ValueKey('history'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -741,7 +751,6 @@ class _SearchScreenState extends State<SearchScreen>
           ),
         ),
       ],
-      ),
     );
   }
 
@@ -779,10 +788,7 @@ class _SearchScreenState extends State<SearchScreen>
       );
     }
 
-    return ColoredBox(
-      color: AurumTheme.bgOf(context),
-      child: KeyedSubtree(key: const ValueKey('live'), child: content),
-    );
+    return KeyedSubtree(key: const ValueKey('live'), child: content);
   }
 
   Widget _buildLiveProgressBar(BuildContext context) {
@@ -848,35 +854,32 @@ class _SearchScreenState extends State<SearchScreen>
   // ── Results ──────────────────────────────────────────────────
 
   Widget _buildResults() {
-    return ColoredBox(
-      color: AurumTheme.bgOf(context),
-      child: Stack(
-        children: [
-          ListView.builder(
-            key: const ValueKey('results'),
-            physics: const BouncingScrollPhysics(),
-            itemCount: _results.length,
-            itemExtent: 66,
-            padding: const EdgeInsets.only(bottom: 80),
-            itemBuilder: (_, i) => _StaggeredItem(
-              index: i,
-              child: SongTile(
-                key: ValueKey('result_${_results[i].id}_$i'),
-                song: _results[i], queue: _results, index: i,
-              ),
+    return Stack(
+      children: [
+        ListView.builder(
+          key: const ValueKey('results'),
+          physics: const BouncingScrollPhysics(),
+          itemCount: _results.length,
+          itemExtent: 66,
+          padding: const EdgeInsets.only(bottom: 80),
+          itemBuilder: (_, i) => _StaggeredItem(
+            index: i,
+            child: SongTile(
+              key: ValueKey('result_${_results[i].id}_$i'),
+              song: _results[i], queue: _results, index: i,
             ),
           ),
-          // Thin top progress line while a new submit-search is refreshing
-          // these same results — this is the "premium" refresh cue: the
-          // list the user was already looking at stays put and scrollable,
-          // instead of the whole screen vanishing behind a full loader.
-          if (_loading)
-            const Positioned(
-              top: 0, left: 0, right: 0,
-              child: SizedBox(height: 2, child: AurumM3Loader(height: 2)),
-            ),
-        ],
-      ),
+        ),
+        // Thin top progress line while a new submit-search is refreshing
+        // these same results — this is the "premium" refresh cue: the
+        // list the user was already looking at stays put and scrollable,
+        // instead of the whole screen vanishing behind a full loader.
+        if (_loading)
+          const Positioned(
+            top: 0, left: 0, right: 0,
+            child: SizedBox(height: 2, child: AurumM3Loader(height: 2)),
+          ),
+      ],
     );
   }
 
@@ -884,43 +887,40 @@ class _SearchScreenState extends State<SearchScreen>
 
   Widget _buildEmpty(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return ColoredBox(
-      color: AurumTheme.bgOf(context),
-      child: Center(
-        key: const ValueKey('empty'),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(
-            width: 96,
-            height: 96,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  AurumTheme.gold.withOpacity(0.16),
-                  AurumTheme.gold.withOpacity(0.0),
-                ],
-              ),
-            ),
-            child: Center(
-              child: ShaderMask(
-                shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
-                child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 46),
-              ),
+    return Center(
+      key: const ValueKey('empty'),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Container(
+          width: 96,
+          height: 96,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [
+                AurumTheme.gold.withOpacity(0.16),
+                AurumTheme.gold.withOpacity(0.0),
+              ],
             ),
           ),
-          const SizedBox(height: 20),
-          Text(l10n.searchFavouriteSongs,
-              style: TextStyle(
-                  color: AurumTheme.textSecondaryOf(context),
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 6),
-          Text(l10n.searchAllInOnePlace,
-              style: TextStyle(
-                  color: AurumTheme.textMutedOf(context),
-                  fontSize: 12.5)),
-        ]),
-      ),
+          child: Center(
+            child: ShaderMask(
+              shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
+              child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 46),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text(l10n.searchFavouriteSongs,
+            style: TextStyle(
+                color: AurumTheme.textSecondaryOf(context),
+                fontSize: 14.5,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        Text(l10n.searchAllInOnePlace,
+            style: TextStyle(
+                color: AurumTheme.textMutedOf(context),
+                fontSize: 12.5)),
+      ]),
     );
   }
 }

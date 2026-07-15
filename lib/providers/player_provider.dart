@@ -322,16 +322,34 @@ class PlayerProvider extends ChangeNotifier {
         : _currentSong;
 
     // FIX (see _expectedSongId doc comment above): if we're still waiting
-    // on the engine to confirm a just-tapped song, ignore any state event
-    // that reports a DIFFERENT song id — that's a stale/in-flight event
-    // from before the engine switched tracks (or, on cold start, its
-    // initial default-queue-position report). Only stop guarding once the
-    // engine's id actually matches what we're expecting, or there's
-    // nothing pending.
-    final isStaleWhileAwaitingSwitch = _expectedSongId != null &&
-        state.currentSongId != null &&
-        state.currentSongId != _expectedSongId;
-    if (isStaleWhileAwaitingSwitch) {
+    // on the engine to confirm a just-tapped song, ignore ANY state event
+    // that doesn't definitively confirm we've switched — that's a stale/
+    // in-flight event from before the engine switched tracks.
+    //
+    // BUGFIX (2026-07): "UI shows the OLD song for a few seconds after
+    // tapping a new one, even though audio is already playing the new
+    // song correctly." The previous version of this guard only caught
+    // state events reporting a DIFFERENT, NON-NULL currentSongId. But
+    // while the engine is mid-switch it can also emit events with
+    // currentSongId == null (no track attached yet) or with a
+    // currentSongId that isn't in `_queue` yet because the queue mirror
+    // is still reconciling against the OLD queueIds. Neither of those
+    // tripped the old guard, so execution fell through to `resolvedSong`,
+    // whose final fallback (line ~320) is `_queue[newIndex]` — still
+    // pointing at the OLD song at that moment. That silently overwrote
+    // the correct optimistic `_currentSong` (the newly-tapped song) back
+    // to the previous one, and stayed wrong until the engine finally sent
+    // an event whose currentSongId truly matched `_expectedSongId`.
+    //
+    // Fix: while an expectation is pending, only accept a state event as
+    // authoritative if it actually reports the expected song id. Anything
+    // else — null id, a different id, or an id that resolved to nothing
+    // in the queue — is treated as stale and skipped, so the optimistic
+    // value from playSong() keeps winning until the engine genuinely
+    // catches up.
+    final isConfirmedSwitch =
+        _expectedSongId == null || state.currentSongId == _expectedSongId;
+    if (!isConfirmedSwitch) {
       // Still apply the parts of `state` that are safe regardless of which
       // song they're about (buffering/duration/etc. were already set
       // above) — just skip clobbering _currentSong/_currentIndex this tick.

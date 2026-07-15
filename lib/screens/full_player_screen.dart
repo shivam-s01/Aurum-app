@@ -3944,10 +3944,27 @@ class _BgLayer extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _StaticBlurArtwork — the expensive 40-42σ blur, built once per song
-// (keyed on song id + artwork url) instead of every breathe-controller
-// tick. This single change removes the majority of the full player's
-// idle GPU cost, since this was previously rebuilding 60x/sec forever.
+// _StaticBlurArtwork — built once per song (keyed on song id + artwork url)
+// instead of every breathe-controller tick. This single change removes the
+// majority of the full player's idle GPU cost, since this was previously
+// rebuilding 60x/sec forever.
+//
+// BUGFIX (perf): sigma was 40-42, which on a 1.55x-scaled full-screen layer
+// is one of the single most expensive paint ops Flutter can do on a mobile
+// GPU — this alone was responsible for the visible stall on full-player
+// open and the stutter on every song change/skip (the layer is rebuilt
+// once per song, so every song change re-paid this cost). Dropped to
+// 20/22σ: after the 1.55x scale-up and the existing 220px capped decode
+// (see AurumArtwork._cacheSize), detail is already destroyed well before
+// 40σ — visually the two are effectively indistinguishable, but 20-22σ is
+// roughly a quarter of the GPU cost.
+//
+// Also: AurumArtwork's CachedNetworkImage normally fades in over 280ms —
+// fine for artwork you look at directly, but wasteful here since this
+// layer sits under Opacity(~0.88) and a blur filter, both of which hide
+// any pop-in anyway. Every frame of that 280ms fade was forcing Flutter to
+// re-composite the blur, on top of the blur's own per-song cost. Passing
+// fadeIn: false skips that animation for this specific instance only.
 // ─────────────────────────────────────────────────────────────────────────────
 class _StaticBlurArtwork extends StatelessWidget {
   final Song song;
@@ -3964,23 +3981,16 @@ class _StaticBlurArtwork extends StatelessWidget {
         child: Transform.scale(
           scale: 1.55,
           child: ImageFiltered(
-            // FIX (open lag / heating): sigma was 40/42 — a full-screen
-            // blur at that radius is the single most expensive paint op
-            // on this screen, and the very first time it's used in a
-            // session Skia has to compile/warm the blur shader, which is
-            // what read as the player taking ~3s to open. 18/20 looks
-            // near-identical once scaled 1.55x and sitting behind the
-            // gradient/vignette layers, but is far cheaper to rasterize
-            // and keeps the GPU cooler on repeat opens too.
             imageFilter: ImageFilter.blur(
-              sigmaX: isLight ? 18 : 20,
-              sigmaY: isLight ? 18 : 20,
+              sigmaX: isLight ? 20 : 22,
+              sigmaY: isLight ? 20 : 22,
               tileMode: TileMode.clamp,
             ),
             child: AurumArtwork(
               url: song.artworkUrl,
               size: double.infinity,
               borderRadius: 0,
+              fadeIn: false,
             ),
           ),
         ),
