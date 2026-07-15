@@ -489,10 +489,10 @@ class _PremiumScreenState extends State<PremiumScreen>
             const SizedBox(width: 12),
             Expanded(
               child: _PlanCard(
-                plan: AurumPlan.yearly,
-                isSelected: _selectedPlan == AurumPlan.yearly,
+                plan: AurumPlan.sixMonths,
+                isSelected: _selectedPlan == AurumPlan.sixMonths,
                 badge: 'SAVE 58%',
-                onTap: () => _selectPlan(AurumPlan.yearly),
+                onTap: () => _selectPlan(AurumPlan.sixMonths),
               ),
             ),
           ],
@@ -600,9 +600,9 @@ class _PremiumScreenState extends State<PremiumScreen>
 
   Widget _buildCTA() {
     final priceLabel = switch (_selectedPlan) {
-      AurumPlan.monthly  => '${_selectedPlan.priceLabel}/month',
-      AurumPlan.yearly   => '${_selectedPlan.priceLabel}/year',
-      AurumPlan.lifetime => '${_selectedPlan.priceLabel} one-time',
+      AurumPlan.monthly   => '${_selectedPlan.priceLabel}/month',
+      AurumPlan.sixMonths => '${_selectedPlan.priceLabel}/6 months',
+      AurumPlan.lifetime  => '${_selectedPlan.priceLabel} one-time',
     };
     final isSignedIn = context.watch<AuthProvider>().isSignedIn;
 
@@ -696,7 +696,7 @@ class _PremiumScreenState extends State<PremiumScreen>
     return Column(
       children: [
         Text(
-          '🔒  Secure payments via Razorpay  •  Cancel anytime',
+          '🔒  Secure payments via Cashfree  •  Cancel anytime',
           style: TextStyle(
             color: Colors.white.withOpacity(0.3),
             fontSize: 12,
@@ -825,9 +825,9 @@ class _PlanCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final subLabel = switch (plan) {
-      AurumPlan.monthly  => 'per month',
-      AurumPlan.yearly   => 'per year',
-      AurumPlan.lifetime => 'pay once, own forever',
+      AurumPlan.monthly   => 'per month',
+      AurumPlan.sixMonths => 'per 6 months',
+      AurumPlan.lifetime  => 'pay once, own forever',
     };
 
     return GestureDetector(

@@ -6,15 +6,15 @@
 //   HOW PREMIUM IS DETERMINED (priority order):
 //   1. Supabase user_metadata / app_metadata -> 'is_premium' = true
 //      (set server-side by an admin, OR mirrored client-side right after
-//      a successful Razorpay payment - see PaymentService._handleSuccess)
-//   2. Local Razorpay payment grant (SharedPreferences), validated against
-//      its expiry window (30 days for monthly, 365 days for yearly)
+//      a successful Cashfree payment - see PaymentService._handleVerify)
+//   2. Local Cashfree payment grant (SharedPreferences), validated against
+//      its expiry window (30 days for monthly, 180 days for sixMonths)
 //   3. Default -> false (free user)
 //
 //   Google Sign-In is NO LONGER a path to premium. It is used purely for
 //   account identity / cloud sync. Premium is granted only via:
 //     - Supabase admin flag (is_premium = true in metadata), or
-//     - A successful Razorpay payment (validated locally by expiry date)
+//     - A successful Cashfree payment (validated locally by expiry date)
 //
 //   PREMIUM FEATURES GATED:
 //   [x] High bitrate streaming (320kbps)
