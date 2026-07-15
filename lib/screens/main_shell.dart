@@ -278,15 +278,39 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  // Tracks whether the app was actually backgrounded, so `resumed` only
+  // triggers a sync on a genuine return to the app.
+  //
+  // FIX (keyboard opens then instantly closes, app-wide): opening the
+  // keyboard can make Android briefly cycle the Activity's focus (some
+  // OEM IMEs/keyboards do this), which Flutter reports as a transition
+  // through `inactive` and straight back to `resumed` — without ever
+  // actually pausing. That "resumed" used to unconditionally call
+  // _handleForegroundSync(), which reads four providers and syncs them;
+  // if that sync (or the provider notifies it triggers) caused a rebuild
+  // while a dialog was open — feedback, create playlist, rename playlist,
+  // any TextField anywhere — the field's focus got stolen a moment after
+  // being tapped, reading as the keyboard flashing open then slamming
+  // shut. Per-dialog FocusNode fixes couldn't catch this because the
+  // interruption wasn't coming from the dialog's own transition at all.
+  // Now `resumed` only runs the sync if we've actually observed `paused`
+  // (a real backgrounding) since the last sync — a keyboard-driven blip
+  // that never truly pauses the app no longer fires it.
+  bool _wasPaused = false;
+
   // Save queue when app goes to background; pull the latest cloud state
   // when it comes back to the foreground.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
+      _wasPaused = true;
       _saveQueue();
     } else if (state == AppLifecycleState.resumed) {
-      _handleForegroundSync();
+      if (_wasPaused) {
+        _wasPaused = false;
+        _handleForegroundSync();
+      }
     }
   }
 
