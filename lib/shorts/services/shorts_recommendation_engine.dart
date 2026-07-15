@@ -1,26 +1,25 @@
 import '../models/short_item.dart';
 import '../services/shorts_prefs.dart';
-import '../services/youtube_shorts_api.dart';
+import '../services/itunes_shorts_api.dart';
 
-/// Builds ranked batches of ShortItems for the Shorts feed — v2,
-/// single-category-strict.
+/// Builds ranked batches of ShortItems for the Shorts feed —
+/// single-category-strict, iTunes-sourced.
 ///
-/// Unlike the old multi-language/multi-category iTunes engine, this
-/// version always operates on exactly ONE active category (+ optional
+/// Always operates on exactly ONE active category (+ optional
 /// language) at a time. There is no blending across categories — a
 /// feed opened under "Sad" only ever surfaces "Sad" results, matching
 /// the premium single-category-feed requirement. Switching category is
 /// a full feed replacement (see ShortsFeedController), not a blend.
 ///
 /// Discovery itself (search + pagination) is fully delegated to
-/// YoutubeShortsApi, which owns a real forward-advancing cursor per
-/// category — this is what actually guarantees unlimited, non-
-/// repeating scroll: every call for the same category returns videos
-/// further into YouTube's result set, never page 1 again.
+/// ItunesShortsApi, which owns a forward-advancing offset per
+/// category — this is what guarantees unlimited, non-repeating
+/// scroll: every call for the same category returns results further
+/// into the iTunes result set, never page 1 again.
 ///
 /// This engine's own job is just re-ranking what comes back using
 /// real local signals (likes, replays, artist affinity) — no
-/// randomness, pure deterministic weighted scoring, same as before.
+/// randomness, pure deterministic weighted scoring.
 class ShortsRecommendationEngine {
   /// Fetches the very first small batch for instant first paint.
   Future<List<ShortItem>> fetchFirstPaint({
@@ -28,7 +27,7 @@ class ShortsRecommendationEngine {
     String? language,
   }) async {
     if (category.isEmpty) return const [];
-    final items = await YoutubeShortsApi.fetchNextPage(
+    final items = await ItunesShortsApi.fetchNextPage(
       category: category,
       language: language,
       limit: 8,
@@ -47,13 +46,13 @@ class ShortsRecommendationEngine {
     if (category.isEmpty) return const [];
 
     // Pull a couple of pages if the first one is thin after filtering
-    // out anything already shown (defensive — YoutubeShortsApi's
+    // out anything already shown (defensive — ItunesShortsApi's
     // cursor already avoids repeats, but a video could still get
     // excluded for other reasons, e.g. previously skipped).
     final collected = <ShortItem>[];
     var attempts = 0;
     while (collected.length < targetCount && attempts < 3) {
-      final page = await YoutubeShortsApi.fetchNextPage(
+      final page = await ItunesShortsApi.fetchNextPage(
         category: category,
         language: language,
         limit: targetCount,
@@ -77,7 +76,7 @@ class ShortsRecommendationEngine {
     final replayCounts = await ShortsPrefs.getReplayCounts();
 
     return items
-        .where((i) => !skipped.contains(i.videoId))
+        .where((i) => !skipped.contains(i.trackId))
         .map((i) => _ScoredItem(
               i,
               _score(i, liked, artistFreq, replayCounts),
@@ -87,13 +86,13 @@ class ShortsRecommendationEngine {
 
   List<ShortItem> _rank(List<_ScoredItem> scored) {
     final indexed = <String, int>{
-      for (var i = 0; i < scored.length; i++) scored[i].item.videoId: i,
+      for (var i = 0; i < scored.length; i++) scored[i].item.trackId: i,
     };
     final sorted = List<_ScoredItem>.from(scored)
       ..sort((a, b) {
         if (a.score != b.score) return b.score.compareTo(a.score);
-        return (indexed[a.item.videoId] ?? 0)
-            .compareTo(indexed[b.item.videoId] ?? 0);
+        return (indexed[a.item.trackId] ?? 0)
+            .compareTo(indexed[b.item.trackId] ?? 0);
       });
     return _avoidConsecutiveArtists(sorted.map((s) => s.item).toList());
   }
@@ -105,8 +104,8 @@ class ShortsRecommendationEngine {
     Map<String, int> replayCounts,
   ) {
     var score = 0;
-    if (liked.contains(item.videoId)) score += 50;
-    final replays = replayCounts[item.videoId] ?? 0;
+    if (liked.contains(item.trackId)) score += 50;
+    final replays = replayCounts[item.trackId] ?? 0;
     score += (replays * 8).clamp(0, 40);
     final plays = artistFreq[item.artist] ?? 0;
     score += (plays * 2).clamp(0, 20);

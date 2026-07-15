@@ -140,7 +140,7 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
     // came up empty, so the main player will need to resolve it
     // itself the same way it does for any manually-searched song.
     return aurum.Song(
-      id: item.videoId,
+      id: item.trackId,
       title: item.title,
       artist: item.artist,
       album: '',

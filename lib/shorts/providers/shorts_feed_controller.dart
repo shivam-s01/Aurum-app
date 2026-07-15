@@ -170,8 +170,8 @@ class ShortsFeedController extends ChangeNotifier {
     final item = currentItem;
     if (item == null) return;
 
-    _liked = await ShortsPrefs.isLiked(item.videoId);
-    _saved = await ShortsPrefs.isSaved(item.videoId);
+    _liked = await ShortsPrefs.isLiked(item.trackId);
+    _saved = await ShortsPrefs.isSaved(item.trackId);
     _downloadState = DownloadTrackState.idle;
     await ShortsPrefs.bumpArtist(item.artist);
     notifyListeners();
@@ -180,6 +180,7 @@ class ShortsFeedController extends ChangeNotifier {
       dedupeKey: item.dedupeKey,
       title: item.title,
       artist: item.artist,
+      previewUrl: item.previewUrl,
     );
     unawaited(_preloadNext());
   }
@@ -192,6 +193,7 @@ class ShortsFeedController extends ChangeNotifier {
       dedupeKey: nextItem.dedupeKey,
       title: nextItem.title,
       artist: nextItem.artist,
+      previewUrl: nextItem.previewUrl,
     );
   }
 
@@ -232,16 +234,16 @@ class ShortsFeedController extends ChangeNotifier {
   Future<void> toggleLike() async {
     final item = currentItem;
     if (item == null) return;
-    await ShortsPrefs.toggleLiked(item.videoId);
-    _liked = await ShortsPrefs.isLiked(item.videoId);
+    await ShortsPrefs.toggleLiked(item.trackId);
+    _liked = await ShortsPrefs.isLiked(item.trackId);
     notifyListeners();
   }
 
   Future<void> toggleSave() async {
     final item = currentItem;
     if (item == null) return;
-    await ShortsPrefs.toggleSaved(item.videoId);
-    _saved = await ShortsPrefs.isSaved(item.videoId);
+    await ShortsPrefs.toggleSaved(item.trackId);
+    _saved = await ShortsPrefs.isSaved(item.trackId);
     notifyListeners();
   }
 
@@ -253,13 +255,13 @@ class ShortsFeedController extends ChangeNotifier {
   Future<void> registerReplay() async {
     final item = currentItem;
     if (item == null) return;
-    await ShortsPrefs.incrementReplay(item.videoId);
+    await ShortsPrefs.incrementReplay(item.trackId);
   }
 
   Future<void> registerSkip() async {
     final item = currentItem;
     if (item == null) return;
-    await ShortsPrefs.addSkipped(item.videoId);
+    await ShortsPrefs.addSkipped(item.trackId);
   }
 
   void togglePlayPause() {

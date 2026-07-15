@@ -89,11 +89,13 @@ class ShortsNativeEngine {
     required String dedupeKey,
     required String title,
     required String artist,
+    required String previewUrl,
   }) {
     return _methodChannel.invokeMethod('playSong', {
       'dedupeKey': dedupeKey,
       'title': title,
       'artist': artist,
+      'previewUrl': previewUrl,
     });
   }
 
@@ -101,11 +103,13 @@ class ShortsNativeEngine {
     required String dedupeKey,
     required String title,
     required String artist,
+    required String previewUrl,
   }) {
     return _methodChannel.invokeMethod('preloadNext', {
       'dedupeKey': dedupeKey,
       'title': title,
       'artist': artist,
+      'previewUrl': previewUrl,
     });
   }
 
