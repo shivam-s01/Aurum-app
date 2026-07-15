@@ -167,9 +167,9 @@ class PaymentService {
           .build();
 
       _cfPaymentGatewayService.doPayment(cfWebCheckout);
-    } catch (e) {
-      if (kDebugMode) debugPrint('[PaymentService] startPayment error: $e');
-      onPaymentError?.call('Could not open payment sheet. Please try again.');
+    } catch (e, st) {
+      debugPrint('[PaymentService] startPayment error: $e\n$st');
+      onPaymentError?.call('Could not open payment sheet: $e');
     }
   }
 
