@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -296,7 +297,19 @@ class AurumApp extends StatelessWidget {
               }
               return const Locale('en');
             },
-            home: AppLockScreen(child: _SplashOnEveryEntry(child: const MainShell())),
+            // NOTE: _BlurShaderWarmup wraps here, OUTSIDE
+            // _SplashOnEveryEntry's child — that child is only built by
+            // SplashScreen once its own 2.7s animation finishes (see
+            // _showChild in splash_screen.dart), so nesting the warmup
+            // inside it would fire the warmup at the exact moment the
+            // splash hands off to the real app, defeating the point.
+            // Wrapping it out here instead means the warmup paints
+            // immediately, hidden behind/alongside the splash itself.
+            home: _BlurShaderWarmup(
+              child: AppLockScreen(
+                child: _SplashOnEveryEntry(child: const MainShell()),
+              ),
+            ),
           );
         },
       ),
@@ -320,6 +333,63 @@ class AurumApp extends StatelessWidget {
 // VM is not restarted on a normal resume — `_played` stays true and the
 // splash is skipped. Only a genuine force-close + relaunch resets the
 // process and clears `_played`, giving a fresh cold-start animation.
+// ─────────────────────────────────────────────────────────────────────────────
+// _BlurShaderWarmup
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// FIX (full player "3 second stuck" on open): the full player's background
+// (_StaticBlurArtwork in full_player_screen.dart) uses ImageFilter.blur at a
+// large sigma. The very FIRST time any ImageFilter.blur is painted in a
+// process's lifetime, Skia has to compile/warm that blur shader on the GPU —
+// a one-time cost that can run into the hundreds of ms to a few seconds on
+// mid-range Android GPUs. Because that first blur used to happen the moment
+// the user opened the full player, it read as the player being stuck/frozen.
+//
+// Fix: paint one throwaway 1x1 blurred box, fully offstage and invisible,
+// the moment the app's widget tree first builds (right under the splash,
+// so it's hidden either way). This forces Skia to compile the shader once,
+// harmlessly, before the user ever taps a song — so the real first open is
+// instant.
+class _BlurShaderWarmup extends StatefulWidget {
+  final Widget child;
+  const _BlurShaderWarmup({required this.child});
+
+  @override
+  State<_BlurShaderWarmup> createState() => _BlurShaderWarmupState();
+}
+
+class _BlurShaderWarmupState extends State<_BlurShaderWarmup> {
+  // Survives hot-reload / background-resume for the process lifetime, same
+  // pattern as _SplashOnEveryEntry._played — only a real cold start should
+  // pay this cost again.
+  static bool _warmed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_warmed) return widget.child;
+    _warmed = true;
+    return Stack(
+      children: [
+        widget.child,
+        // Offstage: laid out and painted once (which is all we need to
+        // force shader compilation) but never actually shown or hit-tested.
+        const Positioned(
+          left: -100,
+          top: -100,
+          child: IgnorePointer(
+            child: RepaintBoundary(
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: SizedBox(width: 4, height: 4),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _SplashOnEveryEntry extends StatelessWidget {
   final Widget child;
   const _SplashOnEveryEntry({required this.child});

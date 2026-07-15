@@ -1221,12 +1221,36 @@ class _CreatePlaylistDialog extends StatefulWidget {
 class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
   final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
+  // FIX (keyboard opens then closes instantly): this dialog is opened via
+  // Navigator.pop(ctx) [closing the add-to-playlist sheet] immediately
+  // followed by showDialog(...). Both routes' enter/exit transitions were
+  // running at the same time, and TextField's `autofocus: true` requested
+  // focus mid-transition — the still-tearing-down sheet route stole it
+  // back a frame later, which read as the keyboard opening for ~0.1s then
+  // slamming shut. A dedicated FocusNode + a post-frame, post-transition
+  // focus request (see initState) fixes this: we only ask for focus once
+  // this dialog's own route has actually finished animating in.
+  final _nameFocus = FocusNode();
   bool _creating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // One extra short delay past the first frame so this dialog's own
+      // enter transition (and the previous route's exit transition, if
+      // any is still finishing) is fully settled before we grab focus.
+      Future.delayed(const Duration(milliseconds: 220), () {
+        if (mounted) _nameFocus.requestFocus();
+      });
+    });
+  }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _descCtrl.dispose();
+    _nameFocus.dispose();
     super.dispose();
   }
 
@@ -1245,8 +1269,8 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
         children: [
           _AurumTextField(
             controller: _nameCtrl,
+            focusNode: _nameFocus,
             label: l10n.libraryPlaylistNameLabel,
-            autofocus: true,
           ),
           const SizedBox(height: 12),
           _AurumTextField(
@@ -1588,17 +1612,20 @@ class _AurumTextField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final bool autofocus;
+  final FocusNode? focusNode;
 
   const _AurumTextField({
     required this.controller,
     required this.label,
     this.autofocus = false,
+    this.focusNode,
   });
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      focusNode: focusNode,
       autofocus: autofocus,
       style: TextStyle(color: AurumTheme.textPrimaryOf(context)),
       decoration: InputDecoration(

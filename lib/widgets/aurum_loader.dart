@@ -34,6 +34,21 @@ export 'package:aurum_music/widgets/aurum_morph_loader.dart';
 //   const AurumM3Spinner()                     // icon-sized square slot
 //   const AurumM3Spinner(size: 20)
 
+// Nudges [color] away from [surface] when their perceived brightness is
+// too close to tell apart, so an indeterminate bar/glow never visually
+// disappears into whatever it's painted on top of. Leaves [color]
+// untouched when contrast is already fine — this only kicks in for
+// accent choices that would otherwise be a near-invisible bug.
+Color _ensureContrast(Color color, Color surface) {
+  final colorLum = color.computeLuminance();
+  final surfaceLum = surface.computeLuminance();
+  if ((colorLum - surfaceLum).abs() > 0.25) return color;
+  // Push toward white on a dark surface, toward black on a light one —
+  // whichever direction guarantees separation from the surface.
+  final target = surfaceLum > 0.5 ? Colors.black : Colors.white;
+  return Color.lerp(color, target, 0.45)!;
+}
+
 class AurumM3Loader extends StatefulWidget {
   const AurumM3Loader({
     super.key,
@@ -79,7 +94,20 @@ class _AurumM3LoaderState extends State<AurumM3Loader>
     // accent color (same source as the nav bar and Settings → Appearance
     // picker), so every M3 loading bar in the app matches whatever accent
     // is actually selected.
-    final accent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
+    final rawAccent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
+    // FIX ("search bar goes theme-colored, can't see anything while
+    // typing"): this loader (shown right under the search bar during
+    // live search) always painted using the user's raw accent color with
+    // no check against what it's sitting on. If someone picks an accent
+    // close in tone to the card/background surface, the moving bar and
+    // its surrounding glow blend almost invisibly into the search bar —
+    // it reads as the whole bar "going theme-colored" with no visible
+    // contrast to tap or read against. Guard against that by nudging the
+    // accent away from the current surface color whenever contrast is
+    // too low, so the loader (and by extension the search bar it sits
+    // in) always stays clearly visible no matter which accent is chosen.
+    final surface = AurumTheme.bgCardOf(context);
+    final accent = _ensureContrast(rawAccent, surface);
     final accentLight = Color.lerp(accent, Colors.white, 0.30)!;
     final accentDark = Color.lerp(accent, Colors.black, 0.35)!;
 

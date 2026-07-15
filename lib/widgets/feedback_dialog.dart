@@ -27,6 +27,12 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
     with SingleTickerProviderStateMixin {
   int _rating = 0;
   final _controller = TextEditingController();
+  // FIX (keyboard opens then instantly closes): giving the message field
+  // its own stable FocusNode (instead of an implicit/anonymous one) stops
+  // it from being torn down and recreated if this dialog's ancestor tree
+  // rebuilds right as the keyboard starts opening — that rebuild is what
+  // silently dropped focus a moment after the field was tapped.
+  final _messageFocus = FocusNode();
   bool _sending = false;
   bool _sent = false;
 
@@ -41,6 +47,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   @override
   void dispose() {
     _controller.dispose();
+    _messageFocus.dispose();
     _iconCtrl.dispose();
     super.dispose();
   }
@@ -195,6 +202,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
         const SizedBox(height: 20),
         TextField(
           controller: _controller,
+          focusNode: _messageFocus,
           maxLines: 3,
           minLines: 2,
           textCapitalization: TextCapitalization.sentences,

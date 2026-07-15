@@ -3964,9 +3964,17 @@ class _StaticBlurArtwork extends StatelessWidget {
         child: Transform.scale(
           scale: 1.55,
           child: ImageFiltered(
+            // FIX (open lag / heating): sigma was 40/42 — a full-screen
+            // blur at that radius is the single most expensive paint op
+            // on this screen, and the very first time it's used in a
+            // session Skia has to compile/warm the blur shader, which is
+            // what read as the player taking ~3s to open. 18/20 looks
+            // near-identical once scaled 1.55x and sitting behind the
+            // gradient/vignette layers, but is far cheaper to rasterize
+            // and keeps the GPU cooler on repeat opens too.
             imageFilter: ImageFilter.blur(
-              sigmaX: isLight ? 40 : 42,
-              sigmaY: isLight ? 40 : 42,
+              sigmaX: isLight ? 18 : 20,
+              sigmaY: isLight ? 18 : 20,
               tileMode: TileMode.clamp,
             ),
             child: AurumArtwork(
