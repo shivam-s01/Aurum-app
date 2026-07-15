@@ -89,71 +89,54 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final screenSize = MediaQuery.of(context).size;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    // FIX (dialog grows into a long page when keyboard opens): the card's
+    // height used to be driven by its content + keyboard inset together,
+    // so opening the keyboard made the whole dialog taller. Now the card
+    // has one fixed height regardless of keyboard state — capped to a
+    // comfortable fraction of the screen so it still fits on small
+    // devices. The keyboard's own show/hide slide is Flutter's native
+    // animation and is completely untouched here; only our card's own
+    // size is now constant, so the keyboard still opens with its normal
+    // premium smooth slide, it just no longer drags the dialog along
+    // with it.
+    final cardHeight = (screenSize.height * 0.62).clamp(420.0, 560.0);
 
     return Dialog(
       backgroundColor: Colors.transparent,
-      // FIX — previously this manually added viewInsets.bottom into the
-      // insetPadding itself. Dialog already resizes/repositions for the
-      // keyboard on its own; doubling up on the same inset shrank the
-      // available height the moment the TextField requested focus, which
-      // fought the keyboard animation and left it never actually opening
-      // (the field looked focusable but the keyboard sheet never rose).
-      // Plain fixed padding here — the AnimatedPadding below is what
-      // now smoothly follows the keyboard.
       insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-      // FIX (tap field → cursor blinks, keyboard sheet never rises): the
-      // blur used to wrap the whole card, including the AnimatedPadding
-      // that reacts to viewInsets.bottom. On Android, BackdropFilter
-      // repaints every frame of that keyboard-inset animation, and that
-      // repaint raced the IME's own show-keyboard animation — the field
-      // stayed focused (cursor visible) but the keyboard surface never
-      // finished presenting. Moving the blur into its own static layer,
-      // separate from the foreground content that resizes for the
-      // keyboard, stops the blur from repainting on every inset change.
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: ClipRRect(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          child: Container(
+            height: cardHeight,
+            decoration: BoxDecoration(
+              color: (isDark ? Colors.black : Colors.white)
+                  .withValues(alpha: isDark ? 0.55 : 0.85),
               borderRadius: BorderRadius.circular(28),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: (isDark ? Colors.black : Colors.white)
-                        .withValues(alpha: isDark ? 0.55 : 0.85),
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(
-                      color: (isDark ? Colors.white : Colors.black)
-                          .withValues(alpha: 0.08),
-                      width: 1,
-                    ),
-                  ),
-                ),
+              border: Border.all(
+                color: (isDark ? Colors.white : Colors.black)
+                    .withValues(alpha: 0.08),
+                width: 1,
               ),
             ),
-          ),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            // Smoothly slides the whole card up as the keyboard rises,
-            // instead of the old approach that tried to pre-shrink the
-            // dialog's outer inset before the keyboard was even there.
-            child: AnimatedPadding(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
+            padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
+            // Content scrolls internally if it (plus the keyboard, via
+            // the bottom padding below) doesn't fit — the card itself
+            // never resizes, so no growth/shrink, no re-composited
+            // BackdropFilter, no focus loss.
+            child: SingleChildScrollView(
               padding: EdgeInsets.only(bottom: bottomInset),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
-                child: SingleChildScrollView(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: _sent ? _buildThankYou(context) : _buildForm(context),
-                  ),
-                ),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: _sent ? _buildThankYou(context) : _buildForm(context),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -224,9 +207,6 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
           maxLines: 3,
           minLines: 2,
           textCapitalization: TextCapitalization.sentences,
-          onTap: () {
-            if (!_messageFocus.hasFocus) _messageFocus.requestFocus();
-          },
           decoration: InputDecoration(
             hintText: 'Tell us what\'s on your mind (optional)',
             hintStyle: TextStyle(
