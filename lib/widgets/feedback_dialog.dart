@@ -102,21 +102,39 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
       // Plain fixed padding here — the AnimatedPadding below is what
       // now smoothly follows the keyboard.
       insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-          child: Container(
-            decoration: BoxDecoration(
-              color: (isDark ? Colors.black : Colors.white)
-                  .withValues(alpha: isDark ? 0.55 : 0.85),
+      // FIX (tap field → cursor blinks, keyboard sheet never rises): the
+      // blur used to wrap the whole card, including the AnimatedPadding
+      // that reacts to viewInsets.bottom. On Android, BackdropFilter
+      // repaints every frame of that keyboard-inset animation, and that
+      // repaint raced the IME's own show-keyboard animation — the field
+      // stayed focused (cursor visible) but the keyboard surface never
+      // finished presenting. Moving the blur into its own static layer,
+      // separate from the foreground content that resizes for the
+      // keyboard, stops the blur from repainting on every inset change.
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ClipRRect(
               borderRadius: BorderRadius.circular(28),
-              border: Border.all(
-                color: (isDark ? Colors.white : Colors.black)
-                    .withValues(alpha: 0.08),
-                width: 1,
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: (isDark ? Colors.black : Colors.white)
+                        .withValues(alpha: isDark ? 0.55 : 0.85),
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(
+                      color: (isDark ? Colors.white : Colors.black)
+                          .withValues(alpha: 0.08),
+                      width: 1,
+                    ),
+                  ),
+                ),
               ),
             ),
+          ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(28),
             // Smoothly slides the whole card up as the keyboard rises,
             // instead of the old approach that tried to pre-shrink the
             // dialog's outer inset before the keyboard was even there.
@@ -135,7 +153,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -206,6 +224,9 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
           maxLines: 3,
           minLines: 2,
           textCapitalization: TextCapitalization.sentences,
+          onTap: () {
+            if (!_messageFocus.hasFocus) _messageFocus.requestFocus();
+          },
           decoration: InputDecoration(
             hintText: 'Tell us what\'s on your mind (optional)',
             hintStyle: TextStyle(

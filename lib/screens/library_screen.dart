@@ -1221,33 +1221,48 @@ class _CreatePlaylistDialog extends StatefulWidget {
 class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
   final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
-  // FIX (keyboard opens then closes instantly): this dialog is opened via
-  // Navigator.pop(ctx) [closing the add-to-playlist sheet] immediately
-  // followed by showDialog(...). Both routes' enter/exit transitions were
-  // running at the same time, and TextField's `autofocus: true` requested
-  // focus mid-transition — the still-tearing-down sheet route stole it
-  // back a frame later, which read as the keyboard opening for ~0.1s then
-  // slamming shut. A dedicated FocusNode + a post-frame, post-transition
-  // focus request (see initState) fixes this: we only ask for focus once
-  // this dialog's own route has actually finished animating in.
+  // FIX (keyboard doesn't open / opens-then-closes): this dialog can be
+  // reached two ways — straight from the FAB (showDialog only, no other
+  // route in flight) and from the add-to-playlist sheet
+  // (Navigator.pop(ctx) immediately followed by showDialog(...), so two
+  // routes' transitions overlap). A single blind Future.delayed guess
+  // doesn't reliably win in either case: too short and a still-animating
+  // route steals focus back a frame later; too long or unlucky timing
+  // (slower frame, cold start) and the one-shot request just never
+  // fires, leaving the field focusable-looking but the IME never
+  // engaged — exactly the "cursor blinks, no keyboard" symptom. Instead
+  // we hook the dialog route's own AnimationController and request
+  // focus once that transition is actually AnimationStatus.completed —
+  // works whether this is the only route animating or one of two.
   final _nameFocus = FocusNode();
   bool _creating = false;
+  AnimationController? _routeAnim;
+
+  void _onRouteStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed && mounted) {
+      _nameFocus.requestFocus();
+    }
+  }
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // One extra short delay past the first frame so this dialog's own
-      // enter transition (and the previous route's exit transition, if
-      // any is still finishing) is fully settled before we grab focus.
-      Future.delayed(const Duration(milliseconds: 220), () {
-        if (mounted) _nameFocus.requestFocus();
-      });
-    });
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    final anim = route?.animation;
+    if (anim is AnimationController && anim != _routeAnim) {
+      _routeAnim?.removeStatusListener(_onRouteStatus);
+      _routeAnim = anim;
+      anim.addStatusListener(_onRouteStatus);
+      if (anim.status == AnimationStatus.completed) {
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _onRouteStatus(AnimationStatus.completed));
+      }
+    }
   }
 
   @override
   void dispose() {
+    _routeAnim?.removeStatusListener(_onRouteStatus);
     _nameCtrl.dispose();
     _descCtrl.dispose();
     _nameFocus.dispose();
@@ -1627,6 +1642,11 @@ class _AurumTextField extends StatelessWidget {
       controller: controller,
       focusNode: focusNode,
       autofocus: autofocus,
+      onTap: () {
+        if (focusNode != null && !focusNode!.hasFocus) {
+          focusNode!.requestFocus();
+        }
+      },
       style: TextStyle(color: AurumTheme.textPrimaryOf(context)),
       decoration: InputDecoration(
         labelText: label,
