@@ -373,14 +373,14 @@ class _BlurShaderWarmupState extends State<_BlurShaderWarmup> {
         widget.child,
         // Offstage: laid out and painted once (which is all we need to
         // force shader compilation) but never actually shown or hit-tested.
-        const Positioned(
+        Positioned(
           left: -100,
           top: -100,
           child: IgnorePointer(
             child: RepaintBoundary(
               child: ImageFiltered(
                 imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: SizedBox(width: 4, height: 4),
+                child: const SizedBox(width: 4, height: 4),
               ),
             ),
           ),
