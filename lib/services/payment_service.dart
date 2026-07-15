@@ -31,11 +31,11 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:cashfree_pg_sdk/api/cfpaymentgateway_service.dart';
-import 'package:cashfree_pg_sdk/api/cfsession.dart';
-import 'package:cashfree_pg_sdk/api/cfwebcheckoutpayment.dart';
-import 'package:cashfree_pg_sdk/utils/cfenums.dart';
-import 'package:cashfree_pg_sdk/utils/cfexceptions.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cfpaymentgateway/cfpaymentgatewayservice.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cfsession/cfsession.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cfpayment/cfwebcheckoutpayment.dart';
+import 'package:flutter_cashfree_pg_sdk/utils/cfenums.dart';
+import 'package:flutter_cashfree_pg_sdk/utils/cfexceptions.dart';
 
 enum AurumPlan { monthly, sixMonths, lifetime }
 
