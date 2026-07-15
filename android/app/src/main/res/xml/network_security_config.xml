@@ -88,6 +88,19 @@
         <domain includeSubdomains="true">privacydev.net</domain>
     </domain-config>
 
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">cashfree.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">payments.cashfree.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.cashfree.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">sdk.cashfree.com</domain>
+    </domain-config>
+
     <!-- youtube_explode_dart (last-resort stage) needs youtube.com itself
          for search/manifest calls, AND googlevideo.com — the actual CDN
          domain that resolved audio stream URLs point to (this is what
