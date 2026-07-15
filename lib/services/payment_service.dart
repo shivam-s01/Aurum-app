@@ -209,8 +209,9 @@ class PaymentService {
   }
 
   void _handleError(CFErrorResponse errorResponse, String orderId) {
-    final message = errorResponse.getMessage().isNotEmpty
-        ? errorResponse.getMessage()
+    final rawMessage = errorResponse.getMessage();
+    final message = (rawMessage != null && rawMessage.isNotEmpty)
+        ? rawMessage
         : 'Payment failed. Please try again.';
     if (kDebugMode) {
       debugPrint('[PaymentService] payment error: $message (order=$orderId)');
