@@ -23,7 +23,24 @@ class _MiniPlayerState extends State<MiniPlayer> {
   static const double _dismissThreshold = 64.0;
   static const double _openThreshold = -60.0;
 
+  // FIX (tap sometimes does nothing / feels random): onTap and
+  // onVerticalDrag* used to sit on the SAME GestureDetector. Flutter's
+  // gesture arena treats any tap with even a pixel or two of finger
+  // movement — extremely common on a real screen, not a lab-perfect
+  // tap — as a drag win, not a tap win. That silently ate a large
+  // fraction of taps, which is exactly why it felt inconsistent rather
+  // than reliably broken. Fix: don't register a separate onTap at all.
+  // Track whether the gesture ever moved past a tiny slop; if it didn't,
+  // treat the vertical-drag-end as a tap. One recognizer, one decision,
+  // every gesture resolves predictably.
+  double _totalMovement = 0;
+
+  void _onDragStart(DragStartDetails d) {
+    _totalMovement = 0;
+  }
+
   void _onDragUpdate(DragUpdateDetails d) {
+    _totalMovement += d.delta.dy.abs();
     setState(() {
       _dragging = true;
       _dragY = (_dragY + d.delta.dy).clamp(-120.0, 160.0);
@@ -33,11 +50,16 @@ class _MiniPlayerState extends State<MiniPlayer> {
   void _onDragEnd(DragEndDetails d) {
     final velocity = d.primaryVelocity ?? 0;
     final y = _dragY;
+    final wasBasicallyATap = _totalMovement < 8 && velocity.abs() < 200;
     setState(() {
       _dragging = false;
       _dragY = 0;
     });
 
+    if (wasBasicallyATap) {
+      _openFullPlayer();
+      return;
+    }
     if (y < _openThreshold || velocity < -400) {
       _openFullPlayer();
       return;
@@ -86,7 +108,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
         final translateY = _dragging ? _dragY.clamp(-60.0, 200.0) : 0.0;
 
         return GestureDetector(
-          onTap: _openFullPlayer,
+          onVerticalDragStart: _onDragStart,
           onVerticalDragUpdate: _onDragUpdate,
           onVerticalDragEnd: _onDragEnd,
           child: Transform.translate(
@@ -255,7 +277,14 @@ class _PlayBtn extends StatelessWidget {
         ),
         child: Icon(
           player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-          color: AurumTheme.bg,
+          // FIX: was hardcoded AurumTheme.bg (always the app's dark
+          // background color), which reads fine against a light accent
+          // but goes near-invisible if the user picks a dark accent
+          // color in Settings → Appearance — dark icon on a dark circle.
+          // Deriving black/white from the accent's own luminance
+          // guarantees the icon stays visible against whatever color
+          // is actually behind it.
+          color: accent.computeLuminance() > 0.5 ? Colors.black : Colors.white,
           size: 20,
         ),
       ),

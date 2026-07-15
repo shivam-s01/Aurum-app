@@ -130,9 +130,18 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   // then quiet for 12h — see feedback_service.dart for the exact rule).
   String? _lastTrackedSongId;
   VoidCallback? _feedbackListener;
+  // FIX (rare crash on teardown): dispose() used to call
+  // context.read<PlayerProvider>() to remove this listener. Reading an
+  // InheritedWidget via context after this widget is already mid-dispose
+  // (e.g. the whole app tree unmounting on force-close) can throw
+  // "Looking up a deactivated widget's ancestor is unsafe". Storing the
+  // provider reference directly here means dispose() never needs to
+  // touch context at all.
+  PlayerProvider? _trackedPlayer;
 
   void _startFeedbackTracking() {
     final player = context.read<PlayerProvider>();
+    _trackedPlayer = player;
     _feedbackListener = () {
       final song = player.currentSong;
       if (song == null || song.id == _lastTrackedSongId) return;
@@ -264,7 +273,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _accelSub?.cancel();
     if (_feedbackListener != null) {
-      context.read<PlayerProvider>().removeListener(_feedbackListener!);
+      _trackedPlayer?.removeListener(_feedbackListener!);
     }
     super.dispose();
   }
@@ -563,7 +572,16 @@ class _AurumBottomNavBar extends StatelessWidget {
                                 ),
                                 child: Icon(
                                   selected ? item.filled : item.outline,
-                                  key: ValueKey(selected),
+                                  // FIX: was ValueKey(selected) — every tab's
+                                  // icon shares just two possible keys
+                                  // (true/false), so switching from one
+                                  // selected tab to a different tab could
+                                  // reuse the previous tab's Element instead
+                                  // of treating it as a genuinely new icon,
+                                  // which skipped or glitched the fade
+                                  // transition. Keying on the tab index too
+                                  // makes every icon's identity unique.
+                                  key: ValueKey('$i-$selected'),
                                   size: 24,
                                   color: selected
                                       ? accent
