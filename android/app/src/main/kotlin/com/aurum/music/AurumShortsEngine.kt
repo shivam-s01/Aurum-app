@@ -2,13 +2,13 @@ package com.aurum.music
 
 import android.content.Context
 import android.util.Log
-import android.view.Surface
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import io.flutter.plugin.common.BinaryMessenger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,32 +17,43 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Fully native replacement for the old Dart-side Shorts video pipeline
- * (ShortsVideoService + ShortsFeedController's VideoPlayerController
- * usage). Owns:
- *   - search (title+artist -> best-match YouTube video id)
- *   - resolve (video id -> muxed stream URL, via YoutubeInnertube)
- *   - two pooled ExoPlayer instances: "current" (playing, attached to
- *     the visible SurfaceView) and "preload" (next card, paused/muted,
- *     fully buffered ahead of time)
+ * Native Shorts playback engine. Owns:
+ *   - search (title+artist -> best-match YouTube video id) — unchanged,
+ *     still native YoutubeInnertube search.
+ *   - resolve (video id -> playable stream URL) — NOW reuses the exact
+ *     same HybridStreamResolver the main song queue uses (native
+ *     YoutubeInnertube.resolve() first, Worker-backed MethodChannel
+ *     fallback second). This replaces the old shorts-only path (a
+ *     separate aurum-shorts-video Worker + ShortsWorkerResolver) which
+ *     was a second, less battle-tested resolve chain and the actual
+ *     source of most "stuck / never loads" failures — the main queue's
+ *     resolver runs constantly in production and is far more reliable.
+ *   - two pooled ExoPlayer instances: "current" (playing) and "preload"
+ *     (next card, fully buffered ahead of time). AUDIO ONLY now — no
+ *     video surface/track is rendered; the visible layer is always the
+ *     artwork (Ken Burns zoom, see ShortsVisualCard). This sidesteps
+ *     video-surface rendering entirely, which was a second failure
+ *     mode independent of resolve.
+ *   - a 30-second clip timer: each card auto-advances 30s after
+ *     playback actually starts, regardless of the track's real length.
  *
- * Dart's job shrinks to: tell this engine which song is active, hand
- * it a Surface to render into, and listen for status/position via
- * MethodChannel. No VideoPlayerController, no per-card Dart-side
- * decoder object, no GC churn from tearing down Flutter plugin
- * wrappers every swipe — matches the same "native owns the player"
- * shape as AurumAudioEngine for the main queue.
+ * Dart's job: tell this engine which song is active and listen for
+ * status/position via MethodChannel. No PlatformView/Surface plumbing
+ * needed anymore on the shorts side.
  *
  * Completely isolated from AurumAudioEngine — separate ExoPlayer
- * instances, no shared state, no interaction with the main queue.
+ * instances, no shared state. The only thing now shared with the main
+ * queue is the HybridStreamResolver class itself (reused, not
+ * modified) — AurumAudioEngine's own resolver instance is untouched.
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-class AurumShortsEngine(private val context: Context) {
+class AurumShortsEngine(private val context: Context, messenger: BinaryMessenger) {
 
     companion object {
         private const val TAG = "AurumShortsEngine"
         private const val UA = "com.google.android.apps.youtube.vr.oculus/1.71.26 " +
             "(Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+        private const val CLIP_DURATION_MS = 30_000L
     }
 
     enum class Status { NONE, LOADING, READY, FAILED }
@@ -59,20 +70,29 @@ class AurumShortsEngine(private val context: Context) {
     // videoId -> resolved stream url (null = failed)
     private val streamCache = HashMap<String, String?>()
 
+    // Reuses the exact same resolver the main song queue uses (native
+    // YoutubeInnertube.resolve() first, Worker-backed MethodChannel
+    // fallback second) — this is the proven, battle-tested resolve
+    // path. AurumEngineChannelHandler builds its own separate instance
+    // for the main queue; this one is fully independent (no shared
+    // mutable state between them), it's the *class* being reused, not
+    // an object.
+    private val streamResolver = HybridStreamResolver(messenger)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var loadJob: Job? = null
     private var preloadJob: Job? = null
+    private var clipTimerJob: Job? = null
 
     private var currentPlayer: ExoPlayer? = null
     private var preloadPlayer: ExoPlayer? = null
     private var preloadedForVideoId: String? = null
 
-    private var currentSurface: Surface? = null
     private var loadToken = 0
     private var preloadToken = 0
 
     var onStateChanged: ((ShortsPlaybackState) -> Unit)? = null
-    var onAutoAdvance: (() -> Unit)? = null // clip finished OR resolve failed -> ask Dart to advance
+    var onAutoAdvance: (() -> Unit)? = null // clip finished (30s) OR resolve failed -> ask Dart to advance
 
     private fun httpDataSourceFactory() = DefaultHttpDataSource.Factory()
         .setUserAgent(UA)
@@ -84,12 +104,6 @@ class AurumShortsEngine(private val context: Context) {
         return ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
             .build()
-    }
-
-    /** Attaches the visible SurfaceView's Surface to the current player. */
-    fun attachSurface(surface: Surface?) {
-        currentSurface = surface
-        currentPlayer?.setVideoSurface(surface)
     }
 
     /**
@@ -117,7 +131,7 @@ class AurumShortsEngine(private val context: Context) {
                 onAutoAdvance?.invoke()
                 return@launch
             }
-            val streamUrl = resolveStreamUrl(videoId)
+            val streamUrl = resolveStreamUrl(videoId, title, artist)
             if (myToken != loadToken) return@launch
             if (streamUrl == null) {
                 emitState(Status.FAILED, 0, 0, false)
@@ -130,7 +144,6 @@ class AurumShortsEngine(private val context: Context) {
 
     private fun startPlayback(streamUrl: String, myToken: Int) {
         val player = newPlayer()
-        player.setVideoSurface(currentSurface)
         player.repeatMode = Player.REPEAT_MODE_ONE
         player.volume = 1.0f
         player.setMediaItem(MediaItem.fromUri(streamUrl))
@@ -138,7 +151,10 @@ class AurumShortsEngine(private val context: Context) {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (myToken != loadToken) return
                 when (playbackState) {
-                    Player.STATE_READY -> emitState(Status.READY, player.currentPosition, player.duration.coerceAtLeast(0), player.isPlaying)
+                    Player.STATE_READY -> {
+                        emitState(Status.READY, player.currentPosition, player.duration.coerceAtLeast(0), player.isPlaying)
+                        startClipTimer(myToken)
+                    }
                     Player.STATE_ENDED -> { /* REPEAT_MODE_ONE handles looping; no-op */ }
                 }
             }
@@ -161,18 +177,33 @@ class AurumShortsEngine(private val context: Context) {
         unawaitedPreloadNext()
     }
 
+    /**
+     * Each card is a 30-second clip regardless of the underlying
+     * track's real length — starts counting only once playback is
+     * confirmed READY (not from call-time), so slow-starting streams
+     * still get a fair 30s of actual listening time.
+     */
+    private fun startClipTimer(myToken: Int) {
+        clipTimerJob?.cancel()
+        clipTimerJob = scope.launch {
+            kotlinx.coroutines.delay(CLIP_DURATION_MS)
+            if (myToken != loadToken) return@launch
+            onAutoAdvance?.invoke()
+        }
+    }
+
     private fun swapInPreloaded() {
         val old = currentPlayer
         val player = preloadPlayer!!
         preloadPlayer = null
         preloadedForVideoId = null
 
-        player.setVideoSurface(currentSurface)
         player.volume = 1.0f
         player.repeatMode = Player.REPEAT_MODE_ONE
         player.play()
         currentPlayer = player
         emitState(Status.READY, player.currentPosition, player.duration.coerceAtLeast(0), true)
+        startClipTimer(loadToken)
 
         old?.let { p ->
             scope.launch { p.release() }
@@ -180,14 +211,14 @@ class AurumShortsEngine(private val context: Context) {
         unawaitedPreloadNext()
     }
 
-    /** Called by Dart ahead of time with the NEXT card's identity. */
+    /** Called by Dart ahead of time with the NEXT card's identity. Buffers audio only. */
     fun preloadNext(dedupeKey: String, title: String, artist: String) {
         preloadJob?.cancel()
         val myToken = ++preloadToken
         preloadJob = scope.launch {
             val videoId = resolveVideoId(dedupeKey, title, artist) ?: return@launch
             if (myToken != preloadToken) return@launch
-            val streamUrl = resolveStreamUrl(videoId) ?: return@launch
+            val streamUrl = resolveStreamUrl(videoId, title, artist) ?: return@launch
             if (myToken != preloadToken) return@launch
 
             val old = preloadPlayer
@@ -237,28 +268,34 @@ class AurumShortsEngine(private val context: Context) {
     }
 
     /**
-     * PRIMARY: aurum-shorts-video Worker (ShortsWorkerResolver) —
-     * videoId -> muxed stream URL. Same Worker + same
-     * android_vr/ios/tv-embed/piped chain the old Dart pipeline used.
-     * Lets Krish fix YouTube resolve issues by redeploying the Worker
-     * alone (`wrangler deploy`) — zero app rebuild/reinstall needed.
-     * FALLBACK: native on-device NewPipeExtractor (YoutubeInnertube) —
-     * only used if the Worker call fails outright (network error,
-     * timeout, bad response, Worker down), same safety-net pattern as
-     * HybridStreamResolver.kt uses for the main audio queue.
+     * Reuses the exact same resolve path as the main song queue
+     * (HybridStreamResolver: native YoutubeInnertube.resolve() first,
+     * Worker-backed MethodChannel fallback second). The old
+     * shorts-only path (aurum-shorts-video Worker via
+     * ShortsWorkerResolver) is gone — it was a second, separately
+     * maintained resolve chain that wasn't proven at the same scale
+     * as the main queue's, and was the actual source of most
+     * "stuck / never loads" failures in Shorts.
      */
-    private suspend fun resolveStreamUrl(videoId: String): String? {
+    private suspend fun resolveStreamUrl(videoId: String, title: String, artist: String): String? {
         if (streamCache.containsKey(videoId)) return streamCache[videoId]
 
-        val workerUrl = ShortsWorkerResolver.resolveStream(videoId)
-        if (workerUrl != null) {
-            streamCache[videoId] = workerUrl
-            return workerUrl
+        val song = NativeSong(
+            id = videoId,
+            title = title,
+            artist = artist,
+            album = "",
+            artworkUrl = "",
+            source = "youtube",
+            isLocal = false,
+            localPath = null,
+        )
+        val url = try {
+            streamResolver.resolve(song)
+        } catch (e: Exception) {
+            Log.w(TAG, "streamResolver.resolve threw for $videoId: ${e.message}")
+            null
         }
-
-        Log.w(TAG, "Worker resolve failed for $videoId, falling back to native")
-        val stream = YoutubeInnertube.resolveVideo(videoId)
-        val url = stream?.url
         streamCache[videoId] = url
         return url
     }
@@ -345,6 +382,7 @@ class AurumShortsEngine(private val context: Context) {
     }
 
     private fun tearDownCurrent() {
+        clipTimerJob?.cancel()
         val old = currentPlayer
         currentPlayer = null
         old?.let { scope.launch { it.release() } }
@@ -358,6 +396,7 @@ class AurumShortsEngine(private val context: Context) {
     fun release() {
         loadJob?.cancel()
         preloadJob?.cancel()
+        clipTimerJob?.cancel()
         currentPlayer?.release()
         preloadPlayer?.release()
         currentPlayer = null

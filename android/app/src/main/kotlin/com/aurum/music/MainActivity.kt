@@ -70,13 +70,11 @@ class MainActivity : FlutterFragmentActivity() {
         audioEngineChannelHandler = AurumEngineChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         bindMediaSessionService()
 
-        // Native Shorts engine + its SurfaceView PlatformView.
+        // Native Shorts engine (audio-only 30s clips — no video
+        // surface/PlatformView anymore; visible layer is always the
+        // artwork on the Dart side).
         val shortsHandler = AurumShortsChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         shortsChannelHandler = shortsHandler
-        flutterEngine.platformViewsController.registry.registerViewFactory(
-            AurumShortsChannelHandler.VIEW_TYPE,
-            AurumShortsViewFactory(shortsHandler.engine)
-        )
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->

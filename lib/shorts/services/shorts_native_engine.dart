@@ -24,14 +24,15 @@ class ShortsNativeState {
   );
 }
 
-/// Thin Dart-side bridge to AurumShortsEngine (Kotlin). Replaces the old
-/// ShortsVideoService + per-card VideoPlayerController entirely — search,
-/// stream resolution, buffering, and playback all happen natively now.
-/// This class owns nothing but the MethodChannel/EventChannel plumbing.
+/// Thin Dart-side bridge to AurumShortsEngine (Kotlin). Search, stream
+/// resolution (reusing the same resolver the main song queue uses),
+/// buffering, the 30-second clip timer, and playback all happen
+/// natively. This class owns nothing but the MethodChannel/EventChannel
+/// plumbing.
 ///
-/// The video SURFACE itself is a separate PlatformView (see
-/// AurumShortsSurface widget) backed by the same native engine instance —
-/// this class only sends commands and receives state.
+/// Shorts are audio-only 30-second clips — there is no video surface
+/// or PlatformView involved. The visible layer is always the artwork
+/// (see ShortsVisualCard's Ken Burns zoom).
 class ShortsNativeEngine {
   ShortsNativeEngine._();
   static final ShortsNativeEngine instance = ShortsNativeEngine._();

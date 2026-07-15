@@ -2,22 +2,18 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/shorts_palette.dart';
-import 'shorts_native_surface.dart';
 
-/// Premium visual treatment for a Shorts card. The base layer is
-/// always the artwork with a slow Ken Burns zoom/pan — the
-/// guaranteed-to-work loading/fallback look. Once the native
-/// AurumShortsEngine has the matching YouTube stream ready for the
-/// active card, its SurfaceView crossfades in on top, Reels-style.
-///
-/// v3: video decode/render is fully native now (ExoPlayer -> SurfaceView
-/// via AurumShortsEngine) — no VideoPlayerController, no Dart-side video
-/// texture. `videoReady` is driven by the controller's videoStatus
-/// (mirrored from native), not a local controller's initialized flag.
+/// Premium visual treatment for a Shorts card. The artwork with a slow
+/// Ken Burns zoom/pan IS the permanent visual — Shorts are audio-only
+/// 30-second clips now (native AurumShortsEngine plays a Saavn/YouTube
+/// audio stream via ExoPlayer, no video track/surface involved at
+/// all). `videoReady`/`isActive` still gate the zoom animation (only
+/// the on-screen card animates, for battery), but there is no video
+/// layer to crossfade in anymore.
 class ShortsVisualCard extends StatefulWidget {
   final String artworkUrl;
   final bool isActive; // only the current on-screen card animates
-  final bool videoReady; // true once native reports status == ready
+  final bool videoReady; // true once native reports audio status == ready
 
   const ShortsVisualCard({
     super.key,
@@ -88,8 +84,6 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
 
   @override
   Widget build(BuildContext context) {
-    final showVideo = widget.isActive && widget.videoReady;
-
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -135,18 +129,6 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
                   color: Colors.white24, size: 48),
             ),
           ),
-        ),
-        // Native video surface — crossfades in once the native engine
-        // reports the active card's stream as ready. Audio+video both
-        // come from the same native ExoPlayer instance now (unified
-        // stream, not a muted overlay).
-        AnimatedOpacity(
-          opacity: showVideo ? 1.0 : 0.0,
-          duration: const Duration(milliseconds: 420),
-          curve: Curves.easeOut,
-          child: showVideo
-              ? const IgnorePointer(child: ShortsNativeSurface())
-              : const SizedBox.shrink(),
         ),
         // Ambient glow orbs — palette-colored, drifting slowly.
         AnimatedBuilder(

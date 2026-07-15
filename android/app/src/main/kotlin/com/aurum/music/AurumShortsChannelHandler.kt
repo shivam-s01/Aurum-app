@@ -18,10 +18,9 @@ class AurumShortsChannelHandler(context: Context, messenger: BinaryMessenger) {
         private const val METHOD_CHANNEL = "com.aurum.music/shorts_engine"
         private const val EVENT_CHANNEL = "com.aurum.music/shorts_engine_state"
         private const val AUTO_ADVANCE_CHANNEL = "com.aurum.music/shorts_engine_advance"
-        const val VIEW_TYPE = "com.aurum.music/shorts_surface"
     }
 
-    val engine = AurumShortsEngine(context.applicationContext)
+    val engine = AurumShortsEngine(context.applicationContext, messenger)
     private val callbackChannel = MethodChannel(messenger, AUTO_ADVANCE_CHANNEL)
     private var eventSink: EventChannel.EventSink? = null
 
