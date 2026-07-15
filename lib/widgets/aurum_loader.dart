@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:aurum_music/widgets/aurum_morph_loader.dart';
 import 'package:aurum_music/providers/theme_provider.dart';
+import 'package:aurum_music/theme/aurum_theme.dart';
 export 'package:aurum_music/widgets/aurum_morph_loader.dart';
 
 // ══════════════════════════════════════════════════════════════════
