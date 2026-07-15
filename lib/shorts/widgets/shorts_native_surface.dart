@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Embeds the native SurfaceView that AurumShortsEngine (Kotlin) renders
+/// Embeds the native TextureView that AurumShortsEngine (Kotlin) renders
 /// ExoPlayer's decoded video into directly. Replaces the old
 /// VideoPlayer(controller) widget — there is no Dart-side video texture
 /// or controller anymore; this is a pure passthrough to native.
 ///
-/// Uses AndroidView (TextureView-backed platform view *hosting*), but the
-/// actual pixel path inside native is a real SurfaceView — Flutter's
-/// AndroidView is just the embedding mechanism to place native views in
-/// the widget tree, not the render path. The engine's SurfaceHolder
-/// callback (see AurumShortsSurfaceView.kt) attaches directly to
-/// ExoPlayer, so decoded frames never cross back into Flutter's own
-/// compositor.
+/// Uses AndroidView, which hosts platform views via a TextureView-backed
+/// composition path. The native side (see AurumShortsSurfaceView.kt) is
+/// also a TextureView now — previously it was a raw SurfaceView, which
+/// doesn't compose reliably when nested inside AndroidView (surface
+/// created late / torn down on relayout, causing frozen frames and
+/// silent audio failures on some devices). No change needed here; this
+/// widget just hosts whatever native view the factory returns.
 class ShortsNativeSurface extends StatelessWidget {
   const ShortsNativeSurface({super.key});
 
