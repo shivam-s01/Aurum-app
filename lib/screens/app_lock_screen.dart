@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class AppLockScreen extends StatefulWidget {
   final Widget child;
@@ -106,7 +107,7 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
       if (!canCheck || devices.isEmpty) return;
 
       final ok = await _auth.authenticate(
-        localizedReason: 'Use fingerprint to unlock Aurum Music',
+        localizedReason: AppLocalizations.of(context)!.alBiometricReason,
         options: const AuthenticationOptions(
           biometricOnly: false,
           stickyAuth: true,
@@ -136,7 +137,7 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
       setState(() => _locked = false);
     } else {
       HapticFeedback.vibrate();
-      setState(() { _shaking = true; _error = 'Wrong PIN. Try again.'; _enteredPin = ''; });
+      setState(() { _shaking = true; _error = AppLocalizations.of(context)!.alWrongPin; _enteredPin = ''; });
       await Future.delayed(const Duration(milliseconds: 500));
       if (mounted) setState(() => _shaking = false);
     }
@@ -153,6 +154,7 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
     if (!_locked) return widget.child;
 
     return _LockUI(
+      l10n: AppLocalizations.of(context)!,
       enteredPin: _enteredPin,
       error: _error,
       shaking: _shaking,
@@ -168,6 +170,7 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
 // Lock UI
 // =============================================================================
 class _LockUI extends StatelessWidget {
+  final AppLocalizations l10n;
   final String enteredPin;
   final String error;
   final bool shaking;
@@ -177,6 +180,7 @@ class _LockUI extends StatelessWidget {
   final VoidCallback onBiometric;
 
   const _LockUI({
+    required this.l10n,
     required this.enteredPin, required this.error, required this.shaking,
     required this.showBiometric, required this.onKey,
     required this.onDelete, required this.onBiometric,
@@ -203,7 +207,7 @@ class _LockUI extends StatelessWidget {
           const Text('Aurum Music',
               style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
           const SizedBox(height: 6),
-          Text('Enter PIN to unlock',
+          Text(l10n.alEnterPinToUnlock,
               style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 14)),
 
           const Spacer(),

@@ -601,5 +601,65 @@
   },
   "librarySongsYouPlayAppearHere": "Songs you play will appear here",
   "libraryUnfollowArtist": "Unfollow artist",
-  "libraryYourCollection": "Your collection"
+  "libraryYourCollection": "Your collection",
+  "alWrongPin": "Wrong PIN. Try again.",
+  "alEnterPinToUnlock": "Enter PIN to unlock",
+  "alBiometricReason": "Use fingerprint to unlock Aurum Music",
+  "asCouldntLoad": "Couldn't load {name}",
+  "asRetry": "Retry",
+  "asVerifiedArtist": "Verified Artist",
+  "asMonthlyListeners": "{count} monthly listeners",
+  "asSaved": "Saved",
+  "asSave": "Save",
+  "asPopular": "Popular",
+  "asAlbums": "Albums",
+  "asSingles": "Singles",
+  "asAbout": "About",
+  "@asCouldntLoad": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@asMonthlyListeners": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "navShorts": "Shorts",
+  "abAppTitle": "About",
+  "abPrivacyPolicyTitle": "Privacy Policy",
+  "abUpdate": "UPDATE",
+  "abCheckForUpdate": "Check for Update",
+  "abCheckForUpdateSubtitle": "See if a new version is available",
+  "abChangelog": "Changelog",
+  "abChangelogSubtitle": "What changed in recent versions",
+  "abLegal": "LEGAL",
+  "abPrivacyPolicy": "Privacy Policy",
+  "abPrivacyPolicySubtitle": "How your data is handled",
+  "abTermsOfUse": "Terms of Use",
+  "abTermsOfUseSubtitle": "The agreement between you and Aurum",
+  "abCommunity": "COMMUNITY",
+  "abSendFeedback": "Send Feedback",
+  "abSendFeedbackSubtitle": "Tell us what you think, anytime",
+  "abShareApp": "Share Aurum",
+  "abShareAppSubtitle": "Tell your friends about this app",
+  "abDeveloper": "DEVELOPER",
+  "abInstagram": "Instagram",
+  "abTelegram": "Telegram",
+  "abLoading": "Loading...",
+  "abVersionBuild": "v{version} (build {build})",
+  "@abVersionBuild": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
+    }
+  }
 }

@@ -18,6 +18,7 @@ import '../widgets/aurum_artwork.dart';
 import '../widgets/song_tile.dart';
 import '../utils/aurum_transitions.dart';
 import 'album_screen.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class ArtistScreen extends StatefulWidget {
   /// Either pass a known Saavn artistId, or just an artistName to resolve it.
@@ -91,6 +92,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
   }
 
   Widget _buildError(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Stack(
       children: [
         Positioned(
@@ -113,7 +115,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
               Icon(Icons.person_off_rounded,
                   size: 56, color: AurumTheme.textMutedOf(context)),
               const SizedBox(height: 12),
-              Text("Couldn't load ${widget.artistName}",
+              Text(l10n.asCouldntLoad(widget.artistName),
                   style: TextStyle(color: AurumTheme.textSecondaryOf(context))),
               const SizedBox(height: 16),
               TextButton(
@@ -121,7 +123,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                   HapticFeedback.lightImpact();
                   _load();
                 },
-                child: const Text('Retry'),
+                child: Text(l10n.asRetry),
               ),
             ],
           ),
@@ -131,6 +133,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
   }
 
   Widget _buildContent(BuildContext context, Artist artist) {
+    final l10n = AppLocalizations.of(context)!;
     final player = context.read<PlayerProvider>();
     final followed = context.watch<FollowedArtistsProvider>();
     final isFollowing = followed.isFollowing(artist.id);
@@ -209,7 +212,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              'Verified Artist',
+                              l10n.asVerifiedArtist,
                               style: TextStyle(
                                 color: Colors.white.withOpacity(0.9),
                                 fontSize: 13,
@@ -233,7 +236,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
               child: Text(
-                '${_formatFollowers(artist.followerCount)} monthly listeners',
+                l10n.asMonthlyListeners(_formatFollowers(artist.followerCount)),
                 style: TextStyle(
                   color: AurumTheme.textSecondaryOf(context),
                   fontSize: 13.5,
@@ -277,7 +280,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                     transitionBuilder: (child, anim) =>
                         FadeTransition(opacity: anim, child: child),
                     child: Text(
-                      isFollowing ? 'Saved' : 'Save',
+                      isFollowing ? l10n.asSaved : l10n.asSave,
                       key: ValueKey(isFollowing),
                       style: const TextStyle(
                           fontWeight: FontWeight.w700, fontSize: 13.5),
@@ -325,7 +328,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
 
 
         if (artist.topSongs.isNotEmpty) ...[
-          _sectionHeader(context, 'Popular'),
+          _sectionHeader(context, l10n.asPopular),
           SliverList(
             delegate: SliverChildBuilderDelegate(
               (context, i) => SongTile(
@@ -341,17 +344,17 @@ class _ArtistScreenState extends State<ArtistScreen> {
         ],
 
         if (artist.topAlbums.isNotEmpty) ...[
-          _sectionHeader(context, 'Albums'),
+          _sectionHeader(context, l10n.asAlbums),
           _albumGrid(context, artist.topAlbums),
         ],
 
         if (artist.singles.isNotEmpty) ...[
-          _sectionHeader(context, 'Singles'),
+          _sectionHeader(context, l10n.asSingles),
           _albumGrid(context, artist.singles),
         ],
 
         if (artist.bio.isNotEmpty) ...[
-          _sectionHeader(context, 'About'),
+          _sectionHeader(context, l10n.asAbout),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),

@@ -31,6 +31,7 @@ import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../shorts/screens/shorts_entry.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -463,11 +464,11 @@ class _AurumBottomNavBar extends StatelessWidget {
   // own route (see onTap handling in MainShell). It stays out of
   // _tab's normal 0..2 range so the capsule highlight never rests on
   // it after returning.
-  static const _items = [
-    (outline: PhosphorIconsRegular.houseSimple, filled: PhosphorIconsFill.houseSimple, label: 'Home'),
-    (outline: PhosphorIconsRegular.magnifyingGlass, filled: PhosphorIconsFill.magnifyingGlass, label: 'Search'),
-    (outline: PhosphorIconsRegular.playCircle, filled: PhosphorIconsFill.playCircle, label: 'Shorts'),
-    (outline: PhosphorIconsRegular.vinylRecord, filled: PhosphorIconsFill.vinylRecord, label: 'Library'),
+  static List<({dynamic outline, dynamic filled, String label})> _items(AppLocalizations l10n) => [
+    (outline: PhosphorIconsRegular.houseSimple, filled: PhosphorIconsFill.houseSimple, label: l10n.navHome),
+    (outline: PhosphorIconsRegular.magnifyingGlass, filled: PhosphorIconsFill.magnifyingGlass, label: l10n.navSearch),
+    (outline: PhosphorIconsRegular.playCircle, filled: PhosphorIconsFill.playCircle, label: l10n.navShorts),
+    (outline: PhosphorIconsRegular.vinylRecord, filled: PhosphorIconsFill.vinylRecord, label: l10n.navLibrary),
   ];
 
   static const int shortsTabIndex = 2;
@@ -476,6 +477,8 @@ class _AurumBottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final items = _items(l10n);
     final accent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -507,7 +510,7 @@ class _AurumBottomNavBar extends StatelessWidget {
               ),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final tabWidth = constraints.maxWidth / _items.length;
+                  final tabWidth = constraints.maxWidth / items.length;
                   return Stack(
                     alignment: Alignment.center,
                     children: [
@@ -536,8 +539,8 @@ class _AurumBottomNavBar extends StatelessWidget {
                 ),
                 // ── Tap targets ──────────────────────────────────────
                 Row(
-                  children: List.generate(_items.length, (i) {
-                    final item = _items[i];
+                  children: List.generate(items.length, (i) {
+                    final item = items[i];
                     final selected = i == currentIndex;
                     return Expanded(
                       child: GestureDetector(

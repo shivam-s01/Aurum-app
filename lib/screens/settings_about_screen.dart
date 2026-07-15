@@ -8,6 +8,7 @@ import '../utils/constants.dart';
 import '../services/update_service.dart';
 import '../widgets/changelog_sheet.dart';
 import '../widgets/feedback_dialog.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class SettingsAboutScreen extends StatefulWidget {
   const SettingsAboutScreen({super.key});
@@ -39,6 +40,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
   }
 
   void _showPrivacyPolicy() {
+    final l10n = AppLocalizations.of(context)!;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -76,7 +78,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
                   child: const Icon(Icons.privacy_tip_rounded, color: AurumTheme.gold, size: 18),
                 ),
                 const SizedBox(width: 12),
-                Text('Privacy Policy',
+                Text(l10n.abPrivacyPolicyTitle,
                   style: TextStyle(
                     color: AurumTheme.textPrimaryOf(context),
                     fontSize: 18, fontWeight: FontWeight.w700,
@@ -177,9 +179,10 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
-      appBar: _appBar(context, 'About'),
+      appBar: _appBar(context, l10n.abAppTitle),
       body: ListView(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
@@ -221,58 +224,58 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             ]),
           ),
 
-          _sectionLabel('UPDATE'),
+          _sectionLabel(l10n.abUpdate),
           _actionTile(context,
             icon: Icons.system_update_rounded,
-            title: 'Check for Update',
-            subtitle: 'See if a new version is available',
+            title: l10n.abCheckForUpdate,
+            subtitle: l10n.abCheckForUpdateSubtitle,
             onTap: () { HapticFeedback.lightImpact(); UpdateService.checkForUpdate(context); },
           ),
           _actionTile(context,
             icon: Icons.history_rounded,
-            title: 'Changelog',
-            subtitle: 'What changed in recent versions',
+            title: l10n.abChangelog,
+            subtitle: l10n.abChangelogSubtitle,
             onTap: () { HapticFeedback.lightImpact(); ChangelogSheet.show(context); },
           ),
 
-          _sectionLabel('LEGAL'),
+          _sectionLabel(l10n.abLegal),
           _actionTile(context,
             icon: Icons.privacy_tip_rounded,
-            title: 'Privacy Policy',
-            subtitle: 'How your data is handled',
+            title: l10n.abPrivacyPolicy,
+            subtitle: l10n.abPrivacyPolicySubtitle,
             onTap: () { HapticFeedback.lightImpact(); _showPrivacyPolicy(); },
           ),
           _actionTile(context,
             icon: Icons.description_rounded,
-            title: 'Terms of Use',
-            subtitle: 'The agreement between you and Aurum',
+            title: l10n.abTermsOfUse,
+            subtitle: l10n.abTermsOfUseSubtitle,
             onTap: () { HapticFeedback.lightImpact(); _launch(AppConstants.termsOfUse); },
           ),
 
-          _sectionLabel('COMMUNITY'),
+          _sectionLabel(l10n.abCommunity),
           _actionTile(context,
             icon: Icons.chat_bubble_rounded,
-            title: 'Send Feedback',
-            subtitle: 'Tell us what you think, anytime',
+            title: l10n.abSendFeedback,
+            subtitle: l10n.abSendFeedbackSubtitle,
             onTap: () { HapticFeedback.lightImpact(); showFeedbackDialog(context); },
           ),
           _actionTile(context,
             icon: Icons.share_rounded,
-            title: 'Share Aurum',
-            subtitle: 'Tell your friends about this app',
+            title: l10n.abShareApp,
+            subtitle: l10n.abShareAppSubtitle,
             onTap: () { HapticFeedback.lightImpact(); _shareApp(); },
           ),
 
-          _sectionLabel('DEVELOPER'),
+          _sectionLabel(l10n.abDeveloper),
           _actionTile(context,
             customIcon: _instagramIcon(),
-            title: 'Instagram',
+            title: l10n.abInstagram,
             subtitle: '@shivam_shrma.01',
             onTap: () { HapticFeedback.lightImpact(); _launch(AppConstants.instagram); },
           ),
           _actionTile(context,
             customIcon: _telegramIcon(),
-            title: 'Telegram',
+            title: l10n.abTelegram,
             subtitle: '@mr_s_s01',
             onTap: () { HapticFeedback.lightImpact(); _launch(AppConstants.telegram); },
           ),
