@@ -52,3 +52,19 @@
 -keepattributes Exceptions,InnerClasses
 -keep class kotlin.Metadata { *; }
 -dontwarn kotlin.**
+
+# ---- Cashfree SDK bundles Mozilla Rhino (org.mozilla.javascript) for its
+# JS-based JSON conversion utilities. Rhino's JavaToJSONConverters class has
+# code paths referencing java.beans.* (BeanInfo, BeanDescriptor, Introspector,
+# etc) and javax.script.* (Bindings, ScriptEngineFactory) — these are
+# desktop-JVM-only APIs that don't exist in Android's runtime and were never
+# on the classpath to begin with, even before minify was turned on. R8 fails
+# the build with "Missing classes detected" because it can't verify these
+# references, even though they're on a code path Cashfree/Rhino only takes
+# when running on a full desktop JVM, never on Android at runtime. -dontwarn
+# tells R8 these are known-safe to leave unresolved rather than fail the
+# build — this doesn't strip or change any Cashfree/payment functionality,
+# it only silences a check for classes that were always absent on Android.
+-dontwarn java.beans.**
+-dontwarn javax.script.**
+-dontwarn org.mozilla.javascript.**
