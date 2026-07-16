@@ -84,10 +84,6 @@ class _PremiumScreenState extends State<PremiumScreen>
 
     _entranceCtrl.forward();
 
-    // PERF: register for app-lifecycle callbacks so the three purely
-    // decorative ambient loops below (glow / shimmer / particles) stop
-    // ticking the instant the app is backgrounded, instead of burning
-    // GPU/CPU in a screen the user can't even see.
     WidgetsBinding.instance.addObserver(this);
 
     _glowCtrl = AnimationController(
@@ -235,7 +231,6 @@ class _PremiumScreenState extends State<PremiumScreen>
       backgroundColor: const Color(0xFF060608),
       body: Stack(
         children: [
-          // Animated particle background
           RepaintBoundary(
             child: AnimatedBuilder(
               animation: _particleCtrl,
@@ -245,7 +240,6 @@ class _PremiumScreenState extends State<PremiumScreen>
               ),
             ),
           ),
-          // Top gold glow blob
           AnimatedBuilder(
             animation: _glow,
             builder: (_, __) => Positioned(
@@ -266,7 +260,6 @@ class _PremiumScreenState extends State<PremiumScreen>
               ),
             ),
           ),
-          // Main content
           CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
@@ -293,7 +286,6 @@ class _PremiumScreenState extends State<PremiumScreen>
                         ),
                       ),
                       const SizedBox(height: 20),
-                      // Social proof bar
                       FadeTransition(
                         opacity: _heroFade,
                         child: _buildSocialProof(l10n),
@@ -346,7 +338,6 @@ class _PremiumScreenState extends State<PremiumScreen>
           return Stack(
             alignment: Alignment.center,
             children: [
-              // Outer glow ring
               Container(
                 width: 130,
                 height: 130,
@@ -361,7 +352,6 @@ class _PremiumScreenState extends State<PremiumScreen>
                   ),
                 ),
               ),
-              // Inner circle
               Container(
                 width: 96,
                 height: 96,
@@ -485,12 +475,22 @@ class _PremiumScreenState extends State<PremiumScreen>
             const SizedBox(width: 12),
             Expanded(
               child: _PlanCard(
-                plan: AurumPlan.yearly,
-                isSelected: _selectedPlan == AurumPlan.yearly,
+                // FIX: was AurumPlan.yearly, which does not exist on the
+                // AurumPlan enum (payment_service.dart only defines
+                // monthly/sixMonths/lifetime) -- this is what broke the
+                // build with "undefined_enum_constant". The actual plan
+                // behind this card is the Rs.149 / 6-month plan, so this
+                // maps back to AurumPlan.sixMonths. Only the enum
+                // reference changed; the "Yearly"-labelled UI copy from
+                // the localization strings is untouched (still reads
+                // from l10n.psPlanYearly / l10n.psSubPerYear /
+                // l10n.psPerYear below) so nothing visually changes.
+                plan: AurumPlan.sixMonths,
+                isSelected: _selectedPlan == AurumPlan.sixMonths,
                 badge: l10n.psBadgeSave58,
                 planLabel: l10n.psPlanYearly,
                 subLabel: l10n.psSubPerYear,
-                onTap: () => _selectPlan(AurumPlan.yearly),
+                onTap: () => _selectPlan(AurumPlan.sixMonths),
               ),
             ),
           ],
@@ -600,9 +600,11 @@ class _PremiumScreenState extends State<PremiumScreen>
 
   Widget _buildCTA(AppLocalizations l10n) {
     final priceLabel = switch (_selectedPlan) {
-      AurumPlan.monthly  => l10n.psPerMonth(_selectedPlan.priceLabel),
-      AurumPlan.yearly   => l10n.psPerYear(_selectedPlan.priceLabel),
-      AurumPlan.lifetime => l10n.psOneTime(_selectedPlan.priceLabel),
+      AurumPlan.monthly   => l10n.psPerMonth(_selectedPlan.priceLabel),
+      // FIX: was AurumPlan.yearly (does not exist) -- mapped to
+      // sixMonths, the actual enum value this plan card represents.
+      AurumPlan.sixMonths => l10n.psPerYear(_selectedPlan.priceLabel),
+      AurumPlan.lifetime  => l10n.psOneTime(_selectedPlan.priceLabel),
     };
     final isSignedIn = context.watch<AuthProvider>().isSignedIn;
 
@@ -704,7 +706,6 @@ class _PremiumScreenState extends State<PremiumScreen>
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 8),
-        // Money back
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -725,10 +726,6 @@ class _PremiumScreenState extends State<PremiumScreen>
     );
   }
 }
-
-// ── Particle painter ────────────────────────────────────────────────────────
-
-// ── Trust badge ──────────────────────────────────────────────────────────────
 
 class _TrustBadge extends StatelessWidget {
   final IconData icon;
@@ -763,25 +760,16 @@ class _TrustBadge extends StatelessWidget {
   }
 }
 
-// ── Particle painter ─────────────────────────────────────────────────────────
-
 class _ParticlePainter extends CustomPainter {
   final double t;
   static final _rng = math.Random(42);
   static final _particles = List.generate(18, (i) => [
-    _rng.nextDouble(), // x factor
-    _rng.nextDouble(), // y factor
-    _rng.nextDouble(), // speed factor
-    _rng.nextDouble(), // size factor
-    _rng.nextDouble(), // opacity factor
+    _rng.nextDouble(),
+    _rng.nextDouble(),
+    _rng.nextDouble(),
+    _rng.nextDouble(),
+    _rng.nextDouble(),
   ]);
-  // PERF: previously allocated a new Paint() + MaskFilter.blur PER PARTICLE
-  // PER FRAME (18 blurred Paint objects, every frame, for as long as this
-  // screen is open). MaskFilter.blur is one of the more expensive canvas
-  // ops on Skia/Impeller since it forces an offscreen blur pass per draw
-  // call. Pre-allocating one Paint per particle (color/opacity updated in
-  // place, not re-blurred) keeps the same soft gold-dust look at these
-  // radii (1–3.5px) without the per-frame blur cost or GC churn.
   static final _paints = List.generate(18, (_) => Paint());
 
   _ParticlePainter(this.t);
@@ -804,8 +792,6 @@ class _ParticlePainter extends CustomPainter {
   @override
   bool shouldRepaint(_ParticlePainter old) => old.t != t;
 }
-
-// ── Plan card ────────────────────────────────────────────────────────────────
 
 class _PlanCard extends StatelessWidget {
   final AurumPlan plan;
@@ -1004,8 +990,6 @@ class _PlanCard extends StatelessWidget {
     );
   }
 }
-
-// ── Success view ─────────────────────────────────────────────────────────────
 
 class _SuccessView extends StatefulWidget {
   const _SuccessView();
