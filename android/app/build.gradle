@@ -51,6 +51,21 @@ android {
     // lever on APK size with zero feature/behavior impact — splits.abi
     // produces one APK per architecture instead, each only containing the
     // native code that device actually needs.
+    //
+    // FIX: this was only a comment before — no actual `splits {}` config
+    // existed, so every build still produced one fat APK with all three
+    // ABIs bundled. Adding the real config now. universalApk stays true
+    // so a single "works everywhere" APK is still produced for
+    // sideloading/testing — the per-ABI ones are the smaller files meant
+    // for normal distribution.
+    splits {
+        abi {
+            enable true
+            reset()
+            include "armeabi-v7a", "arm64-v8a", "x86_64"
+            universalApk true
+        }
+    }
 
     signingConfigs {
         release {
@@ -64,8 +79,17 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
-            minifyEnabled false
-            shrinkResources false
+            // FIX: both were false before, so the release build shipped every
+            // class + every resource, used or not (this includes AAR resources
+            // pulled in by Media3/NewPipeExtractor/OkHttp that are never
+            // referenced by this app). Turning these on only strips code paths
+            // and resources R8/the resource shrinker can PROVE are unreachable —
+            // proguard-rules.pro explicitly keeps every class this app calls
+            // via reflection/platform channels/OS-instantiated services, so no
+            // feature is removed, just dead weight.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
             signingConfig signingConfigs.release

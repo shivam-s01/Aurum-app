@@ -4,12 +4,14 @@ import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/locale_provider.dart';
 import '../widgets/aurum_pressable.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class SettingsLanguageScreen extends StatelessWidget {
   const SettingsLanguageScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final localeProvider = context.watch<LocaleProvider>();
     final currentCode = localeProvider.locale?.languageCode;
 
@@ -24,7 +26,7 @@ class SettingsLanguageScreen extends StatelessWidget {
               color: AurumTheme.textPrimaryOf(context), size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text('Language',
+        title: Text(l10n.settingsLanguage,
             style: TextStyle(
                 color: AurumTheme.textPrimaryOf(context),
                 fontSize: 18,
@@ -36,7 +38,7 @@ class SettingsLanguageScreen extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 0, 4, 16),
             child: Text(
-              'Choose your preferred app language',
+              l10n.settingsLanguageSubtitle,
               style: TextStyle(
                 color: AurumTheme.textSecondaryOf(context),
                 fontSize: 13,
@@ -52,7 +54,7 @@ class SettingsLanguageScreen extends StatelessWidget {
             child: Column(
               children: [
                 _LanguageRow(
-                  label: 'System default',
+                  label: l10n.settingsLanguageSystemDefault,
                   selected: currentCode == null,
                   onTap: () {
                     HapticFeedback.selectionClick();

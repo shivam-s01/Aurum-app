@@ -14,6 +14,7 @@ import '../providers/favorites_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -45,6 +46,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       extendBodyBehindAppBar: true,
@@ -63,7 +65,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Profile',
+        title: Text(l10n.prProfile,
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
       ),
       body: FadeTransition(
@@ -104,9 +106,10 @@ class _ProfileHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final auth = context.watch<AuthProvider>();
     final avatarUrl = auth.avatarUrl;
-    final name = auth.displayName ?? 'Aurum Listener';
+    final name = auth.displayName ?? l10n.prAurumListener;
     final email = auth.email;
 
     return SizedBox(
@@ -218,8 +221,8 @@ class _ProfileHero extends StatelessWidget {
                       borderRadius: BorderRadius.circular(20),
                       gradient: AurumTheme.goldGradient,
                     ),
-                    child: const Text(
-                      '✦ Aurum Premium',
+                    child: Text(
+                      l10n.prPremiumBadge,
                       style: TextStyle(
                         color: Colors.black,
                         fontSize: 12,
@@ -258,17 +261,18 @@ class _ProfileHero extends StatelessWidget {
 class _PremiumCard extends StatelessWidget {
   const _PremiumCard();
 
-  static const _benefits = [
-    (Icons.sync_rounded,           'Sync Library',       'Your music synced across all devices'),
-    (Icons.all_inclusive_rounded,  'Lifetime Access',    'No subscriptions, yours forever'),
-    (Icons.block_rounded,          'Ad-Free',            'Zero interruptions, pure music'),
-    (Icons.high_quality_rounded,   'High Quality Audio', 'Best available stream quality'),
-    (Icons.download_done_rounded,  'Offline Ready',      'Download and play anywhere'),
-    (Icons.recommend_rounded,      'Smart Recommendations', 'Mood-based queue & discovery'),
+  static List<(IconData, String, String)> _benefits(AppLocalizations l10n) => [
+    (Icons.sync_rounded,           l10n.prBenefitSyncTitle,     l10n.prBenefitSyncSub),
+    (Icons.all_inclusive_rounded,  l10n.prBenefitLifetimeTitle, l10n.prBenefitLifetimeSub),
+    (Icons.block_rounded,          l10n.prBenefitAdFreeTitle,   l10n.prBenefitAdFreeSub),
+    (Icons.high_quality_rounded,   l10n.prBenefitQualityTitle,  l10n.prBenefitQualitySub),
+    (Icons.download_done_rounded,  l10n.prBenefitOfflineTitle,  l10n.prBenefitOfflineSub),
+    (Icons.recommend_rounded,      l10n.prBenefitRecsTitle,     l10n.prBenefitRecsSub),
   ];
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isPremium = context.watch<PremiumProvider>().isPremium;
 
     return Container(
@@ -304,14 +308,14 @@ class _PremiumCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Aurum Premium',
+                  Text(l10n.prAurumPremiumPlain,
                       style: TextStyle(
                         color: AurumTheme.gold,
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
                       )),
                   Text(
-                    isPremium ? 'All features unlocked' : 'Upgrade to unlock everything',
+                    isPremium ? l10n.prAllFeaturesUnlocked : l10n.prUpgradeToUnlock,
                     style: TextStyle(
                       color: AurumTheme.textMutedOf(context),
                       fontSize: 12,
@@ -335,7 +339,7 @@ class _PremiumCard extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  isPremium ? 'Active' : 'Free',
+                  isPremium ? l10n.prActive : l10n.prFree,
                   style: TextStyle(
                     color: isPremium
                         ? AurumTheme.gold
@@ -354,7 +358,7 @@ class _PremiumCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
             child: Column(
-              children: _benefits.map((b) => _BenefitRow(
+              children: _benefits(l10n).map((b) => _BenefitRow(
                 icon: b.$1,
                 title: b.$2,
                 subtitle: b.$3,
@@ -431,6 +435,7 @@ class _AccountCardState extends State<_AccountCard> {
   bool _syncing = false;
 
   Future<void> _handleSignIn(AuthProvider auth) async {
+    final l10n = AppLocalizations.of(context)!;
     final ok = await auth.signInWithGoogle();
     if (!mounted) return;
     if (ok) {
@@ -452,16 +457,16 @@ class _AccountCardState extends State<_AccountCard> {
           if (mounted) setState(() => _syncing = false);
         }
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Signed in — your library is synced'),
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(l10n.prSignedInSynced),
             behavior: SnackBarBehavior.floating,
             duration: Duration(seconds: 2),
           ));
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Signed in! Upgrade to Premium to enable cloud sync.'),
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(l10n.prSignedInUpgradePrompt),
             behavior: SnackBarBehavior.floating,
             duration: Duration(seconds: 3),
           ));
@@ -477,26 +482,25 @@ class _AccountCardState extends State<_AccountCard> {
   }
 
   Future<void> _handleSignOut(AuthProvider auth) async {
+    final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AurumTheme.bgCardOf(context),
-        title: Text('Sign out?',
+        title: Text(l10n.prSignOutTitle,
             style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
         content: Text(
-          'Your liked songs, playlists, followed artists and history will '
-          'be cleared from this device. Sign back in anytime to get them '
-          'back.',
+          l10n.prSignOutBody,
           style: TextStyle(color: AurumTheme.textSecondaryOf(context)),
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+              child: Text(l10n.prCancel)),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Sign out',
-                style: TextStyle(color: Colors.redAccent)),
+            child: Text(l10n.prSignOut,
+                style: const TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
@@ -519,6 +523,7 @@ class _AccountCardState extends State<_AccountCard> {
   // (theme, equalizer, sleep timer, etc.) which belong to the device, not
   // the account.
   Future<void> _signOutAndWipe(AuthProvider auth) async {
+    final l10n = AppLocalizations.of(context)!;
     HapticFeedback.mediumImpact();
 
     // Premium, top-level feel: a brief centered loader overlay while the
@@ -551,8 +556,8 @@ class _AccountCardState extends State<_AccountCard> {
 
     if (mounted) {
       HapticFeedback.lightImpact();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Signed out — your data has been cleared from this device'),
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(l10n.prSignedOutCleared),
         behavior: SnackBarBehavior.floating,
         duration: Duration(seconds: 3),
       ));
@@ -561,6 +566,7 @@ class _AccountCardState extends State<_AccountCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Consumer<AuthProvider>(
       builder: (context, auth, _) {
         return Container(
@@ -598,7 +604,7 @@ class _AccountCardState extends State<_AccountCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          auth.displayName ?? 'Signed in',
+                          auth.displayName ?? l10n.prSignedIn,
                           style: TextStyle(
                             color: AurumTheme.textPrimaryOf(context),
                             fontWeight: FontWeight.w700,
@@ -617,7 +623,7 @@ class _AccountCardState extends State<_AccountCard> {
                         if (_syncing)
                           Padding(
                             padding: const EdgeInsets.only(top: 4),
-                            child: Text('Syncing your library…',
+                            child: Text(l10n.prSyncingLibrary,
                                 style: TextStyle(
                                     color: AurumTheme.gold, fontSize: 11)),
                           ),
@@ -651,14 +657,14 @@ class _AccountCardState extends State<_AccountCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Sync Your Library',
+                        Text(l10n.prSyncLibraryTitle,
                             style: TextStyle(
                               color: AurumTheme.textPrimaryOf(context),
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
                             )),
                         const SizedBox(height: 2),
-                        Text('Sign in to access across devices',
+                        Text(l10n.prSyncLibrarySubtitle,
                             style: TextStyle(
                               color: AurumTheme.textMutedOf(context),
                               fontSize: 12,
@@ -676,7 +682,7 @@ class _AccountCardState extends State<_AccountCard> {
                           onPressed: () => _handleSignIn(auth),
                           icon: const Icon(Icons.g_mobiledata_rounded,
                               size: 20),
-                          label: const Text('Sign in'),
+                          label: Text(l10n.prSignIn),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AurumTheme.gold,
                             side: const BorderSide(color: AurumTheme.gold),

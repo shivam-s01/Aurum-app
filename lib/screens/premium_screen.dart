@@ -13,6 +13,7 @@ import '../providers/premium_provider.dart';
 import '../services/payment_service.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/auth_provider.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class PremiumScreen extends StatefulWidget {
   const PremiumScreen({super.key});
@@ -152,24 +153,16 @@ class _PremiumScreenState extends State<PremiumScreen>
     super.dispose();
   }
 
-  static const _features = [
-    (Icons.high_quality_rounded, 'HD Audio • 320kbps',
-        'Crystal-clear lossless quality'),
-    (Icons.all_inclusive_rounded, 'Unlimited Skips',
-        'Skip as many songs as you want'),
-    (Icons.block_rounded, 'Zero Ads', 'Completely ad-free experience'),
-    (Icons.auto_awesome_rounded, 'AI Recommendations',
-        'Songs curated just for you'),
-    (Icons.offline_pin_rounded, 'Offline Downloads',
-        'Listen without internet'),
-    (Icons.cloud_sync_rounded, 'Cloud Sync',
-        'Your library on every device'),
-    (Icons.favorite_rounded, 'Like & Follow Artists',
-        'Build your personal collection'),
-    (Icons.queue_music_rounded, 'Unlimited Playlists',
-        'Create and share playlists'),
-    (Icons.palette_rounded, 'Exclusive Themes',
-        'Premium colors and player styles'),
+  static List<(IconData, String, String)> _features(AppLocalizations l10n) => [
+    (Icons.high_quality_rounded, l10n.psFeatHdAudioTitle, l10n.psFeatHdAudioSub),
+    (Icons.all_inclusive_rounded, l10n.psFeatSkipsTitle, l10n.psFeatSkipsSub),
+    (Icons.block_rounded, l10n.psFeatAdsTitle, l10n.psFeatAdsSub),
+    (Icons.auto_awesome_rounded, l10n.psFeatAiTitle, l10n.psFeatAiSub),
+    (Icons.offline_pin_rounded, l10n.psFeatOfflineTitle, l10n.psFeatOfflineSub),
+    (Icons.cloud_sync_rounded, l10n.psFeatSyncTitle, l10n.psFeatSyncSub),
+    (Icons.favorite_rounded, l10n.psFeatFollowTitle, l10n.psFeatFollowSub),
+    (Icons.queue_music_rounded, l10n.psFeatPlaylistsTitle, l10n.psFeatPlaylistsSub),
+    (Icons.palette_rounded, l10n.psFeatThemesTitle, l10n.psFeatThemesSub),
   ];
 
   void _handlePaymentSuccess(AurumPlan plan, String paymentId) {
@@ -231,6 +224,7 @@ class _PremiumScreenState extends State<PremiumScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final premium = context.watch<PremiumProvider>();
 
     if (premium.isPremium || _justPaid) {
@@ -295,21 +289,21 @@ class _PremiumScreenState extends State<PremiumScreen>
                         opacity: _heroFade,
                         child: SlideTransition(
                           position: _heroSlide,
-                          child: _buildHero(),
+                          child: _buildHero(l10n),
                         ),
                       ),
                       const SizedBox(height: 20),
                       // Social proof bar
                       FadeTransition(
                         opacity: _heroFade,
-                        child: _buildSocialProof(),
+                        child: _buildSocialProof(l10n),
                       ),
                       const SizedBox(height: 28),
                       FadeTransition(
                         opacity: _plansFade,
                         child: SlideTransition(
                           position: _plansSlide,
-                          child: _buildPlanSelector(),
+                          child: _buildPlanSelector(l10n),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -317,7 +311,7 @@ class _PremiumScreenState extends State<PremiumScreen>
                         opacity: _featuresFade,
                         child: SlideTransition(
                           position: _featuresSlide,
-                          child: _buildFeatures(),
+                          child: _buildFeatures(l10n),
                         ),
                       ),
                       const SizedBox(height: 32),
@@ -325,13 +319,13 @@ class _PremiumScreenState extends State<PremiumScreen>
                         opacity: _ctaFade,
                         child: SlideTransition(
                           position: _ctaSlide,
-                          child: _buildCTA(),
+                          child: _buildCTA(l10n),
                         ),
                       ),
                       const SizedBox(height: 12),
                       FadeTransition(
                         opacity: _ctaFade,
-                        child: _buildFooter(),
+                        child: _buildFooter(l10n),
                       ),
                     ],
                   ),
@@ -344,7 +338,7 @@ class _PremiumScreenState extends State<PremiumScreen>
     );
   }
 
-  Widget _buildHero() {
+  Widget _buildHero(AppLocalizations l10n) {
     return Column(children: [
       AnimatedBuilder(
         animation: Listenable.merge([_glow, _shimmer]),
@@ -424,8 +418,8 @@ class _PremiumScreenState extends State<PremiumScreen>
         shaderCallback: (bounds) => const LinearGradient(
           colors: [AurumTheme.goldDark, AurumTheme.goldLight, AurumTheme.gold],
         ).createShader(bounds),
-        child: const Text(
-          'Aurum Plus',
+        child: Text(
+          l10n.psAurumPlus,
           style: TextStyle(
             color: Colors.white,
             fontSize: 36,
@@ -436,7 +430,7 @@ class _PremiumScreenState extends State<PremiumScreen>
       ),
       const SizedBox(height: 8),
       Text(
-        'Music, the way it was meant to be heard.',
+        l10n.psTagline,
         style: TextStyle(
           color: Colors.white.withOpacity(0.55),
           fontSize: 15,
@@ -447,28 +441,28 @@ class _PremiumScreenState extends State<PremiumScreen>
     ]);
   }
 
-  Widget _buildSocialProof() {
+  Widget _buildSocialProof(AppLocalizations l10n) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _TrustBadge(icon: Icons.star_rounded, label: '4.9★ Rating'),
+        _TrustBadge(icon: Icons.star_rounded, label: l10n.psRating),
         const SizedBox(width: 10),
-        _TrustBadge(icon: Icons.lock_rounded, label: 'Secure'),
+        _TrustBadge(icon: Icons.lock_rounded, label: l10n.psSecure),
         const SizedBox(width: 10),
-        _TrustBadge(icon: Icons.replay_rounded, label: '7-day refund'),
+        _TrustBadge(icon: Icons.replay_rounded, label: l10n.psRefund),
       ],
     );
   }
 
 
-  Widget _buildPlanSelector() {
+  Widget _buildPlanSelector(AppLocalizations l10n) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 12, left: 2),
           child: Text(
-            'Choose your plan',
+            l10n.psChoosePlan,
             style: TextStyle(
               color: Colors.white.withOpacity(0.85),
               fontSize: 16,
@@ -482,17 +476,21 @@ class _PremiumScreenState extends State<PremiumScreen>
               child: _PlanCard(
                 plan: AurumPlan.monthly,
                 isSelected: _selectedPlan == AurumPlan.monthly,
-                badge: 'TRY IT',
+                badge: l10n.psBadgeTryIt,
+                planLabel: l10n.psPlanMonthly,
+                subLabel: l10n.psSubPerMonth,
                 onTap: () => _selectPlan(AurumPlan.monthly),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: _PlanCard(
-                plan: AurumPlan.sixMonths,
-                isSelected: _selectedPlan == AurumPlan.sixMonths,
-                badge: 'SAVE 58%',
-                onTap: () => _selectPlan(AurumPlan.sixMonths),
+                plan: AurumPlan.yearly,
+                isSelected: _selectedPlan == AurumPlan.yearly,
+                badge: l10n.psBadgeSave58,
+                planLabel: l10n.psPlanYearly,
+                subLabel: l10n.psSubPerYear,
+                onTap: () => _selectPlan(AurumPlan.yearly),
               ),
             ),
           ],
@@ -501,7 +499,9 @@ class _PremiumScreenState extends State<PremiumScreen>
         _PlanCard(
           plan: AurumPlan.lifetime,
           isSelected: _selectedPlan == AurumPlan.lifetime,
-          badge: 'BEST DEAL',
+          badge: l10n.psBadgeBestDeal,
+          planLabel: l10n.psPlanLifetime,
+          subLabel: l10n.psSubPayOnce,
           isFullWidth: true,
           onTap: () => _selectPlan(AurumPlan.lifetime),
         ),
@@ -509,14 +509,14 @@ class _PremiumScreenState extends State<PremiumScreen>
     );
   }
 
-  Widget _buildFeatures() {
+  Widget _buildFeatures(AppLocalizations l10n) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 14, left: 2),
           child: Text(
-            'Everything included',
+            l10n.psEverythingIncluded,
             style: TextStyle(
               color: Colors.white.withOpacity(0.85),
               fontSize: 16,
@@ -534,10 +534,10 @@ class _PremiumScreenState extends State<PremiumScreen>
             ),
           ),
           child: Column(
-            children: _features.asMap().entries.map((entry) {
+            children: _features(l10n).asMap().entries.map((entry) {
               final i = entry.key;
               final f = entry.value;
-              final isLast = i == _features.length - 1;
+              final isLast = i == _features(l10n).length - 1;
               return Column(children: [
                 Padding(
                   padding:
@@ -598,11 +598,11 @@ class _PremiumScreenState extends State<PremiumScreen>
     );
   }
 
-  Widget _buildCTA() {
+  Widget _buildCTA(AppLocalizations l10n) {
     final priceLabel = switch (_selectedPlan) {
-      AurumPlan.monthly   => '${_selectedPlan.priceLabel}/month',
-      AurumPlan.sixMonths => '${_selectedPlan.priceLabel}/6 months',
-      AurumPlan.lifetime  => '${_selectedPlan.priceLabel} one-time',
+      AurumPlan.monthly  => l10n.psPerMonth(_selectedPlan.priceLabel),
+      AurumPlan.yearly   => l10n.psPerYear(_selectedPlan.priceLabel),
+      AurumPlan.lifetime => l10n.psOneTime(_selectedPlan.priceLabel),
     };
     final isSignedIn = context.watch<AuthProvider>().isSignedIn;
 
@@ -673,8 +673,8 @@ class _PremiumScreenState extends State<PremiumScreen>
                     const SizedBox(width: 8),
                     Text(
                       isSignedIn
-                          ? 'Get Plus — $priceLabel'
-                          : 'Sign in & Get Plus',
+                          ? l10n.psGetPlusPrice(priceLabel)
+                          : l10n.psSignInGetPlus,
                       style: const TextStyle(
                         color: Colors.black,
                         fontSize: 16,
@@ -692,11 +692,11 @@ class _PremiumScreenState extends State<PremiumScreen>
     );
   }
 
-  Widget _buildFooter() {
+  Widget _buildFooter(AppLocalizations l10n) {
     return Column(
       children: [
         Text(
-          '🔒  Secure payments via Cashfree  •  Cancel anytime',
+          l10n.psSecurePayments,
           style: TextStyle(
             color: Colors.white.withOpacity(0.3),
             fontSize: 12,
@@ -712,7 +712,7 @@ class _PremiumScreenState extends State<PremiumScreen>
                 color: AurumTheme.gold.withOpacity(0.7), size: 14),
             const SizedBox(width: 5),
             Text(
-              '7-day money back guarantee',
+              l10n.psMoneyBack,
               style: TextStyle(
                 color: AurumTheme.gold.withOpacity(0.7),
                 fontSize: 12,
@@ -811,6 +811,8 @@ class _PlanCard extends StatelessWidget {
   final AurumPlan plan;
   final bool isSelected;
   final String? badge;
+  final String planLabel;
+  final String subLabel;
   final bool isFullWidth;
   final VoidCallback onTap;
 
@@ -818,18 +820,14 @@ class _PlanCard extends StatelessWidget {
     required this.plan,
     required this.isSelected,
     required this.onTap,
+    required this.planLabel,
+    required this.subLabel,
     this.badge,
     this.isFullWidth = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final subLabel = switch (plan) {
-      AurumPlan.monthly   => 'per month',
-      AurumPlan.sixMonths => 'per 6 months',
-      AurumPlan.lifetime  => 'pay once, own forever',
-    };
-
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -889,7 +887,7 @@ class _PlanCard extends StatelessWidget {
                               fontWeight: FontWeight.w600,
                               letterSpacing: 0.5,
                             ),
-                            child: Text(plan.label.toUpperCase()),
+                            child: Text(planLabel.toUpperCase()),
                           ),
                           const SizedBox(height: 2),
                           AnimatedDefaultTextStyle(
@@ -941,7 +939,7 @@ class _PlanCard extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.5,
                         ),
-                        child: Text(plan.label.toUpperCase()),
+                        child: Text(planLabel.toUpperCase()),
                       ),
                       const SizedBox(height: 6),
                       AnimatedDefaultTextStyle(
@@ -1070,6 +1068,7 @@ class _SuccessViewState extends State<_SuccessView>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: const Color(0xFF060608),
       body: SafeArea(
@@ -1111,8 +1110,8 @@ class _SuccessViewState extends State<_SuccessView>
                       shaderCallback: (b) => const LinearGradient(
                         colors: [AurumTheme.goldDark, AurumTheme.gold],
                       ).createShader(b),
-                      child: const Text(
-                        "You're Plus now ✦",
+                      child: Text(
+                        l10n.psSuccessTitle,
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 30,
@@ -1123,7 +1122,7 @@ class _SuccessViewState extends State<_SuccessView>
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      'All features are unlocked.\nEnjoy the full Aurum experience.',
+                      l10n.psSuccessBody,
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.5),
                         fontSize: 15,
@@ -1162,7 +1161,7 @@ class _SuccessViewState extends State<_SuccessView>
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16)),
                         ),
-                        child: const Text('Start Listening',
+                        child: Text(l10n.psStartListening,
                             style: TextStyle(
                                 color: Colors.black,
                                 fontSize: 16,

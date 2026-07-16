@@ -117,4 +117,22 @@
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">ytimg.com</domain>
     </domain-config>
+
+    <!-- FIX: Shorts feature uses the iTunes Search API for discovery
+         (itunes.apple.com) and Apple's CDN for the actual playable
+         30-second preview clips (mzstatic.com). Neither domain was
+         whitelisted here, so with cleartextTrafficPermitted="false" +
+         a custom networkSecurityConfig, Android silently blocked ALL
+         Shorts network traffic — exactly why clips wouldn't play at
+         all (0%). Same class of bug as the Worker/Saavn/YouTube fixes
+         above. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">itunes.apple.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">mzstatic.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">apple.com</domain>
+    </domain-config>
 </network-security-config>

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class SettingsNotificationsScreen extends StatefulWidget {
   const SettingsNotificationsScreen({super.key});
@@ -92,9 +93,10 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
-      appBar: _appBar(context, 'Notifications'),
+      appBar: _appBar(context, l10n.settingsNotifications),
       body: ListView(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
@@ -107,7 +109,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
           // exempts the app from battery optimization. This can't be done
           // silently; Android requires an explicit user-facing system
           // dialog for this specific permission.
-          _sectionLabel('🔋 BACKGROUND PLAYBACK'),
+          _sectionLabel(l10n.snBackgroundPlayback),
           Container(
             margin: const EdgeInsets.only(bottom: 8),
             decoration: BoxDecoration(
@@ -153,8 +155,8 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
               ),
               title: Text(
                 _batteryOptimizationIgnored
-                    ? 'Background Playback Enabled'
-                    : 'Allow Background Playback',
+                    ? l10n.snBgPlaybackEnabled
+                    : l10n.snAllowBgPlayback,
                 style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
                   fontSize: 14, fontWeight: FontWeight.w500,
@@ -162,8 +164,8 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
               ),
               subtitle: Text(
                 _batteryOptimizationIgnored
-                    ? 'Music will keep playing when screen is off or app is closed'
-                    : 'Tap to allow music to keep playing in the background — some phones stop playback without this',
+                    ? l10n.snBgPlaybackEnabledDesc
+                    : l10n.snAllowBgPlaybackDesc,
                 style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12),
               ),
               trailing: _batteryOptimizationIgnored
@@ -173,39 +175,39 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
           ),
 
           // ── PLAYER NOTIFICATION ───────────────────────────────────────
-          _sectionLabel('🔔 PLAYER NOTIFICATION'),
+          _sectionLabel(l10n.snPlayerNotification),
           _switchTile(context,
             icon: Icons.notifications_rounded,
-            title: 'Show Media Notification',
-            subtitle: 'Display player in notification bar',
+            title: l10n.snShowMediaNotif,
+            subtitle: l10n.snShowMediaNotifSubtitle,
             value: _showMediaNotif,
             onChanged: (v) { setState(() => _showMediaNotif = v); _save('show_media_notif', v); AudioPrefs.showMediaNotif = v; },
           ),
           _switchTile(context,
             icon: Icons.image_rounded,
-            title: 'Show Song Artwork',
-            subtitle: 'Display album art in notification',
+            title: l10n.snShowArtwork,
+            subtitle: l10n.snShowArtworkSubtitle,
             value: _showArtworkInNotif,
             onChanged: (v) { setState(() => _showArtworkInNotif = v); _save('show_artwork_notif', v); AudioPrefs.showArtworkNotif = v; },
           ),
           _switchTile(context,
             icon: Icons.skip_previous_rounded,
-            title: 'Show Previous Track Button',
-            subtitle: 'Add previous button in media notification',
+            title: l10n.snShowPrevButton,
+            subtitle: l10n.snShowPrevButtonSubtitle,
             value: _showPrevButton,
             onChanged: (v) { setState(() => _showPrevButton = v); _save('notif_show_prev', v); },
           ),
 
           // ── NOTIFICATION STYLE ────────────────────────────────────────
-          _sectionLabel('NOTIFICATION STYLE'),
-          _styleTile(context, 'Compact',  'Small, minimal controls',      Icons.notifications_none_rounded),
-          _styleTile(context, 'Expanded', 'Full controls with artwork',   Icons.notifications_active_rounded),
+          _sectionLabel(l10n.snNotificationStyle),
+          _styleTile(context, 'Compact', l10n.snStyleCompact, l10n.snStyleCompactDesc, Icons.notifications_none_rounded),
+          _styleTile(context, 'Expanded', l10n.snStyleExpanded, l10n.snStyleExpandedDesc, Icons.notifications_active_rounded),
         ],
       ),
     );
   }
 
-  Widget _styleTile(BuildContext context, String style, String sub, IconData icon) {
+  Widget _styleTile(BuildContext context, String style, String label, String sub, IconData icon) {
     final sel = _notifStyle == style;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -228,7 +230,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
           ),
           child: Icon(icon, color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
         ),
-        title: Text(style,
+        title: Text(label,
           style: TextStyle(
             color: sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
             fontSize: 14, fontWeight: sel ? FontWeight.w600 : FontWeight.w400)),
