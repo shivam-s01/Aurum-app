@@ -204,8 +204,13 @@ class ApiService {
   static final http.Client    _client = http.Client();
   static final YoutubeExplode _yt     = YoutubeExplode();
 
-  // Saavn: onrender = primary (richer song data), existing CF worker = fallback
-  static const String _saavnPrimary  = 'https://jiosaavn-op-gits.onrender.com';
+  // Saavn: Vercel (jiosavan-three) = primary — the old onrender.com backend
+  // was suspended by Render for exceeding free-tier monthly usage hours.
+  // Vercel serverless functions don't have this problem (no persistent
+  // server to sleep/suspend, scales per-request), so this should be a
+  // stable long-term replacement rather than another "runs out" host.
+  // Existing CF worker stays as secondary fallback, unchanged.
+  static const String _saavnPrimary  = 'https://jiosavan-three.vercel.app';
   static const String _saavn         = 'https://aurum-worker.shivamsharma962122.workers.dev';
   static const String _worker        = AppConstants.apiBase;
 

@@ -165,10 +165,12 @@ class BrowseArtist {
 
 class BrowseService {
   static final _client = http.Client();
-  // The old backend (jiosavan.onrender.com) is permanently suspended —
-  // free-tier quota exhausted. This was the entire reason Browse showed
-  // nothing. Pointed at the same live backend api_service.dart uses.
-  static const _base = 'https://jiosaavn-op-gits.onrender.com';
+  // The old backend (jiosaavn-op-gits.onrender.com) was suspended by
+  // Render for exceeding free-tier monthly usage hours. Migrated to the
+  // same repo's Vercel deployment (jiosavan-three) — serverless functions
+  // don't sleep/get suspended for usage-hours the way Render's free web
+  // services do, so this should hold up better long-term.
+  static const _base = 'https://jiosavan-three.vercel.app';
 
   static Future<BrowseSearchResult> search(String query) async {
     if (query.trim().isEmpty) return BrowseSearchResult.empty();
