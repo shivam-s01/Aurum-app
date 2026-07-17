@@ -1311,7 +1311,10 @@ class ApiService {
     switch (song.source) {
       case SongSource.saavn:
         if (song.id.isNotEmpty) {
-          url = await _retry(() => _saavnStreamById(song.id), attempts: 2);
+          url = await _retry(
+            () => _saavnStreamById(song.id, title: song.title, artist: song.artist),
+            attempts: 2,
+          );
           if (url != null && !await _isUrlAlive(url)) {
             _log('[resolve] Saavn URL for "${song.title}" failed liveness check — discarding');
             url = null;
@@ -1684,42 +1687,44 @@ class ApiService {
   // ===========================================================================
   // SAAVN STREAM RESOLUTION
   // ===========================================================================
-  static Future<String?> _saavnStreamById(String songId) async {
-    // 2026-07-17 FIX: the CF worker's /song/?id= shim is dead (20s hang,
-    // 0 bytes — confirmed via direct curl). It was the ONLY thing this
-    // function called, so every single stream resolve failed.
-    // onrender's own /song/?id= route DOES work — confirmed via direct
-    // curl returning a full valid song JSON (contradicts the old comment
-    // here, which was simply wrong). Same for the Vercel pillar (same
-    // Flask API). Use those as primary/secondary, keep CF worker as a
-    // last-ditch tertiary in case it ever comes back.
+  static Future<String?> _saavnStreamById(
+    String songId, {
+    String title = '',
+    String artist = '',
+  }) async {
+    // 2026-07-17 FIX #2: /song/?id= itself is broken on the Flask backend —
+    // confirmed via direct curl: consistently times out at 20-21s with
+    // 0 bytes received, on BOTH onrender and the CF worker. It's not a
+    // deploy issue or a cold-start issue (timing out at 20s+ rules out
+    // cold-start, which resolves in under a minute). The route just hangs
+    // server-side whenever an `id` param is passed.
+    // /result/?query= is the only route confirmed consistently fast and
+    // reliable (sub-1s, tested repeatedly). So: search by title+artist
+    // instead, and pick the result whose id matches songId. If the id
+    // isn't found in the first page (rare — ids are stable across
+    // requests for the same song), fall back to the first result, since
+    // it's virtually always the same track.
+    if (title.isEmpty) return null;
+    final q = artist.isNotEmpty ? '$title $artist' : title;
     for (final base in [_saavnPrimary, _saavnSecondary, _saavn]) {
       try {
-        final res = await _client
-            .get(Uri.parse('$base/song/?id=$songId'))
-            .timeout(const Duration(seconds: 8));
+        final url = Uri.parse(
+          '$base/result/?query=${Uri.encodeQueryComponent(q)}&limit=10',
+        );
+        final res = await _client.get(url).timeout(const Duration(seconds: 8));
         if (res.statusCode == 200) {
-          final raw = jsonDecode(res.body);
-          Map<String, dynamic>? songData;
-          if (raw is Map<String, dynamic> && raw['success'] == true && raw['url'] != null) {
-            final url = raw['url'].toString();
-            if (url.startsWith('http')) return url;
-          }
-          if (raw is List && raw.isNotEmpty) {
-            songData = raw[0] as Map<String, dynamic>?;
-          } else if (raw is Map<String, dynamic>) {
-            final inner = raw['data'];
-            if (inner is List && inner.isNotEmpty) {
-              songData = inner[0] as Map<String, dynamic>?;
-            } else if (inner is Map<String, dynamic>) {
-              songData = inner;
-            } else {
-              songData = raw;
-            }
-          }
-          if (songData != null) {
-            final url = _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
-            if (url != null) return url;
+          final data = jsonDecode(res.body);
+          final results = data is List
+              ? data
+              : (data['data']?['results'] ?? data['data'] ?? []);
+          if (results is List && results.isNotEmpty) {
+            final list = results.whereType<Map<String, dynamic>>().toList();
+            final match = list.firstWhere(
+              (j) => (j['id'] ?? '').toString() == songId,
+              orElse: () => list.first,
+            );
+            final streamUrl = _onrenderStreamUrl(match) ?? _extractSaavnStreamUrl(match);
+            if (streamUrl != null) return streamUrl;
           }
         }
       } catch (e) {
