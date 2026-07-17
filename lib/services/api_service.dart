@@ -204,16 +204,22 @@ class ApiService {
   static final http.Client    _client = http.Client();
   static final YoutubeExplode _yt     = YoutubeExplode();
 
-  // Saavn: onrender (jiosavan-ecc1) = HARD PRIMARY. Flask-based
-  // cyberboysumanjay/JioSaavnAPI — only real routes are /result/, /song/,
-  // /lyrics/ (NOT /api/search/songs — that's a different, Node-style API
-  // that was never actually deployed on either host).
+  // 2026-07-17: NEW primary — jiosaavn-op (sumitkolhe/jiosaavn-api style,
+  // TypeScript/Node, saavn.dev-compatible). Confirmed via direct curl:
+  // /api/search/songs?query= and /api/songs/:id BOTH work reliably, and
+  // /api/songs/:id returns clean non-DRM direct .mp4 downloadUrl[] —
+  // no /song/?id= hang, no DRM/encrypted_media fields to deal with.
+  // This replaces jiosavan-ecc1 (Flask) as primary; the Flask hosts are
+  // kept below as fallback pillars in case this one has downtime.
+  static const String _saavnV2 = 'https://jiosaavn-op-c4oo.onrender.com';
+
+  // Saavn: onrender (jiosavan-ecc1) = Flask-based cyberboysumanjay/
+  // JioSaavnAPI — only real routes are /result/, /lyrics/. /song/?id=
+  // confirmed BROKEN (hangs 20s+, 0 bytes, both onrender and CF worker —
+  // server-side bug, not a deploy issue). Kept as fallback for /result/
+  // search only.
   //
-  // Vercel (jiosavan-three) = dedicated SECONDARY fallback pillar. Same
-  // Flask API, confirmed working on /result/ via direct test — kept as a
-  // full standalone fallback (not just an afterthought) since Render free
-  // tier sleeps on inactivity and Vercel serverless doesn't, so Vercel can
-  // absorb traffic during Render cold-starts too.
+  // Vercel (jiosavan-three) = same Flask API, fallback pillar.
   //
   // CF worker = tertiary fallback, unchanged.
   static const String _saavnPrimary   = 'https://jiosavan-ecc1.onrender.com';
@@ -1081,8 +1087,35 @@ class ApiService {
   // a different, Node-style JioSaavn API that isn't what's deployed).
   // Vercel (same Flask API, different host) is a full secondary pillar —
   // covers Render cold-starts on the free tier. CF worker is tertiary.
+  //
+  // 2026-07-17: jiosaavn-op (v2, TypeScript/Node) added as new STAGE 0 —
+  // confirmed via direct curl: /api/search/songs?query= works reliably
+  // and /api/songs/:id returns clean non-DRM direct .mp4 URLs. Old Flask
+  // hosts kept below as fallback in case v2 has downtime.
   // ===========================================================================
   static Future<List<Song>> _searchSaavn(String query, {int limit = 20}) async {
+    // 0. jiosaavn-op v2 — /api/search/songs route
+    try {
+      final url = Uri.parse(
+        '$_saavnV2/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+      );
+      final res = await _client.get(url).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final results = data is Map ? (data['data']?['results'] ?? []) : [];
+        if (results is List && results.isNotEmpty) {
+          final songs = results
+              .whereType<Map<String, dynamic>>()
+              .take(limit)
+              .map(_songFromSaavn)
+              .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+              .toList();
+          if (songs.isNotEmpty) return songs;
+        }
+      }
+    } catch (e) {
+      _log('[_searchSaavn] jiosaavn-op v2 error: $e');
+    }
     // 1. onrender primary — /result/ route
     try {
       final url = Uri.parse(
@@ -1692,7 +1725,34 @@ class ApiService {
     String title = '',
     String artist = '',
   }) async {
-    // 2026-07-17 FIX #2: /song/?id= itself is broken on the Flask backend —
+    // 2026-07-17 FIX #3: jiosaavn-op v2 has a working, reliable id-based
+    // lookup — /api/songs/:id — confirmed via direct curl returning clean
+    // non-DRM downloadUrl[] entries in under a second. Try this FIRST,
+    // since it's a real id lookup (no title-search guesswork needed).
+    try {
+      final url = Uri.parse('$_saavnV2/api/songs/$songId');
+      final res = await _client.get(url).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final raw = jsonDecode(res.body);
+        if (raw is Map<String, dynamic> && raw['success'] == true) {
+          final data = raw['data'];
+          Map<String, dynamic>? songData;
+          if (data is List && data.isNotEmpty) {
+            songData = data.first as Map<String, dynamic>?;
+          } else if (data is Map<String, dynamic>) {
+            songData = data;
+          }
+          if (songData != null) {
+            final streamUrl = _extractSaavnStreamUrl(songData);
+            if (streamUrl != null) return streamUrl;
+          }
+        }
+      }
+    } catch (e) {
+      _log('[saavnById] jiosaavn-op v2 error for $songId: $e');
+    }
+
+    // FIX #2: /song/?id= itself is broken on the old Flask backend —
     // confirmed via direct curl: consistently times out at 20-21s with
     // 0 bytes received, on BOTH onrender and the CF worker. It's not a
     // deploy issue or a cold-start issue (timing out at 20s+ rules out
@@ -1739,7 +1799,8 @@ class ApiService {
     if (url320.startsWith('http')) return _proxiedSaavnUrl(url320);
     final urlMedia = (j['media_url'] ?? '').toString();
     if (urlMedia.startsWith('http')) return _proxiedSaavnUrl(urlMedia);
-    return null;
+    // v2 (jiosaavn-op / saavn.dev style) — downloadUrl: [{quality, url}, ...]
+    return _extractSaavnStreamUrl(j);
   }
 
   static String? _extractSaavnStreamUrl(Map<String, dynamic> song) {
