@@ -204,15 +204,22 @@ class ApiService {
   static final http.Client    _client = http.Client();
   static final YoutubeExplode _yt     = YoutubeExplode();
 
-  // Saavn: Vercel (jiosavan-three) = primary — the old onrender.com backend
-  // was suspended by Render for exceeding free-tier monthly usage hours.
-  // Vercel serverless functions don't have this problem (no persistent
-  // server to sleep/suspend, scales per-request), so this should be a
-  // stable long-term replacement rather than another "runs out" host.
-  // Existing CF worker stays as secondary fallback, unchanged.
-  static const String _saavnPrimary  = 'https://jiosavan-three.vercel.app';
-  static const String _saavn         = 'https://aurum-worker.shivamsharma962122.workers.dev';
-  static const String _worker        = AppConstants.apiBase;
+  // Saavn: onrender (jiosavan-ecc1) = HARD PRIMARY. Flask-based
+  // cyberboysumanjay/JioSaavnAPI — only real routes are /result/, /song/,
+  // /lyrics/ (NOT /api/search/songs — that's a different, Node-style API
+  // that was never actually deployed on either host).
+  //
+  // Vercel (jiosavan-three) = dedicated SECONDARY fallback pillar. Same
+  // Flask API, confirmed working on /result/ via direct test — kept as a
+  // full standalone fallback (not just an afterthought) since Render free
+  // tier sleeps on inactivity and Vercel serverless doesn't, so Vercel can
+  // absorb traffic during Render cold-starts too.
+  //
+  // CF worker = tertiary fallback, unchanged.
+  static const String _saavnPrimary   = 'https://jiosavan-ecc1.onrender.com';
+  static const String _saavnSecondary = 'https://jiosavan-three.vercel.app';
+  static const String _saavn          = 'https://aurum-worker.shivamsharma962122.workers.dev';
+  static const String _worker         = AppConstants.apiBase;
 
   // Stream cache
   static final Map<String, _CachedStream> _streamCache = {};
@@ -253,10 +260,18 @@ class ApiService {
     // Render free tier a cold instance can take 30-50s to respond. Pinging
     // on app start means the first real search/play request hits a warm server.
     _client
-        .get(Uri.parse('$_saavnPrimary/api/search/songs?query=hello&limit=1'))
+        .get(Uri.parse('$_saavnPrimary/result/?query=hello&limit=1'))
         .timeout(const Duration(seconds: 30))
         .then((_) => _log('[wakeSaavn] onrender warm ✓'))
         .catchError((e) => _log('[wakeSaavn] onrender ping failed: $e'));
+
+    // Also warm Vercel secondary pillar — serverless, so this is cheap and
+    // means it's ready instantly if Render is mid cold-start when needed.
+    _client
+        .get(Uri.parse('$_saavnSecondary/result/?query=hello&limit=1'))
+        .timeout(const Duration(seconds: 15))
+        .then((_) => _log('[wakeSaavn] Vercel warm ✓'))
+        .catchError((e) => _log('[wakeSaavn] Vercel ping failed: $e'));
 
     // Also keep CF worker warm
     _client
@@ -451,15 +466,15 @@ class ApiService {
     // time, since none of the pages depend on each other's results.
     final results = await Future.wait([
       _fetchSaavnPage(
-        '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
         limit,
       ),
       _fetchSaavnPage(
-        '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=2',
+        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=2',
         limit,
       ).catchError((_) => <Song>[]),
       _fetchSaavnPage(
-        '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=3',
+        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=3',
         limit,
       ).catchError((_) => <Song>[]),
     ]);
@@ -496,31 +511,16 @@ class ApiService {
   }
 
   // "Because You Played" section — pure JioSaavn suggestions, same category guaranteed
+  //
+  // NOTE: the Flask backend (cyberboysumanjay/JioSaavnAPI, both onrender
+  // and the CF worker) has NO dedicated suggestions endpoint — only
+  // /result/, /song/, /lyrics/. There is nothing to call here anymore, so
+  // this returns null immediately instead of hitting a route that always
+  // 404s and burning a timeout on every home-feed refresh. If you want
+  // this section back, it needs to be rebuilt from _searchSaavn using the
+  // song's title/artist as a search query instead of a suggestions call.
   static Future<SongSection?> _suggestionSection(String songId, String label) async {
-    try {
-      final url = Uri.parse('$_saavnPrimary/api/songs/$songId/suggestions?limit=50');
-      final res = await _client.get(url).timeout(const Duration(seconds: 8));
-      if (res.statusCode != 200) return null;
-      final data = jsonDecode(res.body);
-      final List? raw = data is Map ? (data['data'] as List?) : (data is List ? data : null);
-      if (raw == null || raw.isEmpty) return null;
-      final seenIds    = <String>{};
-      final seenTitles = <String>{};
-      final songs      = <Song>[];
-      for (final j in raw.whereType<Map<String, dynamic>>()) {
-        final s = _songFromSaavn(j);
-        if (s.id.isEmpty || s.title.isEmpty) continue;
-        if (!seenIds.add(s.id)) continue;
-        if (RecommendationEngine.isInherentVariant(s.title)) continue;
-        final tk = _normTitle(s.title);
-        if (!seenTitles.add(tk)) continue;
-        songs.add(s);
-      }
-      if (songs.isEmpty) return null;
-      return SongSection(title: label, songs: songs.take(50).toList());
-    } catch (_) {
-      return null;
-    }
+    return null;
   }
 
   // ===========================================================================
@@ -750,46 +750,12 @@ class ApiService {
   static Future<String?> resolveDownloadUrl(Song song, {List<String> qualityOrder = const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps']}) async {
     if (song.isLocal) return song.localPath;
 
-    if (song.source == SongSource.saavn && song.id.isNotEmpty) {
-      try {
-        final res = await _client
-            .get(Uri.parse('$_saavnPrimary/api/songs?ids=${song.id}'))
-            .timeout(const Duration(seconds: 10));
-        if (res.statusCode == 200) {
-          final raw = jsonDecode(res.body);
-          Map<String, dynamic>? songData;
-          final inner = (raw is Map<String, dynamic>) ? raw['data'] : null;
-          if (inner is List && inner.isNotEmpty) {
-            songData = inner[0] as Map<String, dynamic>?;
-          } else if (raw is List && raw.isNotEmpty) {
-            songData = raw[0] as Map<String, dynamic>?;
-          }
-          if (songData != null) {
-            final downloads = songData['downloadUrl'] as List?;
-            if (downloads != null && downloads.isNotEmpty) {
-              for (final q in qualityOrder) {
-                final match = downloads.firstWhere(
-                  (d) => d is Map && d['quality'] == q &&
-                         (d['url'] as String?)?.startsWith('http') == true,
-                  orElse: () => null,
-                );
-                if (match != null) return _proxiedSaavnUrl(match['url'] as String);
-              }
-              final last = downloads.last;
-              if (last is Map && (last['url'] as String?)?.startsWith('http') == true) {
-                return _proxiedSaavnUrl(last['url'] as String);
-              }
-            }
-            final url = _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
-            if (url != null) return url;
-          }
-        }
-      } catch (e) {
-        _log('[resolveDownloadUrl] Saavn error for "${song.title}": $e');
-      }
-    }
-
-    // Fallback to the standard stream resolver (handles YouTube etc.)
+    // NOTE: the Flask Saavn backend has no by-id lookup, so there's no
+    // dedicated download-quality endpoint to call here anymore — the old
+    // /api/songs?ids= route 404s (Node-style API shape, not what's
+    // deployed). resolveStreamUrl already gets the best available Saavn
+    // URL (via search-provided streamUrl or the CF worker's id lookup),
+    // so just use that directly for downloads too.
     return resolveStreamUrl(song);
   }
 
@@ -872,24 +838,11 @@ class ApiService {
       return true;
     }
 
-    // ── Signal 1: JioSaavn suggestions (PRIMARY) ──────────────────────────
-    final rawId = currentSong.id.replaceFirst(RegExp(r'^[a-z]+_'), '');
-    if (rawId.isNotEmpty && currentSong.source == SongSource.saavn) {
-      try {
-        final url = Uri.parse('$_saavnPrimary/api/songs/$rawId/suggestions?limit=50');
-        final res = await _client.get(url).timeout(const Duration(seconds: 8));
-        if (res.statusCode == 200) {
-          final data = jsonDecode(res.body);
-          final List? raw = data is Map ? (data['data'] as List?) : (data is List ? data : null);
-          if (raw != null) {
-            for (final j in raw.whereType<Map<String, dynamic>>()) {
-              addToPool(_songFromSaavn(j));
-            }
-          }
-        }
-      } catch (_) {}
-      _log('[autoQueue] signal1 saavn suggestions: ${pool.length}');
-    }
+    // NOTE: "Signal 1" (JioSaavn suggestions-by-id) removed — the Flask
+    // backend has no such endpoint (/api/songs/{id}/suggestions 404s, it's
+    // a different Node-style API's route). Signal 2 (same artist search)
+    // and Signal 3 (mood/genre fallback) below already cover this need
+    // using the working /result/ search route.
 
     // ── Signal 2: Same artist ─────────────────────────────────────────────
     if (pool.length < limit * 2) {
@@ -1096,8 +1049,8 @@ class ApiService {
   }
 
   static Future<List<String>> _suggestSaavn(String query) async {
-    // Try onrender primary first
-    for (final base in [_saavnPrimary, _saavn]) {
+    // Try onrender primary, then Vercel pillar, then CF worker
+    for (final base in [_saavnPrimary, _saavnSecondary, _saavn]) {
       try {
         final url = Uri.parse(
           '$base/result/?query=${Uri.encodeQueryComponent(query)}&limit=5',
@@ -1122,47 +1075,15 @@ class ApiService {
   }
 
   // ===========================================================================
-  // SAAVN SEARCH — onrender is now the HARD primary.
-  // Route order: confirmed-working /api/search/songs (verified via curl —
-  // returns full song objects incl. downloadUrl) tried FIRST, legacy /result/
-  // route kept as secondary in case the backend version differs, CF worker
-  // is last-resort fallback only.
-  //
-  // COVERAGE FIX: a single page from JioSaavn's backend tops out around
-  // 20-30 results even when `limit` asks for more, because the upstream
-  // JioSaavn API itself paginates internally. To show "as many Saavn songs
-  // as the real app shows", this now fetches a SECOND page (page=2) and
-  // merges it in whenever the first page comes back short of what was
-  // asked for — same principle as scrolling further in the real JioSaavn
-  // app instead of stopping at the first screenful.
+  // SAAVN SEARCH — onrender (Flask API) is the HARD primary.
+  // Only real route is /result/ — the old /api/search/songs attempt was
+  // removed entirely since that route 404s on this backend (it belongs to
+  // a different, Node-style JioSaavn API that isn't what's deployed).
+  // Vercel (same Flask API, different host) is a full secondary pillar —
+  // covers Render cold-starts on the free tier. CF worker is tertiary.
   // ===========================================================================
   static Future<List<Song>> _searchSaavn(String query, {int limit = 20}) async {
-    // 1a. Confirmed-working onrender route (page 1)
-    try {
-      final songs = await _fetchSaavnPage(
-        '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
-        limit,
-      );
-      if (songs.isNotEmpty) {
-        if (songs.length >= limit) return songs;
-        // Short page — try page 2 and merge, deduping by id.
-        final page2 = await _fetchSaavnPage(
-          '$_saavnPrimary/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=2',
-          limit,
-        );
-        if (page2.isNotEmpty) {
-          final seen = songs.map((s) => s.id).toSet();
-          final merged = [...songs, ...page2.where((s) => !seen.contains(s.id))];
-          _log('[_searchSaavn] merged page1(${songs.length}) + page2(${page2.length}) '
-              '= ${merged.length} for "$query"');
-          return merged;
-        }
-        return songs;
-      }
-    } catch (e) {
-      _log('[_searchSaavn] onrender /api/search/songs error: $e');
-    }
-    // 1b. Legacy onrender route (kept as secondary)
+    // 1. onrender primary — /result/ route
     try {
       final url = Uri.parse(
         '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
@@ -1186,7 +1107,31 @@ class ApiService {
     } catch (e) {
       _log('[_searchSaavn] onrender /result/ error: $e');
     }
-    // 2. Fallback to existing CF worker backend
+    // 2. Vercel secondary pillar — /result/ route (same Flask API)
+    try {
+      final url = Uri.parse(
+        '$_saavnSecondary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+      );
+      final res = await _client.get(url).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final results = data is List
+            ? data
+            : (data['data']?['results'] ?? data['data'] ?? []);
+        if (results is List && results.isNotEmpty) {
+          final songs = results
+              .whereType<Map<String, dynamic>>()
+              .take(limit)
+              .map(_songFromSaavn)
+              .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+              .toList();
+          if (songs.isNotEmpty) return songs;
+        }
+      }
+    } catch (e) {
+      _log('[_searchSaavn] Vercel /result/ error: $e');
+    }
+    // 3. Fallback to existing CF worker backend
     try {
       final url = Uri.parse(
         '$_saavn/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
@@ -1740,94 +1685,46 @@ class ApiService {
   // SAAVN STREAM RESOLUTION
   // ===========================================================================
   static Future<String?> _saavnStreamById(String songId) async {
-    // 1a. Confirmed-working route: /api/songs?ids= (returns clean downloadUrl
-    // array with 48/96/160/320kbps — verified via curl). Try this FIRST since
-    // /song/?id= below 404s on some onrender deploys depending on backend version.
-    try {
-      final res = await _client
-          .get(Uri.parse('$_saavnPrimary/api/songs?ids=$songId'))
-          .timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final raw = jsonDecode(res.body);
-        Map<String, dynamic>? songData;
-        final inner = (raw is Map<String, dynamic>) ? raw['data'] : null;
-        if (inner is List && inner.isNotEmpty) {
-          songData = inner[0] as Map<String, dynamic>?;
-        } else if (raw is List && raw.isNotEmpty) {
-          songData = raw[0] as Map<String, dynamic>?;
-        }
-        if (songData != null) {
-          // _onrenderStreamUrl and _extractSaavnStreamUrl already call _proxiedSaavnUrl internally
-          final url = _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
-          if (url != null) return url;
-        }
-      }
-    } catch (e) {
-      _log('[saavnById] onrender /api/songs error for $songId: $e');
-    }
-    // 1b. Try onrender primary (legacy route, kept as fallback)
-    try {
-      final res = await _client
-          .get(Uri.parse('$_saavnPrimary/song/?id=$songId'))
-          .timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final raw = jsonDecode(res.body);
-        Map<String, dynamic>? songData;
-        if (raw is Map<String, dynamic> && raw['success'] == true && raw['url'] != null) {
-          final url = raw['url'].toString();
-          if (url.startsWith('http')) return url;
-        }
-        if (raw is List && raw.isNotEmpty) {
-          songData = raw[0] as Map<String, dynamic>?;
-        } else if (raw is Map<String, dynamic>) {
-          final inner = raw['data'];
-          if (inner is List && inner.isNotEmpty) {
-            songData = inner[0] as Map<String, dynamic>?;
-          } else if (inner is Map<String, dynamic>) {
-            songData = inner;
-          } else {
-            songData = raw;
+    // 2026-07-17 FIX: the CF worker's /song/?id= shim is dead (20s hang,
+    // 0 bytes — confirmed via direct curl). It was the ONLY thing this
+    // function called, so every single stream resolve failed.
+    // onrender's own /song/?id= route DOES work — confirmed via direct
+    // curl returning a full valid song JSON (contradicts the old comment
+    // here, which was simply wrong). Same for the Vercel pillar (same
+    // Flask API). Use those as primary/secondary, keep CF worker as a
+    // last-ditch tertiary in case it ever comes back.
+    for (final base in [_saavnPrimary, _saavnSecondary, _saavn]) {
+      try {
+        final res = await _client
+            .get(Uri.parse('$base/song/?id=$songId'))
+            .timeout(const Duration(seconds: 8));
+        if (res.statusCode == 200) {
+          final raw = jsonDecode(res.body);
+          Map<String, dynamic>? songData;
+          if (raw is Map<String, dynamic> && raw['success'] == true && raw['url'] != null) {
+            final url = raw['url'].toString();
+            if (url.startsWith('http')) return url;
+          }
+          if (raw is List && raw.isNotEmpty) {
+            songData = raw[0] as Map<String, dynamic>?;
+          } else if (raw is Map<String, dynamic>) {
+            final inner = raw['data'];
+            if (inner is List && inner.isNotEmpty) {
+              songData = inner[0] as Map<String, dynamic>?;
+            } else if (inner is Map<String, dynamic>) {
+              songData = inner;
+            } else {
+              songData = raw;
+            }
+          }
+          if (songData != null) {
+            final url = _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
+            if (url != null) return url;
           }
         }
-        if (songData != null) {
-          // _onrenderStreamUrl and _extractSaavnStreamUrl already proxy internally
-          final url = _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
-          if (url != null) return url;
-        }
+      } catch (e) {
+        _log('[saavnById] $base error for $songId: $e');
       }
-    } catch (e) {
-      _log('[saavnById] onrender error for $songId: $e');
-    }
-    // 2. Fallback to existing backend
-    try {
-      final res = await _client
-          .get(Uri.parse('$_saavn/song/?id=$songId'))
-          .timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final raw = jsonDecode(res.body);
-        Map<String, dynamic>? songData;
-        if (raw is Map<String, dynamic> && raw['success'] == true && raw['url'] != null) {
-          final url = raw['url'].toString();
-          if (url.startsWith('http')) return url;
-        }
-        if (raw is List && raw.isNotEmpty) {
-          songData = raw[0] as Map<String, dynamic>?;
-        } else if (raw is Map<String, dynamic>) {
-          final inner = raw['data'];
-          if (inner is List && inner.isNotEmpty) {
-            songData = inner[0] as Map<String, dynamic>?;
-          } else if (inner is Map<String, dynamic>) {
-            songData = inner;
-          } else {
-            songData = raw;
-          }
-        }
-        if (songData != null) {
-          return _onrenderStreamUrl(songData) ?? _extractSaavnStreamUrl(songData);
-        }
-      }
-    } catch (e) {
-      _log('[saavnById] Error for $songId: $e');
     }
     return null;
   }
