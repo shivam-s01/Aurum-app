@@ -591,5 +591,6 @@
   "fpLyricsNotAvailable": "இந்த பாடலுக்கு பாடல் வரிகள் இல்லை",
   "fpSourceLabel": "மூலம்",
   "fpLocalLibrary": "லோக்கல் நூலகம்",
-  "fpOnlineStream": "ஆன்லைன் ஸ்ட்ரீம்"
+  "fpOnlineStream": "ஆன்லைன் ஸ்ட்ரீம்",
+  "fpDownloadFailed": "\"{title}\" பதிவிறக்க முடியவில்லை — ஸ்ட்ரீம் கிடைக்கவில்லை"
 }

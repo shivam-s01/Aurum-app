@@ -603,5 +603,6 @@
   "fpLyricsNotAvailable": "La letra no está disponible para esta canción",
   "fpSourceLabel": "Fuente",
   "fpLocalLibrary": "Biblioteca local",
-  "fpOnlineStream": "Transmisión en línea"
+  "fpOnlineStream": "Transmisión en línea",
+  "fpDownloadFailed": "No se pudo descargar \"{title}\" — transmisión no disponible"
 }

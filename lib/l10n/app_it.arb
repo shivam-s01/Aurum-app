@@ -599,5 +599,6 @@
   "fpLyricsNotAvailable": "Testo non disponibile per questo brano",
   "fpSourceLabel": "Fonte",
   "fpLocalLibrary": "Libreria locale",
-  "fpOnlineStream": "Streaming online"
+  "fpOnlineStream": "Streaming online",
+  "fpDownloadFailed": "Impossibile scaricare \"{title}\" — stream non disponibile"
 }

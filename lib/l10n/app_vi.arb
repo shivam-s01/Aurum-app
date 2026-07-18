@@ -599,5 +599,6 @@
   "fpLyricsNotAvailable": "Không có lời cho bài hát này",
   "fpSourceLabel": "Nguồn",
   "fpLocalLibrary": "Thư viện cục bộ",
-  "fpOnlineStream": "Phát trực tuyến"
+  "fpOnlineStream": "Phát trực tuyến",
+  "fpDownloadFailed": "Không thể tải \"{title}\" — luồng không khả dụng"
 }

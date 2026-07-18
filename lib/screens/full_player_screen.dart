@@ -18,6 +18,7 @@ import '../providers/theme_provider.dart';
 import '../models/song.dart';
 import '../models/lyrics.dart';
 import '../theme/aurum_theme.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../services/audio_prefs.dart';
 import '../services/waveform_service.dart';
 import '../widgets/aurum_artwork.dart';
@@ -707,8 +708,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                       onFavTap: () {
                         PremiumGate.guard(
                           context,
-                          feature: 'Like Songs',
-                          description: 'Sign in with Google to save songs to your library.',
+                          feature: AppLocalizations.of(context)!.fpLikeSongsFeature,
+                          description: AppLocalizations.of(context)!.fpLikeSongsSignIn,
                           requiresLoginOnly: true,
                           onAllowed: () {
                             HapticFeedback.lightImpact();
@@ -800,6 +801,7 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
     final textMuted = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(72);
@@ -815,7 +817,7 @@ class _TopBar extends StatelessWidget {
           size: 26,
           color: iconColor,
           onTap: () => Navigator.pop(context),
-          semanticLabel: 'Close player',
+          semanticLabel: l10n.fpClosePlayer,
         ),
         Expanded(
           child: Container(
@@ -828,7 +830,7 @@ class _TopBar extends StatelessWidget {
             ),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Text(
-                'NOW PLAYING',
+                l10n.fpNowPlaying,
                 style: TextStyle(
                   color: textMuted,
                   fontSize: 8.5,
@@ -838,7 +840,7 @@ class _TopBar extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                song.album.isNotEmpty ? song.album : 'Aurum Music',
+                song.album.isNotEmpty ? song.album : 'Aurum Music', // brand name — not translated
                 style: TextStyle(
                   color: textPrimary,
                   fontSize: 12,
@@ -857,7 +859,7 @@ class _TopBar extends StatelessWidget {
           size: 22,
           color: iconColor,
           onTap: onMore,
-          semanticLabel: 'More options',
+          semanticLabel: l10n.fpMoreOptions,
         ),
       ]),
     );
@@ -909,8 +911,8 @@ class _ArtworkState extends State<_Artwork> {
         if (!allowed && mounted) {
           PremiumGate.show(
             context,
-            feature: 'Unlimited Skips',
-            description: 'Sign in with Google to skip as many times as you want.',
+            feature: AppLocalizations.of(context)!.fpUnlimitedSkipsFeature,
+            description: AppLocalizations.of(context)!.fpUnlimitedSkipsSignIn,
             requiresLoginOnly: true,
           );
         }
@@ -1443,6 +1445,7 @@ class _Controls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isLoopOne = player.loopMode == LoopMode.one;
     final isLoopAll = player.loopMode == LoopMode.all;
 
@@ -1456,7 +1459,7 @@ class _Controls extends StatelessWidget {
             icon: Icons.shuffle_rounded,
             size: 20,
             active: player.shuffle,
-            semanticLabel: 'Shuffle',
+            semanticLabel: l10n.fpShuffle,
             onTap: () {
               HapticFeedback.selectionClick();
               player.toggleShuffle();
@@ -1466,7 +1469,7 @@ class _Controls extends StatelessWidget {
             icon: Icons.skip_previous_rounded,
             size: 38,
             color: Colors.white.withAlpha(210),
-            semanticLabel: 'Previous',
+            semanticLabel: l10n.fpPrevious,
             onTap: () {
               HapticFeedback.mediumImpact();
               player.skipPrev();
@@ -1485,15 +1488,15 @@ class _Controls extends StatelessWidget {
             icon: Icons.skip_next_rounded,
             size: 38,
             color: Colors.white.withAlpha(210),
-            semanticLabel: 'Next',
+            semanticLabel: l10n.fpNext,
             onTap: () {
               HapticFeedback.mediumImpact();
               player.skipNext().then((allowed) {
                 if (!allowed && context.mounted) {
                   PremiumGate.show(
                     context,
-                    feature: 'Unlimited Skips',
-                    description: 'Sign in with Google to skip as many times as you want.',
+                    feature: AppLocalizations.of(context)!.fpUnlimitedSkipsFeature,
+                    description: AppLocalizations.of(context)!.fpUnlimitedSkipsSignIn,
                     requiresLoginOnly: true,
                   );
                 }
@@ -1506,7 +1509,7 @@ class _Controls extends StatelessWidget {
                 : Icons.repeat_rounded,
             size: 20,
             active: isLoopAll || isLoopOne,
-            semanticLabel: 'Repeat',
+            semanticLabel: l10n.fpRepeat,
             onTap: () {
               HapticFeedback.selectionClick();
               player.toggleLoop();
@@ -1528,8 +1531,9 @@ class _QualityPills extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final parts = <String>[];
-    if (song.isLocal) parts.add('LOCAL');
+    if (song.isLocal) parts.add(l10n.fpLocalBadge);
     if (song.language != null && song.language!.isNotEmpty) {
       parts.add(song.language!.toUpperCase());
     }
@@ -1557,6 +1561,7 @@ class _BottomPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final pillBg = isLight ? AurumTheme.lightBgSurface.withAlpha(200) : Colors.white.withAlpha(10);
     final pillBorder = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(18);
@@ -1583,7 +1588,7 @@ class _BottomPill extends StatelessWidget {
               Icon(Icons.keyboard_arrow_up_rounded, color: iconColor, size: 16),
               const SizedBox(width: 8),
               Text(
-                'Queue · Lyrics · Info',
+                l10n.fpQueueLyricsInfo,
                 style: TextStyle(
                   color: textColor,
                   fontSize: 12,
@@ -1616,6 +1621,7 @@ class _PremiumPlayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     // Settings → Appearance → "Player Button Colors": 'Primary' (default,
     // white circle / black icon — current design), 'White' (explicit, same
     // as Primary), 'Accent' (uses the user's chosen accent color).
@@ -1629,7 +1635,7 @@ class _PremiumPlayButton extends StatelessWidget {
         : Colors.black;
 
     return Semantics(
-      label: isPlaying ? 'Pause' : 'Play',
+      label: isPlaying ? l10n.fpPause : l10n.fpPlay,
       button: true,
       child: GestureDetector(
         onTap: isLoading ? null : onTap,
@@ -1738,8 +1744,9 @@ class _QualityPill extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Opens the platform share sheet with a clean "Artist — Title" message.
-void shareSong(Song song) {
-  final text = '${song.artist} — ${song.title}\n\nShared from Aurum 🎵';
+void shareSong(BuildContext context, Song song) {
+  final l10n = AppLocalizations.of(context)!;
+  final text = l10n.fpShareText(song.artist, song.title);
   Share.share(text, subject: song.title);
 }
 
@@ -1764,6 +1771,7 @@ void showSleepTimerForSong(BuildContext context, PlayerProvider player) {
 
 /// Premium song-details sheet: title, artist, album, duration, year, source.
 void showSongInfoDialog(BuildContext context, Song song) {
+  final l10n = AppLocalizations.of(context)!;
   final isLight = Theme.of(context).brightness == Brightness.light;
   final bgColor = isLight ? AurumTheme.lightBgCard : const Color(0xFF15131C);
   final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
@@ -1771,12 +1779,12 @@ void showSongInfoDialog(BuildContext context, Song song) {
   final divider = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14);
 
   final rows = <MapEntry<String, String>>[
-    MapEntry('Title', song.title),
-    MapEntry('Artist', song.artist),
-    if (song.album.isNotEmpty) MapEntry('Album', song.album),
-    if (song.durationString.isNotEmpty) MapEntry('Duration', song.durationString),
-    if (song.year != null && song.year!.isNotEmpty) MapEntry('Year', song.year!),
-    if (song.language != null && song.language!.isNotEmpty) MapEntry('Language', song.language!),
+    MapEntry(l10n.fpSongInfoTitle, song.title),
+    MapEntry(l10n.fpSongInfoArtist, song.artist),
+    if (song.album.isNotEmpty) MapEntry(l10n.fpSongInfoAlbum, song.album),
+    if (song.durationString.isNotEmpty) MapEntry(l10n.fpSongInfoDuration, song.durationString),
+    if (song.year != null && song.year!.isNotEmpty) MapEntry(l10n.fpSongInfoYear, song.year!),
+    if (song.language != null && song.language!.isNotEmpty) MapEntry(l10n.fpSongInfoLanguage, song.language!),
     // Source row intentionally omitted — backend origin (YouTube/JioSaavn/
     // Local) is an internal implementation detail and should never surface
     // in user-facing UI.
@@ -1821,7 +1829,7 @@ void showSongInfoDialog(BuildContext context, Song song) {
                       Icon(Icons.info_outline_rounded, color: AurumTheme.gold, size: 20),
                       const SizedBox(width: 8),
                       Text(
-                        'Song Info',
+                        l10n.fpSongInfo,
                         style: TextStyle(
                           color: textPrimary,
                           fontSize: 18,
@@ -1920,29 +1928,30 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
   }
 
   void _downloadSong() {
+    final l10n = AppLocalizations.of(context)!;
     final song = widget.song;
     final downloads = context.read<DownloadProvider>();
 
     if (downloads.isDownloaded(song.id)) {
-      _snack('Already downloaded');
+      _snack(l10n.fpAlreadyDownloaded);
       return;
     }
     if (downloads.isDownloading(song.id)) {
-      _snack('Already downloading');
+      _snack(l10n.fpAlreadyDownloading);
       return;
     }
     if (song.isLocal) {
-      _snack('Already on this device');
+      _snack(l10n.fpAlreadyOnDevice);
       return;
     }
 
     Navigator.pop(context);
-    _snack('Downloading ${song.title}…');
+    _snack(l10n.fpDownloadingSong(song.title));
 
     downloads.download(song).then((started) {
       if (!started && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Couldn\'t download "${song.title}" — stream unavailable'),
+          content: Text(l10n.fpDownloadFailed(song.title)),
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 3),
         ));
@@ -1952,6 +1961,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final song = widget.song;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final fav = context.watch<FavoritesProvider>();
@@ -1979,42 +1989,42 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
         : '';
 
     final actions = [
-      _SheetAction(Icons.skip_next_rounded, 'Play Next', AurumTheme.gold, () {
+      _SheetAction(Icons.skip_next_rounded, l10n.fpPlayNext, AurumTheme.gold, () {
         Navigator.pop(context);
         widget.player.playNext(song);
       }),
-      _SheetAction(Icons.queue_music_rounded, 'Add to Queue', Colors.purpleAccent, () {
+      _SheetAction(Icons.queue_music_rounded, l10n.fpAddToQueue, Colors.purpleAccent, () {
         Navigator.pop(context);
         widget.player.addToQueue(song);
-        _snack('Added to queue');
+        _snack(l10n.fpAddedToQueue);
       }),
       _SheetAction(
         isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-        isLiked ? 'Liked' : 'Like',
+        isLiked ? l10n.fpLiked : l10n.fpLikeAction,
         const Color(0xFFE1306C),
         () {
           PremiumGate.guard(
             context,
-            feature: 'Like Songs',
-            description: 'Sign in with Google to build your personal library.',
+            feature: l10n.fpLikeSongsFeature,
+            description: l10n.fpLikeSignInBuildLibrary,
             requiresLoginOnly: true,
             onAllowed: () {
               fav.toggleFavorite(song);
               final nowLiked = fav.isFavorite(song.id);
-              _snack(nowLiked ? 'Added to Liked' : 'Removed from Liked');
+              _snack(nowLiked ? l10n.fpAddedToLiked : l10n.fpRemovedFromLiked);
             },
           );
         },
       ),
-      _SheetAction(Icons.share_rounded, 'Share', Colors.greenAccent, () {
+      _SheetAction(Icons.share_rounded, l10n.fpShare, Colors.greenAccent, () {
         Navigator.pop(context);
-        shareSong(song);
+        shareSong(context, song);
       }),
-      _SheetAction(Icons.playlist_add_rounded, 'Save to Playlist', Colors.blueAccent, () {
+      _SheetAction(Icons.playlist_add_rounded, l10n.fpSaveToPlaylist, Colors.blueAccent, () {
         Navigator.pop(context);
         showAddToPlaylistSheet(widget.rootContext, song);
       }),
-      _SheetAction(Icons.equalizer_rounded, 'Audio Effects', Colors.orangeAccent, () {
+      _SheetAction(Icons.equalizer_rounded, l10n.fpAudioEffects, Colors.orangeAccent, () {
         Navigator.pop(context);
         Navigator.of(widget.rootContext).push(MaterialPageRoute(
           builder: (_) => EqualizerScreen(audioEngine: widget.player.handler),
@@ -2022,7 +2032,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       }),
       _SheetAction(
         sleepActive ? Icons.bedtime_rounded : Icons.timer_outlined,
-        sleepActive ? 'Sleep • $sleepRemainingLabel' : 'Sleep Timer',
+        sleepActive ? l10n.fpSleepRemaining(sleepRemainingLabel) : l10n.fpSleepTimer,
         Colors.cyan,
         () {
           Navigator.pop(context);
@@ -2036,22 +2046,22 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
                 ? Icons.downloading_rounded
                 : Icons.download_rounded,
         isDownloaded
-            ? 'Downloaded'
+            ? l10n.fpDownloaded
             : isDownloading
-                ? 'Downloading…'
-                : 'Download',
+                ? l10n.fpDownloading
+                : l10n.fpDownload,
         AurumTheme.gold,
         () {
           if (isDownloaded) {
-            _snack('Already downloaded');
+            _snack(l10n.fpAlreadyDownloaded);
           } else if (isDownloading) {
-            _snack('Already downloading');
+            _snack(l10n.fpAlreadyDownloading);
           } else {
             _downloadSong();
           }
         },
       ),
-      _SheetAction(Icons.info_outline_rounded, 'Song Info', textMuted, () {
+      _SheetAction(Icons.info_outline_rounded, l10n.fpSongInfo, textMuted, () {
         Navigator.pop(context);
         showSongInfoDialog(widget.rootContext, song);
       }),
@@ -2524,10 +2534,11 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   }
 
   Widget _buildTabBar(bool isLight) {
-    const tabs = [
-      (Icons.queue_music_rounded, 'Queue'),
-      (Icons.lyrics_rounded, 'Lyrics'),
-      (Icons.info_outline_rounded, 'Info'),
+    final l10n = AppLocalizations.of(context)!;
+    final tabs = [
+      (Icons.queue_music_rounded, l10n.fpQueue),
+      (Icons.lyrics_rounded, l10n.fpLyrics),
+      (Icons.info_outline_rounded, l10n.fpInfo),
     ];
 
     final dividerColor =
@@ -2611,6 +2622,7 @@ class _QueuePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final mutedIcon =
         isLight ? AurumTheme.lightTextMuted.withAlpha(70) : Colors.white.withAlpha(22);
@@ -2632,7 +2644,7 @@ class _QueuePage extends StatelessWidget {
                     color: mutedIcon, size: 56),
                 const SizedBox(height: 16),
                 Text(
-                  'Queue is empty',
+                  l10n.fpQueueEmpty,
                   style: TextStyle(
                     color: mutedText,
                     fontSize: 15,
@@ -2664,7 +2676,7 @@ class _QueuePage extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
                   child: Text(
-                    'UP NEXT',
+                    l10n.fpUpNext,
                     style: TextStyle(
                       color: mutedText,
                       fontSize: 10,
@@ -2747,6 +2759,7 @@ class _NowPlayingHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
     final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(110);
@@ -2786,7 +2799,7 @@ class _NowPlayingHeader extends StatelessWidget {
           Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('NOW PLAYING',
+              Text(l10n.fpNowPlaying,
                 style: TextStyle(color: AurumTheme.gold.withAlpha(200),
                     fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
               const SizedBox(height: 3),
@@ -3194,6 +3207,7 @@ class _QueueQuickActionsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final bg = isLight ? Colors.white : const Color(0xFF15141C);
     final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
     final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(120);
@@ -3235,19 +3249,19 @@ class _QueueQuickActionsSheet extends StatelessWidget {
             Divider(color: dividerColor, height: 1),
             _actionTile(
               icon: Icons.skip_next_rounded,
-              label: 'Play Next',
+              label: l10n.fpPlayNext,
               textPrimary: textPrimary,
               onTap: onPlayNext,
             ),
             _actionTile(
               icon: Icons.vertical_align_top_rounded,
-              label: 'Move to Top',
+              label: l10n.fpMoveToTop,
               textPrimary: textPrimary,
               onTap: onMoveToTop,
             ),
             _actionTile(
               icon: Icons.delete_outline_rounded,
-              label: 'Remove from Queue',
+              label: l10n.fpRemoveFromQueue,
               textPrimary: Colors.redAccent,
               onTap: onRemove,
             ),
@@ -3352,6 +3366,7 @@ class _LyricsPageState extends State<_LyricsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final mutedIcon =
         isLight ? AurumTheme.lightTextMuted.withAlpha(80) : Colors.white.withAlpha(25);
@@ -3378,7 +3393,7 @@ class _LyricsPageState extends State<_LyricsPage> {
             Icon(Icons.lyrics_rounded, color: mutedIcon, size: 52),
             const SizedBox(height: 16),
             Text(
-              'No lyrics found',
+              l10n.fpNoLyricsFound,
               style: TextStyle(
                 color: primaryMuted,
                 fontSize: 16,
@@ -3387,7 +3402,7 @@ class _LyricsPageState extends State<_LyricsPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Lyrics not available for this song',
+              l10n.fpLyricsNotAvailable,
               style: TextStyle(color: secondaryMuted, fontSize: 13),
             ),
           ],
@@ -3554,6 +3569,7 @@ class _InfoPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final song = context.read<PlayerProvider>().currentSong;
     if (song == null) return const SizedBox.shrink();
@@ -3565,18 +3581,18 @@ class _InfoPage extends StatelessWidget {
     final valueColor = isLight ? AurumTheme.lightTextPrimary : Colors.white;
 
     final rows = <_InfoRow>[];
-    if (song.album.isNotEmpty) rows.add(_InfoRow('Album', song.album));
-    if (song.artist.isNotEmpty) rows.add(_InfoRow('Artist', song.artist));
+    if (song.album.isNotEmpty) rows.add(_InfoRow(l10n.fpSongInfoAlbum, song.album));
+    if (song.artist.isNotEmpty) rows.add(_InfoRow(l10n.fpSongInfoArtist, song.artist));
     if (song.year != null && song.year!.isNotEmpty) {
-      rows.add(_InfoRow('Year', song.year!));
+      rows.add(_InfoRow(l10n.fpSongInfoYear, song.year!));
     }
     if (song.language != null && song.language!.isNotEmpty) {
-      rows.add(_InfoRow('Language', song.language!));
+      rows.add(_InfoRow(l10n.fpSongInfoLanguage, song.language!));
     }
     if (song.duration != null) {
-      rows.add(_InfoRow('Duration', song.durationString));
+      rows.add(_InfoRow(l10n.fpSongInfoDuration, song.durationString));
     }
-    rows.add(_InfoRow('Source', song.isLocal ? 'Local Library' : 'Online Stream'));
+    rows.add(_InfoRow(l10n.fpSourceLabel, song.isLocal ? l10n.fpLocalLibrary : l10n.fpOnlineStream));
 
     return ListView(
       physics: const BouncingScrollPhysics(),

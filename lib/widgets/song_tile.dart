@@ -371,7 +371,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                   color: Colors.greenAccent,
                   onTap: () {
                     Navigator.pop(context);
-                    shareSong(song);
+                    shareSong(context, song);
                   },
                 ),
               ],

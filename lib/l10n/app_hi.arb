@@ -591,5 +591,6 @@
   "fpLyricsNotAvailable": "इस गाने के लिए गीत उपलब्ध नहीं हैं",
   "fpSourceLabel": "स्रोत",
   "fpLocalLibrary": "लोकल लाइब्रेरी",
-  "fpOnlineStream": "ऑनलाइन स्ट्रीम"
+  "fpOnlineStream": "ऑनलाइन स्ट्रीम",
+  "fpDownloadFailed": "\"{title}\" डाउनलोड नहीं हो सका — स्ट्रीम उपलब्ध नहीं"
 }

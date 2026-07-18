@@ -599,5 +599,6 @@
   "fpLyricsNotAvailable": "Lirik tidak tersedia untuk lagu ini",
   "fpSourceLabel": "Sumber",
   "fpLocalLibrary": "Koleksi Lokal",
-  "fpOnlineStream": "Streaming Online"
+  "fpOnlineStream": "Streaming Online",
+  "fpDownloadFailed": "Tidak dapat mengunduh \"{title}\" — stream tidak tersedia"
 }

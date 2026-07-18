@@ -802,7 +802,14 @@
   "fpShareText": "{artist} — {title}\n\nShared from Aurum 🎵",
   "@fpShareText": {
     "description": "Text shared when sharing a song",
-    "placeholders": { "artist": { "type": "String" }, "title": { "type": "String" } }
+    "placeholders": {
+      "artist": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
   },
   "fpSongInfoTitle": "Title",
   "fpSongInfoArtist": "Artist",
@@ -817,7 +824,11 @@
   "fpDownloadingSong": "Downloading {title}…",
   "@fpDownloadingSong": {
     "description": "Toast when a download starts",
-    "placeholders": { "title": { "type": "String" } }
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
   },
   "fpPlayNext": "Play Next",
   "fpAddToQueue": "Add to Queue",
@@ -833,7 +844,11 @@
   "fpSleepRemaining": "Sleep • {time}",
   "@fpSleepRemaining": {
     "description": "Shows remaining sleep timer time on a pill",
-    "placeholders": { "time": { "type": "String" } }
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
   },
   "fpSleepTimer": "Sleep Timer",
   "fpDownloaded": "Downloaded",
@@ -842,7 +857,11 @@
   "fpDownloadingPercent": "Downloading {percent}%",
   "@fpDownloadingPercent": {
     "description": "Download progress percent label",
-    "placeholders": { "percent": { "type": "String" } }
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
   },
   "fpQueue": "Queue",
   "fpLyrics": "Lyrics",
@@ -855,5 +874,13 @@
   "fpLyricsNotAvailable": "Lyrics not available for this song",
   "fpSourceLabel": "Source",
   "fpLocalLibrary": "Local Library",
-  "fpOnlineStream": "Online Stream"
+  "fpOnlineStream": "Online Stream",
+  "fpDownloadFailed": "Couldn't download \"{title}\" — stream unavailable",
+  "@fpDownloadFailed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  }
 }

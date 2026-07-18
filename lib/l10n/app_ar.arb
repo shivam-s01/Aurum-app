@@ -599,5 +599,6 @@
   "fpLyricsNotAvailable": "كلمات الأغنية غير متوفرة لهذه الأغنية",
   "fpSourceLabel": "المصدر",
   "fpLocalLibrary": "المكتبة المحلية",
-  "fpOnlineStream": "البث عبر الإنترنت"
+  "fpOnlineStream": "البث عبر الإنترنت",
+  "fpDownloadFailed": "تعذر تنزيل \"{title}\" — البث غير متوفر"
 }

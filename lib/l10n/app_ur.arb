@@ -603,5 +603,6 @@
   "fpLyricsNotAvailable": "اس گانے کے لیے بول دستیاب نہیں ہیں",
   "fpSourceLabel": "ذریعہ",
   "fpLocalLibrary": "لوکل لائبریری",
-  "fpOnlineStream": "آن لائن سٹریم"
+  "fpOnlineStream": "آن لائن سٹریم",
+  "fpDownloadFailed": "\"{title}\" ڈاؤن لوڈ نہیں ہو سکا — سٹریم دستیاب نہیں"
 }

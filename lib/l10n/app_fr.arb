@@ -591,5 +591,6 @@
   "fpLyricsNotAvailable": "Paroles non disponibles pour cette chanson",
   "fpSourceLabel": "Source",
   "fpLocalLibrary": "Bibliothèque locale",
-  "fpOnlineStream": "Flux en ligne"
+  "fpOnlineStream": "Flux en ligne",
+  "fpDownloadFailed": "Impossible de télécharger « {title} » — flux indisponible"
 }

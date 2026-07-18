@@ -603,5 +603,6 @@
   "fpLyricsNotAvailable": "此歌曲暂无歌词",
   "fpSourceLabel": "来源",
   "fpLocalLibrary": "本地资料库",
-  "fpOnlineStream": "在线流媒体"
+  "fpOnlineStream": "在线流媒体",
+  "fpDownloadFailed": "无法下载\"{title}\" — 流不可用"
 }

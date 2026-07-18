@@ -599,5 +599,6 @@
   "fpLyricsNotAvailable": "Bu şarkı için sözler mevcut değil",
   "fpSourceLabel": "Kaynak",
   "fpLocalLibrary": "Yerel Kitaplık",
-  "fpOnlineStream": "Çevrimiçi Yayın"
+  "fpOnlineStream": "Çevrimiçi Yayın",
+  "fpDownloadFailed": "\"{title}\" indirilemedi — yayın kullanılamıyor"
 }

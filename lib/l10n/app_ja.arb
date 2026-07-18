@@ -591,5 +591,6 @@
   "fpLyricsNotAvailable": "この曲の歌詞は利用できません",
   "fpSourceLabel": "ソース",
   "fpLocalLibrary": "ローカルライブラリ",
-  "fpOnlineStream": "オンラインストリーム"
+  "fpOnlineStream": "オンラインストリーム",
+  "fpDownloadFailed": "「{title}」をダウンロードできませんでした — ストリームが利用できません"
 }

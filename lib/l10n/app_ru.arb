@@ -591,5 +591,6 @@
   "fpLyricsNotAvailable": "Текст песни недоступен для этой песни",
   "fpSourceLabel": "Источник",
   "fpLocalLibrary": "Локальная библиотека",
-  "fpOnlineStream": "Онлайн-поток"
+  "fpOnlineStream": "Онлайн-поток",
+  "fpDownloadFailed": "Не удалось скачать «{title}» — поток недоступен"
 }

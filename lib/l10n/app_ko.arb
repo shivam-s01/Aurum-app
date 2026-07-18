@@ -599,5 +599,6 @@
   "fpLyricsNotAvailable": "이 노래의 가사를 사용할 수 없습니다",
   "fpSourceLabel": "소스",
   "fpLocalLibrary": "로컬 라이브러리",
-  "fpOnlineStream": "온라인 스트림"
+  "fpOnlineStream": "온라인 스트림",
+  "fpDownloadFailed": "\"{title}\"을(를) 다운로드할 수 없습니다 — 스트림을 사용할 수 없음"
 }
