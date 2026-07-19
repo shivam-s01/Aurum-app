@@ -3778,6 +3778,7 @@ class _BgLayer extends StatelessWidget {
           key: ValueKey('${song.id}_${song.artworkUrl}'),
           song: song,
           isLight: isLight,
+          breatheCtrl: breatheCtrl,
         );
 
         return isLight
@@ -3789,6 +3790,13 @@ class _BgLayer extends StatelessWidget {
 
   // ── LIGHT MODE ── artwork color reads through clearly, just enough
   // warm-white lift to keep the "light mode" feel and text legible.
+  // ── LIGHT MODE ── artwork color reads through clearly, just enough
+  // warm-white lift to keep the "light mode" feel and text legible.
+  //
+  // SIMPLIFIED (3-layer, same cut as dark mode): dropped the separate
+  // white-lift layer and the breathe-driven orb layer — one static
+  // painter now handles both the subtle white lift and the vignette in
+  // a single paint call, with no per-frame rebuild at all.
   Widget _buildLight(Color bg1, Color bg2, Color bg3, Color bg4, Widget staticBlur) {
     final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
     final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
@@ -3801,69 +3809,42 @@ class _BgLayer extends StatelessWidget {
 
     if (bgStyle == 'Solid') return ColoredBox(color: bg1);
 
-    // L1 (static blur) is passed in pre-built and does NOT rebuild on the
-    // breathe tick anymore — only L3 (orbs) sits inside the AnimatedBuilder.
     return Stack(fit: StackFit.expand, children: [
       // L0: Neutral warm-grey base (was near-white — that pre-tinted
       // everything before the artwork colour even landed, which is what
       // made light mode read as washed out regardless of the art).
       const ColoredBox(color: Color(0xFFEDE9E2)),
 
-      // L1: Artwork fills screen — blurred into color atmosphere. Built
-      // once per song, not every breathe frame.
+      // L1: Ken Burns blurred artwork — the whole "premium" effect.
       staticBlur,
 
-      // L2: Barely-there white lift — was strong enough before to flatten
-      // the artwork's actual saturation. Cut way down so colour carries.
-      const RepaintBoundary(child: ColoredBox(color: Color(0x0AFFFFFF))),
-
-      // L3: Ambient glow orbs — the only layer that actually needs to
-      // rebuild on every breathe tick, isolated in its own AnimatedBuilder.
+      // L2: One static layer — barely-there white lift (was its own
+      // ColoredBox layer) combined with the top/bottom readability
+      // vignette, drawn once in a single CustomPaint.
       RepaintBoundary(
-        child: AnimatedBuilder(
-          animation: breatheCtrl,
-          builder: (context, _) {
-            final bRaw = (AudioPrefs.enableAnimationsNotifier.value &&
-                    AudioPrefs.bgGradientAnimationNotifier.value)
-                ? breatheCtrl.value
-                : 0.5;
-            final b = Curves.easeInOut.transform(bRaw);
-            return CustomPaint(
-              painter: _AmbientGlowPainter(
-                color1: bg1, color2: bg4, color3: bg2,
-                breathe: b, isLight: true,
-              ),
-              size: Size.infinite,
-            );
-          },
-        ),
-      ),
-
-      // L4: Vignette for text readability — tightened to the very edges
-      // only (was a broad, strong white gradient eating into the middle
-      // of the artwork colour; now it only does its job at the top/bottom
-      // safe zones where text actually sits).
-      const RepaintBoundary(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0x3DFFFFFF),
-                Colors.transparent,
-                Colors.transparent,
-                Color(0x4EFFFFFF),
-              ],
-              stops: [0.0, 0.09, 0.78, 1.0],
-            ),
-          ),
+        child: CustomPaint(
+          painter: _LightVignettePainter(),
+          size: Size.infinite,
         ),
       ),
     ]);
   }
 
-  // ── DARK MODE ── Echo Nightly spec: artwork IS the background
+  // ── DARK MODE ── Echo Nightly spec: artwork IS the background.
+  //
+  // SIMPLIFIED (3-layer, Echo-exact): previously 5 stacked layers —
+  // solid base, static blur, a breathe-driven radial gradient tint, a
+  // breathe-driven 3-orb CustomPaint glow layer, and a static vignette.
+  // The radial tint + orb layer were the heaviest things on this whole
+  // screen (rebuilding every breathe frame, forever, while the full
+  // player is open) and, next to the actual artwork motion, added very
+  // little the eye reads as "premium" — Echo's own player gets that
+  // entirely from the blurred art + a single palette-tinted gradient.
+  // Cut down to exactly that: base → Ken Burns blurred artwork → one
+  // static gradient that both tints with the palette color AND handles
+  // the vignette in a single paint. Nothing left in this method needs
+  // breatheCtrl at all anymore — the only remaining motion is the Ken
+  // Burns drift already living inside `staticBlur` itself.
   Widget _buildDark(Color bg1, Color bg2, Color bg3, Color bg4, Widget staticBlur) {
     final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
     final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
@@ -3878,83 +3859,50 @@ class _BgLayer extends StatelessWidget {
       return ColoredBox(color: Color.lerp(bg1, Colors.black, 0.35)!);
     }
 
-    // L1 (static blur) is passed in pre-built — no longer recomposites on
-    // every breathe tick. Only L2 (gradient tint, whose center drifts
-    // slightly) and L3 (orbs) still need the live breathe value.
     return Stack(fit: StackFit.expand, children: [
-      // L0: Pure black base
+      // L0: Pure black base.
       const ColoredBox(color: Color(0xFF000000)),
 
-      // L1: Artwork fills entire background — built once per song.
+      // L1: Ken Burns blurred artwork — the whole "premium" effect.
+      // Built once per song; its own slow zoom/pan lives inside this
+      // widget and needs no external controller here.
       staticBlur,
 
-      // L2 + L3: everything that actually needs the breathe value, in one
-      // shared AnimatedBuilder so there's a single rebuild per tick
-      // instead of two separate ones.
-      RepaintBoundary(
-        child: AnimatedBuilder(
-          animation: breatheCtrl,
-          builder: (context, _) {
-            final bRaw = (AudioPrefs.enableAnimationsNotifier.value &&
-                    AudioPrefs.bgGradientAnimationNotifier.value)
-                ? breatheCtrl.value
-                : 0.5;
-            final b = Curves.easeInOut.transform(bRaw);
-            return Stack(fit: StackFit.expand, children: [
-              // Color palette gradient tint — deepens the artwork colors
-              // so they stay saturated even on AMOLED.
-              if (bgStyle != 'Gradient')
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                      center: Alignment(-0.25 + b * 0.08, -0.55),
-                      radius: 1.35,
-                      colors: [
-                        bg1.withAlpha(130),
-                        bg2.withAlpha(90),
-                        Colors.transparent,
-                      ],
-                      stops: const [0.0, 0.45, 1.0],
-                    ),
-                  ),
-                ),
-              // Ambient glow orbs — palette-colored soft blobs
-              CustomPaint(
-                painter: _AmbientGlowPainter(
-                  color1: bg1,
-                  color2: bg4,
-                  color3: bg2,
-                  breathe: b,
-                  isLight: false,
-                ),
-                size: Size.infinite,
+      // L2: One static layer doing both jobs Echo's gradient_track +
+      // tint does — palette color radiating from the upper-left, and a
+      // dark vignette top/bottom so controls and text stay readable.
+      // Fully static (no AnimatedBuilder): a RadialGradient can't be
+      // cheaply layered with a top/bottom LinearGradient in one
+      // BoxDecoration, so this uses a tiny CustomPaint that draws both
+      // in a single paint call, once, ever (shouldRepaint: false).
+      if (bgStyle != 'Gradient')
+        RepaintBoundary(
+          child: CustomPaint(
+            painter: _StaticTintVignettePainter(
+              tint1: bg1.withAlpha(130),
+              tint2: bg2.withAlpha(90),
+            ),
+            size: Size.infinite,
+          ),
+        )
+      else
+        const RepaintBoundary(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xA0000000),
+                  Colors.transparent,
+                  Colors.transparent,
+                  Color(0xD2000000),
+                ],
+                stops: [0.0, 0.18, 0.60, 1.0],
               ),
-            ]);
-          },
-        ),
-      ),
-
-      // L4: Vignette — keeps text perfectly readable. Static, never
-      // needs to rebuild.
-      //     Top: darkened for status bar / drag handle
-      //     Bottom: heavy dark gradient so controls pop
-      const RepaintBoundary(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xA0000000),
-                Colors.transparent,
-                Colors.transparent,
-                Color(0xD2000000),
-              ],
-              stops: [0.0, 0.18, 0.60, 1.0],
             ),
           ),
         ),
-      ),
     ]);
   }
 }
@@ -3981,12 +3929,79 @@ class _BgLayer extends StatelessWidget {
 // any pop-in anyway. Every frame of that 280ms fade was forcing Flutter to
 // re-composite the blur, on top of the blur's own per-song cost. Passing
 // fadeIn: false skips that animation for this specific instance only.
+//
+// KEN BURNS MOTION: the blur itself is still built exactly once per song
+// (BlurredArtworkCore below) — that part never re-renders. What's new is
+// a cheap outer Transform (scale + pan) driven by breatheCtrl, the same
+// 18s controller that already drives the ambient orbs. A GPU transform on
+// an already-composited layer costs nothing like re-running the blur
+// filter would, so this reads as a slow Echo-style Ken Burns drift on the
+// background artwork for ~0 extra frame cost.
 // ─────────────────────────────────────────────────────────────────────────────
 class _StaticBlurArtwork extends StatelessWidget {
   final Song song;
   final bool isLight;
+  final AnimationController? breatheCtrl;
 
-  const _StaticBlurArtwork({super.key, required this.song, required this.isLight});
+  const _StaticBlurArtwork({
+    super.key,
+    required this.song,
+    required this.isLight,
+    this.breatheCtrl,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (song.artworkUrl.isEmpty) return const SizedBox.shrink();
+
+    final core = _BlurredArtworkCore(song: song, isLight: isLight);
+    final ctrl = breatheCtrl;
+    if (ctrl == null) return core;
+
+    // Ken Burns: slow diagonal pan + gentle extra zoom, looped in sync with
+    // the same breathe cycle (18s) so it never feels like two separate
+    // motions fighting each other. Range is deliberately small — this is
+    // meant to read as "alive", not as an obvious slide.
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: ctrl,
+        builder: (context, child) {
+          final animsOn = AudioPrefs.enableAnimationsNotifier.value;
+          final tRaw = animsOn ? ctrl.value : 0.5; // 0→1→0 (reverse: true)
+          final t = Curves.easeInOut.transform(tRaw);
+
+          // Zoom breathes between 1.0x and 1.06x on top of the base 1.55x
+          // already applied inside the core widget.
+          final extraScale = 1.0 + (t * 0.06);
+
+          // Diagonal drift — a few % of the layer's own size, clamped by
+          // the base 1.55x overscan so blurred edges are never exposed.
+          final dx = (t - 0.5) * 18.0;
+          final dy = (t - 0.5) * 12.0;
+
+          return Transform.translate(
+            offset: Offset(dx, dy),
+            child: Transform.scale(
+              scale: extraScale,
+              child: child,
+            ),
+          );
+        },
+        child: core,
+      ),
+    );
+  }
+}
+
+// The actual blur render — split out from _StaticBlurArtwork so the Ken
+// Burns Transform wrapper above can sit outside it without ever forcing
+// this (expensive) subtree to rebuild. This widget itself is still only
+// built once per song via the ValueKey at the call site.
+class _BlurredArtworkCore extends StatelessWidget {
+  final Song song;
+  final bool isLight;
+
+  const _BlurredArtworkCore({required this.song, required this.isLight});
 
   @override
   Widget build(BuildContext context) {
@@ -4016,88 +4031,94 @@ class _StaticBlurArtwork extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _AmbientGlowPainter — 3 soft drifting orbs, CustomPainter, zero blur cost
+// _StaticTintVignettePainter — dark mode's single L2 layer.
 //
-// Uses drawOval with radial gradient paint.
-// Orbs drift on Lissajous-like paths (sin/cos offsets) for organic motion.
-// shouldRepaint only triggers when breathe value changes meaningfully.
+// Replaces what used to be two separate breathe-driven layers (a radial
+// gradient tint + a 3-orb ambient glow, both rebuilding 60x/sec forever
+// while the full player was open). Paints the palette-color radial tint
+// AND the top/bottom readability vignette in one paint() call, once —
+// shouldRepaint only fires on an actual palette change (song change),
+// never on a timer.
 // ─────────────────────────────────────────────────────────────────────────────
-class _AmbientGlowPainter extends CustomPainter {
-  final Color color1, color2, color3;
-  final double breathe; // 0.0 → 1.0 → 0.0
-  final bool isLight;
-
-  const _AmbientGlowPainter({
-    required this.color1,
-    required this.color2,
-    required this.color3,
-    required this.breathe,
-    required this.isLight,
-  });
+class _StaticTintVignettePainter extends CustomPainter {
+  final Color tint1, tint2;
+  const _StaticTintVignettePainter({required this.tint1, required this.tint2});
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
-    final b = breathe;
+    final fullRect = Rect.fromLTWH(0, 0, w, h);
 
-    // Echo Nightly spec: large saturated orbs that own the whole canvas.
-    // Dark mode: stronger alpha — the background IS the orb color.
-    // Light mode: softer, warm.
-    final baseAlpha = isLight ? 62 : 52;
-
-    // ── Orb 1: Upper-left, primary palette color — dominates top half ──
-    _drawOrb(
-      canvas,
-      center: Offset(w * (0.12 + b * 0.08), h * (0.08 + b * 0.06)),
-      radiusX: w * 0.75,
-      radiusY: h * 0.52,
-      color: color1.withAlpha(baseAlpha + (b * 14).toInt()),
+    // Palette-color radial tint, upper-left — same footprint as Echo's
+    // gradient_track tint, deepens the artwork colour so it stays
+    // saturated even on AMOLED blacks.
+    final tintRect = Rect.fromCircle(
+      center: Offset(w * -0.25, h * -0.55),
+      radius: w * 1.35,
     );
-
-    // ── Orb 2: Bottom-right, secondary color — dominates lower half ──
-    _drawOrb(
-      canvas,
-      center: Offset(w * (0.92 - b * 0.07), h * (0.82 - b * 0.05)),
-      radiusX: w * 0.70,
-      radiusY: h * 0.48,
-      color: color2.withAlpha(baseAlpha - 6 + (b * 10).toInt()),
-    );
-
-    // ── Orb 3: Center, tertiary — ties the two together ──
-    _drawOrb(
-      canvas,
-      center: Offset(w * (0.48 + b * 0.04), h * (0.44 - b * 0.03)),
-      radiusX: w * (0.50 + b * 0.08),
-      radiusY: h * (0.36 + b * 0.06),
-      color: color3.withAlpha(baseAlpha - 18 + (b * 8).toInt()),
-    );
-  }
-
-  void _drawOrb(
-    Canvas canvas, {
-    required Offset center,
-    required double radiusX,
-    required double radiusY,
-    required Color color,
-  }) {
-    final rect = Rect.fromCenter(
-        center: center, width: radiusX * 2, height: radiusY * 2);
-    final paint = Paint()
+    final tintPaint = Paint()
       ..shader = RadialGradient(
-        colors: [color, color.withAlpha(0)],
-        stops: const [0.0, 1.0],
-      ).createShader(rect)
-      ..blendMode = BlendMode.srcOver;
-    canvas.drawOval(rect, paint);
+        colors: [tint1, tint2, tint2.withAlpha(0)],
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(tintRect);
+    canvas.drawRect(fullRect, tintPaint);
+
+    // Top/bottom vignette so controls and text stay readable over the
+    // artwork.
+    final vignettePaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Color(0xA0000000),
+          Colors.transparent,
+          Colors.transparent,
+          Color(0xD2000000),
+        ],
+        stops: [0.0, 0.18, 0.60, 1.0],
+      ).createShader(fullRect);
+    canvas.drawRect(fullRect, vignettePaint);
   }
 
   @override
-  bool shouldRepaint(_AmbientGlowPainter old) =>
-      (breathe - old.breathe).abs() > 0.004 ||
-      color1 != old.color1 ||
-      color2 != old.color2 ||
-      color3 != old.color3;
+  bool shouldRepaint(_StaticTintVignettePainter old) =>
+      tint1 != old.tint1 || tint2 != old.tint2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _LightVignettePainter — light mode's single L2 layer.
+//
+// One static paint: a very subtle white lift (keeps the "light mode"
+// feel without flattening the artwork's own colour) plus the top/bottom
+// readability vignette. No breathe controller involved — pure one-shot.
+// ─────────────────────────────────────────────────────────────────────────────
+class _LightVignettePainter extends CustomPainter {
+  const _LightVignettePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final fullRect = Rect.fromLTWH(0, 0, size.width, size.height);
+
+    canvas.drawRect(fullRect, Paint()..color = const Color(0x0AFFFFFF));
+
+    final vignettePaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Color(0x3DFFFFFF),
+          Colors.transparent,
+          Colors.transparent,
+          Color(0x4EFFFFFF),
+        ],
+        stops: [0.0, 0.09, 0.78, 1.0],
+      ).createShader(fullRect);
+    canvas.drawRect(fullRect, vignettePaint);
+  }
+
+  @override
+  bool shouldRepaint(_LightVignettePainter old) => false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
