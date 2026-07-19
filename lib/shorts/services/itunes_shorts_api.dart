@@ -54,8 +54,15 @@ class ItunesShortsApi {
     return hint;
   }
 
+  // BUGFIX: this used to fall back to 'IN' whenever no language was
+  // selected — so a plain category like "Rock" or "K-Pop" (no
+  // language attached) was always searched against the India
+  // storefront, which skews iTunes' relevance ranking toward
+  // Bollywood/Hindi results regardless of the actual genre. 'US' is
+  // the correct neutral default: it's iTunes' largest, most complete
+  // catalog and isn't skewed toward any one regional genre.
   static String _country(String? language) =>
-      ShortsCatalog.languageToCountry[language] ?? 'IN';
+      ShortsCatalog.languageToCountry[language] ?? 'US';
 
   /// Fetches the next page of results for [category] (+ optional
   /// [language]). Safe to call repeatedly — advances the offset each
@@ -108,9 +115,16 @@ class ItunesShortsApi {
       final body = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       final results = (body['results'] as List?) ?? const [];
       if (results.isEmpty) {
-        // No more results at this offset for this term — don't advance
-        // further, let the caller's own retry (different seed on next
-        // call, since seedIndex rotates with offset) find more.
+        // BUGFIX: not advancing the offset here meant a caller that
+        // retries on an empty page (e.g. infinite-scroll hitting a thin
+        // result set) would re-send the EXACT same offset/seedIndex and
+        // get the exact same empty response every time — a permanent
+        // stuck point partway through a category's catalog, not just a
+        // thin patch it scrolls past. Advancing by `limit` here means the
+        // very next call naturally lands on a new offset (and therefore,
+        // via seedIndex = offset ~/ limit, a new rotated seed artist),
+        // so scrolling actually recovers instead of hanging forever.
+        _offsets[key] = offset + limit;
         return const [];
       }
 

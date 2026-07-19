@@ -76,8 +76,21 @@ class AurumShortsEngine(private val context: Context) {
     var onAutoAdvance: (() -> Unit)? = null // 30s clip finished OR playback error -> ask Dart to advance
 
     private fun newPlayer(): ExoPlayer {
+        // BUGFIX: iTunes' preview CDN (audio-ssl.itunes.apple.com) will
+        // silently stall — never erroring, never reaching STATE_READY —
+        // on requests carrying ExoPlayer's blank/default User-Agent.
+        // From the UI this looks exactly like "shorts don't play": the
+        // card sits on its loading state forever. A real UA plus
+        // explicit connect/read timeouts makes the CDN respond
+        // immediately, and turns any genuine network failure into a
+        // fast onPlayerError() instead of an infinite hang.
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("Aurum/1.0 (Android; ExoPlayer)")
+            .setConnectTimeoutMs(8_000)
+            .setReadTimeoutMs(8_000)
+            .setAllowCrossProtocolRedirects(true)
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
-            .setDataSourceFactory(DefaultHttpDataSource.Factory())
+            .setDataSourceFactory(httpFactory)
         return ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
             .build()
@@ -108,6 +121,26 @@ class AurumShortsEngine(private val context: Context) {
         emitState(Status.LOADING, 0, 0, false)
         tearDownCurrent()
         startPlayback(previewUrl, myToken)
+        startLoadWatchdog(myToken)
+    }
+
+    /**
+     * BUGFIX: if a card never reaches STATE_READY (stuck CDN
+     * connection, DNS issue, etc.) it used to just sit on the loading
+     * spinner forever with no way out. This gives every card an 8s
+     * budget to become playable before we give up and ask Dart to
+     * advance, same as an explicit onPlayerError would.
+     */
+    private fun startLoadWatchdog(myToken: Int) {
+        loadJob?.cancel()
+        loadJob = scope.launch {
+            delay(8_000)
+            if (myToken != loadToken) return@launch
+            if (currentPlayer?.playbackState == Player.STATE_READY) return@launch
+            Log.w(TAG, "Load watchdog fired — clip never became ready, advancing")
+            emitState(Status.FAILED, 0, 0, false)
+            onAutoAdvance?.invoke()
+        }
     }
 
     private fun startPlayback(previewUrl: String, myToken: Int) {
@@ -120,6 +153,7 @@ class AurumShortsEngine(private val context: Context) {
                 if (myToken != loadToken) return
                 when (playbackState) {
                     Player.STATE_READY -> {
+                        loadJob?.cancel()
                         emitState(Status.READY, player.currentPosition, player.duration.coerceAtLeast(0), player.isPlaying)
                         startClipTimer(myToken)
                     }

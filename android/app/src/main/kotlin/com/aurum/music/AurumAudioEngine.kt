@@ -350,7 +350,14 @@ class AurumAudioEngine(
                 if (player.isPlaying) {
                     preduckVolume = player.volume
                     duckedForTransientFocusLoss = true
-                    fadeVolumeTo(preduckVolume * 0.55f)
+                    // BUGFIX: 0.55 was still an audible "tick/ring" dip on
+                    // every routine system sound (keyboard clicks, nav taps,
+                    // notification pings) since these fire constantly during
+                    // normal phone use. 0.85 keeps the OS contract (get
+                    // quieter, don't stop) while staying close enough to
+                    // full volume that the dip is no longer perceptible as
+                    // an interruption during playback.
+                    fadeVolumeTo(preduckVolume * 0.85f)
                 }
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
@@ -876,8 +883,16 @@ class AurumAudioEngine(
 
     private fun setSingleMediaItemInternal(url: String, song: NativeSong) {
         val item = buildMediaItem(song, url)
-        player.setMediaItem(item)
+        // BUGFIX: setMediaItem() can synchronously fire
+        // onMediaItemTransition -> handleCurrentIndexChanged before this
+        // function's next line runs. liveMediaIds must already reflect
+        // the new song by the time that happens, or handleCurrentIndexChanged
+        // resolves index 0 against a stale/empty liveMediaIds and falls
+        // through to the wrong branch — reintroducing the same wrong-song
+        // flash the isLoadingNewSong/mediaItemCount guard above was meant
+        // to close, just in this one-call-later window instead.
         liveMediaIds = mutableListOf(song.id)
+        player.setMediaItem(item)
         player.prepare()
     }
 
@@ -1217,6 +1232,34 @@ class AurumAudioEngine(
     // ─────────────────────────────────────────────────────────────────
     private fun handleCurrentIndexChanged(index: Int?) {
         if (index == null) return
+
+        // BUGFIX: "tap a song, full player opens, correct audio plays in
+        // the background, but the title/artwork show a DIFFERENT song
+        // from the same list for ~2-3 seconds before snapping to the
+        // right one." Root cause: hardStopAndMute() (called at the start
+        // of every playSong/playQueue) calls player.stop() and
+        // player.clearMediaItems() to tear down the previous track — and
+        // both of those fire onMediaItemTransition, which routes here.
+        // But queueSongs has ALREADY been reassigned to the NEW queue by
+        // that point (set eagerly, before hardStopAndMute runs, so the UI
+        // updates instantly) — so the leftover/reset index from the just-
+        // cleared OLD player timeline (usually 0) got resolved against
+        // the NEW queueSongs list, landing on whatever song happens to
+        // sit at that index in the new queue — almost always NOT the one
+        // that was actually tapped. That wrong id got pushed to Dart,
+        // which briefly displayed it until the real song's MediaItem was
+        // set and this fired again with the correct index.
+        //
+        // Fix: while a load is in flight (isLoadingNewSong / isResolving),
+        // only trust an index that actually corresponds to a MediaItem
+        // ExoPlayer currently holds. player.mediaItemCount == 0 is exactly
+        // the stop()/clearMediaItems() case above — there is no real
+        // "current song" to report yet, so skip pushing state for it
+        // entirely and let the eventual setMediaItem() call fire the
+        // correct transition once the new song is actually loaded.
+        if ((isLoadingNewSong || isResolving) && player.mediaItemCount == 0) {
+            return
+        }
 
         if (stopAfterCurrentSong && index != currentIndex) {
             stopAfterCurrentSong = false

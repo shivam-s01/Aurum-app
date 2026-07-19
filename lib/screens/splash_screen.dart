@@ -169,40 +169,52 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    if (_showChild) return widget.child;
-
     final bg = AurumTheme.bgOf(context);
 
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (context, _) {
-        return Scaffold(
-          backgroundColor: bg,
-          body: Stack(
-            alignment: Alignment.center,
-            children: [
-              Opacity(
-                opacity: _bgOpacity.value,
-                child: Container(color: bg),
-              ),
-              Transform.scale(
-                scale: _markScale.value,
-                child: Opacity(
-                  opacity: _markOpacity.value,
-                  child: _buildMark(),
-                ),
-              ),
-              if (_sweep.value > 0)
-                RepaintBoundary(
-                  child: CustomPaint(
-                    size: const Size(180, 180),
-                    painter: _GlassSweepPainter(progress: _sweep.value),
+    // widget.child (MainShell -> HomeScreen) is always in the tree from
+    // frame 1, even while the splash animation is still playing. This is
+    // what makes home-feed API calls (HomeScreen.initState) start loading
+    // the instant the app opens, Spotify-style, instead of waiting 2.7s
+    // for the splash to finish. The splash is just a Stack layer painted
+    // on top; when _showChild flips, that layer is simply not built
+    // anymore — the child underneath is never remounted, so no re-fetch.
+    if (_showChild) return widget.child;
+
+    return Stack(
+      children: [
+        widget.child,
+        AnimatedBuilder(
+          animation: _ctrl,
+          builder: (context, _) {
+            return Scaffold(
+              backgroundColor: bg,
+              body: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Opacity(
+                    opacity: _bgOpacity.value,
+                    child: Container(color: bg),
                   ),
-                ),
-            ],
-          ),
-        );
-      },
+                  Transform.scale(
+                    scale: _markScale.value,
+                    child: Opacity(
+                      opacity: _markOpacity.value,
+                      child: _buildMark(),
+                    ),
+                  ),
+                  if (_sweep.value > 0)
+                    RepaintBoundary(
+                      child: CustomPaint(
+                        size: const Size(180, 180),
+                        painter: _GlassSweepPainter(progress: _sweep.value),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 

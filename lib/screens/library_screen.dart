@@ -1276,6 +1276,19 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
     return AlertDialog(
       backgroundColor: AurumTheme.bgElevatedOf(context),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      // BUGFIX: "keyboard opens then closes instantly" (playlist create).
+      // The focus-timing fix above (waiting for the route's own enter
+      // animation before requesting focus) fixed the route-transition
+      // race, but this AlertDialog had no scrollable/resize handling at
+      // all — unlike the feedback dialog, which absorbs the keyboard via
+      // AnimatedPadding + SingleChildScrollView. Without that, the
+      // keyboard rising delivered an abrupt, un-animated layout change to
+      // the just-focused TextField instead of a smooth one, which could
+      // still read as an instant open-then-close. scrollable:true makes
+      // AlertDialog wrap its content in a SingleChildScrollView
+      // internally, so it resizes smoothly with the keyboard instead of
+      // fighting it.
+      scrollable: true,
       title: Text(l10n.libraryNewPlaylist,
           style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
@@ -1410,6 +1423,9 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
     return AlertDialog(
       backgroundColor: AurumTheme.bgElevatedOf(context),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      // BUGFIX: same keyboard-jolt fix as _CreatePlaylistDialog above —
+      // see the comment there for the full explanation.
+      scrollable: true,
       title: Text(l10n.libraryEditPlaylist,
           style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),

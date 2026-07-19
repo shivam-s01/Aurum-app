@@ -186,20 +186,24 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       }
 
       // THE crash-safe home for storage + battery-optimization permission
-      // requests. Previously these were fired from main() before Flutter's
-      // first frame had even been drawn — permission_handler's platform
-      // channel needs a fully attached/resumed Activity, and calling it
-      // that early was the likely source of the crash-on-launch some
-      // devices hit. Here, we're safely past the splash animation, inside
-      // the widget tree, on the very first frame of the real UI — the
-      // same timing UpdateService.checkForUpdate above already uses
-      // without issue.
+      // requests. permission_handler's platform channel needs a fully
+      // attached/resumed Activity — calling it too early was the likely
+      // source of a crash-on-launch some devices hit.
       //
-      // Gated by a one-time SharedPreferences flag so returning users
-      // aren't nagged with the same dialogs on every launch — only once,
-      // ever, per install (re-requesting a permanently-denied permission
-      // silently no-ops anyway on Android, so this flag is purely to avoid
-      // re-showing dialogs for permissions the user already answered).
+      // BUGFIX: this used to safely run only after the splash animation
+      // had finished, because MainShell itself only mounted at that
+      // point. Since the splash fix that makes MainShell mount from
+      // frame 1 (so home-feed data starts loading immediately), this
+      // block would otherwise now fire while the splash is still
+      // visually playing on top — and worse, the Activity may not be
+      // in the exact same attached/resumed state this early, reviving
+      // the original crash risk. Delaying by the splash's own duration
+      // restores the original real-world timing (and the safety
+      // reasoning behind it) without holding back the home-feed loading
+      // that actually needed to move earlier.
+      await Future.delayed(const Duration(milliseconds: 2700));
+      if (!mounted) return;
+
       final askedPermissions = prefs.getBool('asked_launch_permissions') ?? false;
       if (!askedPermissions && mounted) {
         await _requestLaunchPermissions();
