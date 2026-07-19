@@ -288,6 +288,23 @@ class NativeAudioEngine {
   Future<void> applyPremiumSound(bool enabled) =>
       _method.invokeMethod('applyPremiumSound', {'enabled': enabled});
 
+  /// Supported-device check + current output route, so the UI can show an
+  /// accurate note (e.g. "Spatial widening isn't supported on this device
+  /// — clarity and bass effects are still active") instead of implying a
+  /// full effect on hardware that silently can't do part of the chain.
+  /// Returns null if the native side hasn't attached yet (call again after
+  /// playback starts).
+  Future<PremiumSoundCapabilities?> getPremiumSoundCapabilities() async {
+    final raw = await _method.invokeMethod('getPremiumSoundCapabilities');
+    if (raw == null) return null;
+    final m = Map<String, dynamic>.from(raw as Map);
+    return PremiumSoundCapabilities(
+      virtualizerSupported: m['virtualizerSupported'] as bool? ?? false,
+      bassBoostSupported: m['bassBoostSupported'] as bool? ?? false,
+      outputRoute: m['outputRoute'] as String? ?? 'UNKNOWN',
+    );
+  }
+
   /// Returns null if the native Equalizer hasn't attached yet (e.g. nothing
   /// has played this session — attach happens on the first audioSessionId
   /// assignment). Call again after playback starts if null.
@@ -332,4 +349,22 @@ class EqualizerBandInfo {
     required this.maxDb,
     required this.centerFreqsHz,
   });
+}
+
+/// What this device's audio stack can actually do for Premium Sound, and
+/// what output it's currently routed to — lets the settings UI show an
+/// accurate "partial support" note instead of implying full effect on
+/// hardware that silently can't do part of the chain.
+class PremiumSoundCapabilities {
+  final bool virtualizerSupported;
+  final bool bassBoostSupported;
+  final String outputRoute; // 'WIRED_HEADPHONES' | 'BLUETOOTH' | 'SPEAKER' | 'UNKNOWN'
+
+  const PremiumSoundCapabilities({
+    required this.virtualizerSupported,
+    required this.bassBoostSupported,
+    required this.outputRoute,
+  });
+
+  bool get fullySupported => virtualizerSupported && bassBoostSupported;
 }

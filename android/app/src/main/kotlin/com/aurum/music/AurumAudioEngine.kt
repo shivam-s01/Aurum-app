@@ -427,7 +427,7 @@ class AurumAudioEngine(
     // to this ExoPlayer's audioSessionId instead of built into the
     // AudioPipeline at construction time.
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    val effects: AurumAudioEffects = AurumAudioEffects(player)
+    val effects: AurumAudioEffects = AurumAudioEffects(player, context)
 
     private val _state = MutableStateFlow(NativeEngineState())
     val state: StateFlow<NativeEngineState> = _state

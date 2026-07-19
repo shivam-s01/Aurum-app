@@ -198,6 +198,9 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     engine.effects.applyPremiumSound(enabled)
                     result.success(null)
                 }
+                "getPremiumSoundCapabilities" -> {
+                    result.success(engine.effects.describeCapabilities())
+                }
                 // FIX (2026-07-07) — "downloads fail / stuck resolving":
                 // DownloadProvider.download() (Dart) was calling
                 // ApiService.resolveStreamUrl() directly — the OLD,

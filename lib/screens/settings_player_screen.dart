@@ -100,6 +100,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   bool _volumeNormalization = false;
   bool _bassBoost = false;
   bool _premiumSound = false;
+  PremiumSoundCapabilities? _premiumSoundCaps;
 
   // Sleep timer UI state
   bool _sleepTimerFinishSong = false;
@@ -108,7 +109,13 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   void initState() {
     super.initState();
     _load();
+    _loadPremiumSoundCaps();
     SleepTimerService.instance.addListener(_onTimerTick);
+  }
+
+  Future<void> _loadPremiumSoundCaps() async {
+    final caps = await widget.audioEngine?.getPremiumSoundCapabilities();
+    if (mounted && caps != null) setState(() => _premiumSoundCaps = caps);
   }
 
   @override
@@ -364,8 +371,22 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                 fontSize: 15, fontWeight: FontWeight.w700)),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 2),
-          child: Text(l10n.spPremiumSoundSubtitle,
-              style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12, height: 1.3)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(l10n.spPremiumSoundSubtitle,
+                  style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12, height: 1.3)),
+              if (value && _premiumSoundCaps != null && !_premiumSoundCaps!.fullySupported)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    l10n.spPremiumSoundPartialSupport,
+                    style: TextStyle(color: AurumTheme.gold.withOpacity(0.85), fontSize: 11, height: 1.3),
+                  ),
+                ),
+            ],
+          ),
         ),
         trailing: Switch(
           value: value,
@@ -374,6 +395,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
             setState(() => _premiumSound = v);
             await _save('premium_sound', v);
             await widget.audioEngine?.applyPremiumSound(v);
+            if (v) await _loadPremiumSoundCaps();
           },
         ),
       ),

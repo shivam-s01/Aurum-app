@@ -183,6 +183,7 @@
   "spBassBoostSubtitle": "Enhance low frequencies for a deeper sound",
   "spPremiumSound": "Premium Sound",
   "spPremiumSoundSubtitle": "Unlock crystal-clear vocals, deeper bass, and immersive premium audio",
+  "spPremiumSoundPartialSupport": "Some effects aren't supported on this device — clarity and bass are still active",
   "spSleepTimerActive": "Sleep Timer Active",
   "spSleepTimerTitle": "Sleep Timer",
   "spSleepTimerStopsIn": "Stops in {time}",
