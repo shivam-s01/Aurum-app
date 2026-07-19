@@ -193,6 +193,11 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                 "getEqualizerBands" -> {
                     result.success(engine.effects.describeBands())
                 }
+                "applyPremiumSound" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    engine.effects.applyPremiumSound(enabled)
+                    result.success(null)
+                }
                 // FIX (2026-07-07) — "downloads fail / stuck resolving":
                 // DownloadProvider.download() (Dart) was calling
                 // ApiService.resolveStreamUrl() directly — the OLD,

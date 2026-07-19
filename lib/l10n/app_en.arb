@@ -181,6 +181,8 @@
   "spVolumeNormalizationSubtitle": "Keeps all songs at a consistent volume level",
   "spBassBoost": "Bass Boost",
   "spBassBoostSubtitle": "Enhance low frequencies for a deeper sound",
+  "spPremiumSound": "Premium Sound",
+  "spPremiumSoundSubtitle": "Unlock crystal-clear vocals, deeper bass, and immersive premium audio",
   "spSleepTimerActive": "Sleep Timer Active",
   "spSleepTimerTitle": "Sleep Timer",
   "spSleepTimerStopsIn": "Stops in {time}",

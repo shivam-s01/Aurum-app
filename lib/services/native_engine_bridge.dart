@@ -280,6 +280,14 @@ class NativeAudioEngine {
         'bandGainsMb': bandGainsDb?.map((db) => (db * 100).round()).toList(),
       });
 
+  /// "Premium Sound" — single toggle for the license-free Virtualizer +
+  /// native BassBoost + extra LoudnessEnhancer gain + presence/clarity EQ
+  /// curve chain (see AurumAudioEffects.applyPremiumSound). Independent of
+  /// applyAudioEffects' Bass Boost/Volume Normalization/manual EQ — the two
+  /// compose on the native side rather than one overriding the other.
+  Future<void> applyPremiumSound(bool enabled) =>
+      _method.invokeMethod('applyPremiumSound', {'enabled': enabled});
+
   /// Returns null if the native Equalizer hasn't attached yet (e.g. nothing
   /// has played this session — attach happens on the first audioSessionId
   /// assignment). Call again after playback starts if null.

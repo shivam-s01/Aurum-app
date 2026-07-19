@@ -1,7 +1,9 @@
 package com.aurum.music
 
+import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
+import android.media.audiofx.Virtualizer
 import android.util.Log
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -46,10 +48,54 @@ class AurumAudioEffects(private val player: ExoPlayer) {
         // (sub-bass, bass) when Bass Boost is on.
         private const val BASS_BOOST_SUB_BASS_EXTRA_MB = 700 // 7.0 dB
         private const val BASS_BOOST_BASS_EXTRA_MB = 500 // 5.0 dB
+
+        // ── Premium Sound chain ──────────────────────────────────────────
+        // Not a licensed Dolby/DTS pipeline (that requires an OEM-level
+        // corporate partnership, not something directly integrable) — this
+        // is a legally-clear, license-free DSP chain built entirely on
+        // Android framework AudioFX effects (BassBoost, Virtualizer,
+        // LoudnessEnhancer, Equalizer).
+        //
+        // TUNED DOWN (2026-07-20): first pass (Virtualizer 650, BassBoost
+        // 550, +4.0dB loudness, +3.5dB treble peak) was audibly fatiguing
+        // on long sessions — too much stacked high-shelf + loudness made
+        // vocals harsh and bass boomy instead of clean. This pass targets
+        // "clearly better than flat, never announces itself as an
+        // effect": every gain here is deliberately conservative and stays
+        // well inside headroom so nothing clips or hisses, on cheap
+        // earphones or flagship phones alike.
+
+        // BassBoost strength is 0-1000 (0=off, 1000=max), NOT millibels.
+        // 550 was boomy/muddy on sub-bass-heavy tracks. 320 gives noticeably
+        // deeper low-end without smearing the mix.
+        private const val PREMIUM_BASS_BOOST_STRENGTH: Short = 320
+
+        // Virtualizer strength is also 0-1000. 650 was too wide — caused a
+        // hollow/phasey "out of head" feeling on some tracks/headphones.
+        // 380 gives a subtle, natural width increase.
+        private const val PREMIUM_VIRTUALIZER_STRENGTH: Short = 380
+
+        // Loudness lift, kept small — this is a tone-shaping/clarity chain,
+        // not a "make everything louder" chain. Perceived loudness mostly
+        // comes from the EQ curve below, not from pushing overall gain.
+        private const val PREMIUM_LOUDNESS_GAIN_MB = 150 // 1.5 dB
+
+        // Presence/clarity EQ curve (millibels), applied additively on top
+        // of the user's own EQ curve when Premium Sound is on. Mapped
+        // proportionally across however many bands this device's
+        // Equalizer actually reports — never a hardcoded band count.
+        // Halved (or better) from the first pass across every band, and
+        // the treble/"air" bands specifically pulled back hardest since
+        // that's what reads as "sharp/tiring" on cheap earphones.
+        private val PREMIUM_CURVE_MB = listOf(
+            100, 50, -80, 0, 120, 180, 150, 100, 100, 120,
+        )
     }
 
     private var equalizer: Equalizer? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
+    private var virtualizer: Virtualizer? = null
+    private var nativeBassBoost: BassBoost? = null
     private var currentSessionId: Int = 0
 
     // Health tracking — once an effect is rejected by the native side more
@@ -58,6 +104,8 @@ class AurumAudioEffects(private val player: ExoPlayer) {
     // playback breaks in the old just_audio version.
     private var loudnessHealthy = true
     private var equalizerHealthy = true
+    private var virtualizerHealthy = true
+    private var nativeBassBoostHealthy = true
 
     // Last-applied settings, cached so we can re-apply them immediately
     // whenever the audio session ID changes (new ExoPlayer internal
@@ -66,6 +114,7 @@ class AurumAudioEffects(private val player: ExoPlayer) {
     private var lastBassBoost = false
     private var lastVolNorm = false
     private var lastBandGains: List<Int>? = null // millibels, one per band
+    private var lastPremiumSound = false
 
     private val sessionIdListener = object : Player.Listener {
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -87,6 +136,8 @@ class AurumAudioEffects(private val player: ExoPlayer) {
         currentSessionId = sessionId
         loudnessHealthy = true
         equalizerHealthy = true
+        virtualizerHealthy = true
+        nativeBassBoostHealthy = true
 
         try {
             equalizer = Equalizer(0, sessionId)
@@ -102,20 +153,46 @@ class AurumAudioEffects(private val player: ExoPlayer) {
             loudnessHealthy = false
         }
 
-        // Re-apply whatever the user last configured, since a fresh
-        // Equalizer/LoudnessEnhancer instance always starts at defaults.
+        try {
+            virtualizer = Virtualizer(0, sessionId).apply {
+                // Speaker-safe mode lets the framework pick a virtualization
+                // strategy appropriate for whatever output is actually
+                // active (phone speaker vs. wired/BT headphones) instead of
+                // forcing a headphone-style effect onto a speaker, which is
+                // what causes the "hollow/phasey" artifact on-device.
+                try { forceVirtualizationMode(Virtualizer.VIRTUALIZATION_MODE_AUTO) } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Virtualizer attach failed for session $sessionId: $e — disabling for this session")
+            virtualizerHealthy = false
+        }
+
+        try {
+            nativeBassBoost = BassBoost(0, sessionId)
+        } catch (e: Exception) {
+            Log.w(TAG, "BassBoost attach failed for session $sessionId: $e — disabling for this session")
+            nativeBassBoostHealthy = false
+        }
+
+        // Re-apply whatever the user last configured, since fresh effect
+        // instances always start at defaults.
         applySettings(
             bassBoost = lastBassBoost,
             volNorm = lastVolNorm,
             bandGainsMb = lastBandGains,
         )
+        applyPremiumSound(lastPremiumSound)
     }
 
     private fun releaseEffects() {
         try { equalizer?.release() } catch (_: Exception) {}
         try { loudnessEnhancer?.release() } catch (_: Exception) {}
+        try { virtualizer?.release() } catch (_: Exception) {}
+        try { nativeBassBoost?.release() } catch (_: Exception) {}
         equalizer = null
         loudnessEnhancer = null
+        virtualizer = null
+        nativeBassBoost = null
     }
 
     /**
@@ -135,6 +212,100 @@ class AurumAudioEffects(private val player: ExoPlayer) {
 
         applyLoudnessEnhancer(bassBoost)
         applyEqualizer(bassBoost = bassBoost, volNorm = volNorm, bandGainsMb = bandGainsMb)
+    }
+
+    /**
+     * "Premium Sound" — single toggle, independent of the older Bass
+     * Boost/Volume Normalization/manual EQ controls (it composes with them
+     * rather than replacing them). Turns on Virtualizer + native BassBoost,
+     * a small extra LoudnessEnhancer gain, and stacks a presence/clarity
+     * curve on top of the Equalizer. Every sub-effect follows this file's
+     * existing self-healing rule: if the native side rejects it, back off
+     * and disable only that piece, never crash playback.
+     */
+    fun applyPremiumSound(enabled: Boolean) {
+        lastPremiumSound = enabled
+
+        // Virtualizer: spatial width
+        if (virtualizerHealthy) {
+            virtualizer?.let { v ->
+                try {
+                    v.enabled = enabled
+                    if (enabled) {
+                        try {
+                            v.setStrength(PREMIUM_VIRTUALIZER_STRENGTH)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Virtualizer setStrength rejected ($e) — disabling for this session")
+                            virtualizerHealthy = false
+                            try { v.enabled = false } catch (_: Exception) {}
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Virtualizer enable failed: $e — disabling for this session")
+                    virtualizerHealthy = false
+                }
+            }
+        }
+
+        // Native BassBoost: deep low-end, separate DSP from the manual EQ
+        // sub-bass boost and from LoudnessEnhancer, so this stays clean
+        // instead of triple-stacking gain into distortion.
+        if (nativeBassBoostHealthy) {
+            nativeBassBoost?.let { bb ->
+                try {
+                    bb.enabled = enabled
+                    if (enabled) {
+                        try {
+                            bb.setStrength(PREMIUM_BASS_BOOST_STRENGTH)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "BassBoost setStrength rejected ($e) — disabling for this session")
+                            nativeBassBoostHealthy = false
+                            try { bb.enabled = false } catch (_: Exception) {}
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "BassBoost enable failed: $e — disabling for this session")
+                    nativeBassBoostHealthy = false
+                }
+            }
+        }
+
+        // Small extra loudness lift, additive with the Bass-Boost-toggle's
+        // own LoudnessEnhancer gain (LoudnessEnhancer's setTargetGain is
+        // idempotent/overwriting, not additive-on-call, so when Bass Boost
+        // is also on we take the max rather than summing to avoid an
+        // unexpectedly aggressive gain).
+        if (loudnessHealthy) {
+            loudnessEnhancer?.let { enhancer ->
+                try {
+                    val bassBoostOn = lastBassBoost
+                    val targetGain = when {
+                        enabled && bassBoostOn -> maxOf(PREMIUM_LOUDNESS_GAIN_MB, BASS_BOOST_LOUDNESS_GAIN_MB)
+                        enabled -> PREMIUM_LOUDNESS_GAIN_MB
+                        bassBoostOn -> BASS_BOOST_LOUDNESS_GAIN_MB
+                        else -> null
+                    }
+                    if (targetGain != null) {
+                        enhancer.enabled = true
+                        try {
+                            enhancer.setTargetGain(targetGain)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "LoudnessEnhancer premium gain rejected ($e)")
+                        }
+                    } else {
+                        enhancer.enabled = false
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "LoudnessEnhancer premium apply failed: $e — disabling for this session")
+                    loudnessHealthy = false
+                }
+            }
+        }
+
+        // Re-run the Equalizer so the premium presence curve stacks (or
+        // un-stacks) on top of whatever the user's own EQ/bass-boost state
+        // currently is.
+        applyEqualizer(bassBoost = lastBassBoost, volNorm = lastVolNorm, bandGainsMb = lastBandGains)
     }
 
     private fun applyLoudnessEnhancer(bassBoost: Boolean) {
@@ -175,15 +346,17 @@ class AurumAudioEffects(private val player: ExoPlayer) {
                 bandGainsMb?.getOrNull(i) ?: 0
             }
             val hasCustomCurve = savedBandsPreview.any { it != 0 }
+            val premiumOn = lastPremiumSound
 
             // Heat/battery: android.media.audiofx.Equalizer runs its DSP on
             // every audio sample while enabled=true, regardless of whether
             // any band actually deviates from flat. If the user has no
-            // custom curve and bass boost is off, there is nothing for the
-            // equalizer to do — fully disable it instead of leaving it
-            // enabled at all-zero gains, which was silently burning CPU on
-            // every song for users who never touch the EQ screen.
-            if (!hasCustomCurve && !bassBoost) {
+            // custom curve, bass boost is off, AND Premium Sound is off,
+            // there is nothing for the equalizer to do — fully disable it
+            // instead of leaving it enabled at all-zero gains, which was
+            // silently burning CPU on every song for users who never touch
+            // the EQ screen.
+            if (!hasCustomCurve && !bassBoost && !premiumOn) {
                 eq.enabled = false
                 return
             }
@@ -196,6 +369,18 @@ class AurumAudioEffects(private val player: ExoPlayer) {
 
             val savedBands = savedBandsPreview
 
+            // Premium Sound's presence/clarity curve, resampled from its
+            // fixed 10-point definition onto however many bands THIS
+            // device's Equalizer actually reports (never assume 10 bands).
+            fun premiumGainFor(bandIndex: Int): Int {
+                if (!premiumOn) return 0
+                if (bandCount <= 1) return PREMIUM_CURVE_MB[0]
+                val fraction = bandIndex.toFloat() / (bandCount - 1).toFloat()
+                val srcIndex = (fraction * (PREMIUM_CURVE_MB.size - 1)).toInt()
+                    .coerceIn(0, PREMIUM_CURVE_MB.size - 1)
+                return PREMIUM_CURVE_MB[srcIndex]
+            }
+
             var rejectedBands = 0
             for (i in 0 until bandCount) {
                 var gain = if (volNorm && !hasCustomCurve) 0 else savedBands[i]
@@ -204,6 +389,8 @@ class AurumAudioEffects(private val player: ExoPlayer) {
                     if (i == 0) gain += BASS_BOOST_SUB_BASS_EXTRA_MB
                     if (i == 1) gain += BASS_BOOST_BASS_EXTRA_MB
                 }
+
+                gain += premiumGainFor(i)
 
                 // Clamp to THIS device's actual reported range — never a
                 // hardcoded number, matching the just_audio version's

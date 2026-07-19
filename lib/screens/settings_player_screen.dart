@@ -99,6 +99,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   double _crossfadeDuration = 0.0;   // seconds 0–12
   bool _volumeNormalization = false;
   bool _bassBoost = false;
+  bool _premiumSound = false;
 
   // Sleep timer UI state
   bool _sleepTimerFinishSong = false;
@@ -144,6 +145,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
       _crossfadeDuration   = p.getDouble('crossfade_duration') ?? 0.0;
       _volumeNormalization = p.getBool('volume_normalization') ?? false;
       _bassBoost           = p.getBool('bass_boost') ?? false;
+      _premiumSound        = p.getBool('premium_sound') ?? false;
       _sleepTimerFinishSong = p.getBool('sleep_timer_finish_song') ?? false;
     });
   }
@@ -324,6 +326,60 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
     );
   }
 
+  Widget _premiumSoundTile(BuildContext context, AppLocalizations l10n) {
+    final value = _premiumSound;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        gradient: value
+            ? LinearGradient(
+                colors: [
+                  AurumTheme.gold.withOpacity(0.16),
+                  AurumTheme.gold.withOpacity(0.04),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : null,
+        color: value ? null : AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: value ? AurumTheme.gold.withOpacity(0.5) : AurumTheme.dividerOf(context),
+          width: value ? 1 : 0.5,
+        ),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        leading: Container(
+          width: 40, height: 40,
+          decoration: BoxDecoration(
+            gradient: AurumTheme.goldGradient,
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: const Icon(Icons.auto_awesome_rounded, color: Colors.black, size: 19),
+        ),
+        title: Text(l10n.spPremiumSound,
+            style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 15, fontWeight: FontWeight.w700)),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Text(l10n.spPremiumSoundSubtitle,
+              style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12, height: 1.3)),
+        ),
+        trailing: Switch(
+          value: value,
+          activeColor: AurumTheme.gold,
+          onChanged: (v) async {
+            setState(() => _premiumSound = v);
+            await _save('premium_sound', v);
+            await widget.audioEngine?.applyPremiumSound(v);
+          },
+        ),
+      ),
+    );
+  }
+
   // ── Sleep Timer Sheet ──────────────────────────────────────────────────────
   void _showSleepTimerSheet(BuildContext context) {
     showModalBottomSheet(
@@ -384,6 +440,13 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
           // Crossfade
           _buildCrossfadeSlider(context),
+
+          // Premium Sound — flagship toggle: Virtualizer + native BassBoost
+          // + extra loudness + presence/clarity EQ curve, composed on top
+          // of whatever Bass Boost/Volume Normalization/manual EQ the user
+          // already has set. Styled distinctly (gold gradient) since this
+          // is the headline audio-quality feature.
+          _premiumSoundTile(context, l10n),
 
           // Volume Normalization
           _switchTile(context,
