@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/audio_prefs.dart';
+import 'aurum_motion.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AurumPageRoute — Premium page transition
@@ -31,10 +32,10 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
           fullscreenDialog: fullscreenDialog,
           opaque: true,
           transitionDuration: _animsOn()
-              ? const Duration(milliseconds: 400)
+              ? AurumMotion.long1
               : Duration.zero,
           reverseTransitionDuration: _animsOn()
-              ? const Duration(milliseconds: 320)
+              ? AurumMotion.medium2
               : Duration.zero,
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
@@ -43,8 +44,8 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
 
             final curved = CurvedAnimation(
               parent: animation,
-              curve: Curves.easeOutCubic,
-              reverseCurve: Curves.easeInCubic,
+              curve: AurumMotion.standard,
+              reverseCurve: AurumMotion.standardReverse,
             );
 
             // Outgoing screen gets a very subtle fade + scale-down so the
@@ -52,7 +53,7 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
             // animations stacked on top of each other.
             final secondaryCurved = CurvedAnimation(
               parent: secondaryAnimation,
-              curve: Curves.easeOutCubic,
+              curve: AurumMotion.standard,
             );
 
             return FadeTransition(
@@ -137,10 +138,10 @@ class AurumSlidePageRoute<T> extends PageRouteBuilder<T> {
           fullscreenDialog: fullscreenDialog,
           opaque: true,
           transitionDuration: _animsOn()
-              ? const Duration(milliseconds: 400)
+              ? AurumMotion.long1
               : Duration.zero,
           reverseTransitionDuration: _animsOn()
-              ? const Duration(milliseconds: 340)
+              ? AurumMotion.long1
               : Duration.zero,
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
@@ -149,12 +150,12 @@ class AurumSlidePageRoute<T> extends PageRouteBuilder<T> {
 
             final curved = CurvedAnimation(
               parent: animation,
-              curve: Curves.easeOutCubic,
-              reverseCurve: Curves.easeInCubic,
+              curve: AurumMotion.standard,
+              reverseCurve: AurumMotion.standardReverse,
             );
             final secondaryCurved = CurvedAnimation(
               parent: secondaryAnimation,
-              curve: Curves.easeOutCubic,
+              curve: AurumMotion.standard,
             );
 
             return SlideTransition(
@@ -215,15 +216,15 @@ class AurumModalRoute<T> extends PageRouteBuilder<T> {
   }) : super(
           settings: settings,
           opaque: true,
-          transitionDuration: const Duration(milliseconds: 400),
-          reverseTransitionDuration: const Duration(milliseconds: 320),
+          transitionDuration: AurumMotion.long1,
+          reverseTransitionDuration: AurumMotion.medium2,
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             final curved = CurvedAnimation(
               parent: animation,
-              curve: Curves.easeOutCubic,
-              reverseCurve: Curves.easeInCubic,
+              curve: AurumMotion.standard,
+              reverseCurve: AurumMotion.standardReverse,
             );
             return FadeTransition(
               opacity: curved,
