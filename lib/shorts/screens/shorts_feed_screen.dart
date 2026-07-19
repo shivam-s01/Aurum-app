@@ -25,6 +25,52 @@ import 'shorts_preferences_screen.dart';
 /// style category toggle bar pinned to the top — switching category
 /// triggers an immediate full feed replacement, strictly scoped to
 /// that one category.
+/// Coarse subset of ShortsFeedController state that the feed SHELL
+/// (PageView + category bar + loading/empty states) actually needs to
+/// rebuild for. Deliberately excludes position/duration — those tick
+/// every ~200-500ms during playback and previously lived on the same
+/// Consumer that wrapped the whole PageView, rebuilding every off-screen
+/// card, action rail, and category bar on every tick. That extra work
+/// competing with the scroll animation's frame budget was the main
+/// cause of the janky/stuck feed scroll.
+class _ShortsFeedShellData {
+  final bool initialLoading;
+  final int itemCount;
+  final int currentIndex;
+  final String activeCategory;
+  final ShortsVideoStatus videoStatus;
+  final bool isLiked;
+  final bool isSaved;
+  final DownloadTrackState downloadState;
+
+  const _ShortsFeedShellData({
+    required this.initialLoading,
+    required this.itemCount,
+    required this.currentIndex,
+    required this.activeCategory,
+    required this.videoStatus,
+    required this.isLiked,
+    required this.isSaved,
+    required this.downloadState,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ShortsFeedShellData &&
+      other.initialLoading == initialLoading &&
+      other.itemCount == itemCount &&
+      other.currentIndex == currentIndex &&
+      other.activeCategory == activeCategory &&
+      other.videoStatus == videoStatus &&
+      other.isLiked == isLiked &&
+      other.isSaved == isSaved &&
+      other.downloadState == downloadState;
+
+  @override
+  int get hashCode => Object.hash(initialLoading, itemCount, currentIndex,
+      activeCategory, videoStatus, isLiked, isSaved, downloadState);
+}
+
 class ShortsFeedScreen extends StatefulWidget {
   const ShortsFeedScreen({super.key});
 
@@ -100,7 +146,11 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
   /// decodes — this is what makes the feed feel instant rather than
   /// merely "not broken".
   void _precacheUpcomingArtwork(ShortsFeedController ctrl, int currentIndex) {
-    final upcoming = ctrl.items.skip(currentIndex + 1).take(2);
+    // 3 items ahead (not 2) — gives enough lead time for a user
+    // swiping quickly (3-4 swipes within a second) to stay ahead of
+    // network latency on each new artwork fetch, which is what still
+    // showed as an occasional white flash with a shorter lookahead.
+    final upcoming = ctrl.items.skip(currentIndex + 1).take(3);
     for (final item in upcoming) {
       if (item.artworkUrl.isEmpty) continue;
       precacheImage(
@@ -212,8 +262,19 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
       value: _controller,
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: prov.Consumer<ShortsFeedController>(
-          builder: (context, ctrl, _) {
+        body: prov.Selector<ShortsFeedController, _ShortsFeedShellData>(
+          selector: (_, ctrl) => _ShortsFeedShellData(
+            initialLoading: ctrl.initialLoading,
+            itemCount: ctrl.items.length,
+            currentIndex: ctrl.currentIndex,
+            activeCategory: ctrl.activeCategory,
+            videoStatus: ctrl.videoStatus,
+            isLiked: ctrl.isLiked,
+            isSaved: ctrl.isSaved,
+            downloadState: ctrl.downloadState,
+          ),
+          builder: (context, shell, _) {
+            final ctrl = context.read<ShortsFeedController>();
             if (ctrl.initialLoading) {
               return const Center(
                 child: CircularProgressIndicator(color: Colors.white54),
@@ -232,6 +293,15 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                   key: ValueKey(_feedGeneration),
                   controller: _pageController,
                   scrollDirection: Axis.vertical,
+                  // NOTE: allowImplicitScrolling was tried here previously
+                  // but removed — Flutter's own docs confirm it ONLY
+                  // changes accessibility/screen-reader scroll behavior
+                  // and has zero effect on image preloading or page
+                  // pre-building. It also carries a known Flutter bug
+                  // (flutter/flutter#76569) that can snap a page back to
+                  // the previous one if another page holds a focused
+                  // TextField. _precacheUpcomingArtwork below is the
+                  // actual fix for the white-flash-while-scrolling issue.
                   // Clamping (not bouncing) physics — prevents the
                   // feed from sometimes landing in a half-scrolled
                   // state, which is what reads as "janky" rather than
@@ -282,15 +352,22 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                             left: 0,
                             right: 0,
                             bottom: 0,
-                            child: ShortsInfoOverlay(
-                              item: item,
-                              position: isCurrent
-                                  ? ctrl.position
-                                  : Duration.zero,
-                              duration: isCurrent
-                                  ? ctrl.duration
-                                  : Duration(seconds: item.durationSecs),
-                            ),
+                            child: isCurrent
+                                ? prov.Selector<ShortsFeedController,
+                                    (Duration, Duration)>(
+                                    selector: (_, c) => (c.position, c.duration),
+                                    builder: (context, posDur, _) =>
+                                        ShortsInfoOverlay(
+                                      item: item,
+                                      position: posDur.$1,
+                                      duration: posDur.$2,
+                                    ),
+                                  )
+                                : ShortsInfoOverlay(
+                                    item: item,
+                                    position: Duration.zero,
+                                    duration: Duration(seconds: item.durationSecs),
+                                  ),
                           ),
                           Positioned(
                             right: 12,

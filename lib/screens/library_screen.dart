@@ -401,6 +401,14 @@ class PlaylistsScreen extends StatelessWidget {
       builder: (context, pp, _) {
         return Scaffold(
           backgroundColor: AurumTheme.bgOf(context),
+          // BUGFIX: same "whole app shrinks when keyboard opens" fix as
+          // MainShell — the New Playlist dialog is pushed on top of THIS
+          // Scaffold, and its default resizeToAvoidBottomInset: true was
+          // squeezing the whole playlists list/app-bar upward the moment
+          // the dialog's TextField got focus, on top of the dialog's own
+          // (correct) keyboard-avoidance. The dialog handles its own
+          // resize; this screen doesn't need to.
+          resizeToAvoidBottomInset: false,
           body: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [

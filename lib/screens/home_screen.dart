@@ -180,22 +180,37 @@ class _HomeScreenState extends State<HomeScreen> {
         seed: math.Random().nextInt(1000000),
       );
       final recentSongs = recentlyPlayedProvider.history.take(10).toList();
-      // Collect every section locally as it streams in from the API, but
-      // don't touch UI state per-section anymore — the user wants the
-      // whole home page to appear at once instead of sections trickling
-      // in one by one. setState only fires once, after everything is in.
-      final collected = <SongSection>[];
+      // BUGFIX: "sections load late" — this previously collected every
+      // section into a local list and only called setState once, after
+      // the ENTIRE fetchHomeStreaming batch finished (up to the full 25s
+      // timeout in the worst case). fetchHomeStreaming already streams
+      // sections in one-by-one via onSection specifically so the UI can
+      // show them progressively — batching them all up here just meant
+      // every section waited on the slowest one, which is exactly why
+      // "Trending Now" (loaded separately, by _CuratedPlaylistsSection)
+      // appeared fast while everything else felt stuck. Calling setState
+      // per-section restores that progressive reveal.
+      // Growable list built once and appended to in place — avoids an
+      // O(n) full-list copy on every single section arrival, keeping
+      // this lightweight even as more sections stream in. setState
+      // triggers the rebuild Flutter needs; the List reference itself
+      // doesn't need to change for that.
+      final liveSections = <SongSection>[];
+      _onlineSections = liveSections;
       await ApiService.fetchHomeStreaming(
         topArtists: topArtists,
         topArtistsRotating: topArtistsRotating,
         recentlyPlayed: recentSongs,
         onSection: (section) {
-          collected.add(section);
+          if (!mounted) return;
+          setState(() {
+            liveSections.add(section);
+            _onlineLoading = false;
+          });
         },
       ).timeout(const Duration(seconds: 25));
       if (mounted) {
         setState(() {
-          _onlineSections = collected;
           _onlineLoading = false;
         });
       }

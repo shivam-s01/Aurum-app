@@ -83,24 +83,25 @@ class AurumArtwork extends StatelessWidget {
     }
 
     // ── Network URL ────────────────────────────────────────────────────────
+    // BUGFIX: YouTube's maxresdefault.jpg (used for the HD full-player
+    // artwork upgrade) doesn't exist for every video — it 404s for
+    // anything without a 720p+ source upload, which is common. Since
+    // youtube_explode_dart's maxResUrl is a fixed string built from the
+    // video ID (never actually verified against YouTube), there was no
+    // way to detect this ahead of time — it always looked "available".
+    // _RetryableNetworkImage below catches the load failure and retries
+    // once with hqdefault.jpg (guaranteed to exist for every YouTube
+    // video) before falling through to the placeholder, so a missing
+    // maxres thumbnail no longer means a blank gray box.
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
-      child: CachedNetworkImage(
-        imageUrl: url,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        memCacheWidth: _cacheSize,
-        fadeInDuration: fadeIn
-            ? const Duration(milliseconds: 280)
-            : Duration.zero,
-        fadeInCurve: Curves.easeOut,
-        fadeOutDuration: fadeIn
-            ? const Duration(milliseconds: 120)
-            : Duration.zero,
-        fadeOutCurve: Curves.easeIn,
-        placeholder: (_, __) => _shimmer(context),
-        errorWidget: (_, __, ___) => _placeholder(context),
+      child: _RetryableNetworkImage(
+        url: url,
+        size: size,
+        cacheSize: _cacheSize,
+        fadeIn: fadeIn,
+        placeholder: _shimmer(context),
+        errorWidget: _placeholder(context),
       ),
     );
   }
@@ -135,6 +136,98 @@ class AurumArtwork extends StatelessWidget {
         ),
         child: const _ShimmerPulse(),
       );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _RetryableNetworkImage — wraps CachedNetworkImage with one specific
+// fallback: a failed maxresdefault.jpg load (YouTube's 1280x720 tier,
+// which 404s for any video without a 720p+ source upload) retries once
+// against hqdefault.jpg (480x360, guaranteed to exist for every YouTube
+// video) before giving up to the placeholder. Non-YouTube URLs, or a
+// URL that isn't a maxresdefault variant, just go straight to the
+// normal CachedNetworkImage error path — this only adds a retry for
+// the one specific case that's actually recoverable.
+// ─────────────────────────────────────────────────────────────────────────────
+class _RetryableNetworkImage extends StatefulWidget {
+  final String url;
+  final double size;
+  final int? cacheSize;
+  final bool fadeIn;
+  final Widget placeholder;
+  final Widget errorWidget;
+
+  const _RetryableNetworkImage({
+    required this.url,
+    required this.size,
+    required this.cacheSize,
+    required this.fadeIn,
+    required this.placeholder,
+    required this.errorWidget,
+  });
+
+  @override
+  State<_RetryableNetworkImage> createState() =>
+      _RetryableNetworkImageState();
+}
+
+class _RetryableNetworkImageState extends State<_RetryableNetworkImage> {
+  static final RegExp _maxResPattern =
+      RegExp(r'/maxresdefault\.jpg$');
+
+  late String _activeUrl = widget.url;
+  bool _triedFallback = false;
+
+  @override
+  void didUpdateWidget(_RetryableNetworkImage old) {
+    super.didUpdateWidget(old);
+    if (old.url != widget.url) {
+      _activeUrl = widget.url;
+      _triedFallback = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CachedNetworkImage(
+      // Keyed by the ORIGINAL url (not _activeUrl) so switching between
+      // songs is still recognized as a new image by any parent
+      // AnimatedSwitcher/keyed list — only this widget's internal state
+      // tracks which tier is currently being attempted.
+      key: ValueKey(widget.url),
+      imageUrl: _activeUrl,
+      width: widget.size,
+      height: widget.size,
+      fit: BoxFit.cover,
+      memCacheWidth: widget.cacheSize,
+      fadeInDuration:
+          widget.fadeIn ? const Duration(milliseconds: 280) : Duration.zero,
+      fadeInCurve: Curves.easeOut,
+      fadeOutDuration:
+          widget.fadeIn ? const Duration(milliseconds: 120) : Duration.zero,
+      fadeOutCurve: Curves.easeIn,
+      placeholder: (_, __) => widget.placeholder,
+      errorWidget: (_, __, ___) {
+        if (!_triedFallback && _maxResPattern.hasMatch(_activeUrl)) {
+          // Defer the retry to after this build — errorWidget runs
+          // during build, and calling setState synchronously here would
+          // trigger "setState during build" for the frame that first
+          // discovers the 404.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _triedFallback = true;
+                _activeUrl =
+                    _activeUrl.replaceFirst(_maxResPattern, '/hqdefault.jpg');
+              });
+            }
+          });
+          // Show the placeholder for this one frame while the retry kicks in.
+          return widget.placeholder;
+        }
+        return widget.errorWidget;
+      },
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

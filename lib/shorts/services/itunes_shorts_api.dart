@@ -160,6 +160,9 @@ class ItunesShortsApi {
     }
   }
 
+  static final RegExp _artworkSizePattern =
+      RegExp(r'\d+x\d+(bb)?\.(jpg|png)');
+
   static ShortItem _toShortItem(Map<String, dynamic> r, String category) {
     final trackId = (r['trackId'] ?? '').toString();
     final title = (r['trackName'] ?? '').toString().trim();
@@ -168,10 +171,7 @@ class ItunesShortsApi {
     final art100 = (r['artworkUrl100'] ?? '').toString();
     // Upsize iTunes artwork — the 100x100 URL supports arbitrary
     // resolution substitution (e.g. .../100x100bb.jpg -> 600x600bb.jpg).
-    final artwork = art100.replaceAll(
-      RegExp(r'\d+x\d+(bb)?\.(jpg|png)'),
-      '600x600bb.jpg',
-    );
+    final artwork = art100.replaceAll(_artworkSizePattern, '600x600bb.jpg');
 
     return ShortItem(
       trackId: trackId,

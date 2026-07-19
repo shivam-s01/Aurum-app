@@ -2167,8 +2167,13 @@ class ApiService {
               .firstMatch(ytRes.body);
           if (match != null) {
             final videoId = match.group(1)!;
+            // BUGFIX: mqdefault (320x180) upgraded to hqdefault (480x360) —
+            // hqdefault is guaranteed available for every YouTube video,
+            // unlike maxresdefault which 404s for many older/lower-res
+            // uploads. Safe universal quality bump for this scrape-based
+            // path where we don't have a full ThumbnailSet to fall back through.
             final thumbUrl =
-                'https://i.ytimg.com/vi/$videoId/mqdefault.jpg';
+                'https://i.ytimg.com/vi/$videoId/hqdefault.jpg';
             return ArtistSimple(
               id: '',
               name: a.displayName,

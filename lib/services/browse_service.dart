@@ -36,6 +36,25 @@ String _hqArtwork(String url) {
       .replaceAll('50x50', '500x500');
 }
 
+// BUGFIX: full-player artwork looked visibly low-res for YouTube-sourced
+// tracks. The three call sites below previously went straight to
+// v.thumbnails.mediumResUrl (a ~320x180 tier) with standardResUrl as their
+// only fallback — never touching maxResUrl (1280x720, the actual highest
+// tier YouTube offers) or highResUrl (480x360) at all. maxResUrl is
+// documented as "not always available" for some videos, which is exactly
+// why a fallback chain exists — but the chain needs to try the BEST
+// options first and only fall back to worse ones when they're genuinely
+// missing, not skip straight past them. This tries every tier from
+// highest to lowest and only returns a lower one if every better tier is
+// actually empty for that video.
+String _bestYtThumbnail(yt.ThumbnailSet thumbnails) {
+  if (thumbnails.maxResUrl.isNotEmpty) return thumbnails.maxResUrl;
+  if (thumbnails.standardResUrl.isNotEmpty) return thumbnails.standardResUrl;
+  if (thumbnails.highResUrl.isNotEmpty) return thumbnails.highResUrl;
+  if (thumbnails.mediumResUrl.isNotEmpty) return thumbnails.mediumResUrl;
+  return thumbnails.lowResUrl;
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 class BrowseTrack {
@@ -267,9 +286,7 @@ class BrowseService {
         final channel = v.author.trim();
         if (channel.isEmpty || !_isRealArtist(channel) || seen.contains(channel.toLowerCase())) continue;
         seen.add(channel.toLowerCase());
-        final thumb = v.thumbnails.mediumResUrl.isNotEmpty
-            ? v.thumbnails.mediumResUrl
-            : (v.thumbnails.standardResUrl);
+        final thumb = _bestYtThumbnail(v.thumbnails);
         out.add(BrowseArtist(artistId: channel, name: _clean(channel), imageUrl: thumb, isFromYoutube: true));
         if (out.length >= 8) break;
       }
@@ -290,9 +307,7 @@ class BrowseService {
       ytClient.close();
       final out = <BrowseAlbum>[];
       for (final v in results.take(6)) {
-        final thumb = v.thumbnails.mediumResUrl.isNotEmpty
-            ? v.thumbnails.mediumResUrl
-            : v.thumbnails.standardResUrl;
+        final thumb = _bestYtThumbnail(v.thumbnails);
         out.add(BrowseAlbum(
           collectionId: v.id.value, // real YT video id — used directly for playback
           name: _clean(v.title),
@@ -320,9 +335,7 @@ class BrowseService {
           .timeout(const Duration(seconds: 8), onTimeout: () => <yt.Video>[]);
       ytClient.close();
       return results.take(25).map((v) {
-        final thumb = v.thumbnails.mediumResUrl.isNotEmpty
-            ? v.thumbnails.mediumResUrl
-            : v.thumbnails.standardResUrl;
+        final thumb = _bestYtThumbnail(v.thumbnails);
         return BrowseTrack(
           trackId: v.id.value,
           title: _clean(v.title),
@@ -350,7 +363,11 @@ class BrowseService {
       if (res.statusCode == 200) {
         final match = RegExp(r'"videoId":"([a-zA-Z0-9_-]{11})"').firstMatch(res.body);
         if (match != null) {
-          return 'https://i.ytimg.com/vi/${match.group(1)}/mqdefault.jpg';
+          // BUGFIX: same mqdefault -> hqdefault upgrade as api_service.dart's
+          // artist thumbnail fallback — hqdefault is guaranteed to exist,
+          // maxresdefault isn't, and there's no ThumbnailSet here to fall
+          // back through since this is a raw HTML scrape.
+          return 'https://i.ytimg.com/vi/${match.group(1)}/hqdefault.jpg';
         }
       }
     } catch (_) {}
