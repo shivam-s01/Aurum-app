@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/feedback_service.dart';
 import '../theme/aurum_theme.dart';
+import 'keyboard_flash_watchdog.dart';
 
 /// Shows the feedback dialog. Call this from either the auto-prompt
 /// (after 1-2 songs) or from a manual "Send Feedback" entry in
@@ -57,6 +58,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   // once the route's enter animation has completed removes the race.
   final _messageFocus = FocusNode();
   bool _routeSettled = false;
+  KeyboardFlashWatchdog? _watchdog;
 
   // Drives the icon's entrance "bubble pop" (overshoot scale-in) and its
   // slow idle breathing glow once settled — the small bit of motion that
@@ -69,6 +71,8 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   @override
   void initState() {
     super.initState();
+    _watchdog = KeyboardFlashWatchdog(context: context, label: 'Feedback dialog');
+    _messageFocus.addListener(() => _watchdog?.onFocusChange(_messageFocus.hasFocus));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final route = ModalRoute.of(context);
       final animation = route?.animation;
@@ -91,6 +95,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
     _controller.dispose();
     _messageFocus.dispose();
     _iconCtrl.dispose();
+    _watchdog?.dispose();
     super.dispose();
   }
 

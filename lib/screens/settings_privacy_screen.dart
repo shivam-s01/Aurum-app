@@ -7,6 +7,7 @@ import '../services/audio_prefs.dart';
 import '../services/recommendation_engine.dart';
 import '../providers/recently_played_provider.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../widgets/keyboard_flash_watchdog.dart';
 
 class SettingsPrivacyScreen extends StatefulWidget {
   const SettingsPrivacyScreen({super.key});
@@ -271,10 +272,50 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
   String _error = '';
   bool   _step2 = false;
 
+  // BUGFIX: same keyboard-flashes-then-shuts race as the playlist create/
+  // rename dialogs and feedback dialog — plain `autofocus: true` requests
+  // focus before this bottom sheet's own enter transition has settled, and
+  // the still-animating route steals it back a frame later. A dedicated
+  // FocusNode that only requests focus once the route's animation reaches
+  // AnimationStatus.completed removes the race regardless of device speed.
+  final _pinFocus = FocusNode();
+  bool _routeSettled = false;
+  KeyboardFlashWatchdog? _watchdog;
+
+  @override
+  void initState() {
+    super.initState();
+    _watchdog = KeyboardFlashWatchdog(context: context, label: 'PIN sheet');
+    _pinFocus.addListener(() => _watchdog?.onFocusChange(_pinFocus.hasFocus));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final route = ModalRoute.of(context);
+      final animation = route?.animation;
+      if (animation == null || animation.isCompleted) {
+        if (mounted) {
+          setState(() => _routeSettled = true);
+          _pinFocus.requestFocus();
+        }
+        return;
+      }
+      void listener(AnimationStatus status) {
+        if (status == AnimationStatus.completed) {
+          animation.removeStatusListener(listener);
+          if (mounted) {
+            setState(() => _routeSettled = true);
+            _pinFocus.requestFocus();
+          }
+        }
+      }
+      animation.addStatusListener(listener);
+    });
+  }
+
   @override
   void dispose() {
     _step1Controller.dispose();
     _step2Controller.dispose();
+    _pinFocus.dispose();
+    _watchdog?.dispose();
     super.dispose();
   }
 
@@ -284,6 +325,11 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
       return;
     }
     setState(() { _step2 = true; _error = ''; });
+    // Route is already settled at this point (user had to tap "Next"),
+    // so no race here — just refocus the now-visible step-2 field.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _pinFocus.requestFocus();
+    });
   }
 
   void _confirm(AppLocalizations l10n) {
@@ -331,30 +377,38 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
             style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
           ),
           const SizedBox(height: 20),
-          TextField(
-            controller: _step2 ? _step2Controller : _step1Controller,
-            keyboardType: TextInputType.number,
-            obscureText: true,
-            maxLength: 4,
-            autofocus: true,
-            style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 24, letterSpacing: 12),
-            decoration: InputDecoration(
-              counterText: '',
-              hintText: '• • • •',
-              hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), letterSpacing: 12),
-              filled: true,
-              fillColor: AurumTheme.bgOf(context),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: AurumTheme.dividerOf(context)),
+          IgnorePointer(
+            // Block taps until this sheet's own enter transition has
+            // actually finished — otherwise a tap can request focus a
+            // frame before the still-animating route steals it back,
+            // which reads as the keyboard flashing open then instantly
+            // closing.
+            ignoring: !_routeSettled,
+            child: TextField(
+              controller: _step2 ? _step2Controller : _step1Controller,
+              focusNode: _pinFocus,
+              keyboardType: TextInputType.number,
+              obscureText: true,
+              maxLength: 4,
+              style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 24, letterSpacing: 12),
+              decoration: InputDecoration(
+                counterText: '',
+                hintText: '• • • •',
+                hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), letterSpacing: 12),
+                filled: true,
+                fillColor: AurumTheme.bgOf(context),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AurumTheme.dividerOf(context)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AurumTheme.gold),
+                ),
+                errorText: _error.isEmpty ? null : _error,
               ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AurumTheme.gold),
-              ),
-              errorText: _error.isEmpty ? null : _error,
+              onSubmitted: (_) => _step2 ? _confirm(l10n) : _next(l10n),
             ),
-            onSubmitted: (_) => _step2 ? _confirm(l10n) : _next(l10n),
           ),
           const SizedBox(height: 16),
           Row(children: [

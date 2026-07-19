@@ -54,6 +54,7 @@ import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
+import '../widgets/keyboard_flash_watchdog.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Library Root
@@ -1240,10 +1241,13 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
   // this dialog's own route has actually finished animating in.
   final _nameFocus = FocusNode();
   bool _creating = false;
+  KeyboardFlashWatchdog? _watchdog;
 
   @override
   void initState() {
     super.initState();
+    _watchdog = KeyboardFlashWatchdog(context: context, label: 'Create playlist dialog');
+    _nameFocus.addListener(() => _watchdog?.onFocusChange(_nameFocus.hasFocus));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // FIX (real fix, not a timing guess): wait for THIS dialog route's
       // own enter transition to actually finish (route.animation reaches
@@ -1275,6 +1279,7 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
     _nameCtrl.dispose();
     _descCtrl.dispose();
     _nameFocus.dispose();
+    _watchdog?.dispose();
     super.dispose();
   }
 
@@ -1394,12 +1399,15 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
   // which fires mid-transition and gets its focus stolen back by the
   // still-closing previous route a frame later.
   final _nameFocus = FocusNode();
+  KeyboardFlashWatchdog? _watchdog;
 
   @override
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.playlist.name);
     _descCtrl = TextEditingController(text: widget.playlist.description);
+    _watchdog = KeyboardFlashWatchdog(context: context, label: 'Rename playlist dialog');
+    _nameFocus.addListener(() => _watchdog?.onFocusChange(_nameFocus.hasFocus));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final route = ModalRoute.of(context);
       final animation = route?.animation;
@@ -1422,6 +1430,7 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
     _nameCtrl.dispose();
     _descCtrl.dispose();
     _nameFocus.dispose();
+    _watchdog?.dispose();
     super.dispose();
   }
 
