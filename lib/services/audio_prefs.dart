@@ -41,6 +41,14 @@ class AudioPrefs {
   /// [streamQuality] — used to save mobile data. Overrides streamQuality.
   static bool dataSaver = false;
 
+  /// Approximate kbps of the most recently resolved stream URL (e.g. 320,
+  /// 160, 96, 48, 12 for Saavn tiers; null when unknown, such as for
+  /// YouTube-sourced streams where no discrete tier is reported). Not
+  /// persisted — reset per resolution, purely so the native side (Premium
+  /// Sound's low-bitrate compensation curve) can know how compressed the
+  /// current source is without needing a full metadata pipeline.
+  static int? lastResolvedKbps;
+
   /// If true (default), playback pauses when a phone call interrupts audio.
   /// If false, Aurum ignores call interruptions and keeps playing wherever
   /// the OS allows the app to retain audio focus.

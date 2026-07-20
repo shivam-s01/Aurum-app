@@ -1796,9 +1796,15 @@ class ApiService {
 
   static String? _onrenderStreamUrl(Map<String, dynamic> j) {
     final url320   = (j['320kbps'] ?? '').toString();
-    if (url320.startsWith('http')) return _proxiedSaavnUrl(url320);
+    if (url320.startsWith('http')) {
+      AudioPrefs.lastResolvedKbps = 320;
+      return _proxiedSaavnUrl(url320);
+    }
     final urlMedia = (j['media_url'] ?? '').toString();
-    if (urlMedia.startsWith('http')) return _proxiedSaavnUrl(urlMedia);
+    if (urlMedia.startsWith('http')) {
+      AudioPrefs.lastResolvedKbps = null;
+      return _proxiedSaavnUrl(urlMedia);
+    }
     // v2 (jiosaavn-op / saavn.dev style) — downloadUrl: [{quality, url}, ...]
     return _extractSaavnStreamUrl(j);
   }
@@ -1812,15 +1818,22 @@ class ApiService {
                  (d['url'] as String?)?.startsWith('http') == true,
           orElse: () => null,
         );
-        if (match != null) return _proxiedSaavnUrl(match['url'] as String);
+        if (match != null) {
+          AudioPrefs.lastResolvedKbps = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), ''));
+          return _proxiedSaavnUrl(match['url'] as String);
+        }
       }
       final last = downloads.last;
       if (last is Map && (last['url'] as String?)?.startsWith('http') == true) {
+        AudioPrefs.lastResolvedKbps = null; // unknown tier, fell through to the last entry
         return _proxiedSaavnUrl(last['url'] as String);
       }
     }
     final su = song['media_url'] ?? song['streamUrl'];
-    if (su is String && su.startsWith('http')) return _proxiedSaavnUrl(su);
+    if (su is String && su.startsWith('http')) {
+      AudioPrefs.lastResolvedKbps = null;
+      return _proxiedSaavnUrl(su);
+    }
     return null;
   }
 

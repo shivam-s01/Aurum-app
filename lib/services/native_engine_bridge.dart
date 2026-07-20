@@ -23,6 +23,7 @@ import 'package:flutter/services.dart';
 import 'package:rxdart/rxdart.dart';
 import '../models/song.dart';
 import 'api_service.dart';
+import 'audio_prefs.dart';
 
 class NativeEngineState {
   final String processingState;
@@ -156,6 +157,18 @@ class NativeAudioEngine {
           // scope — flagged here rather than silently assumed done.
           final result = await ApiService.resolveStreamUrl(song, forceRefresh: forceRefresh);
           if (_inFlight.containsKey(requestId)) completer.complete(result);
+          if (result != null) {
+            // Fire-and-forget: lets AurumAudioEffects know how compressed
+            // this source is, so Premium Sound's low-bitrate compensation
+            // curve (see applyPremiumSound) can scale itself in. Never
+            // awaited/blocking on the resolve path — if this call fails,
+            // the native side just falls back to treating the source as
+            // unknown-bitrate, which is a graceful (if slightly less
+            // tailored) default, not a broken one.
+            unawaited(_method.invokeMethod('reportResolvedBitrate', {
+              'kbps': AudioPrefs.lastResolvedKbps,
+            }).catchError((_) {}));
+          }
         } catch (e) {
           if (_inFlight.containsKey(requestId)) completer.complete(null);
         } finally {
@@ -287,6 +300,19 @@ class NativeAudioEngine {
   /// compose on the native side rather than one overriding the other.
   Future<void> applyPremiumSound(bool enabled) =>
       _method.invokeMethod('applyPremiumSound', {'enabled': enabled});
+
+  /// A/B compare mode: switches Premium Sound on/off INSTANTLY (no fade),
+  /// so tapping a compare button snaps immediately rather than blurring
+  /// through the normal 1.4s transition. Does not change the user's saved
+  /// Premium Sound preference — call [exitPremiumSoundCompare] when the
+  /// user leaves the compare screen to land back on their real setting.
+  Future<void> setPremiumSoundCompare(bool enabled) =>
+      _method.invokeMethod('setPremiumSoundCompare', {'enabled': enabled});
+
+  /// Ends A/B compare mode and restores whatever Premium Sound state was
+  /// last set via [applyPremiumSound] (with its normal fade).
+  Future<void> exitPremiumSoundCompare() =>
+      _method.invokeMethod('exitPremiumSoundCompare');
 
   /// Supported-device check + current output route, so the UI can show an
   /// accurate note (e.g. "Spatial widening isn't supported on this device

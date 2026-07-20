@@ -198,8 +198,22 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     engine.effects.applyPremiumSound(enabled)
                     result.success(null)
                 }
+                "reportResolvedBitrate" -> {
+                    val kbps = call.argument<Int>("kbps")
+                    engine.effects.reportSourceBitrate(kbps)
+                    result.success(null)
+                }
                 "getPremiumSoundCapabilities" -> {
                     result.success(engine.effects.describeCapabilities())
+                }
+                "setPremiumSoundCompare" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    engine.effects.setPremiumSoundCompare(enabled)
+                    result.success(null)
+                }
+                "exitPremiumSoundCompare" -> {
+                    engine.effects.exitPremiumSoundCompare()
+                    result.success(null)
                 }
                 // FIX (2026-07-07) — "downloads fail / stuck resolving":
                 // DownloadProvider.download() (Dart) was calling

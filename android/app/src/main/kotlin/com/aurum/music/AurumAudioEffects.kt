@@ -6,6 +6,7 @@ import android.content.IntentFilter
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.audiofx.BassBoost
+import android.media.audiofx.DynamicsProcessing
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
@@ -31,32 +32,57 @@ class AurumAudioEffects(
         private const val BASS_BOOST_SUB_BASS_EXTRA_MB = 700
         private const val BASS_BOOST_BASS_EXTRA_MB = 500
 
-        private const val PREMIUM_BASS_BOOST_STRENGTH_BASE = 320
-        private const val PREMIUM_VIRTUALIZER_STRENGTH_BASE = 380
-        private const val PREMIUM_LOUDNESS_GAIN_MB_BASE = 150
-        private val PREMIUM_CURVE_MB_BASE = listOf(
-            100, 50, -80, 0, 120, 180, 150, 100, 100, 120,
+        private const val K_P1 = 280
+
+        private const val K_P2 = 340
+
+        private const val K_P3 = 120
+
+        private val K_P4 = listOf(
+            80, 40, -80, 0, 100, 150, 130, 90, 90, 100,
         )
 
-        private const val SCALE_SPEAKER = 0.55f
-        private const val SCALE_WIRED_HEADPHONES = 1.0f
-        private const val SCALE_BLUETOOTH = 0.85f
-        private const val SCALE_UNKNOWN = 0.75f
+        private const val K_S1 = 0.55f
+        private const val K_S2 = 1.0f
+        private const val K_S3 = 0.85f
+        private const val K_S4 = 0.75f
 
-        private const val LOW_BATTERY_THRESHOLD_PERCENT = 20
-        private const val SCALE_LOW_BATTERY = 0.5f
+        private const val K_B1 = 20
+        private const val K_B2 = 0.5f
 
-        private const val ADAPTIVE_MIN_SCALE = 0.7f
-        private const val ADAPTIVE_MAX_SCALE = 1.0f
+        private const val K_A1 = 0.7f
+        private const val K_A2 = 1.0f
 
-        private const val FADE_STEPS = 10
-        private const val FADE_TOTAL_MS = 1400L
+        private const val K_F1 = 10
+        private const val K_F2 = 1400L
+
+        private const val K_L1 = -1.0f
+        private const val K_L2 = 20.0f // near-brickwall above threshold
+        private const val K_L3 = 3f
+        private const val K_L4 = 60f
+        private const val K_L5 = 0f
+
+        // Low-bitrate compensation: below this kbps, lossy encoders have
+        // already thrown away most high-frequency content and some stereo
+        // detail, which is exactly what reads as "thin"/"dull"/"boxy" on a
+        // 128kbps stream. Nothing here restores that lost data — it's a
+        // perceptual EQ tilt only, applied ON TOP of Premium Sound's own
+        // curve when active, or as a small standalone tilt when Premium
+        // Sound is off. Two tiers: below K_BR1 gets the full tilt, between
+        // K_BR1 and K_BR2 gets a proportionally smaller one, at/above
+        // K_BR2 gets none (192kbps+ has little to compensate for).
+        private const val K_BR1 = 96
+        private const val K_BR2 = 192
+        private val K_BR3 = listOf(
+            0, 0, -40, 0, 60, 90, 110, 130, 110, 90,
+        )
     }
 
     private var equalizer: Equalizer? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private var virtualizer: Virtualizer? = null
     private var nativeBassBoost: BassBoost? = null
+    private var limiter: DynamicsProcessing? = null
     private var currentSessionId: Int = 0
 
     private var loudnessHealthy = true
@@ -66,11 +92,14 @@ class AurumAudioEffects(
 
     private var virtualizerSupported = true
     private var nativeBassBoostSupported = true
+    private var limiterHealthy = true
+    private var limiterSupported = true
 
     private var lastBassBoost = false
     private var lastVolNorm = false
     private var lastBandGains: List<Int>? = null
     private var lastPremiumSound = false
+    private var lastKnownSourceKbps: Int? = null
 
     private var fadeHandler = Handler(Looper.getMainLooper())
     private var fadeRunnable: Runnable? = null
@@ -83,7 +112,7 @@ class AurumAudioEffects(
     private val sessionIdListener = object : Player.Listener {
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
             if (audioSessionId == currentSessionId) return
-            attachEffects(audioSessionId)
+            _at1(audioSessionId)
         }
     }
 
@@ -110,14 +139,14 @@ class AurumAudioEffects(
         }
         val sid = player.audioSessionId
         if (sid != androidx.media3.common.C.AUDIO_SESSION_ID_UNSET) {
-            attachEffects(sid)
+            _at1(sid)
         }
     }
 
-    private enum class OutputRoute { WIRED_HEADPHONES, BLUETOOTH, SPEAKER, UNKNOWN }
+    private enum class _Rt { WIRED_HEADPHONES, BLUETOOTH, SPEAKER, UNKNOWN }
 
-    private fun detectOutputRoute(): OutputRoute {
-        val am = audioManager ?: return OutputRoute.UNKNOWN
+    private fun _ro1(): _Rt {
+        val am = audioManager ?: return _Rt.UNKNOWN
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 val devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
@@ -132,38 +161,38 @@ class AurumAudioEffects(
                         (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
                 }
                 when {
-                    hasWired -> OutputRoute.WIRED_HEADPHONES
-                    hasBluetooth -> OutputRoute.BLUETOOTH
-                    else -> OutputRoute.SPEAKER
+                    hasWired -> _Rt.WIRED_HEADPHONES
+                    hasBluetooth -> _Rt.BLUETOOTH
+                    else -> _Rt.SPEAKER
                 }
             } else {
                 @Suppress("DEPRECATION")
                 when {
-                    am.isWiredHeadsetOn -> OutputRoute.WIRED_HEADPHONES
-                    am.isBluetoothA2dpOn || am.isBluetoothScoOn -> OutputRoute.BLUETOOTH
-                    else -> OutputRoute.SPEAKER
+                    am.isWiredHeadsetOn -> _Rt.WIRED_HEADPHONES
+                    am.isBluetoothA2dpOn || am.isBluetoothScoOn -> _Rt.BLUETOOTH
+                    else -> _Rt.SPEAKER
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "detectOutputRoute failed: $e")
-            OutputRoute.UNKNOWN
+            Log.w(TAG, "_ro1 failed: $e")
+            _Rt.UNKNOWN
         }
     }
 
-    private fun deviceScale(): Float = when (detectOutputRoute()) {
-        OutputRoute.WIRED_HEADPHONES -> SCALE_WIRED_HEADPHONES
-        OutputRoute.BLUETOOTH -> SCALE_BLUETOOTH
-        OutputRoute.SPEAKER -> SCALE_SPEAKER
-        OutputRoute.UNKNOWN -> SCALE_UNKNOWN
+    private fun _ro2(): Float = when (_ro1()) {
+        _Rt.WIRED_HEADPHONES -> K_S2
+        _Rt.BLUETOOTH -> K_S3
+        _Rt.SPEAKER -> K_S1
+        _Rt.UNKNOWN -> K_S4
     }
 
-    private fun isLowBattery(): Boolean {
+    private fun _bt1(): Boolean {
         return try {
             val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && bm != null) {
                 val pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                 val isCharging = bm.isCharging
-                pct in 0..LOW_BATTERY_THRESHOLD_PERCENT && !isCharging
+                pct in 0..K_B1 && !isCharging
             } else {
                 val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
                 val batteryStatus = context.registerReceiver(null, filter)
@@ -172,35 +201,35 @@ class AurumAudioEffects(
                 val plugged = batteryStatus?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
                 if (level < 0 || scale <= 0) return false
                 val pct = (level * 100) / scale
-                pct in 0..LOW_BATTERY_THRESHOLD_PERCENT && plugged == 0
+                pct in 0..K_B1 && plugged == 0
             }
         } catch (e: Exception) {
-            Log.w(TAG, "isLowBattery check failed: $e")
+            Log.w(TAG, "_bt1 check failed: $e")
             false
         }
     }
 
-    private fun batteryScale(): Float = if (isLowBattery()) SCALE_LOW_BATTERY else 1.0f
+    private fun _bt2(): Float = if (_bt1()) K_B2 else 1.0f
 
-    private fun contentAdaptiveScale(): Float {
-        val am = audioManager ?: return ADAPTIVE_MAX_SCALE
+    private fun _cx1(): Float {
+        val am = audioManager ?: return K_A2
         return try {
             val current = am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
             val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
-            if (max <= 0f) return ADAPTIVE_MAX_SCALE
+            if (max <= 0f) return K_A2
             val volumeFraction = (current / max).coerceIn(0f, 1f)
-            ADAPTIVE_MAX_SCALE - (volumeFraction * (ADAPTIVE_MAX_SCALE - ADAPTIVE_MIN_SCALE))
+            K_A2 - (volumeFraction * (K_A2 - K_A1))
         } catch (e: Exception) {
-            Log.w(TAG, "contentAdaptiveScale failed: $e")
-            ADAPTIVE_MAX_SCALE
+            Log.w(TAG, "_cx1 failed: $e")
+            K_A2
         }
     }
 
-    private fun combinedIntensityScale(): Float =
-        (deviceScale() * batteryScale() * contentAdaptiveScale()).coerceIn(0.15f, 1.0f)
+    private fun _mx1(): Float =
+        (_ro2() * _bt2() * _cx1()).coerceIn(0.15f, 1.0f)
 
-    private fun attachEffects(sessionId: Int) {
-        releaseEffects()
+    private fun _at1(sessionId: Int) {
+        _rl1()
         currentSessionId = sessionId
         loudnessHealthy = true
         equalizerHealthy = true
@@ -208,6 +237,8 @@ class AurumAudioEffects(
         nativeBassBoostHealthy = true
         virtualizerSupported = true
         nativeBassBoostSupported = true
+        limiterHealthy = true
+        limiterSupported = true
 
         try {
             equalizer = Equalizer(0, sessionId)
@@ -241,6 +272,19 @@ class AurumAudioEffects(
             nativeBassBoostSupported = false
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                limiter = _lm1(sessionId)
+            } catch (e: Exception) {
+                Log.w(TAG, "DynamicsProcessing limiter attach failed for session $sessionId: $e — Premium Sound gains will rely on scale-down only")
+                limiterHealthy = false
+                limiterSupported = false
+            }
+        } else {
+            limiterHealthy = false
+            limiterSupported = false
+        }
+
         virtualizer?.let { v ->
             try {
                 v.strengthSupported
@@ -267,23 +311,66 @@ class AurumAudioEffects(
         )
         if (lastPremiumSound) {
             currentFadeFraction = 1f
-            applyPremiumSoundAtFraction(1f)
+            _ap3(1f)
         } else {
             currentFadeFraction = 0f
-            applyPremiumSoundAtFraction(0f)
+            _ap3(0f)
         }
     }
 
-    private fun releaseEffects() {
-        cancelFade()
+    private fun _rl1() {
+        _fd1()
         try { equalizer?.release() } catch (_: Exception) {}
         try { loudnessEnhancer?.release() } catch (_: Exception) {}
         try { virtualizer?.release() } catch (_: Exception) {}
         try { nativeBassBoost?.release() } catch (_: Exception) {}
+        try { limiter?.release() } catch (_: Exception) {}
         equalizer = null
         loudnessEnhancer = null
         virtualizer = null
         nativeBassBoost = null
+        limiter = null
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.P)
+    private fun _lm1(sessionId: Int): DynamicsProcessing {
+        val channelCount = 2
+        val config = DynamicsProcessing.Config.Builder(
+            DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
+            channelCount,
+            false, 0, // no pre-EQ stage — Equalizer above already handles tone
+            false, 0, // no multi-band compressor — a single limiter stage is enough here
+            false, 0, // no post-EQ stage
+            true,     // limiter stage in use
+        ).build()
+
+        val dp = DynamicsProcessing(0, sessionId, config)
+
+        val limiterSettings = DynamicsProcessing.Limiter(
+            /* inUse = */ true,
+            /* enabled = */ true,
+            /* linkGroup = */ 0,
+            /* attackTime = */ K_L3,
+            /* releaseTime = */ K_L4,
+            /* ratio = */ K_L2,
+            /* threshold = */ K_L1,
+            /* postGain = */ K_L5,
+        )
+        dp.setLimiterAllChannelsTo(limiterSettings)
+
+        dp.enabled = false
+        return dp
+    }
+
+    private fun _lm2(enabled: Boolean) {
+        if (!limiterHealthy || !limiterSupported) return
+        val dp = limiter ?: return
+        try {
+            dp.enabled = enabled
+        } catch (e: Exception) {
+            Log.w(TAG, "DynamicsProcessing enable toggle failed: $e — disabling limiter for this session")
+            limiterHealthy = false
+        }
     }
 
     fun applySettings(bassBoost: Boolean, volNorm: Boolean, bandGainsMb: List<Int>?) {
@@ -291,33 +378,48 @@ class AurumAudioEffects(
         lastVolNorm = volNorm
         lastBandGains = bandGainsMb
 
-        applyLoudnessEnhancer(bassBoost)
-        applyEqualizer(bassBoost = bassBoost, volNorm = volNorm, bandGainsMb = bandGainsMb, intensityFraction = currentFadeFraction)
+        _ap1(bassBoost)
+        _ap2(bassBoost = bassBoost, volNorm = volNorm, bandGainsMb = bandGainsMb, intensityFraction = currentFadeFraction)
     }
 
     fun applyPremiumSound(enabled: Boolean, forceReapply: Boolean = false) {
         if (enabled == lastPremiumSound && !forceReapply) return
         lastPremiumSound = enabled
-        startFadeTo(if (enabled) 1f else 0f)
+        _fd2(if (enabled) 1f else 0f)
     }
 
-    private fun cancelFade() {
+    fun setPremiumSoundCompare(enabled: Boolean) {
+        _fd1()
+        currentFadeFraction = if (enabled) 1f else 0f
+        _ap3(currentFadeFraction)
+    }
+
+    fun reportSourceBitrate(kbps: Int?) {
+        lastKnownSourceKbps = kbps
+        _ap2(bassBoost = lastBassBoost, volNorm = lastVolNorm, bandGainsMb = lastBandGains, intensityFraction = currentFadeFraction)
+    }
+
+    fun exitPremiumSoundCompare() {
+        _fd2(if (lastPremiumSound) 1f else 0f)
+    }
+
+    private fun _fd1() {
         fadeRunnable?.let { fadeHandler.removeCallbacks(it) }
         fadeRunnable = null
     }
 
-    private fun startFadeTo(target: Float) {
-        cancelFade()
+    private fun _fd2(target: Float) {
+        _fd1()
         val startFraction = currentFadeFraction
-        val stepMs = FADE_TOTAL_MS / FADE_STEPS
+        val stepMs = K_F2 / K_F1
         var step = 0
 
         val runnable = object : Runnable {
             override fun run() {
                 step++
-                val t = (step.toFloat() / FADE_STEPS).coerceIn(0f, 1f)
+                val t = (step.toFloat() / K_F1).coerceIn(0f, 1f)
                 currentFadeFraction = startFraction + (target - startFraction) * t
-                applyPremiumSoundAtFraction(currentFadeFraction)
+                _ap3(currentFadeFraction)
                 if (t < 1f) {
                     fadeHandler.postDelayed(this, stepMs)
                 }
@@ -327,17 +429,19 @@ class AurumAudioEffects(
         fadeHandler.post(runnable)
     }
 
-    private fun applyPremiumSoundAtFraction(fraction: Float) {
-        val ceiling = if (fraction > 0f) combinedIntensityScale() else 0f
+    private fun _ap3(fraction: Float) {
+        val ceiling = if (fraction > 0f) _mx1() else 0f
         val effectiveFraction = (fraction * ceiling).coerceIn(0f, 1f)
         val active = effectiveFraction > 0.001f
+
+        _lm2(active)
 
         if (virtualizerHealthy && virtualizerSupported) {
             virtualizer?.let { v ->
                 try {
                     v.enabled = active
                     if (active) {
-                        val strength = (PREMIUM_VIRTUALIZER_STRENGTH_BASE * effectiveFraction)
+                        val strength = (K_P2 * effectiveFraction)
                             .toInt().coerceIn(0, 1000).toShort()
                         try {
                             v.setStrength(strength)
@@ -359,7 +463,7 @@ class AurumAudioEffects(
                 try {
                     bb.enabled = active
                     if (active) {
-                        val strength = (PREMIUM_BASS_BOOST_STRENGTH_BASE * effectiveFraction)
+                        val strength = (K_P1 * effectiveFraction)
                             .toInt().coerceIn(0, 1000).toShort()
                         try {
                             bb.setStrength(strength)
@@ -380,7 +484,7 @@ class AurumAudioEffects(
             loudnessEnhancer?.let { enhancer ->
                 try {
                     val bassBoostOn = lastBassBoost
-                    val premiumGain = (PREMIUM_LOUDNESS_GAIN_MB_BASE * effectiveFraction).toInt()
+                    val premiumGain = (K_P3 * effectiveFraction).toInt()
                     val targetGain = when {
                         active && bassBoostOn -> maxOf(premiumGain, BASS_BOOST_LOUDNESS_GAIN_MB)
                         active -> premiumGain
@@ -404,7 +508,7 @@ class AurumAudioEffects(
             }
         }
 
-        applyEqualizer(
+        _ap2(
             bassBoost = lastBassBoost,
             volNorm = lastVolNorm,
             bandGainsMb = lastBandGains,
@@ -412,7 +516,7 @@ class AurumAudioEffects(
         )
     }
 
-    private fun applyLoudnessEnhancer(bassBoost: Boolean) {
+    private fun _ap1(bassBoost: Boolean) {
         if (!loudnessHealthy) return
         val enhancer = loudnessEnhancer ?: return
 
@@ -439,7 +543,7 @@ class AurumAudioEffects(
         }
     }
 
-    private fun applyEqualizer(bassBoost: Boolean, volNorm: Boolean, bandGainsMb: List<Int>?, intensityFraction: Float = 1f) {
+    private fun _ap2(bassBoost: Boolean, volNorm: Boolean, bandGainsMb: List<Int>?, intensityFraction: Float = 1f) {
         if (!equalizerHealthy) return
         val eq = equalizer ?: return
 
@@ -453,7 +557,31 @@ class AurumAudioEffects(
             val hasCustomCurve = savedBandsPreview.any { it != 0 }
             val premiumActive = lastPremiumSound && intensityFraction > 0.001f
 
-            if (!hasCustomCurve && !bassBoost && !premiumActive) {
+            val kbps = lastKnownSourceKbps
+            val bitrateCompensationScale = when {
+                kbps == null -> 0f
+                kbps >= K_BR2 -> 0f
+                kbps <= K_BR1 -> 1f
+                else -> {
+                    // Linear taper between K_BR1 (full) and K_BR2 (none) —
+                    // avoids a hard on/off snap right at a tier boundary.
+                    1f - ((kbps - K_BR1).toFloat() / (K_BR2 - K_BR1).toFloat())
+                }
+            }
+            val bitrateCompensationActive = bitrateCompensationScale > 0.001f
+
+            // The limiter is normally armed by Premium Sound's own fade
+            // (_ap3), but bitrate compensation and Bass Boost can each add
+            // gain independent of Premium Sound being on at all — so this
+            // path arms the limiter too whenever ANY gain-adding effect is
+            // active, regardless of which one. setLimiterEnabled(true) is
+            // idempotent (repeated true/true calls are harmless), so this
+            // never fights with _ap3's own arming.
+            if (bitrateCompensationActive || bassBoost) {
+                _lm2(true)
+            }
+
+            if (!hasCustomCurve && !bassBoost && !premiumActive && !bitrateCompensationActive) {
                 eq.enabled = false
                 return
             }
@@ -469,14 +597,34 @@ class AurumAudioEffects(
             fun premiumGainFor(bandIndex: Int): Int {
                 if (!premiumActive) return 0
                 val base = if (bandCount <= 1) {
-                    PREMIUM_CURVE_MB_BASE[0]
+                    K_P4[0]
                 } else {
                     val fraction = bandIndex.toFloat() / (bandCount - 1).toFloat()
-                    val srcIndex = (fraction * (PREMIUM_CURVE_MB_BASE.size - 1)).toInt()
-                        .coerceIn(0, PREMIUM_CURVE_MB_BASE.size - 1)
-                    PREMIUM_CURVE_MB_BASE[srcIndex]
+                    val srcIndex = (fraction * (K_P4.size - 1)).toInt()
+                        .coerceIn(0, K_P4.size - 1)
+                    K_P4[srcIndex]
                 }
                 return (base * intensityFraction).toInt()
+            }
+
+            fun bitrateCompensationGainFor(bandIndex: Int): Int {
+                if (!bitrateCompensationActive) return 0
+                val base = if (bandCount <= 1) {
+                    K_BR3[0]
+                } else {
+                    val fraction = bandIndex.toFloat() / (bandCount - 1).toFloat()
+                    val srcIndex = (fraction * (K_BR3.size - 1)).toInt()
+                        .coerceIn(0, K_BR3.size - 1)
+                    K_BR3[srcIndex]
+                }
+                // Also scaled by the fade fraction when Premium Sound is
+                // transitioning/off, so a bare Bass-Boost-only or
+                // no-effects-at-all session still gets a gentle standalone
+                // tilt at full scale rather than riding Premium Sound's
+                // fade — bitrate compensation is its own independent thing,
+                // only reduced by the taper computed above, not by
+                // intensityFraction.
+                return (base * bitrateCompensationScale).toInt()
             }
 
             var rejectedBands = 0
@@ -489,6 +637,7 @@ class AurumAudioEffects(
                 }
 
                 gain += premiumGainFor(i)
+                gain += bitrateCompensationGainFor(i)
                 gain = gain.coerceIn(minMb, maxMb)
 
                 try {
@@ -530,17 +679,18 @@ class AurumAudioEffects(
     fun describeCapabilities(): Map<String, Any> = mapOf(
         "virtualizerSupported" to (virtualizerSupported && virtualizerHealthy),
         "bassBoostSupported" to (nativeBassBoostSupported && nativeBassBoostHealthy),
-        "outputRoute" to detectOutputRoute().name,
+        "limiterActive" to (limiterSupported && limiterHealthy),
+        "outputRoute" to _ro1().name,
     )
 
     fun dispose() {
-        cancelFade()
+        _fd1()
         player.removeListener(sessionIdListener)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 audioManager?.unregisterAudioDeviceCallback(audioDeviceCallback)
             }
         } catch (_: Exception) {}
-        releaseEffects()
+        _rl1()
     }
 }
