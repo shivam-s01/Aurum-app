@@ -439,6 +439,15 @@ class RecommendationEngine {
         } else {
           score -= 0.10;
         }
+      } else if (refEra != null && candEra == null) {
+        // Candidate has no parseable release year of its own — common for
+        // freshly-uploaded cover/recreated versions that inherit the
+        // original movie's metadata inconsistently. Rather than silently
+        // skipping the era check (which let recent recreations of old
+        // songs through with zero penalty), apply a smaller uncertainty
+        // penalty so an unknown-era candidate never outranks a
+        // confirmed-same-era one.
+        score -= 0.05;
       }
     }
 
@@ -607,10 +616,13 @@ class RecommendationEngine {
     r'instrumental|bass[ -]?boost(?:ed)?|8d|sped[ -]?up|speed(?:ed)?[ -]?up|'
     r'reprise|mashup|tribute|remaster(?:ed)?|unplugged|acoustic version|'
     r'orchestra|choir|chillout|drill remix|female version|male version|'
-    r'recreated|lounge mix|jukebox|full song|lyric video|lyrics|'
+    r'recreated|recreation|refix|redux|rework(?:ed)?|revamp(?:ed)?|'
+    r'lounge mix|jukebox|full song|lyric video|lyrics|'
     r'official video|music video|audio|video song|full video|'
-    r'version|recreation|recreate|extended|edit|flip|bootleg|'
-    r'vibe|mood|chill mix|punjabi mix|hindi mix|tapori|dj |club mix)\b',
+    r'version|recreate|extended|edit|flip|bootleg|'
+    r'vibe|mood|chill mix|punjabi mix|hindi mix|tapori|dj |club mix|'
+    r'old is gold|the return|revisited|throwback mix|new version|'
+    r'\d\.\d)\b',
     caseSensitive: false,
   );
 

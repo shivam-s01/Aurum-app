@@ -778,8 +778,9 @@ class PlayerProvider extends ChangeNotifier {
         alreadyInQueue.addAll(toAdd.map((s) => s.id));
         notifyListeners();
       }
-      // Phase 2: 30 more songs
-      final phase2 = await ApiService.getAutoQueue(song, limit: 30, existingQueueIds: {
+      // Phase 2: 40 more songs (Phase 1's 20 + this = 60 total, matching
+      // getAutoQueue's own default depth)
+      final phase2 = await ApiService.getAutoQueue(song, limit: 40, existingQueueIds: {
         ...alreadyInQueue, ...RecommendationEngine.sessionRecentIds,
       });
       if (sessionId != _uiPlaySession) return;

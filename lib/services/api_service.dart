@@ -858,20 +858,37 @@ class ApiService {
   }
 
   // ===========================================================================
-  // AUTO QUEUE v6 — Real Saavn similar-songs (album+artist, era-filtered) +
-  // same-artist search + mood/genre/era fallback.
+  // AUTO QUEUE v7 — Real Saavn similar-songs (album+artist, era-filtered) +
+  // same-artist search + mood/genre/era fallback + YouTube supplementary fill.
   //
   // SIGNAL ORDER:
   //   1. /api/similar/ — real Saavn catalog data (album+artist), era-filtered
   //      server-side (PRIMARY)
-  //   2. Same artist search
-  //   3. Mood+genre+era fallback (scored client-side)
+  //   2. Same artist search (Saavn)
+  //   3. Mood+genre+era fallback (Saavn, scored client-side)
+  //   4. YouTube fallback — ONLY runs if signals 1-3 together still haven't
+  //      filled the pool comfortably above [limit]. Saavn stays primary
+  //      because its metadata (album/artist/year) is far more reliable for
+  //      variant/era filtering; YT is a depth-of-catalog top-up for
+  //      niche artists/genres where Saavn's own catalog runs thin, not a
+  //      replacement signal. Goes through the exact same addToPool() +
+  //      rankAndFilter() path as every other signal — same variant
+  //      blocking, same era penalty, same scoring — so a YT result never
+  //      gets an easier bar to clear than a Saavn one.
   //
-  // ALL variants blocked at pool entry. Zero remixes/DJ/cover/lofi in queue.
+  // ALL variants blocked at pool entry AND again at rankAndFilter. Zero
+  // remixes/DJ/cover/lofi in queue, regardless of which signal found them.
+  //
+  // Default limit raised 20 -> 60 (previously the shortest signal chain
+  // that happened to hit `limit` first would stop early, capping every
+  // session at a shallow 20-song queue no matter how deep the underlying
+  // catalog actually was). Every signal's own per-call fetch size below
+  // is scaled off `limit` rather than hardcoded, so raising limit further
+  // in the future doesn't require re-tuning each signal by hand.
   // ===========================================================================
   static Future<List<Song>> getAutoQueue(
     Song currentSong, {
-    int limit = 20,
+    int limit = 60,
     Set<String>? existingQueueIds,
   }) async {
     await RecommendationEngine.load();
@@ -897,11 +914,17 @@ class ApiService {
       return true;
     }
 
+    // A pool of ~3x the requested limit gives rankAndFilter (which still
+    // applies scoring, era penalties, and the 70/20/10 discovery mix)
+    // enough candidates to actually choose from rather than being forced
+    // to keep low-scoring songs just to hit the count.
+    final poolTarget = limit * 3;
+
     // ── Signal 1: Real Saavn similar-songs (album + artist, era-filtered
     //    server-side) — this is actual Saavn catalog data, not a guessed
     //    query string, and is the strongest "up next" signal available. ──
     try {
-      final similar = await _fetchSimilarFromSaavn(currentSong, limit: 30)
+      final similar = await _fetchSimilarFromSaavn(currentSong, limit: limit)
           .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
       for (final s in similar) addToPool(s);
       _log('[autoQueue] signal1 similar: ${pool.length}');
@@ -910,22 +933,46 @@ class ApiService {
     }
 
     // ── Signal 2: Same artist ─────────────────────────────────────────────
-    if (pool.length < limit * 2) {
-      final artistSongs = await _searchSaavn('${currentSong.artist} songs', limit: 40)
+    if (pool.length < poolTarget) {
+      final artistSongs = await _searchSaavn('${currentSong.artist} songs', limit: limit * 2)
           .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
       for (final s in artistSongs) addToPool(s);
       _log('[autoQueue] signal2 artist: ${pool.length}');
     }
 
     // ── Signal 3: Mood+genre+era fallback ────────────────────────────────
-    if (pool.length < limit) {
+    if (pool.length < poolTarget) {
       final queries = RecommendationEngine.generateQueries(currentSong);
-      for (final q in queries.take(2)) {
-        final r = await _searchSaavn(q.query, limit: 30)
+      for (final q in queries) {
+        if (pool.length >= poolTarget) break;
+        final r = await _searchSaavn(q.query, limit: limit)
             .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
         for (final s in r) addToPool(s);
       }
       _log('[autoQueue] signal3 fallback: ${pool.length}');
+    }
+
+    // ── Signal 4: YouTube supplementary fill ─────────────────────────────
+    // Only reached when Saavn's own catalog genuinely couldn't fill the
+    // pool — common for niche/regional artists or very new releases with
+    // a thin Saavn presence. Reuses the same mood/genre/era queries from
+    // Signal 3 (so the vibe-matching logic is identical, just pointed at
+    // a different catalog) rather than a separate, looser query — a YT
+    // result has to match the same "sounds like this" intent as every
+    // other signal, not just be "something on YouTube".
+    if (pool.length < limit) {
+      final queries = RecommendationEngine.generateQueries(currentSong);
+      for (final q in queries) {
+        if (pool.length >= limit) break;
+        try {
+          final ytSongs = await _searchYt(q.query, limit: limit)
+              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
+          for (final s in ytSongs) addToPool(s);
+        } catch (e) {
+          _log('[autoQueue] signal4 yt query "${q.query}" failed: $e');
+        }
+      }
+      _log('[autoQueue] signal4 yt fallback: ${pool.length}');
     }
 
     return RecommendationEngine.rankAndFilter(
