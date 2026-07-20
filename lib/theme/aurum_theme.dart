@@ -139,34 +139,21 @@ class AurumTheme {
     }
 
     final bg = isLight
-        ? enrich(dynamic.surface, lightness: 0.93, satBoost: 0.08)
+        ? enrich(dynamic.surface, lightness: 0.98, satBoost: 0.03)
         : dynamic.surface;
     final bgCard = isLight
-        ? enrich(dynamic.surfaceContainer, lightness: 0.88, satBoost: 0.10)
+        ? enrich(dynamic.surfaceContainer, lightness: 0.965, satBoost: 0.04)
         : dynamic.surfaceContainer;
     final bgSurface = isLight
-        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.83, satBoost: 0.12)
+        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.945, satBoost: 0.05)
         : dynamic.surfaceContainerHigh;
-    // Primary/secondary (buttons, accents) also get a small richness pass
-    // in light mode — Android's light-mode primary tone is tuned for
-    // 4.5:1 text contrast on white, which reads a bit chalky as a solid
-    // accent fill. A touch more saturation and a bit less lightness makes
-    // it pop the way it already does in dark mode.
-    final primary = isLight
-        ? enrich(dynamic.primary, lightness: 0.42, satBoost: 0.10)
-        : dynamic.primary;
-    final secondary = isLight
-        ? enrich(dynamic.secondary, lightness: 0.40, satBoost: 0.08)
-        : dynamic.secondary;
+    // Primary/secondary (buttons, accents) keep their normal Material You
+    // tone in light mode — only the background/card surfaces were washed
+    // out; the accent itself already read fine, over-enriching it too made
+    // every screen feel like one flat purple wash instead of "white with a
+    // wallpaper-colored accent", which is the actual Material You look.
+    final enrichedScheme = dynamic;
 
-    final enrichedScheme = isLight
-        ? dynamic.copyWith(
-            primary: primary,
-            onPrimary: Colors.white,
-            secondary: secondary,
-            onSecondary: Colors.white,
-          )
-        : dynamic;
 
     return _build(
       brightness: dynamic.brightness,
