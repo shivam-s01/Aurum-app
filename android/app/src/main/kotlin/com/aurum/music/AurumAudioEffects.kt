@@ -27,19 +27,19 @@ class AurumAudioEffects(
 
     companion object {
         private const val TAG = "AurumAudioEffects"
-        private const val BASS_BOOST_LOUDNESS_GAIN_MB = 1000
-        private const val BASS_BOOST_LOUDNESS_GAIN_FALLBACK_MB = 600
-        private const val BASS_BOOST_SUB_BASS_EXTRA_MB = 700
-        private const val BASS_BOOST_BASS_EXTRA_MB = 500
+        private const val BASS_BOOST_LOUDNESS_GAIN_MB = 400
+        private const val BASS_BOOST_LOUDNESS_GAIN_FALLBACK_MB = 250
+        private const val BASS_BOOST_SUB_BASS_EXTRA_MB = 400
+        private const val BASS_BOOST_BASS_EXTRA_MB = 300
 
-        private const val K_P1 = 280
+        private const val K_P1 = 160
 
-        private const val K_P2 = 340
+        private const val K_P2 = 220
 
-        private const val K_P3 = 120
+        private const val K_P3 = 60
 
         private val K_P4 = listOf(
-            80, 40, -80, 0, 100, 150, 130, 90, 90, 100,
+            30, 10, -50, 20, 60, 70, 40, 10, -20, -30,
         )
 
         private const val K_S1 = 0.55f
@@ -56,10 +56,10 @@ class AurumAudioEffects(
         private const val K_F1 = 10
         private const val K_F2 = 1400L
 
-        private const val K_L1 = -1.0f
-        private const val K_L2 = 20.0f // near-brickwall above threshold
-        private const val K_L3 = 3f
-        private const val K_L4 = 60f
+        private const val K_L1 = -1.5f
+        private const val K_L2 = 6.0f // gentler ratio — avoids audible pumping/harshness when the limiter engages often
+        private const val K_L3 = 5f
+        private const val K_L4 = 100f
         private const val K_L5 = 0f
 
         // Low-bitrate compensation: below this kbps, lossy encoders have
@@ -74,8 +74,23 @@ class AurumAudioEffects(
         private const val K_BR1 = 96
         private const val K_BR2 = 192
         private val K_BR3 = listOf(
-            0, 0, -40, 0, 60, 90, 110, 130, 110, 90,
+            0, 0, -20, 10, 40, 50, 30, 0, -20, -20,
         )
+
+        // Combined per-band safety ceiling, independent of whatever the
+        // device's own Equalizer.bandLevelRange happens to allow (some
+        // devices report ranges as wide as ±1500mB, which is far more
+        // headroom than is ever musically appropriate to actually use).
+        // Bass Boost's manual EQ bump + Premium Sound's curve + bitrate
+        // compensation are all additive on the same bands — without an
+        // explicit cap here, three simultaneously-active boost sources
+        // can stack into a harsh, fatiguing gain on the same band even
+        // though each one individually looks conservative. This is what
+        // was producing the reported harshness/irritation: not any single
+        // constant being too high, but the SUM of several "reasonable"
+        // constants landing on the same presence band at once.
+        private const val K_CAP_POS = 600 // +6.0dB combined ceiling, boost side
+        private const val K_CAP_NEG = -600 // -6.0dB combined ceiling, cut side
     }
 
     private var equalizer: Equalizer? = null
@@ -239,6 +254,13 @@ class AurumAudioEffects(
         nativeBassBoostSupported = true
         limiterHealthy = true
         limiterSupported = true
+        lastAppliedVirtualizerEnabled = null
+        lastAppliedVirtualizerStrength = null
+        lastAppliedBassBoostEnabled = null
+        lastAppliedBassBoostStrength = null
+        lastAppliedLoudnessGain = null
+        lastAppliedLimiterEnabled = null
+        lastAppliedEqGains = emptyList()
 
         try {
             equalizer = Equalizer(0, sessionId)
@@ -429,27 +451,46 @@ class AurumAudioEffects(
         fadeHandler.post(runnable)
     }
 
+    private var lastAppliedVirtualizerEnabled: Boolean? = null
+    private var lastAppliedVirtualizerStrength: Short? = null
+    private var lastAppliedBassBoostEnabled: Boolean? = null
+    private var lastAppliedBassBoostStrength: Short? = null
+    private var lastAppliedLoudnessGain: Int? = null
+    private var lastAppliedLimiterEnabled: Boolean? = null
+    private var lastAppliedEqGains: List<Int> = emptyList()
+
     private fun _ap3(fraction: Float) {
         val ceiling = if (fraction > 0f) _mx1() else 0f
         val effectiveFraction = (fraction * ceiling).coerceIn(0f, 1f)
         val active = effectiveFraction > 0.001f
 
-        _lm2(active)
+        if (lastAppliedLimiterEnabled != active) {
+            _lm2(active)
+            lastAppliedLimiterEnabled = active
+        }
 
         if (virtualizerHealthy && virtualizerSupported) {
             virtualizer?.let { v ->
                 try {
-                    v.enabled = active
+                    if (lastAppliedVirtualizerEnabled != active) {
+                        v.enabled = active
+                        lastAppliedVirtualizerEnabled = active
+                    }
                     if (active) {
                         val strength = (K_P2 * effectiveFraction)
                             .toInt().coerceIn(0, 1000).toShort()
-                        try {
-                            v.setStrength(strength)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Virtualizer setStrength rejected ($e) — disabling for this session")
-                            virtualizerHealthy = false
-                            try { v.enabled = false } catch (_: Exception) {}
+                        if (lastAppliedVirtualizerStrength != strength) {
+                            try {
+                                v.setStrength(strength)
+                                lastAppliedVirtualizerStrength = strength
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Virtualizer setStrength rejected ($e) — disabling for this session")
+                                virtualizerHealthy = false
+                                try { v.enabled = false } catch (_: Exception) {}
+                            }
                         }
+                    } else {
+                        lastAppliedVirtualizerStrength = null
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Virtualizer enable failed: $e — disabling for this session")
@@ -461,17 +502,25 @@ class AurumAudioEffects(
         if (nativeBassBoostHealthy && nativeBassBoostSupported) {
             nativeBassBoost?.let { bb ->
                 try {
-                    bb.enabled = active
+                    if (lastAppliedBassBoostEnabled != active) {
+                        bb.enabled = active
+                        lastAppliedBassBoostEnabled = active
+                    }
                     if (active) {
                         val strength = (K_P1 * effectiveFraction)
                             .toInt().coerceIn(0, 1000).toShort()
-                        try {
-                            bb.setStrength(strength)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "BassBoost setStrength rejected ($e) — disabling for this session")
-                            nativeBassBoostHealthy = false
-                            try { bb.enabled = false } catch (_: Exception) {}
+                        if (lastAppliedBassBoostStrength != strength) {
+                            try {
+                                bb.setStrength(strength)
+                                lastAppliedBassBoostStrength = strength
+                            } catch (e: Exception) {
+                                Log.w(TAG, "BassBoost setStrength rejected ($e) — disabling for this session")
+                                nativeBassBoostHealthy = false
+                                try { bb.enabled = false } catch (_: Exception) {}
+                            }
                         }
+                    } else {
+                        lastAppliedBassBoostStrength = null
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "BassBoost enable failed: $e — disabling for this session")
@@ -492,14 +541,22 @@ class AurumAudioEffects(
                         else -> null
                     }
                     if (targetGain != null && targetGain > 0) {
-                        enhancer.enabled = true
-                        try {
-                            enhancer.setTargetGain(targetGain)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "LoudnessEnhancer premium gain rejected ($e)")
+                        if (lastAppliedLoudnessGain == null) {
+                            enhancer.enabled = true
+                        }
+                        if (lastAppliedLoudnessGain != targetGain) {
+                            try {
+                                enhancer.setTargetGain(targetGain)
+                                lastAppliedLoudnessGain = targetGain
+                            } catch (e: Exception) {
+                                Log.w(TAG, "LoudnessEnhancer premium gain rejected ($e)")
+                            }
                         }
                     } else {
-                        enhancer.enabled = false
+                        if (lastAppliedLoudnessGain != null) {
+                            enhancer.enabled = false
+                            lastAppliedLoudnessGain = null
+                        }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "LoudnessEnhancer premium apply failed: $e — disabling for this session")
@@ -577,8 +634,9 @@ class AurumAudioEffects(
             // active, regardless of which one. setLimiterEnabled(true) is
             // idempotent (repeated true/true calls are harmless), so this
             // never fights with _ap3's own arming.
-            if (bitrateCompensationActive || bassBoost) {
+            if ((bitrateCompensationActive || bassBoost) && lastAppliedLimiterEnabled != true) {
                 _lm2(true)
+                lastAppliedLimiterEnabled = true
             }
 
             if (!hasCustomCurve && !bassBoost && !premiumActive && !bitrateCompensationActive) {
@@ -628,6 +686,8 @@ class AurumAudioEffects(
             }
 
             var rejectedBands = 0
+            var unchangedBands = 0
+            val newAppliedGains = IntArray(bandCount)
             for (i in 0 until bandCount) {
                 var gain = if (volNorm && !hasCustomCurve) 0 else savedBands[i]
 
@@ -638,17 +698,33 @@ class AurumAudioEffects(
 
                 gain += premiumGainFor(i)
                 gain += bitrateCompensationGainFor(i)
+
+                // Explicit combined ceiling FIRST (catches multi-source
+                // stacking regardless of what this device's own range
+                // allows), THEN clamp to the device's actual reported
+                // range (some devices report a range narrower than the
+                // ceiling, which must still win).
+                gain = gain.coerceIn(K_CAP_NEG, K_CAP_POS)
                 gain = gain.coerceIn(minMb, maxMb)
+
+                if (lastAppliedEqGains.getOrNull(i) == gain) {
+                    unchangedBands++
+                    newAppliedGains[i] = gain
+                    continue
+                }
 
                 try {
                     eq.setBandLevel(i.toShort(), gain.toShort())
+                    newAppliedGains[i] = gain
                 } catch (e: Exception) {
                     rejectedBands++
+                    newAppliedGains[i] = lastAppliedEqGains.getOrNull(i) ?: gain
                     Log.w(TAG, "Band $i setBandLevel($gain) rejected ($e) — skipping band")
                 }
             }
+            lastAppliedEqGains = newAppliedGains.toList()
 
-            if (rejectedBands == bandCount) {
+            if (rejectedBands > 0 && rejectedBands + unchangedBands == bandCount) {
                 Log.w(TAG, "All EQ bands rejected — disabling Equalizer for this session")
                 equalizerHealthy = false
                 try { eq.enabled = false } catch (_: Exception) {}
