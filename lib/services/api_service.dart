@@ -263,9 +263,10 @@ class ApiService {
     return null;
   }
 
-  // Kept as an alias so existing code referencing _saavnV2 (e.g. stream-by-id)
-  // doesn't need to change — it's just the first Node host.
-  static String get _saavnV2 => _saavnNodeHosts.first;
+  // NOTE: previously there was a `_saavnV2` alias pointing at
+  // _saavnNodeHosts.first — removed since every caller now loops through
+  // _saavnNodeHosts directly (search, stream-by-id), which is what actually
+  // gives failover if a second Node mirror is ever added to that list.
 
   // Saavn: onrender (jiosavan-ecc1) = Flask-based cyberboysumanjay/
   // JioSaavnAPI — only real routes are /result/, /lyrics/. /song/?id=
@@ -933,33 +934,33 @@ class ApiService {
     );
   }
 
-  /// Calls the worker's /api/similar/ endpoint — real Saavn album+artist
-  /// data, era-filtered server-side. Falls back to an empty list on any
-  /// failure so callers can fall through to signal 2/3 without special-casing.
+  /// Real "similar songs" signal: searches by album (strongest correlation —
+  /// same movie/EP) and by artist, using the already-failover-safe
+  /// _searchSaavn. This replaced an earlier version that called a custom
+  /// /api/similar/ route on the Cloudflare Worker — that route required a
+  /// separate worker deploy and had no host failover, so it silently went
+  /// stale. This version rides on the same multi-host path as everything
+  /// else, so it benefits from the same automatic failover.
   static Future<List<Song>> _fetchSimilarFromSaavn(Song song, {int limit = 20}) async {
-    try {
-      final uri = Uri.parse('$_saavn/api/similar/').replace(queryParameters: {
-        'id': song.id,
-        'title': song.title,
-        'artist': song.artist,
-        'album': song.album,
-        'year': song.year ?? '',
-        'limit': '$limit',
-      });
-      final res = await _client.get(uri).timeout(const Duration(seconds: 8));
-      if (res.statusCode != 200) return [];
-      final data = jsonDecode(res.body);
-      final results = data is Map ? (data['data']?['results'] ?? []) : [];
-      if (results is! List || results.isEmpty) return [];
-      return results
-          .whereType<Map<String, dynamic>>()
-          .map(_songFromSaavn)
-          .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
-          .toList();
-    } catch (e) {
-      _log('[_fetchSimilarFromSaavn] error: $e');
-      return [];
+    final queries = <String>[];
+    if (song.album.trim().isNotEmpty) queries.add(song.album);
+    queries.add('${song.artist} songs');
+
+    final merged = <String, Song>{};
+    for (final q in queries) {
+      try {
+        final results = await _searchSaavn(q, limit: 25)
+            .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
+        for (final s in results) {
+          if (s.id.isEmpty || s.id == song.id) continue;
+          merged[s.id] = s;
+        }
+      } catch (e) {
+        _log('[_fetchSimilarFromSaavn] query "$q" failed: $e');
+      }
+      if (merged.length >= limit) break;
     }
+    return merged.values.toList();
   }
 
   // ===========================================================================
@@ -1181,27 +1182,31 @@ class ApiService {
   // hosts kept below as fallback in case v2 has downtime.
   // ===========================================================================
   static Future<List<Song>> _searchSaavn(String query, {int limit = 20}) async {
-    // 0. jiosaavn-op v2 — /api/search/songs route
-    try {
-      final url = Uri.parse(
-        '$_saavnV2/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
-      );
-      final res = await _client.get(url).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final results = data is Map ? (data['data']?['results'] ?? []) : [];
-        if (results is List && results.isNotEmpty) {
-          final songs = results
-              .whereType<Map<String, dynamic>>()
-              .take(limit)
-              .map(_songFromSaavn)
-              .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
-              .toList();
-          if (songs.isNotEmpty) return songs;
+    // 0. jiosaavn-op v2 (Node family) — /api/search/songs route.
+    //    Loops through ALL _saavnNodeHosts, not just the first, so adding a
+    //    second Node mirror to that list is enough to get failover here too.
+    for (final host in _saavnNodeHosts) {
+      try {
+        final url = Uri.parse(
+          '$host/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+        );
+        final res = await _client.get(url).timeout(const Duration(seconds: 8));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final results = data is Map ? (data['data']?['results'] ?? []) : [];
+          if (results is List && results.isNotEmpty) {
+            final songs = results
+                .whereType<Map<String, dynamic>>()
+                .take(limit)
+                .map(_songFromSaavn)
+                .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+                .toList();
+            if (songs.isNotEmpty) return songs;
+          }
         }
+      } catch (e) {
+        _log('[_searchSaavn] $host error: $e');
       }
-    } catch (e) {
-      _log('[_searchSaavn] jiosaavn-op v2 error: $e');
     }
     // 1. onrender primary — /result/ route
     try {
@@ -1816,27 +1821,32 @@ class ApiService {
     // lookup — /api/songs/:id — confirmed via direct curl returning clean
     // non-DRM downloadUrl[] entries in under a second. Try this FIRST,
     // since it's a real id lookup (no title-search guesswork needed).
-    try {
-      final url = Uri.parse('$_saavnV2/api/songs/$songId');
-      final res = await _client.get(url).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final raw = jsonDecode(res.body);
-        if (raw is Map<String, dynamic> && raw['success'] == true) {
-          final data = raw['data'];
-          Map<String, dynamic>? songData;
-          if (data is List && data.isNotEmpty) {
-            songData = data.first as Map<String, dynamic>?;
-          } else if (data is Map<String, dynamic>) {
-            songData = data;
-          }
-          if (songData != null) {
-            final streamUrl = _extractSaavnStreamUrl(songData);
-            if (streamUrl != null) return streamUrl;
+    // Goes through _saavnNodeHosts (not a single hardcoded host) so that
+    // adding a second Node-family mirror to that list automatically covers
+    // stream resolution too, not just search.
+    for (final host in _saavnNodeHosts) {
+      try {
+        final url = Uri.parse('$host/api/songs/$songId');
+        final res = await _client.get(url).timeout(const Duration(seconds: 8));
+        if (res.statusCode == 200) {
+          final raw = jsonDecode(res.body);
+          if (raw is Map<String, dynamic> && raw['success'] == true) {
+            final data = raw['data'];
+            Map<String, dynamic>? songData;
+            if (data is List && data.isNotEmpty) {
+              songData = data.first as Map<String, dynamic>?;
+            } else if (data is Map<String, dynamic>) {
+              songData = data;
+            }
+            if (songData != null) {
+              final streamUrl = _extractSaavnStreamUrl(songData);
+              if (streamUrl != null) return streamUrl;
+            }
           }
         }
+      } catch (e) {
+        _log('[saavnById] $host error for $songId: $e');
       }
-    } catch (e) {
-      _log('[saavnById] jiosaavn-op v2 error for $songId: $e');
     }
 
     // FIX #2: /song/?id= itself is broken on the old Flask backend —
@@ -2458,11 +2468,16 @@ class ApiService {
     if (song.isLocal || song.id.isEmpty) return null;
     final cacheKey = '${song.source.name}:${song.id}';
     if (_lyricsCache.containsKey(cacheKey)) return _lyricsCache[cacheKey];
-    String? lyrics;
-    if (song.source == SongSource.saavn) {
+
+    // LRCLIB first — it's a dedicated lyrics database and returns full
+    // lyrics. Saavn's route only returns a short preview snippet (JioSaavn's
+    // own API limitation, not something we can fix without full lyrics
+    // rights), so it's kept only as a last-resort fallback when LRCLIB has
+    // nothing at all for this track.
+    String? lyrics = await _fetchLrcLibLyrics(song.title, song.artist);
+    if ((lyrics == null || lyrics.isEmpty) && song.source == SongSource.saavn) {
       lyrics = await _fetchSaavnLyrics(song.id);
     }
-    lyrics ??= await _fetchLrcLibLyrics(song.title, song.artist);
     if (lyrics != null && lyrics.isNotEmpty) _lyricsCache[cacheKey] = lyrics;
     return lyrics;
   }
@@ -2497,46 +2512,22 @@ class ApiService {
     String artist,
     int? durationSeconds,
   ) async {
-    try {
-      final q = Uri.encodeQueryComponent('$title $artist');
-      final res = await _client
-          .get(Uri.parse('https://lrclib.net/api/search?q=$q'))
-          .timeout(const Duration(seconds: 6));
-      if (res.statusCode != 200) return const LyricsResult();
-      final data = jsonDecode(res.body);
-      if (data is! List || data.isEmpty) return const LyricsResult();
+    final best = await _searchLrcLib(title, artist, durationSeconds: durationSeconds);
+    if (best == null) return const LyricsResult();
 
-      // Prefer a result whose duration matches the song (within 3s) when
-      // multiple candidates exist, since LRCLIB search can return covers/
-      // remixes with the same title. Falls back to the first result.
-      Map<String, dynamic>? best;
-      if (durationSeconds != null) {
-        for (final entry in data) {
-          final e = entry as Map<String, dynamic>;
-          final d = e['duration'];
-          if (d is num && (d.toInt() - durationSeconds).abs() <= 3) {
-            best = e;
-            break;
-          }
-        }
-      }
-      best ??= data.first as Map<String, dynamic>?;
-      if (best == null) return const LyricsResult();
+    final syncedRaw = best['syncedLyrics'] as String?;
+    final plainRaw = best['plainLyrics'] as String?;
 
-      final syncedRaw = best['syncedLyrics'] as String?;
-      final plainRaw = best['plainLyrics'] as String?;
-
-      if (syncedRaw != null && syncedRaw.isNotEmpty) {
-        final parsed = LyricsResult.parseLrc(syncedRaw);
-        if (parsed.isNotEmpty) {
-          final plainFallback = parsed.map((l) => l.text).where((t) => t.isNotEmpty).join('\n');
-          return LyricsResult(synced: parsed, plain: plainFallback);
-        }
+    if (syncedRaw != null && syncedRaw.isNotEmpty) {
+      final parsed = LyricsResult.parseLrc(syncedRaw);
+      if (parsed.isNotEmpty) {
+        final plainFallback = parsed.map((l) => l.text).where((t) => t.isNotEmpty).join('\n');
+        return LyricsResult(synced: parsed, plain: plainFallback);
       }
-      if (plainRaw != null && plainRaw.isNotEmpty) {
-        return LyricsResult(plain: plainRaw);
-      }
-    } catch (_) {}
+    }
+    if (plainRaw != null && plainRaw.isNotEmpty) {
+      return LyricsResult(plain: plainRaw);
+    }
     return const LyricsResult();
   }
 
@@ -2554,29 +2545,77 @@ class ApiService {
     return null;
   }
 
-  static Future<String?> _fetchLrcLibLyrics(String title, String artist) async {
-    try {
-      final q = Uri.encodeQueryComponent('$title $artist');
-      final res = await _client
-          .get(Uri.parse('https://lrclib.net/api/search?q=$q'))
-          .timeout(const Duration(seconds: 6));
-      if (res.statusCode == 200) {
+  /// Strips common noise from a song title that hurts LRCLIB matching —
+  /// "(From "Movie Name")", "- Remastered", bracketed year tags, etc.
+  /// LRCLIB's own database uses clean official titles, so a title still
+  /// carrying Saavn/YouTube-style suffixes often fails to match even when
+  /// the song genuinely exists there.
+  static String _cleanTitleForLyricsSearch(String title) {
+    var t = title;
+    t = t.replaceAll(RegExp(r'\(From\s+["“][^"”]*["”]\)', caseSensitive: false), '');
+    t = t.replaceAll(RegExp(r'\((From|feat\.?|ft\.?)[^)]*\)', caseSensitive: false), '');
+    t = t.replaceAll(RegExp(r'-\s*(Remastered|Reprise|Bonus Track).*$', caseSensitive: false), '');
+    t = t.replaceAll(RegExp(r'\[[^\]]*\]'), '');
+    return t.trim();
+  }
+
+  /// Searches LRCLIB with several query variants in order, returning the
+  /// first hit. A single "title artist" query frequently misses because
+  /// LRCLIB's own title text is cleaner than what Saavn/YouTube give us —
+  /// trying a cleaned title, then title-only, meaningfully raises the hit
+  /// rate without needing any new external source.
+  static Future<Map<String, dynamic>?> _searchLrcLib(
+    String title,
+    String artist, {
+    int? durationSeconds,
+  }) async {
+    final cleanTitle = _cleanTitleForLyricsSearch(title);
+    final queries = <String>{
+      '$cleanTitle $artist',
+      if (cleanTitle != title) '$title $artist',
+      cleanTitle,
+    }.where((q) => q.trim().isNotEmpty).toList();
+
+    for (final q in queries) {
+      try {
+        final res = await _client
+            .get(Uri.parse('https://lrclib.net/api/search?q=${Uri.encodeQueryComponent(q)}'))
+            .timeout(const Duration(seconds: 6));
+        if (res.statusCode != 200) continue;
         final data = jsonDecode(res.body);
-        if (data is List && data.isNotEmpty) {
-          final first = data.first as Map<String, dynamic>?;
-          final plain = first?['plainLyrics'] as String?;
-          if (plain != null && plain.isNotEmpty) return plain;
-          final synced = first?['syncedLyrics'] as String?;
-          if (synced != null && synced.isNotEmpty) {
-            return synced
-                .split('\n')
-                .map((line) => line.replaceFirst(RegExp(r'^\[\d{2}:\d{2}\.\d{2,3}\] ?'), ''))
-                .where((line) => line.isNotEmpty)
-                .join('\n');
+        if (data is! List || data.isEmpty) continue;
+
+        // Prefer a duration-matched result (within 3s) to avoid covers/
+        // remixes with the same title; otherwise take the first hit.
+        if (durationSeconds != null) {
+          for (final entry in data) {
+            final e = entry as Map<String, dynamic>;
+            final d = e['duration'];
+            if (d is num && (d.toInt() - durationSeconds).abs() <= 3) return e;
           }
         }
+        final first = data.first;
+        if (first is Map<String, dynamic>) return first;
+      } catch (_) {
+        continue;
       }
-    } catch (_) {}
+    }
+    return null;
+  }
+
+  static Future<String?> _fetchLrcLibLyrics(String title, String artist) async {
+    final best = await _searchLrcLib(title, artist);
+    if (best == null) return null;
+    final plain = best['plainLyrics'] as String?;
+    if (plain != null && plain.isNotEmpty) return plain;
+    final synced = best['syncedLyrics'] as String?;
+    if (synced != null && synced.isNotEmpty) {
+      return synced
+          .split('\n')
+          .map((line) => line.replaceFirst(RegExp(r'^\[\d{2}:\d{2}\.\d{2,3}\] ?'), ''))
+          .where((line) => line.isNotEmpty)
+          .join('\n');
+    }
     return null;
   }
 
