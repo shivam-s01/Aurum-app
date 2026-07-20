@@ -45,6 +45,11 @@ dependencies:
   shimmer: ^3.0.0
   palette_generator: ^0.3.3+3
   google_fonts: ^6.2.1
+  # Material You — reads the system's wallpaper-derived color scheme on
+  # Android 12+ (S+). No-ops (returns null light/dark schemes) on older
+  # Android, other platforms, or devices without dynamic color support —
+  # callers must always have a static-palette fallback ready.
+  dynamic_color: ^1.7.0
   material_new_shapes: ^1.0.0
   phosphor_flutter: ^2.1.0
   expressive_loading_indicator:

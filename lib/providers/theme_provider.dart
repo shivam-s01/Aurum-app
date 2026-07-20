@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aurum_theme.dart';
 
-enum AurumThemeMode { dark, light, amoled, system }
+enum AurumThemeMode { dark, light, amoled, system, dynamic }
 
 class ThemeProvider extends ChangeNotifier {
   static const _key       = 'aurum_theme_mode';
@@ -33,15 +33,42 @@ class ThemeProvider extends ChangeNotifier {
   /// 'Slim' | 'Thick' | 'Rounded' (default) — seek bar track/thumb size.
   String get playerSliderStyle => _playerSliderStyle;
 
+  // Latest system Material You schemes, pushed in from DynamicColorBuilder
+  // in main.dart on every rebuild (they change live if the user changes
+  // wallpaper while the app is open — no restart needed). Null on Android
+  // <12, other platforms, or devices that don't expose dynamic color; in
+  // that case dynamic mode silently falls back to the normal dark theme
+  // (see MainShell/AurumApp theme resolution).
+  ColorScheme? _dynamicLight;
+  ColorScheme? _dynamicDark;
+
+  ColorScheme? get dynamicLight => _dynamicLight;
+  ColorScheme? get dynamicDark  => _dynamicDark;
+
+  /// True only when dynamic mode is selected AND the platform actually
+  /// handed back a real wallpaper-derived scheme. Used to decide whether
+  /// to render the theme as dynamic or silently fall back.
+  bool get isDynamicAvailable =>
+      _mode == AurumThemeMode.dynamic && _dynamicDark != null;
+
+  void updateDynamicSchemes(ColorScheme? light, ColorScheme? dark) {
+    if (identical(light, _dynamicLight) && identical(dark, _dynamicDark)) return;
+    _dynamicLight = light;
+    _dynamicDark = dark;
+    if (_mode == AurumThemeMode.dynamic) notifyListeners();
+  }
+
   ThemeMode get themeMode {
     switch (_mode) {
-      case AurumThemeMode.system: return ThemeMode.system;
-      case AurumThemeMode.light:  return ThemeMode.light;
-      default:                    return ThemeMode.dark;
+      case AurumThemeMode.system:  return ThemeMode.system;
+      case AurumThemeMode.light:   return ThemeMode.light;
+      case AurumThemeMode.dynamic: return ThemeMode.system;
+      default:                     return ThemeMode.dark;
     }
   }
 
   bool get isAmoled => _mode == AurumThemeMode.amoled;
+  bool get isDynamic => _mode == AurumThemeMode.dynamic;
 
   ThemeProvider() { _load(); }
 

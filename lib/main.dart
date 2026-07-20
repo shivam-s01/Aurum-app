@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -234,10 +235,30 @@ class AurumApp extends StatelessWidget {
           },
         ),
       ],
-      child: Consumer2<ThemeProvider, LocaleProvider>(
-        builder: (context, themeProvider, localeProvider, _) {
+      // DynamicColorBuilder harvests the system's wallpaper-derived
+      // ColorScheme on Android 12+ (via the platform's dynamic color APIs)
+      // and rebuilds whenever it changes — e.g. the user changes wallpaper
+      // while Aurum is open, no app restart needed. On unsupported
+      // platforms/OS versions both schemes come back null, which
+      // ThemeProvider.isDynamicAvailable checks for before ever using them.
+      child: DynamicColorBuilder(
+        builder: (lightDynamic, darkDynamic) {
+          return Consumer2<ThemeProvider, LocaleProvider>(
+            builder: (context, themeProvider, localeProvider, _) {
+          // Push the latest schemes into ThemeProvider every build. This is
+          // cheap (identical() short-circuits inside updateDynamicSchemes)
+          // and is the only path through which "Dynamic Color" mode in
+          // Settings > Appearance ever gets real colors to render with.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            themeProvider.updateDynamicSchemes(lightDynamic, darkDynamic);
+          });
+
           final isDark = themeProvider.themeMode == ThemeMode.dark ||
               themeProvider.isAmoled ||
+              (themeProvider.isDynamic && themeProvider.isDynamicAvailable &&
+                  darkDynamic != null &&
+                  WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+                      Brightness.dark) ||
               (themeProvider.themeMode == ThemeMode.system &&
                   WidgetsBinding.instance.platformDispatcher.platformBrightness ==
                       Brightness.dark);
@@ -260,11 +281,19 @@ class AurumApp extends StatelessWidget {
             systemNavigationBarContrastEnforced: false,
           ));
 
-          // Resolve font-aware ThemeData
-          final baseLight = AurumTheme.lightTheme;
-          final baseDark  = themeProvider.isAmoled
-              ? AurumTheme.amoledTheme
-              : AurumTheme.darkTheme;
+          // Resolve font-aware ThemeData. Dynamic mode swaps in the
+          // wallpaper-derived Material You scheme when one is actually
+          // available (Android 12+); on any other platform/OS version it
+          // silently behaves like the normal Dark theme instead of leaving
+          // the user on a broken/blank theme.
+          final baseLight = (themeProvider.isDynamic && lightDynamic != null)
+              ? AurumTheme.dynamicTheme(lightDynamic)
+              : AurumTheme.lightTheme;
+          final baseDark = (themeProvider.isDynamic && darkDynamic != null)
+              ? AurumTheme.dynamicTheme(darkDynamic)
+              : (themeProvider.isAmoled
+                  ? AurumTheme.amoledTheme
+                  : AurumTheme.darkTheme);
 
           final lightTheme = baseLight.copyWith(
             textTheme: themeProvider.resolvedTextTheme(baseLight.textTheme),
@@ -320,12 +349,15 @@ class AurumApp extends StatelessWidget {
                 child: _SplashOnEveryEntry(child: const MainShell()),
               ),
             ),
-          );
-        },
-      ),
-    );
+            ); // closes MaterialApp
+            }, // closes Consumer2 builder
+          ); // closes Consumer2
+        }, // closes DynamicColorBuilder builder
+      ), // closes DynamicColorBuilder
+    ); // closes MultiProvider
   }
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // _SplashOnEveryEntry

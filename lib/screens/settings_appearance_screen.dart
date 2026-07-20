@@ -99,6 +99,13 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // ── Theme ──
           _sectionLabel(l10n.saTheme),
           _card(context, child: Column(children: [
+            _themeTile(context, tp, Icons.wallpaper_rounded, 'Dynamic Color',
+                tp.dynamicDark != null
+                    ? 'Matches your wallpaper (Material You)'
+                    : 'Requires Android 12 or newer',
+                AurumThemeMode.dynamic,
+                disabled: tp.dynamicDark == null),
+            _divider(context),
             _themeTile(context, tp, Icons.dark_mode_rounded, l10n.saThemeDark, l10n.saThemeDarkDesc, AurumThemeMode.dark),
             _divider(context),
             _themeTile(context, tp, Icons.contrast_rounded, l10n.saThemeAmoled, l10n.saThemeAmoledDesc, AurumThemeMode.amoled),
@@ -571,10 +578,10 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     ));
   }
 
-  Widget _themeTile(BuildContext context, ThemeProvider tp, IconData icon, String label, String sub, AurumThemeMode mode) {
-    final selected = tp.mode == mode;
+  Widget _themeTile(BuildContext context, ThemeProvider tp, IconData icon, String label, String sub, AurumThemeMode mode, {bool disabled = false}) {
+    final selected = tp.mode == mode && !disabled;
     return ListTile(
-      onTap: () { HapticFeedback.selectionClick(); tp.setMode(mode); },
+      onTap: disabled ? null : () { HapticFeedback.selectionClick(); tp.setMode(mode); },
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
       leading: Container(
         width: 38, height: 38,
@@ -583,20 +590,22 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           borderRadius: BorderRadius.circular(10),
           border: selected ? Border.all(color: AurumTheme.gold.withOpacity(0.5)) : null,
         ),
-        child: Icon(icon, color: selected ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
+        child: Icon(icon, color: disabled ? AurumTheme.textMutedOf(context).withOpacity(0.4) : (selected ? AurumTheme.gold : AurumTheme.textMutedOf(context)), size: 18),
       ),
       title: Text(label,
         style: TextStyle(
-          color: selected ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
+          color: disabled ? AurumTheme.textMutedOf(context).withOpacity(0.5) : (selected ? AurumTheme.gold : AurumTheme.textPrimaryOf(context)),
           fontSize: 14,
           fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
         )),
-      subtitle: Text(sub, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-      trailing: Icon(
-        selected ? Icons.check_circle_rounded : Icons.circle_outlined,
-        color: selected ? AurumTheme.gold : AurumTheme.textMutedOf(context),
-        size: 20,
-      ),
+      subtitle: Text(sub, style: TextStyle(color: AurumTheme.textMutedOf(context).withOpacity(disabled ? 0.6 : 1), fontSize: 12)),
+      trailing: disabled
+          ? null
+          : Icon(
+              selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+              color: selected ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+              size: 20,
+            ),
     );
   }
 }

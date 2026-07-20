@@ -95,6 +95,24 @@ class AurumTheme {
     navBar: lightBgCard,
   );
 
+  /// Material You / "wallpaper theme" builder — derives every surface from
+  /// the system's dynamic ColorScheme (harvested from the device wallpaper
+  /// by Android 12+) instead of Aurum's fixed purple/gold palette. `dynamic`
+  /// must be a real scheme obtained from DynamicColorBuilder; there is no
+  /// fallback here on purpose — callers (ThemeProvider) are responsible for
+  /// falling back to _dark()/_light() when the platform doesn't support it.
+  static ThemeData dynamicTheme(ColorScheme dynamic) => _build(
+    brightness: dynamic.brightness,
+    bg: dynamic.surface,
+    bgCard: dynamic.surfaceContainer,
+    bgSurface: dynamic.surfaceContainerHigh,
+    textPrimary: dynamic.onSurface,
+    textMuted: dynamic.onSurfaceVariant,
+    divider: dynamic.outlineVariant,
+    navBar: dynamic.surfaceContainer,
+    dynamicScheme: dynamic,
+  );
+
   static ThemeData _build({
     required Brightness brightness,
     required Color bg,
@@ -104,8 +122,14 @@ class AurumTheme {
     required Color textMuted,
     required Color divider,
     required Color navBar,
+    ColorScheme? dynamicScheme,
   }) {
     final isDark = brightness == Brightness.dark;
+    // When a real Material You scheme is supplied, its own primary/secondary
+    // (wallpaper-derived) replace Aurum's fixed gold everywhere below —
+    // that's the whole point of this mode. Otherwise fall back to gold.
+    final primary   = dynamicScheme?.primary ?? gold;
+    final secondary = dynamicScheme?.secondary ?? goldLight;
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
@@ -121,11 +145,11 @@ class AurumTheme {
       // Forcing this transparent removes that fallback fill everywhere
       // it could apply, not just on the one theme property.
       canvasColor: Colors.transparent,
-      colorScheme: ColorScheme(
+      colorScheme: (dynamicScheme ?? ColorScheme(
         brightness: brightness,
-        primary: gold,
+        primary: primary,
         onPrimary: bg,
-        secondary: goldLight,
+        secondary: secondary,
         onSecondary: bg,
         surface: bgCard,
         onSurface: textPrimary,
@@ -133,6 +157,14 @@ class AurumTheme {
         onBackground: textPrimary,
         error: Colors.redAccent,
         onError: Colors.white,
+      )).copyWith(
+        // Always keep Aurum's own surface/background mapping regardless of
+        // scheme source, since bgCard/bg here already encode the AMOLED vs
+        // dark vs dynamic bg choice made by the caller above.
+        surface: bgCard,
+        onSurface: textPrimary,
+        background: bg,
+        onBackground: textPrimary,
       ),
       appBarTheme: AppBarTheme(
         backgroundColor: bg,
@@ -155,16 +187,16 @@ class AurumTheme {
       // transparent here removes the fill at its actual source.
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: Colors.transparent,
-        selectedItemColor: gold,
+        selectedItemColor: primary,
         unselectedItemColor: textMuted,
         type: BottomNavigationBarType.fixed,
         elevation: 0,
       ),
       sliderTheme: SliderThemeData(
-        activeTrackColor: gold,
+        activeTrackColor: primary,
         inactiveTrackColor: bgSurface,
-        thumbColor: gold,
-        overlayColor: gold.withOpacity(0.2),
+        thumbColor: primary,
+        overlayColor: primary.withOpacity(0.2),
         trackHeight: 3,
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
       ),
@@ -208,6 +240,15 @@ class AurumTheme {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return isDark ? darkBgSurface : lightBgSurface;
   }
+
+  /// Accent color for the current theme — the wallpaper-derived Material
+  /// You color when Dynamic Color mode is active, otherwise the user's
+  /// chosen accent (or gold by default). Screens that currently reference
+  /// the `gold` constant directly can switch to this to pick up dynamic
+  /// theming automatically; existing `AurumTheme.gold` references keep
+  /// working unchanged (they just won't react to wallpaper color).
+  static Color accentOf(BuildContext context) =>
+      Theme.of(context).colorScheme.primary;
 
   // ── Decorations ──
   static BoxDecoration cardDecorationOf(BuildContext context) => BoxDecoration(
