@@ -52,7 +52,16 @@ class ThemeProvider extends ChangeNotifier {
       _mode == AurumThemeMode.dynamic && _dynamicDark != null;
 
   void updateDynamicSchemes(ColorScheme? light, ColorScheme? dark) {
-    if (identical(light, _dynamicLight) && identical(dark, _dynamicDark)) return;
+    // ColorScheme overrides == by value, but dynamic_color hands back a
+    // freshly-allocated instance on every platform broadcast even when
+    // nothing actually changed (e.g. the same wallpaper re-notifying, or
+    // an unrelated system event). Using identical() here meant every one
+    // of those no-op broadcasts still forced a full MaterialApp theme
+    // rebuild — which is what was flickering the mini-player/hero artwork
+    // to a blank placeholder for a frame while CachedNetworkImage briefly
+    // re-resolved under the new (structurally identical) ThemeData. Value
+    // equality skips the rebuild entirely when nothing really changed.
+    if (light == _dynamicLight && dark == _dynamicDark) return;
     _dynamicLight = light;
     _dynamicDark = dark;
     if (_mode == AurumThemeMode.dynamic) notifyListeners();

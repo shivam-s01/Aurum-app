@@ -1,5 +1,18 @@
 import 'package:flutter/material.dart';
 
+/// Zero-data marker stashed in ThemeData.extensions only when a theme was
+/// built via AurumTheme.dynamicTheme(). Lets context-aware color helpers
+/// (textMutedOf, bgSurfaceOf, etc.) detect "we're in Material You mode"
+/// without threading an extra bool through every call site — they just
+/// check Theme.of(context).extensions for this key.
+class _DynamicMarker extends ThemeExtension<_DynamicMarker> {
+  const _DynamicMarker();
+  @override
+  _DynamicMarker copyWith() => this;
+  @override
+  _DynamicMarker lerp(ThemeExtension<_DynamicMarker>? other, double t) => this;
+}
+
 class AurumTheme {
   // ── Brand Colors (fixed, theme-independent) ──
   static const Color gold      = Color(0xFF9B7EDE);
@@ -101,17 +114,72 @@ class AurumTheme {
   /// must be a real scheme obtained from DynamicColorBuilder; there is no
   /// fallback here on purpose — callers (ThemeProvider) are responsible for
   /// falling back to _dark()/_light() when the platform doesn't support it.
-  static ThemeData dynamicTheme(ColorScheme dynamic) => _build(
-    brightness: dynamic.brightness,
-    bg: dynamic.surface,
-    bgCard: dynamic.surfaceContainer,
-    bgSurface: dynamic.surfaceContainerHigh,
-    textPrimary: dynamic.onSurface,
-    textMuted: dynamic.onSurfaceVariant,
-    divider: dynamic.outlineVariant,
-    navBar: dynamic.surfaceContainer,
-    dynamicScheme: dynamic,
-  );
+  static ThemeData dynamicTheme(ColorScheme dynamic) {
+    final isLight = dynamic.brightness == Brightness.light;
+
+    // FIX — "washed out" light dynamic mode: Android's raw light-mode
+    // tonal palette (surface/surfaceContainer/surfaceContainerHigh) sits
+    // at ~96-99% lightness by design — it's built for text-heavy system
+    // UI, not for a media app's premium feel. Used as-is, every surface
+    // reads as near-white with barely a tint, which is why it looked
+    // flat/cheap next to the dark theme's rich low-lightness surfaces.
+    // Google's own apps (Gmail, Photos) don't use the raw tones directly
+    // either — they deepen them for a "premium tinted paper" look. We
+    // recreate that here by re-deriving each surface from the scheme's
+    // own hue/saturation but pulling lightness down and saturation up a
+    // little — same wallpaper hue, richer execution. Dark mode is left
+    // untouched since Android's dark tonal palette is already low-key and
+    // reads as premium as-is (confirmed working from earlier screenshots).
+    Color enrich(Color c, {required double lightness, required double satBoost}) {
+      final hsl = HSLColor.fromColor(c);
+      return hsl
+          .withSaturation((hsl.saturation + satBoost).clamp(0.0, 1.0))
+          .withLightness(lightness)
+          .toColor();
+    }
+
+    final bg = isLight
+        ? enrich(dynamic.surface, lightness: 0.93, satBoost: 0.08)
+        : dynamic.surface;
+    final bgCard = isLight
+        ? enrich(dynamic.surfaceContainer, lightness: 0.88, satBoost: 0.10)
+        : dynamic.surfaceContainer;
+    final bgSurface = isLight
+        ? enrich(dynamic.surfaceContainerHigh, lightness: 0.83, satBoost: 0.12)
+        : dynamic.surfaceContainerHigh;
+    // Primary/secondary (buttons, accents) also get a small richness pass
+    // in light mode — Android's light-mode primary tone is tuned for
+    // 4.5:1 text contrast on white, which reads a bit chalky as a solid
+    // accent fill. A touch more saturation and a bit less lightness makes
+    // it pop the way it already does in dark mode.
+    final primary = isLight
+        ? enrich(dynamic.primary, lightness: 0.42, satBoost: 0.10)
+        : dynamic.primary;
+    final secondary = isLight
+        ? enrich(dynamic.secondary, lightness: 0.40, satBoost: 0.08)
+        : dynamic.secondary;
+
+    final enrichedScheme = isLight
+        ? dynamic.copyWith(
+            primary: primary,
+            onPrimary: Colors.white,
+            secondary: secondary,
+            onSecondary: Colors.white,
+          )
+        : dynamic;
+
+    return _build(
+      brightness: dynamic.brightness,
+      bg: bg,
+      bgCard: bgCard,
+      bgSurface: bgSurface,
+      textPrimary: dynamic.onSurface,
+      textMuted: dynamic.onSurfaceVariant,
+      divider: dynamic.outlineVariant,
+      navBar: bgCard,
+      dynamicScheme: enrichedScheme,
+    );
+  }
 
   static ThemeData _build({
     required Brightness brightness,
@@ -205,6 +273,7 @@ class AurumTheme {
       ),
       dividerColor: divider,
       cardColor: bgCard,
+      extensions: dynamicScheme != null ? const [_DynamicMarker()] : const [],
     );
   }
 
@@ -224,6 +293,12 @@ class AurumTheme {
   }
 
   static Color textMutedOf(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // Dynamic (Material You) schemes carry a real onSurfaceVariant tone
+    // derived from the wallpaper — use it instead of the fixed static
+    // muted-gray constants so "muted" text still reads as part of the
+    // wallpaper palette instead of falling back to the old gray.
+    if (_isDynamic(context)) return scheme.onSurfaceVariant;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return isDark ? darkTextMuted : lightTextMuted;
   }
@@ -232,14 +307,22 @@ class AurumTheme {
       Theme.of(context).dividerColor;
 
   static Color bgElevatedOf(BuildContext context) {
+    if (_isDynamic(context)) return Theme.of(context).colorScheme.surfaceContainerHighest;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return isDark ? darkBgElevated : lightBgElevated;
   }
 
   static Color bgSurfaceOf(BuildContext context) {
+    if (_isDynamic(context)) return Theme.of(context).colorScheme.surfaceContainerHigh;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return isDark ? darkBgSurface : lightBgSurface;
   }
+
+  /// True when the currently active ThemeData was built by dynamicTheme()
+  /// — detected via a marker we stash on extensions rather than threading
+  /// a flag through every helper call site.
+  static bool _isDynamic(BuildContext context) =>
+      Theme.of(context).extension<_DynamicMarker>() != null;
 
   /// Accent color for the current theme — the wallpaper-derived Material
   /// You color when Dynamic Color mode is active, otherwise the user's
