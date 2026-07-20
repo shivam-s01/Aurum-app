@@ -3,6 +3,7 @@ import '../widgets/aurum_morph_loader.dart';
 import '../main.dart' show aurumRouteObserver;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -4082,10 +4083,16 @@ class _StaticBlurArtwork extends StatelessWidget {
                 ),
               );
             },
-            child: child,
+            // FIX: this is AnimatedBuilder's own `child` — the expensive
+            // static blur render, built once and passed straight through
+            // to the builder above as its `child` param instead of being
+            // rebuilt every animation tick. (LayoutBuilder itself has no
+            // `child` parameter — passing one there was invalid and is
+            // exactly what broke this build; `core` only ever needed to
+            // reach AnimatedBuilder.)
+            child: core,
           );
         },
-        child: core,
       ),
     );
   }
