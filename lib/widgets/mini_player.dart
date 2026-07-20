@@ -77,11 +77,32 @@ class _MiniPlayerState extends State<MiniPlayer> {
     if (_opening) return;
     _opening = true;
     HapticFeedback.lightImpact();
+
+    // DEBUG (diagnosing "2-3s stuck before full player opens"): timestamps
+    // the whole open sequence so we can see exactly where the delay is —
+    // between tap and route push starting, or between the route starting
+    // and the first real frame appearing (which would point at
+    // FullPlayerScreen's first build/paint, e.g. the background blur or
+    // an artwork decode, rather than the tap handling itself).
+    // Safe to leave in; it's just debugPrint, no UI, no behavior change.
+    final tapAt = DateTime.now();
+    debugPrint('[FullPlayerOpen] tap → push at ${tapAt.toIso8601String()}');
+
     Navigator.of(context)
         .push(
       PageRouteBuilder(
         opaque: true,
-        pageBuilder: (_, __, ___) => const FullPlayerScreen(),
+        pageBuilder: (_, __, ___) {
+          final buildAt = DateTime.now();
+          debugPrint('[FullPlayerOpen] pageBuilder running, '
+              '+${buildAt.difference(tapAt).inMilliseconds}ms since tap');
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final frameAt = DateTime.now();
+            debugPrint('[FullPlayerOpen] first frame drawn, '
+                '+${frameAt.difference(tapAt).inMilliseconds}ms since tap');
+          });
+          return const FullPlayerScreen();
+        },
         transitionsBuilder: (_, anim, __, child) => SlideTransition(
           position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
               .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),

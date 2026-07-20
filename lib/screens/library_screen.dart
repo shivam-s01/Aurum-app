@@ -1609,6 +1609,8 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                       : ListView.builder(
                           controller: scrollCtrl,
                           physics: const BouncingScrollPhysics(),
+                          // PERF: pop-in fix for the playlist picker list.
+                          cacheExtent: 600,
                           itemCount: pp.playlists.length,
                           itemExtent: 72,
                           itemBuilder: (_, i) {
@@ -2192,6 +2194,8 @@ class _LocalFilesScreen extends StatelessWidget {
                   : ListView.builder(
                       physics: const BouncingScrollPhysics(),
                       padding: const EdgeInsets.only(bottom: 100),
+                      // PERF: pop-in fix for the full local-songs list.
+                      cacheExtent: 1000,
                       itemCount: lib.allSongs.length,
                       itemExtent: 66,
                       itemBuilder: (_, i) => SongTile(

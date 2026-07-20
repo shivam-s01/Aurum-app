@@ -32,6 +32,9 @@ jobs:
         run: |
           printf 'storePassword=${{ secrets.STORE_PASSWORD }}\nkeyPassword=${{ secrets.KEY_PASSWORD }}\nkeyAlias=${{ secrets.KEY_ALIAS }}\nstoreFile=aurum-release.jks\n' > android/key.properties
 
+      - name: Flutter clean (prevent stale build artifacts)
+        run: flutter clean
+
       - name: Get dependencies
         run: flutter pub get
 

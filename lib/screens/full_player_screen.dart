@@ -100,7 +100,24 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   late final AnimationController _artworkFloatCtrl;
 
   // ── Swipe-down to dismiss / swipe-up to open panel ──
-  double _dragY = 0;
+  //
+  // PERF FIX (drag felt heavy/stuttery, not "finger-following" smooth):
+  // this used to be a plain `double _dragY` field, mutated via
+  // `setState(() => _dragY += ...)` on every single onVerticalDragUpdate
+  // callback — which reruns this whole State's build() method (the
+  // entire full player: background, artwork, controls, seekbar, info,
+  // everything) up to 60 times/sec while a finger is moving. Native
+  // code doing the equivalent gesture only ever moves one small
+  // transform layer, never rebuilds an entire screen's widget tree per
+  // touch-move event — that gap is what actually reads as "stuttery"
+  // rather than a smooth finger-following drag. Moved to a ValueNotifier
+  // so only the thin Transform/Opacity wrapper around the screen (see
+  // _DragTransform below) listens and rebuilds; the rest of the screen's
+  // widget subtree is built exactly once per drag gesture, not once per
+  // frame of it.
+  final ValueNotifier<double> _dragYNotifier = ValueNotifier(0.0);
+  double get _dragY => _dragYNotifier.value;
+  set _dragY(double v) => _dragYNotifier.value = v;
   bool _isDragging = false;
   bool _dragIsUpward = false;
   // Tracks how far the finger has moved upward during this gesture, purely
@@ -203,10 +220,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       duration: const Duration(milliseconds: 900),
     );
 
-    // Breathing: slow 18s cycle — very subtle ambient drift
+    // Breathing / Ken Burns drift: was an 18s cycle (9s per direction),
+    // which combined with the earlier small pan/zoom range made the
+    // background motion technically running but effectively invisible —
+    // moving a few % of the screen over 9 seconds reads as static to the
+    // eye. Halved to 9s (4.5s per direction) so the drift is clearly
+    // perceptible, while still slow enough to feel ambient rather than
+    // distracting.
     _breatheCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 18000),
+      duration: const Duration(milliseconds: 9000),
     );
 
     // Artwork float: 6s pure vertical — Echo Nightly spec
@@ -228,9 +251,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _springBackCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 320),
-    )..addListener(() {
-        if (mounted) setState(() {});
-      });
+    );
+    // NOTE: no unconditional `setState(() {})` listener here anymore —
+    // _springBackDrag below drives _dragYNotifier directly during the
+    // spring-back animation, which only rebuilds the thin drag-transform
+    // wrapper (see _DragTransform), not this whole State's build().
   }
 
   @override
@@ -245,6 +270,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _bgColorCtrl.dispose();
     _breatheCtrl.dispose();
     _springBackCtrl.dispose();
+    _dragYNotifier.dispose();
     super.dispose();
   }
 
@@ -259,16 +285,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     );
     void listener() {
       if (!mounted) return;
-      // setState is required here — without it _dragY changes but the
-      // Transform.translate never rebuilds mid-animation, so the sheet
-      // appears to jump/snap back instead of smoothly sliding down.
-      setState(() => _dragY = anim.value);
+      // Writing straight to the notifier — only whatever's listening to
+      // _dragYNotifier (the thin drag-transform wrapper) rebuilds each
+      // frame of the spring-back, not the entire screen.
+      _dragY = anim.value;
     }
 
     anim.addListener(listener);
     _springBackCtrl.forward().whenCompleteOrCancel(() {
       anim.removeListener(listener);
-      if (mounted) setState(() => _dragY = 0);
+      if (mounted) _dragY = 0;
     });
   }
 
@@ -426,7 +452,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   void _close() {
     if (!mounted) return;
     HapticFeedback.lightImpact();
-    if (_dragY != 0) setState(() => _dragY = 0);
+    // Notifier setter already triggers the thin _DragTransform rebuild —
+    // no need to also setState() the whole screen right before it pops.
+    if (_dragY != 0) _dragY = 0;
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
@@ -524,11 +552,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           });
         }
 
-        final dragOpacity =
-            (1.0 - (_dragY / 320).clamp(0.0, 0.55)).clamp(0.0, 1.0);
-        final dragScale =
-            (1.0 - (_dragY / 2200).clamp(0.0, 0.06)).clamp(0.0, 1.0);
-
         return GestureDetector(
               // Single gesture owner for the whole screen — swipe down
               // dismisses, swipe up opens the queue/lyrics panel. Having
@@ -543,13 +566,22 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               onVerticalDragStart: (_) {
                 _dragIsUpward = false;
                 _upwardDragDistance = 0;
+                // Cheap: fires once per gesture start, not per frame —
+                // unlike _dragY this is fine to setState directly. Only
+                // _DragHandle actually depends on this value.
                 setState(() => _isDragging = true);
               },
               onVerticalDragUpdate: (d) {
                 if (_panelOpen) return;
                 if (d.delta.dy > 0 && !_dragIsUpward) {
-                  // Downward: drag-to-dismiss follows the finger.
-                  setState(() => _dragY += d.delta.dy);
+                  // Downward: drag-to-dismiss follows the finger. Writing
+                  // straight to the notifier — PERF FIX: this used to be
+                  // setState(() => _dragY += ...), which reran this
+                  // entire State's build() (background, controls,
+                  // seekbar, everything) on every touch-move callback.
+                  // Now only _DragTransform below (which wraps the
+                  // otherwise-stable Scaffold child) listens and rebuilds.
+                  _dragY += d.delta.dy;
                 } else if (d.delta.dy < 0 || _dragIsUpward) {
                   // Upward: STRICT FIX — this used to nudge _dragY negative
                   // (clamped to -60) and Transform.translate applied that
@@ -579,24 +611,20 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   // transition (see PageRouteBuilder callers) takes over
                   // immediately with no extra internal animation in front
                   // of it.
-                  setState(() => _dragY = 0);
+                  _dragY = 0;
                   _close();
                 } else if (_dragIsUpward &&
                     (_upwardDragDistance < -20 || velocity < -400)) {
-                  setState(() => _dragY = 0);
+                  _dragY = 0;
                   _openPanel();
                 } else {
                   _springBackDrag();
                 }
                 _dragIsUpward = false;
               },
-              child: Transform.translate(
-                offset: Offset(0, _dragY.clamp(0.0, 280.0)),
-                child: Transform.scale(
-                  scale: dragScale,
-                  child: Opacity(
-                    opacity: dragOpacity,
-                    child: Scaffold(
+              child: _DragTransform(
+                dragYListenable: _dragYNotifier,
+                child: Scaffold(
                       // Was Colors.transparent — combined with the
                       // route's opaque:true (needed to stop the screen
                       // behind from freezing), any frame where this
@@ -637,8 +665,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         ],
                       ),
                     ),
-                  ),
-                ),
               ),
         );
       },
@@ -766,8 +792,49 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Drag Handle
+// _DragTransform — isolates the swipe-to-dismiss transform from the rest
+// of the full player.
+//
+// PERF FIX: previously the drag offset/scale/opacity were computed inline
+// in _FullPlayerScreenState.build() and applied directly wrapping the
+// giant Scaffold subtree — meaning any setState touching _dragY (i.e.
+// every single frame of a finger drag) reran that entire build() method:
+// background layers, controls, seekbar, song info, everything. This
+// widget takes the already-built Scaffold as a stable `child` and only
+// itself listens to the drag notifier, so a drag gesture now rebuilds
+// just this thin wrapper every frame — the expensive subtree underneath
+// is built exactly once per gesture (when the widget is first created),
+// not once per touch-move callback.
 // ─────────────────────────────────────────────────────────────────────────────
+class _DragTransform extends StatelessWidget {
+  final ValueListenable<double> dragYListenable;
+  final Widget child;
+
+  const _DragTransform({required this.dragYListenable, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<double>(
+      valueListenable: dragYListenable,
+      builder: (context, dragY, child) {
+        final dragOpacity =
+            (1.0 - (dragY / 320).clamp(0.0, 0.55)).clamp(0.0, 1.0);
+        final dragScale =
+            (1.0 - (dragY / 2200).clamp(0.0, 0.06)).clamp(0.0, 1.0);
+        return Transform.translate(
+          offset: Offset(0, dragY.clamp(0.0, 280.0)),
+          child: Transform.scale(
+            scale: dragScale,
+            child: Opacity(opacity: dragOpacity, child: child),
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+
 class _DragHandle extends StatelessWidget {
   final bool isDragging;
   const _DragHandle({required this.isDragging});
@@ -1063,13 +1130,26 @@ class _SongInfo extends StatelessWidget {
     // guarantee contrast against every possible artwork — a soft shadow
     // (opposite tone from the text) keeps title/artist legible no matter
     // how light or dark the underlying art is, in both themes.
+    //
+    // BUGFIX (light mode "broken white patch" behind title): the light
+    // shadow was Colors.white at alpha 200/255 (~78% opaque) with a 16px
+    // blur, applied twice. On a large bold 22px title, that's strong and
+    // wide enough that neighboring letters' shadows visibly merge into
+    // one solid soft-white rectangle sitting behind the whole line,
+    // rather than reading as a subtle per-glyph contrast edge — exactly
+    // the smudged/"tuta hua" look reported. Dropped to a much lower
+    // alpha (70/255) and a tighter blur (8px), which is enough to keep
+    // the title readable over any artwork color without ever becoming
+    // visible as its own shape.
     final shadowColor = isLight
-        ? Colors.white.withAlpha(200)
+        ? Colors.white.withAlpha(70)
         : Colors.black.withAlpha(160);
-    final textShadows = [
-      Shadow(color: shadowColor, blurRadius: 16),
-      Shadow(color: shadowColor, blurRadius: 6),
-    ];
+    final textShadows = isLight
+        ? [Shadow(color: shadowColor, blurRadius: 8)]
+        : [
+            Shadow(color: shadowColor, blurRadius: 16),
+            Shadow(color: shadowColor, blurRadius: 6),
+          ];
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad),
       child: Row(
@@ -3790,8 +3870,6 @@ class _BgLayer extends StatelessWidget {
 
   // ── LIGHT MODE ── artwork color reads through clearly, just enough
   // warm-white lift to keep the "light mode" feel and text legible.
-  // ── LIGHT MODE ── artwork color reads through clearly, just enough
-  // warm-white lift to keep the "light mode" feel and text legible.
   //
   // SIMPLIFIED (3-layer, same cut as dark mode): dropped the separate
   // white-lift layer and the breathe-driven orb layer — one static
@@ -3813,17 +3891,19 @@ class _BgLayer extends StatelessWidget {
       // L0: Neutral warm-grey base (was near-white — that pre-tinted
       // everything before the artwork colour even landed, which is what
       // made light mode read as washed out regardless of the art).
-      const ColoredBox(color: Color(0xFFEDE9E2)),
+      // Nudged slightly warmer/deeper than a flat beige so it reads as
+      // an intentional warm neutral rather than generic off-white.
+      const ColoredBox(color: Color(0xFFE8E2D6)),
 
       // L1: Ken Burns blurred artwork — the whole "premium" effect.
       staticBlur,
 
-      // L2: One static layer — barely-there white lift (was its own
-      // ColoredBox layer) combined with the top/bottom readability
-      // vignette, drawn once in a single CustomPaint.
+      // L2: One static layer — barely-there palette-tinted lift (was its
+      // own flat white ColoredBox layer) combined with the top/bottom
+      // readability vignette, drawn once in a single CustomPaint.
       RepaintBoundary(
         child: CustomPaint(
-          painter: _LightVignettePainter(),
+          painter: _LightVignettePainter(tint: bg1),
           size: Size.infinite,
         ),
       ),
@@ -3960,31 +4040,49 @@ class _StaticBlurArtwork extends StatelessWidget {
 
     // Ken Burns: slow diagonal pan + gentle extra zoom, looped in sync with
     // the same breathe cycle (18s) so it never feels like two separate
-    // motions fighting each other. Range is deliberately small — this is
-    // meant to read as "alive", not as an obvious slide.
+    // motions fighting each other.
+    //
+    // BUGFIX (motion too subtle to notice): the original range here (up
+    // to 1.06x zoom, ~18px/12px pan) was tuned conservatively and, on an
+    // 18-second full cycle, worked out to well under a pixel of visible
+    // change per second — technically animating, but invisible in
+    // practice. Bumped to a range that's actually perceptible (up to
+    // 1.14x zoom, larger pan distances scaled to the actual screen size
+    // rather than fixed pixels) while staying well inside the 1.55x base
+    // overscan so blurred edges are still never exposed.
     return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: ctrl,
-        builder: (context, child) {
-          final animsOn = AudioPrefs.enableAnimationsNotifier.value;
-          final tRaw = animsOn ? ctrl.value : 0.5; // 0→1→0 (reverse: true)
-          final t = Curves.easeInOut.transform(tRaw);
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final w = constraints.maxWidth;
+          final h = constraints.maxHeight;
+          return AnimatedBuilder(
+            animation: ctrl,
+            builder: (context, child) {
+              final animsOn = AudioPrefs.enableAnimationsNotifier.value;
+              final tRaw = animsOn ? ctrl.value : 0.5; // 0→1→0 (reverse: true)
+              final t = Curves.easeInOut.transform(tRaw);
 
-          // Zoom breathes between 1.0x and 1.06x on top of the base 1.55x
-          // already applied inside the core widget.
-          final extraScale = 1.0 + (t * 0.06);
+              // Zoom breathes between 1.0x and 1.14x on top of the base
+              // 1.55x already applied inside the core widget — clearly
+              // visible now instead of a fraction of a percent.
+              final extraScale = 1.0 + (t * 0.14);
 
-          // Diagonal drift — a few % of the layer's own size, clamped by
-          // the base 1.55x overscan so blurred edges are never exposed.
-          final dx = (t - 0.5) * 18.0;
-          final dy = (t - 0.5) * 12.0;
+              // Diagonal drift scaled to actual screen size (a few % of
+              // width/height) instead of fixed pixels, so it reads the
+              // same on a small and a large phone. Still safely inside
+              // the 1.55x overscan.
+              final dx = (t - 0.5) * w * 0.05;
+              final dy = (t - 0.5) * h * 0.035;
 
-          return Transform.translate(
-            offset: Offset(dx, dy),
-            child: Transform.scale(
-              scale: extraScale,
-              child: child,
-            ),
+              return Transform.translate(
+                offset: Offset(dx, dy),
+                child: Transform.scale(
+                  scale: extraScale,
+                  child: child,
+                ),
+              );
+            },
+            child: child,
           );
         },
         child: core,
@@ -4089,36 +4187,49 @@ class _StaticTintVignettePainter extends CustomPainter {
 // ─────────────────────────────────────────────────────────────────────────────
 // _LightVignettePainter — light mode's single L2 layer.
 //
-// One static paint: a very subtle white lift (keeps the "light mode"
-// feel without flattening the artwork's own colour) plus the top/bottom
-// readability vignette. No breathe controller involved — pure one-shot.
+// BUGFIX (light mode felt "muddy"/generic, not premium): this used to be
+// a completely flat, colorless white wash + white vignette — the same
+// on every single song regardless of the artwork's own palette. That's
+// what read as "not premium": nothing here ever varied, so it never felt
+// tied to the actual art the way Echo's does. Now takes the song's
+// extracted palette color and uses a soft warm tint of it (not plain
+// white) for both the lift and the vignette, so light mode gets the same
+// "this background belongs to this song" feeling dark mode already had.
+// Still a single static paint call — no added per-frame cost.
 // ─────────────────────────────────────────────────────────────────────────────
 class _LightVignettePainter extends CustomPainter {
-  const _LightVignettePainter();
+  final Color tint;
+  const _LightVignettePainter({required this.tint});
 
   @override
   void paint(Canvas canvas, Size size) {
     final fullRect = Rect.fromLTWH(0, 0, size.width, size.height);
 
-    canvas.drawRect(fullRect, Paint()..color = const Color(0x0AFFFFFF));
+    // Warm, low-saturation lift tinted from the song's own palette color
+    // instead of flat white — this is what makes it feel tied to the
+    // artwork rather than a generic overlay.
+    final liftColor = Color.lerp(Colors.white, tint, 0.16)!.withAlpha(26);
+    canvas.drawRect(fullRect, Paint()..color = liftColor);
 
+    final vignetteTop = Color.lerp(Colors.white, tint, 0.10)!.withAlpha(70);
+    final vignetteBottom = Color.lerp(Colors.white, tint, 0.10)!.withAlpha(88);
     final vignettePaint = Paint()
-      ..shader = const LinearGradient(
+      ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          Color(0x3DFFFFFF),
+          vignetteTop,
           Colors.transparent,
           Colors.transparent,
-          Color(0x4EFFFFFF),
+          vignetteBottom,
         ],
-        stops: [0.0, 0.09, 0.78, 1.0],
+        stops: const [0.0, 0.09, 0.78, 1.0],
       ).createShader(fullRect);
     canvas.drawRect(fullRect, vignettePaint);
   }
 
   @override
-  bool shouldRepaint(_LightVignettePainter old) => false;
+  bool shouldRepaint(_LightVignettePainter old) => tint != old.tint;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

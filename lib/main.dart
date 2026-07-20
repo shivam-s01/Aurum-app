@@ -40,6 +40,15 @@ late NativeAudioEngine _audioEngine;
 /// outside the widget tree) push the Downloads screen.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+// Global ScaffoldMessenger key — lets debug tooling (e.g. the keyboard
+// flash watchdog) and any other code without a reliable local Scaffold
+// ancestor (bottom sheets, dialogs) show a SnackBar reliably. Without
+// this, ScaffoldMessenger.of(context) inside a sheet/dialog context can
+// silently find no messenger and do nothing — which looks exactly like
+// "the bug doesn't happen" even when it still does.
+final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
+
 /// Global RouteObserver — lets FullPlayerScreen pause ambient animations
 /// whenever a route is pushed on top (lyrics, queue, options sheets).
 final RouteObserver<ModalRoute<void>> aurumRouteObserver =
@@ -266,6 +275,7 @@ class AurumApp extends StatelessWidget {
 
           return MaterialApp(
             navigatorKey: navigatorKey,
+            scaffoldMessengerKey: scaffoldMessengerKey,
             title: 'Aurum Music',
             debugShowCheckedModeBanner: false,
             themeMode: themeProvider.themeMode,

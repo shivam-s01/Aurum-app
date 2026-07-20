@@ -1258,6 +1258,16 @@ class _OnlineContent extends StatelessWidget {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
+              // PERF: pre-builds/decodes ~2 screens worth of cards ahead
+              // in the scroll direction instead of Flutter's conservative
+              // 250px default — on a horizontal image carousel that
+              // meant artwork was still popping in/decoding right as it
+              // crossed into view during a fast swipe. Widening this so
+              // images are already ready before they're visible is what
+              // makes fast scrolling feel "lightweight" rather than
+              // stuttery, at the cost of a bit more memory while this
+              // list is on screen.
+              cacheExtent: 800,
               // FIX — same issue as Trending Playlists above: last
               // _SongCard only has its own `margin: right: 12` (meant
               // for INTER-card spacing), so it cut flush against the
@@ -1324,6 +1334,10 @@ class _OnlineContent extends StatelessWidget {
             child: ListView.builder(
               controller: ctrl,
               physics: const BouncingScrollPhysics(),
+              // PERF: vertical song list — same fast-scroll pop-in fix
+              // as the horizontal carousels, tuned a bit larger since
+              // rows here are taller (full SongTile with artwork+text).
+              cacheExtent: 1000,
               itemCount: section.songs.length,
               itemBuilder: (ctx, i) => SongTile(
                 song: section.songs[i],
@@ -2041,6 +2055,11 @@ class _ArtistStrip extends StatelessWidget {
                     : ListView.builder(
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
+                        // PERF: see cacheExtent note on the song-card
+                        // carousel above — same fast-scroll pop-in fix,
+                        // smaller value since artist chips are lighter
+                        // (circular avatar, no full artwork blur).
+                        cacheExtent: 500,
                         // Note: unlike the playlist/song rows above,
                         // _ArtistChip's own `margin: right: 16` already
                         // matches this section's 16px left inset exactly
@@ -2178,6 +2197,10 @@ class _CuratedPlaylistsSection extends StatelessWidget {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
+              // PERF: see cacheExtent note on the earlier song-card
+              // carousel — pre-decodes cards a couple screens ahead so
+              // fast swipes don't show artwork popping in mid-scroll.
+              cacheExtent: 600,
               // FIX — last card was cutting flush against the screen's
               // right edge with zero breathing room, while the first
               // card got a clean 16px inset from the outer Padding. Each
@@ -2361,6 +2384,8 @@ class _PlaylistCardState extends State<_PlaylistCard> {
               child: ListView.builder(
                 controller: ctrl,
                 physics: const BouncingScrollPhysics(),
+                // PERF: same vertical-list pop-in fix as the section above.
+                cacheExtent: 1000,
                 itemCount: songs.length,
                 itemBuilder: (ctx, i) => SongTile(
                   song: songs[i],

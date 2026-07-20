@@ -722,6 +722,9 @@ class _SearchScreenState extends State<SearchScreen>
         Expanded(
           child: ListView.builder(
             physics: const BouncingScrollPhysics(),
+            // PERF: pre-builds rows a bit ahead of view so fast scrolling
+            // through history doesn't show list items popping in.
+            cacheExtent: 600,
             itemCount: _history.length,
             itemExtent: 52,
             itemBuilder: (_, i) {
@@ -859,6 +862,9 @@ class _SearchScreenState extends State<SearchScreen>
         ListView.builder(
           key: const ValueKey('results'),
           physics: const BouncingScrollPhysics(),
+          // PERF: same pop-in fix as history list above — search results
+          // often get scrolled through quickly.
+          cacheExtent: 800,
           itemCount: _results.length,
           itemExtent: 66,
           padding: const EdgeInsets.only(bottom: 80),
@@ -997,6 +1003,8 @@ class _BrowseTabState extends State<_BrowseTab> {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16),
+              // PERF: horizontal carousel pop-in fix.
+              cacheExtent: 500,
               itemCount: widget.result.artists.length,
               itemBuilder: (_, i) => _StaggeredItem(
                 index: i,
@@ -1017,6 +1025,8 @@ class _BrowseTabState extends State<_BrowseTab> {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16),
+              // PERF: horizontal carousel pop-in fix.
+              cacheExtent: 700,
               itemCount: widget.result.albums.length,
               itemBuilder: (_, i) => _StaggeredItem(
                 index: i,
@@ -1059,6 +1069,8 @@ class _BrowseTabState extends State<_BrowseTab> {
             child: ListView.builder(
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.only(bottom: 100),
+              // PERF: pop-in fix for the full track browse list.
+              cacheExtent: 1000,
               itemCount: tracks.length,
               itemBuilder: (_, i) => _StaggeredItem(
                 index: i,
