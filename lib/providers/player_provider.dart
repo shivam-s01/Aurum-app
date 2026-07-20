@@ -593,8 +593,10 @@ class PlayerProvider extends ChangeNotifier {
         if (toAdd.length > 1) ApiService.prefetchNext(toAdd[1]);
         notifyListeners();
       }
-    } catch (_) {
-      // Silent fail — auto-queue is background-only, never crashes UI
+    } catch (e) {
+      // Silent to UI — auto-queue is background-only, never crashes UI —
+      // but logged so a real failure (e.g. worker down) is diagnosable.
+      debugPrint('[_maybeExtendQueue] failed: $e');
     } finally {
       _isExtendingQueue = false;
     }

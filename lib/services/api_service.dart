@@ -204,14 +204,68 @@ class ApiService {
   static final http.Client    _client = http.Client();
   static final YoutubeExplode _yt     = YoutubeExplode();
 
-  // 2026-07-17: NEW primary — jiosaavn-op (sumitkolhe/jiosaavn-api style,
-  // TypeScript/Node, saavn.dev-compatible). Confirmed via direct curl:
-  // /api/search/songs?query= and /api/songs/:id BOTH work reliably, and
-  // /api/songs/:id returns clean non-DRM direct .mp4 downloadUrl[] —
-  // no /song/?id= hang, no DRM/encrypted_media fields to deal with.
-  // This replaces jiosavan-ecc1 (Flask) as primary; the Flask hosts are
-  // kept below as fallback pillars in case this one has downtime.
-  static const String _saavnV2 = 'https://jiosaavn-op-c4oo.onrender.com';
+  // ===========================================================================
+  // HOST FAILOVER — single source of truth for base URLs.
+  //
+  // To add/remove/replace a host in the future: edit ONLY the lists below.
+  // Every function that talks to Saavn should go through _getFromHosts()
+  // (or loop _saavnNodeHosts / _saavnFlaskHosts itself) instead of hardcoding
+  // one URL — that's what makes "one host goes down -> app keeps working"
+  // actually true instead of aspirational.
+  //
+  // Two API "families" exist because there are two different backend
+  // implementations in rotation, with different JSON shapes:
+  //   • NODE family (jiosaavn-op / sumitkolhe-style): nested JSON —
+  //     artists.primary[], album.name, downloadUrl[]. Used for search,
+  //     song details, AND artist/album pages (all same shape).
+  //   • FLASK family (cyberboysumanjay-style): flat JSON — artist, album
+  //     as plain strings. Only /result/ (search) is reliable on these;
+  //     kept purely as a last-resort search fallback.
+  //
+  // _songFromSaavn() already handles both shapes safely.
+  // ===========================================================================
+  static const List<String> _saavnNodeHosts = [
+    'https://jiosaavn-op-c4oo.onrender.com', // primary — confirmed working 2026-07
+    // Add more Node-family mirrors here if you deploy/find one, e.g.:
+    // 'https://your-backup-mirror.onrender.com',
+  ];
+
+  static const List<String> _saavnFlaskHosts = [
+    'https://jiosavan-ecc1.onrender.com',   // Flask primary — Render free-tier, can hit limits
+    'https://jiosavan-three.vercel.app',    // Flask secondary
+  ];
+
+  /// Tries each host in [hosts] in order, returning the first response that
+  /// is HTTP 200 AND passes [isValid] (so a host returning an empty/error
+  /// JSON body with a 200 status still gets skipped). Returns null if every
+  /// host in the list fails — callers decide the final fallback behavior.
+  static Future<Map<String, dynamic>?> _getFromHosts(
+    List<String> hosts,
+    String pathAndQuery, {
+    Duration timeout = const Duration(seconds: 8),
+    bool Function(Map<String, dynamic> body)? isValid,
+  }) async {
+    for (final host in hosts) {
+      try {
+        final res = await _client
+            .get(Uri.parse('$host$pathAndQuery'))
+            .timeout(timeout);
+        if (res.statusCode != 200) continue;
+        final body = jsonDecode(res.body);
+        if (body is! Map<String, dynamic>) continue;
+        if (isValid != null && !isValid(body)) continue;
+        return body;
+      } catch (e) {
+        _log('[_getFromHosts] $host failed: $e');
+        continue;
+      }
+    }
+    return null;
+  }
+
+  // Kept as an alias so existing code referencing _saavnV2 (e.g. stream-by-id)
+  // doesn't need to change — it's just the first Node host.
+  static String get _saavnV2 => _saavnNodeHosts.first;
 
   // Saavn: onrender (jiosavan-ecc1) = Flask-based cyberboysumanjay/
   // JioSaavnAPI — only real routes are /result/, /lyrics/. /song/?id=
@@ -803,16 +857,14 @@ class ApiService {
   }
 
   // ===========================================================================
-  // AUTO-QUEUE (unchanged from v3)
-  // ===========================================================================
-  // ===========================================================================
-  // AUTO QUEUE v5 — JioSaavn Suggestions-First + YouTube fallback
+  // AUTO QUEUE v6 — Real Saavn similar-songs (album+artist, era-filtered) +
+  // same-artist search + mood/genre/era fallback.
   //
   // SIGNAL ORDER:
-  //   1. /api/songs/{id}/suggestions — Saavn's own engine (PRIMARY)
+  //   1. /api/similar/ — real Saavn catalog data (album+artist), era-filtered
+  //      server-side (PRIMARY)
   //   2. Same artist search
-  //   3. YouTube search (strong related algorithm)
-  //   4. Mood+genre fallback
+  //   3. Mood+genre+era fallback (scored client-side)
   //
   // ALL variants blocked at pool entry. Zero remixes/DJ/cover/lofi in queue.
   // ===========================================================================
@@ -844,26 +896,32 @@ class ApiService {
       return true;
     }
 
-    // NOTE: "Signal 1" (JioSaavn suggestions-by-id) removed — the Flask
-    // backend has no such endpoint (/api/songs/{id}/suggestions 404s, it's
-    // a different Node-style API's route). Signal 2 (same artist search)
-    // and Signal 3 (mood/genre fallback) below already cover this need
-    // using the working /result/ search route.
+    // ── Signal 1: Real Saavn similar-songs (album + artist, era-filtered
+    //    server-side) — this is actual Saavn catalog data, not a guessed
+    //    query string, and is the strongest "up next" signal available. ──
+    try {
+      final similar = await _fetchSimilarFromSaavn(currentSong, limit: 30)
+          .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
+      for (final s in similar) addToPool(s);
+      _log('[autoQueue] signal1 similar: ${pool.length}');
+    } catch (e) {
+      _log('[autoQueue] signal1 similar failed: $e');
+    }
 
     // ── Signal 2: Same artist ─────────────────────────────────────────────
     if (pool.length < limit * 2) {
       final artistSongs = await _searchSaavn('${currentSong.artist} songs', limit: 40)
-          .timeout(const Duration(seconds: 8), onTimeout: () => []);
+          .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
       for (final s in artistSongs) addToPool(s);
       _log('[autoQueue] signal2 artist: ${pool.length}');
     }
 
-    // ── Signal 3: Mood+genre fallback ────────────────────────────────────
+    // ── Signal 3: Mood+genre+era fallback ────────────────────────────────
     if (pool.length < limit) {
       final queries = RecommendationEngine.generateQueries(currentSong);
       for (final q in queries.take(2)) {
         final r = await _searchSaavn(q.query, limit: 30)
-            .timeout(const Duration(seconds: 6), onTimeout: () => []);
+            .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
         for (final s in r) addToPool(s);
       }
       _log('[autoQueue] signal3 fallback: ${pool.length}');
@@ -873,6 +931,35 @@ class ApiService {
       pool: pool, currentSong: currentSong,
       existingIds: allExistingIds, limit: limit,
     );
+  }
+
+  /// Calls the worker's /api/similar/ endpoint — real Saavn album+artist
+  /// data, era-filtered server-side. Falls back to an empty list on any
+  /// failure so callers can fall through to signal 2/3 without special-casing.
+  static Future<List<Song>> _fetchSimilarFromSaavn(Song song, {int limit = 20}) async {
+    try {
+      final uri = Uri.parse('$_saavn/api/similar/').replace(queryParameters: {
+        'id': song.id,
+        'title': song.title,
+        'artist': song.artist,
+        'album': song.album,
+        'year': song.year ?? '',
+        'limit': '$limit',
+      });
+      final res = await _client.get(uri).timeout(const Duration(seconds: 8));
+      if (res.statusCode != 200) return [];
+      final data = jsonDecode(res.body);
+      final results = data is Map ? (data['data']?['results'] ?? []) : [];
+      if (results is! List || results.isEmpty) return [];
+      return results
+          .whereType<Map<String, dynamic>>()
+          .map(_songFromSaavn)
+          .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+          .toList();
+    } catch (e) {
+      _log('[_fetchSimilarFromSaavn] error: $e');
+      return [];
+    }
   }
 
   // ===========================================================================
@@ -2037,10 +2124,31 @@ class ApiService {
     String artist = '';
     final artistsField = j['artists'];
     if (artistsField is Map && artistsField['primary'] is List) {
-      artist = (artistsField['primary'] as List)
-          .map((a) => a is Map ? (a['name'] ?? '').toString() : a.toString())
+      final primaryList = (artistsField['primary'] as List).whereType<Map>().toList();
+
+      // JioSaavn's "primary" array mixes composers, lyricists AND the actual
+      // singer under the same role="primary_artists" tag — e.g. for
+      // "Tum Hi Ho" it contains both Mithoon (composer) and Arijit Singh
+      // (singer). Prefer role="singer" entries — that's the real performer
+      // and what should show as "artist" in the UI / be used for matching.
+      final singers = primaryList
+          .where((a) => (a['role'] ?? '').toString().toLowerCase() == 'singer')
+          .map((a) => (a['name'] ?? '').toString())
           .where((s) => s.isNotEmpty)
-          .join(', ');
+          .toSet() // de-dup (API often repeats the same singer entry twice)
+          .toList();
+
+      if (singers.isNotEmpty) {
+        artist = singers.join(', ');
+      } else {
+        // No explicit "singer" role found — fall back to all primary
+        // artists (better than nothing, matches old behavior).
+        artist = primaryList
+            .map((a) => (a['name'] ?? '').toString())
+            .where((s) => s.isNotEmpty)
+            .toSet()
+            .join(', ');
+      }
     }
     if (artist.isEmpty) {
       final fallback = j['primary_artists'] ?? j['singers'] ?? j['artist'];
@@ -2139,28 +2247,27 @@ class ApiService {
     final picked = deduped.take(12).toList();
 
     final results = await Future.wait(picked.map((a) async {
-      // ── 1. Try Saavn ──
+      // ── 1. Try Saavn (Node hosts, then Flask hosts) ──
       try {
-        final uri = Uri.parse('$_saavnPrimary/api/search/artists')
-            .replace(queryParameters: {'query': a.query, 'limit': '1'});
-        final res = await _client.get(uri).timeout(const Duration(seconds: 6));
-        if (res.statusCode == 200) {
-          final body = jsonDecode(res.body);
-          final saavnResults = body['data']?['results'] as List?;
-          if (saavnResults != null && saavnResults.isNotEmpty) {
-            final r = saavnResults.first as Map<String, dynamic>;
-            final imageList = r['image'] as List?;
-            String imageUrl = '';
-            if (imageList != null && imageList.isNotEmpty) {
-              imageUrl = (imageList.last['url'] ?? imageList.last['link'] ?? '').toString();
-            }
-            if (imageUrl.isNotEmpty) {
-              return ArtistSimple(
-                id: (r['id'] ?? '').toString(),
-                name: a.displayName,
-                imageUrl: imageUrl,
-              );
-            }
+        final path = '/api/search/artists?query=${Uri.encodeQueryComponent(a.query)}&limit=1';
+        for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
+          final body = await _getFromHosts(hosts, path,
+              timeout: const Duration(seconds: 6),
+              isValid: (b) => b['data']?['results'] is List &&
+                  (b['data']['results'] as List).isNotEmpty);
+          if (body == null) continue;
+          final r = (body['data']['results'] as List).first as Map<String, dynamic>;
+          final imageList = r['image'] as List?;
+          String imageUrl = '';
+          if (imageList != null && imageList.isNotEmpty) {
+            imageUrl = (imageList.last['url'] ?? imageList.last['link'] ?? '').toString();
+          }
+          if (imageUrl.isNotEmpty) {
+            return ArtistSimple(
+              id: (r['id'] ?? '').toString(),
+              name: a.displayName,
+              imageUrl: imageUrl,
+            );
           }
         }
       } catch (_) {}
@@ -2210,44 +2317,54 @@ class ApiService {
   /// from a song tile, where we only have the artist's name string).
   static Future<String?> searchArtistByName(String name) async {
     if (name.trim().isEmpty) return null;
-    try {
-      final uri = Uri.parse('$_saavnPrimary/api/search/artists')
-          .replace(queryParameters: {'query': name});
-      final res = await http.get(uri).timeout(const Duration(seconds: 8));
-      if (res.statusCode != 200) return null;
-      final body = jsonDecode(res.body);
-      final results = body['data']?['results'] as List?;
-      if (results == null || results.isEmpty) return null;
-      // Prefer an exact (case-insensitive) name match, else take the first hit.
-      final lower = name.trim().toLowerCase();
+    final lower = name.trim().toLowerCase();
+    final path = '/api/search/artists?query=${Uri.encodeQueryComponent(name)}';
+
+    // Try Node-family hosts first, then Flask-family — whichever answers.
+    for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
+      final body = await _getFromHosts(hosts, path,
+          isValid: (b) => b['data']?['results'] is List &&
+              (b['data']['results'] as List).isNotEmpty);
+      if (body == null) continue;
+      final results = (body['data']['results'] as List);
       final exact = results.firstWhere(
-        (r) => (r['name'] ?? '').toString().toLowerCase() == lower,
+        (r) => (r is Map ? (r['name'] ?? '') : '').toString().toLowerCase() == lower,
         orElse: () => results.first,
       );
-      return (exact['id'] ?? '').toString();
-    } catch (e) {
-      _log('[artist] searchArtistByName failed: $e');
-      return null;
+      if (exact is Map) return (exact['id'] ?? '').toString();
     }
+    _log('[artist] searchArtistByName: all hosts failed for "$name"');
+    return null;
   }
 
   /// Fetch full artist page data: profile, top songs, top albums and singles.
+  ///
+  /// songCount/albumCount are requests, not guarantees — the API returns
+  /// however many actually exist for that artist (confirmed: asking for 200
+  /// on an artist with only 33 songs just returns 33, no error/truncation
+  /// issue). So we ask high by default to make sure prolific artists aren't
+  /// cut short — it costs nothing for artists with fewer songs.
   static Future<Artist?> fetchArtist(String artistId,
-      {int songCount = 50, int albumCount = 40}) async {
+      {int songCount = 100, int albumCount = 100}) async {
     if (artistId.isEmpty) return null;
-    try {
-      final uri = Uri.parse('$_saavnPrimary/api/artists/$artistId').replace(
-        queryParameters: {
-          'songCount': '$songCount',
-          'albumCount': '$albumCount',
-        },
+
+    final path = '/api/artists/$artistId?songCount=$songCount&albumCount=$albumCount';
+    Map<String, dynamic>? body;
+    for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
+      body = await _getFromHosts(
+        hosts, path,
+        timeout: const Duration(seconds: 15),
+        isValid: (b) => b['success'] == true && b['data'] is Map,
       );
-      final res = await http.get(uri).timeout(const Duration(seconds: 15));
-      if (res.statusCode != 200) return null;
-      final body = jsonDecode(res.body);
-      if (body['success'] != true) return null;
-      final d = body['data'] as Map<String, dynamic>?;
-      if (d == null) return null;
+      if (body != null) break;
+    }
+    if (body == null) {
+      _log('[artist] fetchArtist: all hosts failed for id=$artistId');
+      return null;
+    }
+
+    try {
+      final d = body['data'] as Map<String, dynamic>;
 
       final topSongs = ((d['topSongs'] as List?) ?? [])
           .whereType<Map>()
@@ -2285,7 +2402,7 @@ class ApiService {
         singles: singles,
       );
     } catch (e) {
-      _log('[artist] fetchArtist failed: $e');
+      _log('[artist] fetchArtist parse failed: $e');
       return null;
     }
   }
@@ -2293,22 +2410,23 @@ class ApiService {
   /// Fetch the songs inside an album or single, by its Saavn ID.
   static Future<List<Song>> fetchAlbumSongs(String albumId) async {
     if (albumId.isEmpty) return [];
-    try {
-      final uri = Uri.parse('$_saavnPrimary/api/albums')
-          .replace(queryParameters: {'id': albumId});
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      if (res.statusCode != 200) return [];
-      final body = jsonDecode(res.body);
-      if (body['success'] != true) return [];
-      final songs = (body['data']?['songs'] as List?) ?? [];
+
+    final path = '/api/albums?id=$albumId';
+    for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
+      final body = await _getFromHosts(
+        hosts, path,
+        timeout: const Duration(seconds: 10),
+        isValid: (b) => b['success'] == true && b['data']?['songs'] is List,
+      );
+      if (body == null) continue;
+      final songs = (body['data']['songs'] as List);
       return songs
           .whereType<Map>()
           .map((s) => _songFromSaavn(Map<String, dynamic>.from(s)))
           .toList();
-    } catch (e) {
-      _log('[artist] fetchAlbumSongs failed: $e');
-      return [];
     }
+    _log('[artist] fetchAlbumSongs: all hosts failed for id=$albumId');
+    return [];
   }
 
   static ArtistAlbum _artistAlbumFromJson(Map<String, dynamic> j, {required String type}) {

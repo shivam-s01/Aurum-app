@@ -417,7 +417,7 @@ class RecommendationEngine {
   //   Skip penalty        : -0.20 (hard penalty for early-skipped songs)
   //   Time slot fit       : 0.02  (minor: morning/evening/etc.)
   // ---------------------------------------------------------------------------
-  static double scoreCandidate(Song candidate) {
+  static double scoreCandidate(Song candidate, {Song? currentSong}) {
     if (!_loaded) return 0.5;
     if (candidate.isLocal) return 0.3;
 
@@ -426,6 +426,21 @@ class RecommendationEngine {
     final artistKey = _normalizeKey(candidate.artist);
     final genre     = detectGenre(candidate);
     final language  = detectLanguage(candidate);
+
+    // Era match (0–0.15) — only applied when we know the reference song's decade.
+    // Without it, a 90s song's up-next could rank a 2024 remix cover above an
+    // actual 90s track since nothing penalized the mismatch.
+    if (currentSong != null) {
+      final refEra = _songDecade(currentSong);
+      final candEra = _songDecade(candidate);
+      if (refEra != null && candEra != null) {
+        if (candEra == refEra) {
+          score += 0.15;
+        } else {
+          score -= 0.10;
+        }
+      }
+    }
 
     // Artist affinity (0–0.25)
     score += (_artistW[artistKey] ?? 0.5) * 0.25;
@@ -455,6 +470,15 @@ class RecommendationEngine {
       else if (_session!.genre == SessionGenre.other) score += 0.05;
     } else {
       score += 0.05;
+    }
+
+    // Same-album bonus (0–0.10) — strongest "this actually belongs together"
+    // signal available (same movie/EP/session recording).
+    if (currentSong != null &&
+        currentSong.album.isNotEmpty &&
+        candidate.album.isNotEmpty &&
+        _normalizeKey(candidate.album) == _normalizeKey(currentSong.album)) {
+      score += 0.10;
     }
 
     // Completion rate bonus (0–0.08)
@@ -650,7 +674,7 @@ class RecommendationEngine {
         if (recentTwo.contains(song.artist) && scored.length > 3) continue;
       }
 
-      final score = scoreCandidate(song);
+      final score = scoreCandidate(song, currentSong: currentSong);
       if (score < 0.1) continue; // hard floor — skip heavily penalized songs
 
       seenIds.add(song.id);
@@ -686,9 +710,35 @@ class RecommendationEngine {
     final relatedCount   = (limit * 0.20).ceil();
     final discoveryCount = (limit * 0.10).ceil();
 
-    result.addAll(core.take(coreCount));
-    result.addAll(related.take(relatedCount));
-    result.addAll(discovery.take(discoveryCount));
+    // Per-artist cap: no single artist should flood a batch even if their
+    // songs scored highest. Real YT/Spotify mixes always look "shuffled by
+    // artist" — max 3 songs from one artist in a single auto-queue batch.
+    const maxPerArtist = 3;
+    final artistCounts = <String, int>{};
+    bool underCap(Song s) {
+      final key = _normalizeKey(s.artist);
+      final n = artistCounts[key] ?? 0;
+      if (n >= maxPerArtist) return false;
+      artistCounts[key] = n + 1;
+      return true;
+    }
+
+    result.addAll(core.where(underCap).take(coreCount));
+    result.addAll(related.where(underCap).take(relatedCount));
+    result.addAll(discovery.where(underCap).take(discoveryCount));
+
+    // If the cap left us short of `limit` (small pool, few artists),
+    // backfill from whatever's left over, ignoring the cap, rather than
+    // returning a short queue.
+    if (result.length < limit) {
+      final used = result.map((s) => s.id).toSet();
+      for (final s in [...core, ...related, ...discovery]) {
+        if (result.length >= limit) break;
+        if (used.contains(s.id)) continue;
+        result.add(s);
+        used.add(s.id);
+      }
+    }
 
     // Shuffle slightly within each tier to avoid same-order repetition
     _shuffleTier(result, 0, math.min(coreCount, result.length));
@@ -722,12 +772,19 @@ class RecommendationEngine {
     // Use session mood if available — session mood is the locked context
     final activeMood = _session?.mood ?? mood;
 
+    // Era lock: once we know the current song's decade, queries get
+    // era-scoped. This is what makes 90s -> 90s and blocks 2020s songs
+    // from sneaking into a 90s session (the YT/Spotify "up next" behavior).
+    // decadeTok is the bare token ("90s"), NOT the full `era` phrase —
+    // `era` already has language/"songs" baked in and can't be used as a prefix.
+    final decadeTok = _songDecade(currentSong);
+
     if (!_loaded) {
       return [
         AutoQueueQuery('${currentSong.artist} songs', weight: 2),
-        AutoQueueQuery(_moodLockedQuery(activeMood, lang, genre), weight: 2),
-        AutoQueueQuery(_sessionMoodQuery(activeMood, lang), weight: 1),
-        AutoQueueQuery(era, weight: 1),
+        AutoQueueQuery(_moodLockedQuery(activeMood, lang, genre, era: decadeTok), weight: 2),
+        AutoQueueQuery(_sessionMoodQuery(activeMood, lang, era: decadeTok), weight: 1),
+        AutoQueueQuery(era, weight: 2),
       ];
     }
 
@@ -744,11 +801,11 @@ class RecommendationEngine {
       weight: 2,
     );
 
-    // Signal 2: Mood-locked + genre — THIS is the YouTube magic
-    // Sad song → "sad bollywood hindi songs", Party → "party bhojpuri dance songs"
-    // Different artists, same vibe
+    // Signal 2: Mood-locked + genre + ERA — THIS is the YouTube magic
+    // Sad 90s song -> "sad 90s bollywood hindi songs", not just "sad bollywood hindi songs"
+    // Different artists, same vibe, same decade
     final q2 = AutoQueueQuery(
-      _moodLockedQuery(activeMood, lang, genre),
+      _moodLockedQuery(activeMood, lang, genre, era: decadeTok),
       weight: 2,
     );
 
@@ -759,31 +816,32 @@ class RecommendationEngine {
       weight: 1,
     );
 
-    // Signal 4: Pure mood query — broadest net, catches mood-matching songs
+    // Signal 4: Pure era+mood query — broadest net, catches era-matching songs
     // across artists the user hasn't explicitly listened to
     final q4 = AutoQueueQuery(
-      _sessionMoodQuery(activeMood, lang),
-      weight: 1,
+      decadeTok != null ? era : _sessionMoodQuery(activeMood, lang),
+      weight: 2,
     );
 
     return [q1, q2, q3, q4];
   }
 
-  /// Builds a mood-locked query combining mood + language + genre.
+  /// Builds a mood-locked query combining mood + language + genre + era.
   /// This is what makes the queue feel like YouTube's mood-aware mix.
-  static String _moodLockedQuery(SessionMood mood, String lang, String genre) {
+  static String _moodLockedQuery(SessionMood mood, String lang, String genre, {String? era}) {
     final moodWord = _moodSearchWord(mood);
+    final erapfx = (era != null && era.isNotEmpty) ? '$era ' : '';
     // For regional genres, use genre name directly — more precise Saavn results
-    if (genre == 'bhojpuri') return '$moodWord bhojpuri songs';
-    if (genre == 'punjabi')  return '$moodWord punjabi songs';
-    if (genre == 'english')  return '$moodWord english songs';
-    if (genre == 'hiphop')   return '$moodWord hindi rap songs';
+    if (genre == 'bhojpuri') return '$erapfx$moodWord bhojpuri songs';
+    if (genre == 'punjabi')  return '$erapfx$moodWord punjabi songs';
+    if (genre == 'english')  return '$erapfx$moodWord english songs';
+    if (genre == 'hiphop')   return '$erapfx$moodWord hindi rap songs';
     if (genre == 'devotional') return 'bhakti devotional songs';
     if (genre == 'lofi')     return 'lofi chill songs hindi';
-    if (genre == 'tamil')    return '$moodWord tamil songs';
-    if (genre == 'telugu')   return '$moodWord telugu songs';
+    if (genre == 'tamil')    return '$erapfx$moodWord tamil songs';
+    if (genre == 'telugu')   return '$erapfx$moodWord telugu songs';
     // Default bollywood
-    return '$moodWord bollywood hindi songs';
+    return '$erapfx$moodWord bollywood hindi songs';
   }
 
   static String _moodSearchWord(SessionMood mood) {
@@ -829,7 +887,7 @@ class RecommendationEngine {
     return _sessionMoodQuery(mood, lang);
   }
 
-  static String _sessionMoodQuery(SessionMood mood, String lang) {
+  static String _sessionMoodQuery(SessionMood mood, String lang, {String? era}) {
     const queries = {
       SessionMood.romantic:   'romantic love songs',
       SessionMood.sad:        'heartbreak sad songs',
@@ -840,22 +898,31 @@ class RecommendationEngine {
       SessionMood.energetic:  'energetic upbeat hits',
       SessionMood.neutral:    'top hits songs',
     };
-    final base = queries[mood] ?? 'top hits songs';
+    var base = queries[mood] ?? 'top hits songs';
+    if (era != null && era.isNotEmpty && mood != SessionMood.devotional) {
+      base = '$era $base';
+    }
     if (lang == 'hindi' || lang == 'punjabi') return '$base hindi';
     if (lang == 'english') return '$base english';
     return base;
   }
 
-  static String _eraLanguageQuery(Song song) {
+  /// Returns the decade bucket string used in queries, e.g. "90s", "2000s".
+  /// Null if the song has no usable year metadata — in that case we must
+  /// NOT era-scope, since we'd have nothing correct to scope to.
+  static String? _songDecade(Song song) {
     final year = int.tryParse(song.year ?? '') ?? 0;
-    final lang = detectLanguage(song);
-    String era = '';
-    if (year > 0 && year < 2000) era = '90s';
-    else if (year >= 2000 && year < 2010) era = '2000s';
-    else if (year >= 2010 && year < 2020) era = '2010s';
-    else if (year >= 2020) era = 'new 2024 2025';
+    if (year <= 0) return null;
+    if (year < 2000) return '90s';
+    if (year < 2010) return '2000s';
+    if (year < 2020) return '2010s';
+    return 'new 2024 2025';
+  }
 
-    if (era.isNotEmpty) return '$era $lang songs';
+  static String _eraLanguageQuery(Song song) {
+    final lang = detectLanguage(song);
+    final era = _songDecade(song);
+    if (era != null) return '$era $lang songs';
     return '$lang top hits';
   }
 
