@@ -2565,6 +2565,30 @@ class ApiService {
     }
   }
 
+  /// Resolve an album's Saavn ID from its display name (used when navigating
+  /// from a song tile's album chip, where we only have the album name string).
+  static Future<String?> searchAlbumByName(String name) async {
+    if (name.trim().isEmpty) return null;
+    final lower = name.trim().toLowerCase();
+    final path = '/api/search/albums?query=${Uri.encodeQueryComponent(name)}';
+
+    // Try Node-family hosts first, then Flask-family — whichever answers.
+    for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
+      final body = await _getFromHosts(hosts, path,
+          isValid: (b) => b['data']?['results'] is List &&
+              (b['data']['results'] as List).isNotEmpty);
+      if (body == null) continue;
+      final results = (body['data']['results'] as List);
+      final exact = results.firstWhere(
+        (r) => (r is Map ? (r['name'] ?? '') : '').toString().toLowerCase() == lower,
+        orElse: () => results.first,
+      );
+      if (exact is Map) return (exact['id'] ?? '').toString();
+    }
+    _log('[artist] searchAlbumByName: all hosts failed for "$name"');
+    return null;
+  }
+
   /// Fetch the songs inside an album or single, by its Saavn ID.
   static Future<List<Song>> fetchAlbumSongs(String albumId) async {
     if (albumId.isEmpty) return [];
