@@ -103,29 +103,28 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    // BUGFIX: with only AnimatedPadding pushing content up for the
-    // keyboard and no upper bound on the dialog's own height, a tall
-    // keyboard (300px+) on a device with limited vertical space could
-    // push the card's effective height past what's actually left on
-    // screen — a silent overflow in release mode, which is what read as
-    // "opens then vanishes/goes blank" rather than a clean resize.
-    // Capping maxHeight against the keyboard-shrunk viewport (with the
-    // dialog's own 24px vertical insetPadding accounted for) guarantees
-    // the card can never ask for more room than actually exists, so
-    // SingleChildScrollView below takes over instead of overflowing.
+    // BUGFIX (blank black slab under the card when the keyboard opens):
+    // the previous version reserved keyboard space TWICE — once here via
+    // ConstrainedBox.maxHeight subtracting bottomInset, and again just
+    // below via AnimatedPadding adding bottomInset as bottom padding
+    // *inside* that already-shrunk box. The BackdropFilter/Container
+    // background fills the full ConstrainedBox regardless, so squeezing
+    // the actual content into a sliver at the top of that box left a
+    // large empty (but still blurred/dark) area visible underneath it —
+    // exactly the ugly black slab seen when the keyboard rises.
+    //
+    // Fix: only account for the keyboard once. ConstrainedBox.maxHeight
+    // keeps the dialog from ever overflowing the visible viewport; the
+    // card's own Column is sized to its content (mainAxisSize.min via
+    // the Column widgets inside _buildForm/_buildThankYou), so it
+    // naturally shrinks to fit instead of stretching to fill leftover
+    // space. No extra bottom padding needed — Dialog already
+    // repositions/resizes for the keyboard on its own.
     final maxDialogHeight =
         MediaQuery.of(context).size.height - bottomInset - 48;
 
     return Dialog(
       backgroundColor: Colors.transparent,
-      // FIX — previously this manually added viewInsets.bottom into the
-      // insetPadding itself. Dialog already resizes/repositions for the
-      // keyboard on its own; doubling up on the same inset shrank the
-      // available height the moment the TextField requested focus, which
-      // fought the keyboard animation and left it never actually opening
-      // (the field looked focusable but the keyboard sheet never rose).
-      // Plain fixed padding here — the AnimatedPadding below is what
-      // now smoothly follows the keyboard.
       insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -146,20 +145,16 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
                   width: 1,
                 ),
               ),
-              // Smoothly slides the whole card up as the keyboard rises,
-              // instead of the old approach that tried to pre-shrink the
-              // dialog's outer inset before the keyboard was even there.
-              child: AnimatedPadding(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                padding: EdgeInsets.only(bottom: bottomInset),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
-                  child: SingleChildScrollView(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 300),
-                      child: _sent ? _buildThankYou(context) : _buildForm(context),
-                    ),
+              // mainAxisSize.min (set on the Column inside _buildForm /
+              // _buildThankYou) means this card hugs its own content
+              // height — it never stretches to fill the ConstrainedBox,
+              // so there's nothing left over to show as a blank slab.
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
+                child: SingleChildScrollView(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: _sent ? _buildThankYou(context) : _buildForm(context),
                   ),
                 ),
               ),
