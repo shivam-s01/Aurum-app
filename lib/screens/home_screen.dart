@@ -1282,16 +1282,12 @@ class _OnlineContent extends StatelessWidget {
     );
   }
 
-  // UPGRADE ("perfect Spotify jaisa, sb albums jaisa aaye"): this used to
-  // render each section as a horizontal scroll of individual _SongCards —
-  // one card per SONG, so a mix like "90s Bollywood" looked like a bare
-  // song list instead of a real playlist/album the way Spotify's "Popular
-  // albums and singles" / "Editor's Picks" rows do. Now each dynamic
-  // section renders as ONE poster-style album card representing the whole
-  // 60-80 song mix (see _MixSectionCard below) — tapping it opens the same
-  // full MixScreen used by the curated "Playlists for You" row, so movie
-  // albums (AlbumScreen) and algorithmic mixes (MixScreen) both feel like
-  // permanent, ekdam-premium pieces of content instead of a scrollable list.
+  // Each dynamic home section (Made for You / mood / genre mixes from
+  // fetchHome) renders as a horizontal row of square per-song cards
+  // (_SongGridCard) — Spotify's "Popular radio" / "Featured Charts" shelf
+  // style. Title + artist sit BELOW the artwork, never overlaid on top of
+  // it. A "See all" link opens the full mix in MixScreen; tapping any
+  // individual card plays that song with the rest of the section as queue.
   Widget _buildSection(BuildContext context, SongSection section) {
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
@@ -1490,150 +1486,6 @@ class _StaggeredSectionState extends State<_StaggeredSection>
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Mix section card — one poster-style album card per dynamic home section
-// (Made for You / mood / genre mixes from fetchHome), Spotify "Popular
-// albums and singles" style. Mirrors _PlaylistCard's visual language exactly
-// (same rounded corners, shadow, play-badge) so curated playlists and
-// algorithmic mixes look like one consistent product instead of two
-// different card styles bolted together.
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _MixSectionCard extends StatefulWidget {
-  final SongSection section;
-  const _MixSectionCard({required this.section});
-
-  @override
-  State<_MixSectionCard> createState() => _MixSectionCardState();
-}
-
-class _MixSectionCardState extends State<_MixSectionCard> {
-  bool _pressed = false;
-
-  String get _artUrl {
-    final withArt = widget.section.songs.where((s) => s.artworkUrl.isNotEmpty);
-    return withArt.isNotEmpty ? withArt.first.artworkUrl : '';
-  }
-
-  void _open() {
-    HapticFeedback.selectionClick();
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => MixScreen(
-        mixId: widget.section.id,
-        mixName: widget.section.title,
-        artworkUrl: _artUrl,
-        emoji: '🎵',
-        songs: widget.section.songs,
-      ),
-    ));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final section = widget.section;
-    final art = _artUrl;
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTap: _open,
-      child: AnimatedScale(
-        scale: _pressed ? 0.97 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        child: Container(
-          height: 190,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(
-                    Theme.of(context).brightness == Brightness.dark
-                        ? 0.35
-                        : 0.14),
-                blurRadius: 14,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              art.isNotEmpty
-                  ? AurumArtwork(url: art, size: 500, borderRadius: 0)
-                  : Container(color: AurumTheme.bgCardOf(context)),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.05),
-                      Colors.black.withOpacity(0.75),
-                    ],
-                    stops: const [0.35, 1.0],
-                  ),
-                ),
-              ),
-              Positioned(
-                left: 16,
-                right: 16,
-                bottom: 14,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      section.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${section.songs.length} songs',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.75),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Positioned(
-                right: 12,
-                bottom: 12,
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AurumTheme.gold,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 8,
-                      ),
-                    ],
-                  ),
-                  child: const Icon(Icons.play_arrow_rounded,
-                      color: Colors.black, size: 22),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Offline Content
 // ─────────────────────────────────────────────────────────────────────────────
