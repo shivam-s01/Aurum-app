@@ -23,6 +23,7 @@ import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/aurum_equalizer_bars.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_transitions.dart';
 import 'package:shimmer/shimmer.dart';
@@ -1909,6 +1910,8 @@ class _SongCardState extends State<_SongCard>
     final song = widget.song;
     final isPlaying = context.select<PlayerProvider, bool>(
         (p) => p.currentSong?.id == song.id);
+    final isActuallyPlaying = context.select<PlayerProvider, bool>(
+        (p) => p.isPlaying);
 
     return GestureDetector(
       onTap: _handleTap,
@@ -1959,8 +1962,13 @@ class _SongCardState extends State<_SongCard>
                     child: Container(
                       width: 140, height: 140,
                       color: Colors.black.withOpacity(0.42),
-                      child: const Icon(Icons.equalizer_rounded,
-                          color: AurumTheme.gold, size: 30),
+                      child: Center(
+                        child: AurumEqualizerBars(
+                          playing: isActuallyPlaying,
+                          color: AurumTheme.gold,
+                          size: 26,
+                        ),
+                      ),
                     ),
                   ),
                 // Gold border ring when playing

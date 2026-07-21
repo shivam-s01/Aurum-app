@@ -15,6 +15,7 @@ import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_empty_state.dart';
+import '../widgets/aurum_equalizer_bars.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'full_player_screen.dart';
 
@@ -982,6 +983,26 @@ class _BrowseTabState extends State<_BrowseTab> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDrilledDown = _openAlbumId != null || _openArtistName != null;
+
+    // System/gesture back (and the Android predictive-back swipe) was
+    // previously invisible to this drill-down — it isn't a real Navigator
+    // route, just a setState-driven view swap, so back used to fall
+    // straight through to the Search screen's own route and exit all the
+    // way to Home. PopScope intercepts it while drilled into an
+    // album/artist and routes it through the same _back() the header's
+    // back arrow already uses, instead of popping the real screen.
+    return PopScope(
+      canPop: !isDrilledDown,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (isDrilledDown) _back();
+      },
+      child: _buildBody(context),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
     // Drill-down: album tracks
     if (_openAlbumId != null) return _buildTrackList(context, _openAlbumName ?? AppLocalizations.of(context)!.browseAlbumFallbackTitle, _albumLoading, _albumTracks);
     // Drill-down: artist top songs
@@ -1162,6 +1183,7 @@ class _BrowseTrackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isPlaying = context.select<PlayerProvider, bool>((p) => p.currentSong?.title == track.title && p.currentSong?.artist == track.artist);
+    final isActuallyPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
     return ListTile(
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(6),
@@ -1170,7 +1192,7 @@ class _BrowseTrackTile extends StatelessWidget {
       title: Text(track.title, style: TextStyle(color: isPlaying ? AurumTheme.gold : AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(track.artist, style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: isPlaying
-          ? Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 20)
+          ? AurumEqualizerBars(playing: isActuallyPlaying, color: AurumTheme.gold, size: 20)
           : Icon(Icons.play_circle_outline_rounded, color: AurumTheme.textMutedOf(context), size: 22),
       dense: true,
       onTap: onPlay,

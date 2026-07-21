@@ -11,6 +11,7 @@ import '../screens/full_player_screen.dart';
 import '../screens/artist_screen.dart';
 import 'aurum_artwork.dart';
 import 'aurum_like_button.dart';
+import 'aurum_equalizer_bars.dart';
 
 class SongTile extends StatefulWidget {
   final Song song;
@@ -94,6 +95,9 @@ class _SongTileState extends State<SongTile> {
     final isCurrentSong = context.select<PlayerProvider, bool>(
       (p) => p.currentSong?.id == widget.song.id,
     );
+    final isActuallyPlaying = context.select<PlayerProvider, bool>(
+      (p) => p.isPlaying,
+    );
 
     return InkWell(
       onTap: () => _handleTap(context),
@@ -107,7 +111,11 @@ class _SongTileState extends State<SongTile> {
               SizedBox(
                 width: 28,
                 child: isCurrentSong
-                    ? const Icon(Icons.equalizer_rounded, color: AurumTheme.gold, size: 18)
+                    ? AurumEqualizerBars(
+                        playing: isActuallyPlaying,
+                        color: AurumTheme.gold,
+                        size: 18,
+                      )
                     : Text(
                         '${widget.displayIndex ?? (widget.index ?? 0) + 1}',
                         style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),

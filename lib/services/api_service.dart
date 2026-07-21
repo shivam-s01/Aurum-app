@@ -550,9 +550,22 @@ class ApiService {
   }
 
   static Future<SongSection?> _saavnSectionV4(String query, String label) async {
-    // Fetch deep and wide — variants get filtered, so we need real headroom
-    // to still land 50-80 unique songs per section after dedup/filtering.
-    final saavnSongs = await _searchSaavnDeep(query, limit: 40);
+    // PERF FIX ("home sections load slowly"): this used to always call
+    // _searchSaavnDeep, which fires 3 parallel page requests (page 1+2+3)
+    // to the SAME backend host. With ~12-17 home sections all in flight at
+    // once (see fetchHomeStreaming's Future.wait), that's 35-50+
+    // simultaneous requests hitting one Render/CF instance — the shared
+    // backend queues/throttles under that load, so every section (not just
+    // one) waits longer than a single request's real round-trip time.
+    // Fix: try a single page first (still limit 40, still enough headroom
+    // for variant-filtering to leave a full section), and only pay for the
+    // extra page1+2+3 fan-out on the rare section where a single page came
+    // back thin. This cuts concurrent home-load requests to roughly one
+    // per section in the common case, instead of three.
+    var saavnSongs = await _searchSaavn(query, limit: 40);
+    if (saavnSongs.length < 15) {
+      saavnSongs = await _searchSaavnDeep(query, limit: 40);
+    }
     if (saavnSongs.isEmpty) return null;
     final seenIds    = <String>{};
     final seenTitles = <String>{};
@@ -651,7 +664,14 @@ class ApiService {
 
     int poolPicks = 0;
     for (final entry in shuffledPool) {
-      if (poolPicks >= 8) break;
+    // PERF ("home sections load slowly"): each section fans out into its
+    // own network call(s) (see _saavnSectionV4), and fetchHomeStreaming
+    // fires ALL sections in parallel via Future.wait. Mood(1) + artists(up
+    // to 4) + genres(up to 3) + recent(up to 3) + 8 pool picks could reach
+    // 15-19 simultaneous requests against one shared Saavn backend, which
+    // then queues/throttles under that concurrency, slowing every section
+    // down. Trimmed pool picks 8 -> 5 to cut peak concurrency.
+      if (poolPicks >= 5) break;
       if (queryList.any((q) => q.label == entry.label)) continue;
       queryList.add(_SectionQuery(entry.query, entry.label));
       poolPicks++;

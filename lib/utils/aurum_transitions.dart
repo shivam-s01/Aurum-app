@@ -1,6 +1,114 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import '../services/audio_prefs.dart';
 import 'aurum_motion.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _EdgeSwipeBack — Spotify-style left-edge swipe-to-go-back
+// • Only reacts to drags starting within a thin strip on the LEFT edge of
+//   the screen (Spotify's own back-swipe zone is similarly narrow — a full
+//   iOS-style "drag from anywhere" zone was explicitly ruled out).
+// • Drives the route's own transitionAnimation controller directly as the
+//   finger moves — 1px of drag = a precise fraction of the pop transition,
+//   not a separate fade layered on top — so lifting the finger partway
+//   through shows exactly the paused mid-transition frame, same as
+//   Spotify/iOS. On release: fling forward to complete the pop if the drag
+//   passed a threshold or had enough velocity, otherwise fling back to
+//   fully-open with the same curve.
+// • Reuses AurumMotion.standardReverse for the settle animations so a
+//   swipe-back still feels like the same motion language as a tap-back.
+// • Disabled automatically when it's the first route on the stack (nothing
+//   to pop to) or when "Back Animations" is off, in which case the plain
+//   OS back button / gesture still works via default Navigator behavior.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _EdgeSwipeBack extends StatefulWidget {
+  const _EdgeSwipeBack({
+    required this.animationController,
+    required this.child,
+  });
+
+  final AnimationController animationController;
+  final Widget child;
+
+  @override
+  State<_EdgeSwipeBack> createState() => _EdgeSwipeBackState();
+}
+
+class _EdgeSwipeBackState extends State<_EdgeSwipeBack> {
+  // Width of the draggable strip along the left edge, matching the narrow
+  // "just the edge" feel Spotify uses rather than a whole-screen drag zone.
+  static const double _edgeWidth = 24.0;
+  double? _dragStartX;
+  bool _dragging = false;
+
+  bool get _enabled =>
+      AudioPrefs.enableAnimationsNotifier.value && AudioPrefs.backAnimations;
+
+  void _onDragStart(DragStartDetails details) {
+    if (!_enabled) return;
+    if (details.globalPosition.dx > _edgeWidth) return;
+    if (!Navigator.of(context).canPop()) return;
+    _dragStartX = details.globalPosition.dx;
+    _dragging = true;
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    if (!_dragging) return;
+    final width = MediaQuery.of(context).size.width;
+    if (width <= 0) return;
+    // Controller runs 0 (fully pushed/visible) -> 1 (fully open, i.e. the
+    // route's "entered" state); popping animates it back toward 0. Convert
+    // horizontal drag distance directly into that same value so the
+    // transitionsBuilder (which already knows how to render any value of
+    // this controller) paints the exact right in-between frame per pixel.
+    final dragFraction = (details.globalPosition.dx - _dragStartX!) / width;
+    final newValue = (1.0 - dragFraction).clamp(0.0, 1.0);
+    widget.animationController.value = newValue;
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    if (!_dragging) return;
+    _dragging = false;
+    final navigator = Navigator.of(context);
+    final velocity = details.velocity.pixelsPerSecond.dx;
+    // Pop if the swipe carried past the halfway point OR was a fast enough
+    // flick even from a shorter drag — mirrors how forgiving Spotify's own
+    // gesture threshold feels rather than requiring a full deliberate drag.
+    final shouldPop = widget.animationController.value < 0.6 || velocity > 600;
+    if (shouldPop) {
+      widget.animationController
+          .animateBack(0.0,
+              duration: AurumMotion.short2, curve: AurumMotion.standardReverse)
+          .whenComplete(() {
+        if (navigator.canPop()) navigator.pop();
+      });
+    } else {
+      widget.animationController.animateTo(1.0,
+          duration: AurumMotion.short2, curve: AurumMotion.standard);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RawGestureDetector(
+      gestures: {
+        HorizontalDragGestureRecognizer:
+            GestureRecognizerFactoryWithHandlers<HorizontalDragGestureRecognizer>(
+          () => HorizontalDragGestureRecognizer(),
+          (instance) {
+            instance
+              ..onStart = _onDragStart
+              ..onUpdate = _onDragUpdate
+              ..onEnd = _onDragEnd;
+          },
+        ),
+      },
+      behavior: HitTestBehavior.translucent,
+      child: widget.child,
+    );
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AurumPageRoute — Premium page transition
@@ -20,6 +128,9 @@ import 'aurum_motion.dart';
 // • Respects Settings → Appearance → "Back Animations": when disabled,
 //   collapses to an instant cut (no slide/fade) instead of skipping the
 //   route entirely, so behavior stays correct even mid-toggle.
+// • Wrapped with _EdgeSwipeBack so a left-edge swipe drives this same
+//   transition frame-by-frame with the finger (Spotify-style), instead of
+//   only supporting a tap-back or the plain OS back gesture.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class AurumPageRoute<T> extends PageRouteBuilder<T> {
@@ -56,7 +167,7 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
               curve: AurumMotion.standard,
             );
 
-            return FadeTransition(
+            final content = FadeTransition(
               opacity: curved,
               child: SlideTransition(
                 position: Tween<Offset>(
@@ -71,8 +182,21 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
                 ),
               ),
             );
+
+            // The route's own AnimationController (ModalRoute.controller)
+            // drives `animation` above 1:1 — grabbing it here (rather than
+            // the proxy `animation` param, which isn't itself a settable
+            // AnimationController) is what lets _EdgeSwipeBack scrub the
+            // transition frame-by-frame as the finger drags.
+            final routeController = ModalRoute.of(context)?.controller;
+            if (routeController == null) return content;
+            return _EdgeSwipeBack(
+              animationController: routeController,
+              child: content,
+            );
           },
         );
+
 
   // "Enable Animations" (master) AND "Back Animations" must both be on.
   static bool _animsOn() =>
