@@ -54,6 +54,7 @@ import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
+import '../widgets/aurum_focus_field.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Library Root
@@ -1229,19 +1230,15 @@ class _CreatePlaylistDialog extends StatefulWidget {
 class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
   final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
-  // FIX: previously waited for the dialog route's AnimationStatus.completed
-  // before requesting focus, with a retry loop on top for any other cause
-  // of focus loss. That status doesn't reliably fire in every timing
-  // scenario, which meant the field could just never get focus at all.
-  // Plain autofocus is simpler and doesn't depend on route animation timing.
-  final _nameFocus = FocusNode();
+  // Keyboard-focus timing (autofocus-during-dialog-entrance-animation
+  // bug) is handled centrally by AurumFocusField now — see that file for
+  // the full history. Don't re-add a FocusNode/autofocus here directly.
   bool _creating = false;
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _descCtrl.dispose();
-    _nameFocus.dispose();
     super.dispose();
   }
 
@@ -1271,11 +1268,12 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _AurumTextField(
-            controller: _nameCtrl,
-            focusNode: _nameFocus,
-            autofocus: true,
-            label: l10n.libraryPlaylistNameLabel,
+          AurumFocusField(
+            builder: (focusNode) => _AurumTextField(
+              controller: _nameCtrl,
+              focusNode: focusNode,
+              label: l10n.libraryPlaylistNameLabel,
+            ),
           ),
           const SizedBox(height: 12),
           _AurumTextField(
@@ -1353,11 +1351,9 @@ class _RenamePlaylistDialog extends StatefulWidget {
 class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
   late TextEditingController _nameCtrl;
   late TextEditingController _descCtrl;
-  // FIX: same simplification as _CreatePlaylistDialog — plain autofocus
-  // instead of animation-status-gated focus requesting, which could leave
-  // the field permanently unfocused if the route's animation status never
-  // reported completed.
-  final _nameFocus = FocusNode();
+  // Keyboard-focus timing (autofocus-during-dialog-entrance-animation
+  // bug) is handled centrally by AurumFocusField now — see that file for
+  // the full history. Don't re-add a FocusNode/autofocus here directly.
 
   @override
   void initState() {
@@ -1370,7 +1366,6 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
   void dispose() {
     _nameCtrl.dispose();
     _descCtrl.dispose();
-    _nameFocus.dispose();
     super.dispose();
   }
 
@@ -1390,11 +1385,12 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _AurumTextField(
-            controller: _nameCtrl,
-            focusNode: _nameFocus,
-            autofocus: true,
-            label: l10n.libraryPlaylistNameLabel,
+          AurumFocusField(
+            builder: (focusNode) => _AurumTextField(
+              controller: _nameCtrl,
+              focusNode: focusNode,
+              label: l10n.libraryPlaylistNameLabel,
+            ),
           ),
           const SizedBox(height: 12),
           _AurumTextField(

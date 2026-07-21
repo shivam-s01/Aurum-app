@@ -7,6 +7,7 @@ import '../services/audio_prefs.dart';
 import '../services/recommendation_engine.dart';
 import '../providers/recently_played_provider.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../widgets/aurum_focus_field.dart';
 
 class SettingsPrivacyScreen extends StatefulWidget {
   const SettingsPrivacyScreen({super.key});
@@ -281,25 +282,11 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
   String _error = '';
   bool   _step2 = false;
 
-  // FIX: the previous approach gated the TextField behind
-  // IgnorePointer(ignoring: !_routeSettled), only lifting it once the
-  // enclosing route's animation hit AnimationStatus.completed. On a modal
-  // bottom sheet that status doesn't always fire the way a pushed route's
-  // does — so _routeSettled could stay false forever, permanently
-  // swallowing every tap on the field. That's the "keyboard won't open no
-  // matter what I do" symptom. A plain FocusNode + autofocus is the
-  // standard, reliable way to focus a field the instant a bottom sheet
-  // opens — no animation-status gating, no retry loop, nothing that can
-  // get permanently stuck.
-  final _pinFocus = FocusNode();
-
-  @override
-  void dispose() {
-    _step1Controller.dispose();
-    _step2Controller.dispose();
-    _pinFocus.dispose();
-    super.dispose();
-  }
+  // Keyboard-focus timing (autofocus-during-sheet-entrance-animation bug)
+  // is handled centrally by AurumFocusField — see that file for the full
+  // history. _step2 is passed as its refocusSignal so stepping from PIN
+  // entry to PIN confirmation re-requests focus on the new field without
+  // waiting on a route animation a second time.
 
   void _next(AppLocalizations l10n) {
     if (_step1Controller.text.length < 4) {
@@ -307,10 +294,13 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
       return;
     }
     setState(() { _step2 = true; _error = ''; });
-    // Refocus the now-visible step-2 field on the next frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _pinFocus.requestFocus();
-    });
+  }
+
+  @override
+  void dispose() {
+    _step1Controller.dispose();
+    _step2Controller.dispose();
+    super.dispose();
   }
 
   void _confirm(AppLocalizations l10n) {
@@ -358,31 +348,33 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
             style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
           ),
           const SizedBox(height: 20),
-          TextField(
-            controller: _step2 ? _step2Controller : _step1Controller,
-            focusNode: _pinFocus,
-            autofocus: true,
-            keyboardType: TextInputType.number,
-            obscureText: true,
-            maxLength: 4,
-            style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 24, letterSpacing: 12),
-            decoration: InputDecoration(
-              counterText: '',
-              hintText: '• • • •',
-              hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), letterSpacing: 12),
-              filled: true,
-              fillColor: AurumTheme.bgOf(context),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: AurumTheme.dividerOf(context)),
+          AurumFocusField(
+            refocusSignal: _step2,
+            builder: (focusNode) => TextField(
+              controller: _step2 ? _step2Controller : _step1Controller,
+              focusNode: focusNode,
+              keyboardType: TextInputType.number,
+              obscureText: true,
+              maxLength: 4,
+              style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 24, letterSpacing: 12),
+              decoration: InputDecoration(
+                counterText: '',
+                hintText: '• • • •',
+                hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), letterSpacing: 12),
+                filled: true,
+                fillColor: AurumTheme.bgOf(context),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AurumTheme.dividerOf(context)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AurumTheme.gold),
+                ),
+                errorText: _error.isEmpty ? null : _error,
               ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AurumTheme.gold),
-              ),
-              errorText: _error.isEmpty ? null : _error,
+              onSubmitted: (_) => _step2 ? _confirm(l10n) : _next(l10n),
             ),
-            onSubmitted: (_) => _step2 ? _confirm(l10n) : _next(l10n),
           ),
           const SizedBox(height: 16),
           Row(children: [

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/feedback_service.dart';
 import '../theme/aurum_theme.dart';
+import 'aurum_focus_field.dart';
 
 /// Shows the feedback dialog. Call this from either the auto-prompt
 /// (after 1-2 songs) or from a manual "Send Feedback" entry in
@@ -44,14 +45,10 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   bool _sending = false;
   bool _sent = false;
 
-  // FIX: previously gated behind IgnorePointer(ignoring: !_routeSettled),
-  // waiting for the showDialog route's AnimationStatus.completed before
-  // the field could be tapped at all. That status doesn't reliably fire
-  // on every device/timing combination, which could leave _routeSettled
-  // stuck false forever — permanently swallowing every tap on the field
-  // (keyboard never opens, no matter how many times you tap). A plain
-  // FocusNode with no animation gating is simpler and can't get stuck.
-  final _messageFocus = FocusNode();
+  // Keyboard-focus timing (autofocus-during-dialog-entrance-animation
+  // bug) is handled centrally by AurumFocusField now — see that file for
+  // the full history/explanation. Don't re-add a FocusNode/autofocus
+  // here directly.
 
   // Drives the icon's entrance "bubble pop" (overshoot scale-in) and its
   // slow idle breathing glow once settled — the small bit of motion that
@@ -64,7 +61,6 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   @override
   void dispose() {
     _controller.dispose();
-    _messageFocus.dispose();
     _iconCtrl.dispose();
     super.dispose();
   }
@@ -234,35 +230,36 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
           }),
         ),
         const SizedBox(height: 20),
-        TextField(
-          controller: _controller,
-          focusNode: _messageFocus,
-          autofocus: true,
-          maxLines: 3,
-          minLines: 2,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: InputDecoration(
-            hintText: 'Tell us what\'s on your mind (optional)',
-            hintStyle: TextStyle(
-              color: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.color
-                  ?.withValues(alpha: 0.4),
-              fontSize: 13,
+        AurumFocusField(
+          builder: (focusNode) => TextField(
+            controller: _controller,
+            focusNode: focusNode,
+            maxLines: 3,
+            minLines: 2,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              hintText: 'Tell us what\'s on your mind (optional)',
+              hintStyle: TextStyle(
+                color: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.color
+                    ?.withValues(alpha: 0.4),
+                fontSize: 13,
+              ),
+              filled: true,
+              fillColor: (Theme.of(context).brightness == Brightness.dark
+                      ? Colors.white
+                      : Colors.black)
+                  .withValues(alpha: 0.05),
+              contentPadding: const EdgeInsets.all(14),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none,
+              ),
             ),
-            filled: true,
-            fillColor: (Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white
-                    : Colors.black)
-                .withValues(alpha: 0.05),
-            contentPadding: const EdgeInsets.all(14),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
+            style: const TextStyle(fontSize: 14),
           ),
-          style: const TextStyle(fontSize: 14),
         ),
         const SizedBox(height: 20),
         SizedBox(
