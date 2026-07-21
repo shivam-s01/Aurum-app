@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/feedback_service.dart';
 import '../theme/aurum_theme.dart';
-import 'keyboard_flash_watchdog.dart';
 
 /// Shows the feedback dialog. Call this from either the auto-prompt
 /// (after 1-2 songs) or from a manual "Send Feedback" entry in
@@ -45,21 +44,14 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   bool _sending = false;
   bool _sent = false;
 
-  // BUGFIX: "keyboard opens then closes in ~0.2s" when tapping the
-  // feedback text field — same root cause already fixed for the
-  // playlist create/rename dialogs (see library_screen.dart): this
-  // dialog can be shown while its own showDialog route transition is
-  // still animating in (it's frequently triggered straight from a
-  // PlayerProvider listener mid-playback, with no guarantee the route
-  // has settled). A tap on the TextField during that window requests
-  // focus, but the still-completing route transition steals it back a
-  // frame later — reads exactly as the keyboard flashing open then
-  // slamming shut. A dedicated FocusNode that's only actually usable
-  // once the route's enter animation has completed removes the race.
+  // FIX: previously gated behind IgnorePointer(ignoring: !_routeSettled),
+  // waiting for the showDialog route's AnimationStatus.completed before
+  // the field could be tapped at all. That status doesn't reliably fire
+  // on every device/timing combination, which could leave _routeSettled
+  // stuck false forever — permanently swallowing every tap on the field
+  // (keyboard never opens, no matter how many times you tap). A plain
+  // FocusNode with no animation gating is simpler and can't get stuck.
   final _messageFocus = FocusNode();
-  bool _routeSettled = false;
-  KeyboardFlashWatchdog? _watchdog;
-  PersistentFocusRequester? _focusRequester;
 
   // Drives the icon's entrance "bubble pop" (overshoot scale-in) and its
   // slow idle breathing glow once settled — the small bit of motion that
@@ -70,45 +62,10 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   )..forward();
 
   @override
-  void initState() {
-    super.initState();
-    _watchdog = KeyboardFlashWatchdog(context: context, label: 'Feedback dialog');
-    _focusRequester = PersistentFocusRequester(focusNode: _messageFocus, label: 'Feedback dialog');
-    _messageFocus.addListener(() {
-      _watchdog?.onFocusChange(_messageFocus.hasFocus);
-      // This field isn't autofocused (IgnorePointer below blocks the tap
-      // until _routeSettled, then the user taps it themselves) — but once
-      // the user DOES tap it and gain focus, the same unexplained-loss
-      // race that hits the autofocused dialogs can still hit this one.
-      // Starting the requester here (rather than in initState) means it
-      // only engages after a real focus gain, not before the user has
-      // interacted at all.
-      if (_messageFocus.hasFocus) _focusRequester?.start();
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final route = ModalRoute.of(context);
-      final animation = route?.animation;
-      if (animation == null || animation.isCompleted) {
-        if (mounted) setState(() => _routeSettled = true);
-        return;
-      }
-      void listener(AnimationStatus status) {
-        if (status == AnimationStatus.completed) {
-          animation.removeStatusListener(listener);
-          if (mounted) setState(() => _routeSettled = true);
-        }
-      }
-      animation.addStatusListener(listener);
-    });
-  }
-
-  @override
   void dispose() {
     _controller.dispose();
-    _focusRequester?.stop();
     _messageFocus.dispose();
     _iconCtrl.dispose();
-    _watchdog?.dispose();
     super.dispose();
   }
 
@@ -277,42 +234,35 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
           }),
         ),
         const SizedBox(height: 20),
-        IgnorePointer(
-          // While the route is still animating in, block taps on the
-          // field entirely instead of reacting after the OS may have
-          // already started raising the keyboard — same fix pattern as
-          // _CreatePlaylistDialog/_RenamePlaylistDialog, applied here as
-          // a hard block rather than a reactive unfocus.
-          ignoring: !_routeSettled,
-          child: TextField(
-            controller: _controller,
-            focusNode: _messageFocus,
-            maxLines: 3,
-            minLines: 2,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: InputDecoration(
-              hintText: 'Tell us what\'s on your mind (optional)',
-              hintStyle: TextStyle(
-                color: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.color
-                    ?.withValues(alpha: 0.4),
-                fontSize: 13,
-              ),
-              filled: true,
-              fillColor: (Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white
-                      : Colors.black)
-                  .withValues(alpha: 0.05),
-              contentPadding: const EdgeInsets.all(14),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
+        TextField(
+          controller: _controller,
+          focusNode: _messageFocus,
+          autofocus: true,
+          maxLines: 3,
+          minLines: 2,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: InputDecoration(
+            hintText: 'Tell us what\'s on your mind (optional)',
+            hintStyle: TextStyle(
+              color: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.color
+                  ?.withValues(alpha: 0.4),
+              fontSize: 13,
             ),
-            style: const TextStyle(fontSize: 14),
+            filled: true,
+            fillColor: (Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white
+                    : Colors.black)
+                .withValues(alpha: 0.05),
+            contentPadding: const EdgeInsets.all(14),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
+            ),
           ),
+          style: const TextStyle(fontSize: 14),
         ),
         const SizedBox(height: 20),
         SizedBox(

@@ -54,7 +54,6 @@ import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
-import '../widgets/keyboard_flash_watchdog.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Library Root
@@ -1230,66 +1229,19 @@ class _CreatePlaylistDialog extends StatefulWidget {
 class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
   final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
-  // FIX (keyboard opens then closes instantly): this dialog is opened via
-  // Navigator.pop(ctx) [closing the add-to-playlist sheet] immediately
-  // followed by showDialog(...). Both routes' enter/exit transitions were
-  // running at the same time, and TextField's `autofocus: true` requested
-  // focus mid-transition — the still-tearing-down sheet route stole it
-  // back a frame later, which read as the keyboard opening for ~0.1s then
-  // slamming shut. A dedicated FocusNode + a post-frame, post-transition
-  // focus request (see initState) fixes this: we only ask for focus once
-  // this dialog's own route has actually finished animating in.
+  // FIX: previously waited for the dialog route's AnimationStatus.completed
+  // before requesting focus, with a retry loop on top for any other cause
+  // of focus loss. That status doesn't reliably fire in every timing
+  // scenario, which meant the field could just never get focus at all.
+  // Plain autofocus is simpler and doesn't depend on route animation timing.
   final _nameFocus = FocusNode();
   bool _creating = false;
-  KeyboardFlashWatchdog? _watchdog;
-  PersistentFocusRequester? _focusRequester;
-
-  @override
-  void initState() {
-    super.initState();
-    _watchdog = KeyboardFlashWatchdog(context: context, label: 'Create playlist dialog');
-    _nameFocus.addListener(() => _watchdog?.onFocusChange(_nameFocus.hasFocus));
-    _focusRequester = PersistentFocusRequester(focusNode: _nameFocus, label: 'Create playlist dialog');
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // FIX (real fix, not a timing guess): wait for THIS dialog route's
-      // own enter transition to actually finish (route.animation reaches
-      // AnimationStatus.completed) before requesting focus. A fixed delay
-      // (e.g. 220ms) is a guess — on a slower/busier frame (older device,
-      // background work, debug builds) the transition can still be running
-      // past that guess, so the still-animating route (or a still-closing
-      // previous route) steals focus back a frame later — keyboard flashes
-      // open then instantly shuts. Listening for the actual animation
-      // status removes the race entirely regardless of device speed.
-      //
-      // On top of that, PersistentFocusRequester (started below instead
-      // of a single requestFocus() call) also retries if focus is lost
-      // again shortly after — covering any OTHER cause of the same flash
-      // symptom beyond this specific route-animation race, since this
-      // exact bug kept resurfacing even with the animation-based guard
-      // alone.
-      final route = ModalRoute.of(context);
-      final animation = route?.animation;
-      if (animation == null || animation.isCompleted) {
-        if (mounted) _focusRequester?.start();
-        return;
-      }
-      void listener(AnimationStatus status) {
-        if (status == AnimationStatus.completed) {
-          animation.removeStatusListener(listener);
-          if (mounted) _focusRequester?.start();
-        }
-      }
-      animation.addStatusListener(listener);
-    });
-  }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _descCtrl.dispose();
-    _focusRequester?.stop();
     _nameFocus.dispose();
-    _watchdog?.dispose();
     super.dispose();
   }
 
@@ -1322,6 +1274,7 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
           _AurumTextField(
             controller: _nameCtrl,
             focusNode: _nameFocus,
+            autofocus: true,
             label: l10n.libraryPlaylistNameLabel,
           ),
           const SizedBox(height: 12),
@@ -1400,50 +1353,24 @@ class _RenamePlaylistDialog extends StatefulWidget {
 class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
   late TextEditingController _nameCtrl;
   late TextEditingController _descCtrl;
-  // FIX (keyboard opens then closes instantly): this dialog is opened via
-  // Navigator.pop(ctx) [closing the playlist options sheet] immediately
-  // followed by showDialog(...) — same race _CreatePlaylistDialog had.
-  // A dedicated FocusNode + a post-frame, post-transition focus request
-  // fixes it: we only ask for focus once this dialog's own route has
-  // actually finished animating in, instead of relying on autofocus,
-  // which fires mid-transition and gets its focus stolen back by the
-  // still-closing previous route a frame later.
+  // FIX: same simplification as _CreatePlaylistDialog — plain autofocus
+  // instead of animation-status-gated focus requesting, which could leave
+  // the field permanently unfocused if the route's animation status never
+  // reported completed.
   final _nameFocus = FocusNode();
-  KeyboardFlashWatchdog? _watchdog;
-  PersistentFocusRequester? _focusRequester;
 
   @override
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.playlist.name);
     _descCtrl = TextEditingController(text: widget.playlist.description);
-    _watchdog = KeyboardFlashWatchdog(context: context, label: 'Rename playlist dialog');
-    _nameFocus.addListener(() => _watchdog?.onFocusChange(_nameFocus.hasFocus));
-    _focusRequester = PersistentFocusRequester(focusNode: _nameFocus, label: 'Rename playlist dialog');
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final route = ModalRoute.of(context);
-      final animation = route?.animation;
-      if (animation == null || animation.isCompleted) {
-        if (mounted) _focusRequester?.start();
-        return;
-      }
-      void listener(AnimationStatus status) {
-        if (status == AnimationStatus.completed) {
-          animation.removeStatusListener(listener);
-          if (mounted) _focusRequester?.start();
-        }
-      }
-      animation.addStatusListener(listener);
-    });
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _descCtrl.dispose();
-    _focusRequester?.stop();
     _nameFocus.dispose();
-    _watchdog?.dispose();
     super.dispose();
   }
 
@@ -1466,6 +1393,7 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
           _AurumTextField(
             controller: _nameCtrl,
             focusNode: _nameFocus,
+            autofocus: true,
             label: l10n.libraryPlaylistNameLabel,
           ),
           const SizedBox(height: 12),
