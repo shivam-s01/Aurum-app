@@ -1298,19 +1298,127 @@ class _OnlineContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            section.title,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  section.title,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  final art = section.songs
+                      .where((s) => s.artworkUrl.isNotEmpty)
+                      .map((s) => s.artworkUrl)
+                      .firstOrNull ?? '';
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => MixScreen(
+                      mixId: section.id,
+                      mixName: section.title,
+                      artworkUrl: art,
+                      emoji: '🎵',
+                      songs: section.songs,
+                    ),
+                  ));
+                },
+                child: Text(
+                  'See all',
+                  style: TextStyle(
+                    color: AurumTheme.gold,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 14),
-          _MixSectionCard(section: section),
+          SizedBox(
+            height: 190,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 600,
+              padding: const EdgeInsets.only(right: 4),
+              itemCount: section.songs.length.clamp(0, 12),
+              itemBuilder: (_, i) => _SongGridCard(
+                song: section.songs[i],
+                queue: section.songs,
+                index: i,
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Song grid card — one square album-art card per SONG (not per section),
+// used for the horizontal genre/mood rows (Lofi Mix, 2000s Bollywood, Late
+// Night Chill etc). Restored to match the original premium layout: clean
+// square artwork, title + artist BELOW the art (not overlaid on top of it)
+// — this is what makes each row read as a real music-app shelf instead of
+// one oversized stretched poster per mix.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SongGridCard extends StatelessWidget {
+  final Song song;
+  final List<Song> queue;
+  final int index;
+  const _SongGridCard({required this.song, required this.queue, required this.index});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        context.read<PlayerProvider>().playSong(song, queue: queue, index: index);
+      },
+      child: Container(
+        width: 128,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AurumArtwork(url: song.artworkUrl, size: 256, borderRadius: 0),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              song.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              song.artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AurumTheme.textMutedOf(context),
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
