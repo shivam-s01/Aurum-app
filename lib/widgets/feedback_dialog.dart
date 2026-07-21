@@ -59,6 +59,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   final _messageFocus = FocusNode();
   bool _routeSettled = false;
   KeyboardFlashWatchdog? _watchdog;
+  PersistentFocusRequester? _focusRequester;
 
   // Drives the icon's entrance "bubble pop" (overshoot scale-in) and its
   // slow idle breathing glow once settled — the small bit of motion that
@@ -72,7 +73,18 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   void initState() {
     super.initState();
     _watchdog = KeyboardFlashWatchdog(context: context, label: 'Feedback dialog');
-    _messageFocus.addListener(() => _watchdog?.onFocusChange(_messageFocus.hasFocus));
+    _focusRequester = PersistentFocusRequester(focusNode: _messageFocus, label: 'Feedback dialog');
+    _messageFocus.addListener(() {
+      _watchdog?.onFocusChange(_messageFocus.hasFocus);
+      // This field isn't autofocused (IgnorePointer below blocks the tap
+      // until _routeSettled, then the user taps it themselves) — but once
+      // the user DOES tap it and gain focus, the same unexplained-loss
+      // race that hits the autofocused dialogs can still hit this one.
+      // Starting the requester here (rather than in initState) means it
+      // only engages after a real focus gain, not before the user has
+      // interacted at all.
+      if (_messageFocus.hasFocus) _focusRequester?.start();
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final route = ModalRoute.of(context);
       final animation = route?.animation;
@@ -93,6 +105,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
   @override
   void dispose() {
     _controller.dispose();
+    _focusRequester?.stop();
     _messageFocus.dispose();
     _iconCtrl.dispose();
     _watchdog?.dispose();

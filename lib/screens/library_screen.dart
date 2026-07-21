@@ -1242,12 +1242,14 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
   final _nameFocus = FocusNode();
   bool _creating = false;
   KeyboardFlashWatchdog? _watchdog;
+  PersistentFocusRequester? _focusRequester;
 
   @override
   void initState() {
     super.initState();
     _watchdog = KeyboardFlashWatchdog(context: context, label: 'Create playlist dialog');
     _nameFocus.addListener(() => _watchdog?.onFocusChange(_nameFocus.hasFocus));
+    _focusRequester = PersistentFocusRequester(focusNode: _nameFocus, label: 'Create playlist dialog');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // FIX (real fix, not a timing guess): wait for THIS dialog route's
       // own enter transition to actually finish (route.animation reaches
@@ -1258,16 +1260,23 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
       // previous route) steals focus back a frame later — keyboard flashes
       // open then instantly shuts. Listening for the actual animation
       // status removes the race entirely regardless of device speed.
+      //
+      // On top of that, PersistentFocusRequester (started below instead
+      // of a single requestFocus() call) also retries if focus is lost
+      // again shortly after — covering any OTHER cause of the same flash
+      // symptom beyond this specific route-animation race, since this
+      // exact bug kept resurfacing even with the animation-based guard
+      // alone.
       final route = ModalRoute.of(context);
       final animation = route?.animation;
       if (animation == null || animation.isCompleted) {
-        if (mounted) _nameFocus.requestFocus();
+        if (mounted) _focusRequester?.start();
         return;
       }
       void listener(AnimationStatus status) {
         if (status == AnimationStatus.completed) {
           animation.removeStatusListener(listener);
-          if (mounted) _nameFocus.requestFocus();
+          if (mounted) _focusRequester?.start();
         }
       }
       animation.addStatusListener(listener);
@@ -1278,6 +1287,7 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
   void dispose() {
     _nameCtrl.dispose();
     _descCtrl.dispose();
+    _focusRequester?.stop();
     _nameFocus.dispose();
     _watchdog?.dispose();
     super.dispose();
@@ -1400,6 +1410,7 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
   // still-closing previous route a frame later.
   final _nameFocus = FocusNode();
   KeyboardFlashWatchdog? _watchdog;
+  PersistentFocusRequester? _focusRequester;
 
   @override
   void initState() {
@@ -1408,17 +1419,18 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
     _descCtrl = TextEditingController(text: widget.playlist.description);
     _watchdog = KeyboardFlashWatchdog(context: context, label: 'Rename playlist dialog');
     _nameFocus.addListener(() => _watchdog?.onFocusChange(_nameFocus.hasFocus));
+    _focusRequester = PersistentFocusRequester(focusNode: _nameFocus, label: 'Rename playlist dialog');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final route = ModalRoute.of(context);
       final animation = route?.animation;
       if (animation == null || animation.isCompleted) {
-        if (mounted) _nameFocus.requestFocus();
+        if (mounted) _focusRequester?.start();
         return;
       }
       void listener(AnimationStatus status) {
         if (status == AnimationStatus.completed) {
           animation.removeStatusListener(listener);
-          if (mounted) _nameFocus.requestFocus();
+          if (mounted) _focusRequester?.start();
         }
       }
       animation.addStatusListener(listener);
@@ -1429,6 +1441,7 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
   void dispose() {
     _nameCtrl.dispose();
     _descCtrl.dispose();
+    _focusRequester?.stop();
     _nameFocus.dispose();
     _watchdog?.dispose();
     super.dispose();
@@ -1590,11 +1603,29 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                       requiresLoginOnly: true,
                       onAllowed: () {
                         Navigator.pop(ctx);
-                        showDialog(
-                          context: context,
-                          builder: (_) =>
-                              _CreatePlaylistDialog(initialSong: song),
-                        );
+                        // FIX (root cause of "playlist won't open / keyboard
+                        // doesn't open" when creating from this sheet):
+                        // popping this bottom sheet and immediately calling
+                        // showDialog ran both routes' enter/exit
+                        // transitions at the same time. _CreatePlaylistDialog
+                        // already waits for its OWN route animation to
+                        // complete before requesting focus, but that
+                        // detection is far more reliable when there isn't a
+                        // second route transition (this sheet closing)
+                        // simultaneously in flight on the same Navigator.
+                        // A post-frame callback (a real frame-boundary
+                        // guarantee, not a timing guess) lets the sheet's
+                        // pop fully register first, so the create dialog
+                        // opens into a calm navigator stack instead of a
+                        // mid-transition one.
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!context.mounted) return;
+                          showDialog(
+                            context: context,
+                            builder: (_) =>
+                                _CreatePlaylistDialog(initialSong: song),
+                          );
+                        });
                       },
                     );
                   },

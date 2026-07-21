@@ -2,6 +2,89 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../main.dart' show scaffoldMessengerKey;
 
+/// Root-cause-agnostic fix for the "keyboard opens then instantly closes"
+/// bug. The route-settle timing fixes elsewhere in this app (waiting for
+/// ModalRoute.animation to complete before requesting focus) address ONE
+/// specific cause of this symptom — but the same 0.1-0.3s flash-and-close
+/// pattern can also come from other sources this app doesn't fully
+/// control: a provider higher in the tree rebuilding the subtree a frame
+/// after focus is granted, an IME/OS-level focus race on certain device
+/// keyboards, or a still-settling parent transition that isn't the
+/// FocusNode's own ModalRoute. Chasing each of those individually is a
+/// losing game — this class instead makes the SYMPTOM impossible: if
+/// focus is lost unexpectedly shortly after being (re)gained, and nothing
+/// the user did explains it, it simply asks for focus again.
+///
+/// This does NOT fight a deliberate user action — tapping outside the
+/// field, pressing back, or the sheet/dialog actually closing all stop
+/// the retry loop immediately (see [stop] and the mounted/route checks
+/// below). It only refuses to accept an *unexplained* focus loss in the
+/// first ~2 seconds after the field should have keyboard focus.
+class PersistentFocusRequester {
+  PersistentFocusRequester({
+    required this.focusNode,
+    this.label = 'field',
+    this.maxRetries = 6,
+    this.retryInterval = const Duration(milliseconds: 120),
+  });
+
+  final FocusNode focusNode;
+  final String label;
+  final int maxRetries;
+  final Duration retryInterval;
+
+  bool _stopped = false;
+  int _attempts = 0;
+
+  /// Call once, after the field's own "safe to focus now" condition is
+  /// met (e.g. after the enclosing route's enter animation completes).
+  /// Requests focus, then watches for it being lost again too quickly —
+  /// if that happens and this requester hasn't been [stop]ped, it tries
+  /// again, up to [maxRetries] times.
+  void start() {
+    _stopped = false;
+    _attempts = 0;
+    _attemptFocus();
+  }
+
+  void _attemptFocus() {
+    if (_stopped || _attempts >= maxRetries) return;
+    _attempts++;
+    focusNode.requestFocus();
+    debugPrint('[PersistentFocus:$label] attempt $_attempts requesting focus');
+
+    // Check back shortly after: did focus actually stick? A genuine user
+    // interaction (tapping away, the field's screen closing) will have
+    // set _stopped=true by the time this runs, via stop(). If it hasn't,
+    // and focus somehow isn't held, this wasn't the user's doing — retry.
+    Future.delayed(retryInterval, () {
+      if (_stopped) return;
+      try {
+        if (!focusNode.hasFocus) {
+          debugPrint('[PersistentFocus:$label] focus did not stick after '
+              'attempt $_attempts — retrying');
+          _attemptFocus();
+        } else {
+          debugPrint('[PersistentFocus:$label] focus confirmed held after '
+              'attempt $_attempts — done');
+        }
+      } catch (e) {
+        // FocusNode was disposed between scheduling this check and it
+        // running (stop() should always precede dispose(), but this is a
+        // defensive guard against any future call site that doesn't).
+        debugPrint('[PersistentFocus:$label] focusNode disposed mid-check: $e');
+      }
+    });
+  }
+
+  /// Call when the user does something that should legitimately end the
+  /// focus attempt — the field's screen/dialog/sheet closing, or
+  /// disposal. Safe to call multiple times.
+  void stop() {
+    _stopped = true;
+  }
+}
+
 /// DEBUG-ONLY instrumentation for the "keyboard opens then instantly
 /// closes" bug (PIN sheet / feedback dialog / playlist create-rename
 /// dialogs).

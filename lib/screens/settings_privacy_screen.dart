@@ -70,6 +70,16 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      // FIX: same barrier-dismiss race as feedback_dialog.dart's
+      // showDialog (see that file's comment for the full mechanism) —
+      // isDismissible defaults to true, and when the keyboard rises it
+      // shrinks the viewport and relayouts this sheet's content, which
+      // can read as an outside tap and pop the sheet before the keyboard
+      // even finishes rising. The sheet already has its own back-swipe/
+      // handle-drag affordance and no outside-tap was ever load-bearing
+      // here, so disabling it removes the race entirely.
+      isDismissible: false,
+      enableDrag: true,
       backgroundColor: AurumTheme.bgCardOf(context),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -281,19 +291,21 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
   final _pinFocus = FocusNode();
   bool _routeSettled = false;
   KeyboardFlashWatchdog? _watchdog;
+  PersistentFocusRequester? _focusRequester;
 
   @override
   void initState() {
     super.initState();
     _watchdog = KeyboardFlashWatchdog(context: context, label: 'PIN sheet');
     _pinFocus.addListener(() => _watchdog?.onFocusChange(_pinFocus.hasFocus));
+    _focusRequester = PersistentFocusRequester(focusNode: _pinFocus, label: 'PIN sheet');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final route = ModalRoute.of(context);
       final animation = route?.animation;
       if (animation == null || animation.isCompleted) {
         if (mounted) {
           setState(() => _routeSettled = true);
-          _pinFocus.requestFocus();
+          _focusRequester?.start();
         }
         return;
       }
@@ -302,7 +314,7 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
           animation.removeStatusListener(listener);
           if (mounted) {
             setState(() => _routeSettled = true);
-            _pinFocus.requestFocus();
+            _focusRequester?.start();
           }
         }
       }
@@ -314,6 +326,7 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
   void dispose() {
     _step1Controller.dispose();
     _step2Controller.dispose();
+    _focusRequester?.stop();
     _pinFocus.dispose();
     _watchdog?.dispose();
     super.dispose();
@@ -328,7 +341,7 @@ class _PinSetupSheetState extends State<_PinSetupSheet> {
     // Route is already settled at this point (user had to tap "Next"),
     // so no race here — just refocus the now-visible step-2 field.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _pinFocus.requestFocus();
+      if (mounted) _focusRequester?.start();
     });
   }
 
