@@ -36,6 +36,12 @@ class RecentlyPlayedProvider extends ChangeNotifier {
 
   late Box<Map> _box;
   List<Song>    _history = [];
+  // Tracks when each song currently in _history was (re-)played, so disk
+  // order can be reconstructed independent of Hive's key iteration order.
+  // Only updated when a song is actually inserted/moved-to-front in
+  // _addPlay — never touched by trims or the diff-write in _persistHistory,
+  // so re-saving an unchanged entry doesn't shift its timestamp/position.
+  final Map<String, int> _playedAtById = {};
 
   // ---------------------------------------------------------------------------
   // PUBLIC GETTERS (unchanged)
@@ -50,11 +56,26 @@ class RecentlyPlayedProvider extends ChangeNotifier {
 
   Future<void> init() async {
     _box = await Hive.openBox<Map>(_boxName);
-    _history = _box.values
-        .map((m) => Song.fromJson(Map<String, dynamic>.from(m)))
-        .toList()
-        .reversed
-        .toList();
+    // ROOT FIX: ordering must not depend on Hive's internal key iteration
+    // order — that only reflects insertion order when every write is a
+    // full clear+rewrite-in-order, which the new diff-based persistence
+    // (see _addPlay below) deliberately avoids for crash-safety. Instead,
+    // each stored entry carries its own `_playedAt` timestamp (added at
+    // write time), and history order is reconstructed by sorting on that
+    // — correct regardless of what order Hive happens to iterate keys in.
+    final entries = _box.values.map((m) {
+      final map = Map<String, dynamic>.from(m);
+      final playedAtMs = map['_playedAt'] as int?;
+      return (
+        song: Song.fromJson(map),
+        playedAt: playedAtMs ?? 0,
+      );
+    }).toList()
+      ..sort((a, b) => b.playedAt.compareTo(a.playedAt));
+    _history = entries.map((e) => e.song).toList();
+    _playedAtById
+      ..clear()
+      ..addEntries(entries.map((e) => MapEntry(e.song.id, e.playedAt)));
 
     // Load RecommendationEngine data (no-op if already loaded)
     await RecommendationEngine.load();
@@ -121,6 +142,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
           );
 
     _history.insert(0, entry);
+    _playedAtById[entry.id] = DateTime.now().millisecondsSinceEpoch;
 
     // Settings → Player & Audio → "History Duration": slider 0–100 maps
     // to 10–200 songs. Default 50 = 100 songs.
@@ -131,17 +153,52 @@ class RecentlyPlayedProvider extends ChangeNotifier {
       _history = _history.sublist(0, maxHistory);
     }
 
-    // Persist to Hive (clear + rewrite for correct order)
-    await _box.clear();
-    for (final s in _history.reversed) {
-      await _box.put(s.id, s.toJson());
-    }
+    await _persistHistory();
 
     // ── NEW v2: Signal RecommendationEngine ──────────────────────────────────
     // Fire-and-forget — never blocks UI or playback
     RecommendationEngine.onSongStarted(song);
 
     notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
+  // ROOT FIX (history not saving reliably / Spotify-style discipline):
+  // the old approach did `_box.clear()` then looped `_box.put()` for every
+  // song in `_history`, purely to keep on-disk order matching the in-memory
+  // list. That has a real data-loss window: if the app process is killed
+  // (this app already has to defend against aggressive OEM background
+  // kills — see AurumAudioEngine/ColorOS autostart notes elsewhere in the
+  // codebase) at any point between `clear()` finishing and the rewrite loop
+  // completing, every entry not yet re-written is gone from disk
+  // permanently. From the user's side that reads as "history sometimes
+  // just doesn't save" even though the in-memory list was briefly correct
+  // right before the crash.
+  //
+  // Fix: never fully clear the box on a routine save.
+  //  1. Diff current on-disk keys against the current `_history` id set
+  //     and delete only the keys that genuinely dropped off (trimmed by
+  //     the history-length limit, or replaced by a de-duped move-to-front
+  //     — same song, same id, so it's a harmless overwrite either way).
+  //  2. Write every current entry keyed by song.id, with its tracked
+  //     `_playedAtById` timestamp embedded so ordering survives independent
+  //     of Hive's own key iteration order (see init()).
+  // At every point during this sequence, whatever is already on disk is a
+  // valid subset of the correct history — a kill mid-write can only ever
+  // lose the newest not-yet-written entries, never wipe everything that
+  // was already saved.
+  // ---------------------------------------------------------------------------
+  Future<void> _persistHistory() async {
+    final keepIds = _history.map((s) => s.id).toSet();
+    final staleKeys = _box.keys.where((k) => !keepIds.contains(k)).toList();
+    for (final key in staleKeys) {
+      await _box.delete(key);
+    }
+    for (final s in _history) {
+      final json = s.toJson();
+      json['_playedAt'] = _playedAtById[s.id] ?? DateTime.now().millisecondsSinceEpoch;
+      await _box.put(s.id, json);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -203,10 +260,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   Future<void> _trimToLimit(int limit) async {
     if (_history.length <= limit) return;
     _history = _history.sublist(0, limit);
-    await _box.clear();
-    for (final s in _history.reversed) {
-      await _box.put(s.id, s.toJson());
-    }
+    await _persistHistory();
     notifyListeners();
   }
 
@@ -221,6 +275,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
 
   Future<void> _clearHistory() async {
     _history.clear();
+    _playedAtById.clear();
     await _box.clear();
     notifyListeners();
   }

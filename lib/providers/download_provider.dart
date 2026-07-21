@@ -88,7 +88,21 @@ class DownloadProvider extends ChangeNotifier {
 
   Future<void> _persist(DownloadItem item) async {
     _items[item.song.id] = item;
-    await _box.put(item.song.id, item.toJson());
+    // RELIABILITY: if the Hive write itself fails (disk full, box
+    // corruption, rare OEM storage quirks), the in-memory `_items` map
+    // above has already moved on to the new state, but nothing was
+    // actually saved to disk — the next app launch would silently lose
+    // this update even though the UI showed it as successful in this
+    // session. Catch and log so this is at least visible in debug output
+    // instead of failing completely silently; the in-memory state still
+    // reflects the truth for the current session either way.
+    try {
+      await _box.put(item.song.id, item.toJson());
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Aurum] DownloadProvider: failed to persist ${item.song.id}: $e');
+      }
+    }
     notifyListeners();
   }
 
@@ -147,11 +161,20 @@ class DownloadProvider extends ChangeNotifier {
     // Show "queued" immediately so the UI reacts instantly, even while we
     // resolve the actual stream URL (YouTube songs don't carry one upfront).
     await _persist(DownloadItem(song: song, status: DownloadStatus.queued));
-    await NotificationService.instance.showProgress(
-      songId: song.id,
-      title: song.title,
-      percent: 0,
-    );
+    // Isolated: this runs before the try block below even starts, so an
+    // uncaught throw here would previously crash download() entirely
+    // before a single byte was ever requested.
+    try {
+      await NotificationService.instance.showProgress(
+        songId: song.id,
+        title: song.title,
+        percent: 0,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[Aurum] DownloadProvider: initial showProgress failed for ${song.id} (continuing anyway): $e');
+      }
+    }
 
     String? url = song.streamUrl;
     if (url == null || url.isEmpty || !url.startsWith('http')) {
@@ -181,10 +204,16 @@ class DownloadProvider extends ChangeNotifier {
 
     if (url == null || url.isEmpty) {
       await _persist(_items[song.id]!.copyWith(status: DownloadStatus.failed));
-      await NotificationService.instance.showFailed(
-        songId: song.id,
-        title: song.title,
-      );
+      try {
+        await NotificationService.instance.showFailed(
+          songId: song.id,
+          title: song.title,
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[Aurum] DownloadProvider: showFailed notification failed for ${song.id}: $e');
+        }
+      }
       return false;
     }
 
@@ -225,11 +254,22 @@ class DownloadProvider extends ChangeNotifier {
           // Only push a notification update every whole percent to avoid spam.
           if (percent != lastNotifiedPercent) {
             lastNotifiedPercent = percent;
-            await NotificationService.instance.showProgress(
-              songId: song.id,
-              title: song.title,
-              percent: percent,
-            );
+            // Same isolation as showCompleted() below: a notification
+            // platform-channel hiccup here must never be allowed to
+            // propagate up through Dio's onReceiveProgress and abort an
+            // otherwise-healthy file transfer that might be seconds from
+            // finishing successfully.
+            try {
+              await NotificationService.instance.showProgress(
+                songId: song.id,
+                title: song.title,
+                percent: percent,
+              );
+            } catch (e) {
+              if (kDebugMode) {
+                debugPrint('[Aurum] DownloadProvider: showProgress notification failed for ${song.id} at $percent% (transfer continues): $e');
+              }
+            }
           }
         },
       );
@@ -242,6 +282,27 @@ class DownloadProvider extends ChangeNotifier {
 
       final size = await finalFile.length();
 
+      // ROOT FIX ("download completes but doesn't save / disappears from
+      // the list"): showCompleted() below is a platform-channel call
+      // (flutter_local_notifications). On stricter OEM ROMs — including
+      // the same Realme/ColorOS class of device this app already works
+      // around elsewhere for background kills — a notification call can
+      // throw (permission not yet granted, channel not ready, OEM
+      // notification restrictions) even though the actual download
+      // finished perfectly and was already correctly persisted as
+      // `completed` just above. The old code called showCompleted()
+      // *inside* this same try block, so that throw fell into the catch
+      // clause below — which unconditionally overwrote the just-saved
+      // `completed` status back to `failed`. The song's file was still
+      // sitting on disk the whole time; only the saved Hive record (and
+      // therefore the Downloads list the user actually sees) got
+      // silently corrupted back to "failed" by a notification hiccup
+      // that had nothing to do with whether the download itself worked.
+      //
+      // Fix: persist `completed` and return true FIRST — the download is
+      // unambiguously done and saved at that point, full stop. The
+      // completion notification is then best-effort and isolated in its
+      // own try/catch that can never affect the already-saved status.
       await _persist(_items[song.id]!.copyWith(
         status: DownloadStatus.completed,
         progress: 1.0,
@@ -249,10 +310,16 @@ class DownloadProvider extends ChangeNotifier {
         fileSizeBytes: size,
       ));
 
-      await NotificationService.instance.showCompleted(
-        songId: song.id,
-        title: song.title,
-      );
+      try {
+        await NotificationService.instance.showCompleted(
+          songId: song.id,
+          title: song.title,
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[Aurum] DownloadProvider: showCompleted notification failed for ${song.id} (download itself succeeded and is saved): $e');
+        }
+      }
       return true;
     } catch (e) {
       // FIX (2026-07-02): clean up the orphaned partial file left behind on
@@ -268,14 +335,26 @@ class DownloadProvider extends ChangeNotifier {
 
       if (cancelToken.isCancelled) {
         await _persist(_items[song.id]!.copyWith(status: DownloadStatus.cancelled));
-        await NotificationService.instance.cancelProgress(song.id);
+        try {
+          await NotificationService.instance.cancelProgress(song.id);
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('[Aurum] DownloadProvider: cancelProgress notification failed for ${song.id}: $e');
+          }
+        }
         return false;
       } else {
         await _persist(_items[song.id]!.copyWith(status: DownloadStatus.failed));
-        await NotificationService.instance.showFailed(
-          songId: song.id,
-          title: song.title,
-        );
+        try {
+          await NotificationService.instance.showFailed(
+            songId: song.id,
+            title: song.title,
+          );
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('[Aurum] DownloadProvider: showFailed notification failed for ${song.id}: $e');
+          }
+        }
         return false;
       }
     } finally {
