@@ -1339,7 +1339,7 @@ class _OnlineContent extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           SizedBox(
-            height: 190,
+            height: 214,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
@@ -1381,39 +1381,42 @@ class _SongGridCard extends StatelessWidget {
         HapticFeedback.selectionClick();
         context.read<PlayerProvider>().playSong(song, queue: queue, index: index);
       },
-      child: Container(
-        width: 128,
-        margin: const EdgeInsets.only(right: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: AurumArtwork(url: song.artworkUrl, size: 256, borderRadius: 0),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              song.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AurumTheme.textPrimaryOf(context),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 12),
+        child: SizedBox(
+          width: 152,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AurumArtwork(url: song.artworkUrl, size: 152, borderRadius: 0),
               ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              song.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AurumTheme.textMutedOf(context),
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
+              const SizedBox(height: 8),
+              Text(
+                song.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 2),
+              Text(
+                song.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textMutedOf(context),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
