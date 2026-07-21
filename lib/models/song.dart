@@ -145,5 +145,17 @@ class Song {
 class SongSection {
   final String title;
   final List<Song> songs;
-  SongSection({required this.title, required this.songs});
+  // Stable identifier for this section — used by SavedMixesProvider/MixScreen
+  // to save/lookup a mix. Defaults to a slug of the title when not passed
+  // explicitly, so every existing SongSection(...) call site keeps compiling
+  // without having to be touched.
+  final String id;
+  SongSection({required this.title, required this.songs, String? id})
+      : id = id ?? _slugify(title);
+
+  static String _slugify(String title) => title
+      .toLowerCase()
+      .trim()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+      .replaceAll(RegExp(r'^_+|_+$'), '');
 }

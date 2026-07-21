@@ -33,6 +33,7 @@ import 'profile_screen.dart';
 import 'login_screen.dart';
 import 'full_player_screen.dart';
 import 'premium_screen.dart';
+import 'mix_screen.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
@@ -1213,141 +1214,35 @@ class _OnlineContent extends StatelessWidget {
     );
   }
 
+  // UPGRADE ("perfect Spotify jaisa, sb albums jaisa aaye"): this used to
+  // render each section as a horizontal scroll of individual _SongCards —
+  // one card per SONG, so a mix like "90s Bollywood" looked like a bare
+  // song list instead of a real playlist/album the way Spotify's "Popular
+  // albums and singles" / "Editor's Picks" rows do. Now each dynamic
+  // section renders as ONE poster-style album card representing the whole
+  // 60-80 song mix (see _MixSectionCard below) — tapping it opens the same
+  // full MixScreen used by the curated "Playlists for You" row, so movie
+  // albums (AlbumScreen) and algorithmic mixes (MixScreen) both feel like
+  // permanent, ekdam-premium pieces of content instead of a scrollable list.
   Widget _buildSection(BuildContext context, SongSection section) {
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Text(
-                  section.title,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-              AurumPressable(
-                scaleAmount: 0.92,
-                onTap: () => _showAllSongs(context, section),
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 12),
-                  child: Text(
-                    AppLocalizations.of(context)!.commonSeeAll,
-                    style: TextStyle(
-                      color: AurumTheme.gold.withOpacity(0.85),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          Text(
+            section.title,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.2,
+            ),
           ),
           const SizedBox(height: 14),
-          // Plain horizontal scroll — no edge fade overlays
-          SizedBox(
-            height: 190,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              // PERF: pre-builds/decodes ~2 screens worth of cards ahead
-              // in the scroll direction instead of Flutter's conservative
-              // 250px default — on a horizontal image carousel that
-              // meant artwork was still popping in/decoding right as it
-              // crossed into view during a fast swipe. Widening this so
-              // images are already ready before they're visible is what
-              // makes fast scrolling feel "lightweight" rather than
-              // stuttery, at the cost of a bit more memory while this
-              // list is on screen.
-              cacheExtent: 800,
-              // FIX — same issue as Trending Playlists above: last
-              // _SongCard only has its own `margin: right: 12` (meant
-              // for INTER-card spacing), so it cut flush against the
-              // screen's right edge with no matching inset to the 16px
-              // the first card gets from this section's outer Padding.
-              // +4px here brings the last card's total trailing space to
-              // 16px, matching the first card's leading inset exactly —
-              // a clean, consistent peek on both sides instead of an
-              // asymmetric hard cut.
-              padding: const EdgeInsets.only(right: 4),
-              itemCount: section.songs.length,
-              itemBuilder: (_, i) => _SongCard(
-                song: section.songs[i],
-                queue: section.songs,
-                index: i,
-              ),
-            ),
-          ),
+          _MixSectionCard(section: section),
         ],
-      ),
-    );
-  }
-
-  void _showAllSongs(BuildContext context, SongSection section) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AurumTheme.bgCardOf(context),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      isScrollControlled: true,
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.72,
-        maxChildSize: 0.93,
-        minChildSize: 0.4,
-        expand: false,
-        builder: (_, ctrl) => Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Column(children: [
-              Container(
-                width: 36, height: 4,
-                decoration: BoxDecoration(
-                  color: AurumTheme.dividerOf(context),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  section.title,
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ]),
-          ),
-          Divider(height: 1, color: AurumTheme.dividerOf(context)),
-          Expanded(
-            child: ListView.builder(
-              controller: ctrl,
-              physics: const BouncingScrollPhysics(),
-              // PERF: vertical song list — same fast-scroll pop-in fix
-              // as the horizontal carousels, tuned a bit larger since
-              // rows here are taller (full SongTile with artwork+text).
-              cacheExtent: 1000,
-              itemCount: section.songs.length,
-              itemBuilder: (ctx, i) => SongTile(
-                song: section.songs[i],
-                queue: section.songs,
-                index: i,
-              ),
-            ),
-          ),
-        ]),
       ),
     );
   }
@@ -1416,6 +1311,149 @@ class _StaggeredSectionState extends State<_StaggeredSection>
         child: SlideTransition(position: _slide, child: child),
       ),
       child: widget.child,
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mix section card — one poster-style album card per dynamic home section
+// (Made for You / mood / genre mixes from fetchHome), Spotify "Popular
+// albums and singles" style. Mirrors _PlaylistCard's visual language exactly
+// (same rounded corners, shadow, play-badge) so curated playlists and
+// algorithmic mixes look like one consistent product instead of two
+// different card styles bolted together.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _MixSectionCard extends StatefulWidget {
+  final SongSection section;
+  const _MixSectionCard({required this.section});
+
+  @override
+  State<_MixSectionCard> createState() => _MixSectionCardState();
+}
+
+class _MixSectionCardState extends State<_MixSectionCard> {
+  bool _pressed = false;
+
+  String get _artUrl {
+    final withArt = widget.section.songs.where((s) => s.artworkUrl.isNotEmpty);
+    return withArt.isNotEmpty ? withArt.first.artworkUrl : '';
+  }
+
+  void _open() {
+    HapticFeedback.selectionClick();
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => MixScreen(
+        mixId: widget.section.id,
+        mixName: widget.section.title,
+        artworkUrl: _artUrl,
+        emoji: '🎵',
+        songs: widget.section.songs,
+      ),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final section = widget.section;
+    final art = _artUrl;
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTap: _open,
+      child: AnimatedScale(
+        scale: _pressed ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        child: Container(
+          height: 190,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(
+                    Theme.of(context).brightness == Brightness.dark
+                        ? 0.35
+                        : 0.14),
+                blurRadius: 14,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              art.isNotEmpty
+                  ? AurumArtwork(url: art, size: 500, borderRadius: 0)
+                  : Container(color: AurumTheme.bgCardOf(context)),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.05),
+                      Colors.black.withOpacity(0.75),
+                    ],
+                    stops: const [0.35, 1.0],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 14,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      section.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${section.songs.length} songs',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.75),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AurumTheme.gold,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.play_arrow_rounded,
+                      color: Colors.black, size: 22),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1851,172 +1889,6 @@ class _SourceOptionState extends State<_SourceOption> {
               Icon(Icons.check_circle_rounded, size: 18, color: AurumTheme.gold),
           ]),
         ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Song Card — rounded corners + press scale animation
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _SongCard extends StatefulWidget {
-  final Song song;
-  final List<Song> queue;
-  final int index;
-  const _SongCard({required this.song, required this.queue, required this.index});
-
-  @override
-  State<_SongCard> createState() => _SongCardState();
-}
-
-class _SongCardState extends State<_SongCard>
-    with SingleTickerProviderStateMixin {
-  bool _isTapping = false;
-  late AnimationController _pressCtrl;
-  late Animation<double> _scale;
-
-  @override
-  void initState() {
-    super.initState();
-    _pressCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 120),
-      reverseDuration: const Duration(milliseconds: 180),
-    );
-    _scale = Tween(begin: 1.0, end: 0.97).animate(
-      CurvedAnimation(parent: _pressCtrl, curve: Curves.easeOut),
-    );
-  }
-
-  @override
-  void dispose() { _pressCtrl.dispose(); super.dispose(); }
-
-  Future<void> _handleTap() async {
-    if (_isTapping) return;
-    _isTapping = true;
-    unawaited(_pressCtrl.forward().then((_) => _pressCtrl.reverse()));
-    HapticFeedback.selectionClick();
-    // History save moved to PlayerProvider._onSongChanged — fires only
-    // once the native engine confirms this song actually started
-    // playing, instead of on every tap regardless of stream success.
-    context.read<PlayerProvider>()
-        .playSong(widget.song, queue: widget.queue, index: widget.index);
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (mounted) _isTapping = false;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final song = widget.song;
-    final isPlaying = context.select<PlayerProvider, bool>(
-        (p) => p.currentSong?.id == song.id);
-    final isActuallyPlaying = context.select<PlayerProvider, bool>(
-        (p) => p.isPlaying);
-
-    return GestureDetector(
-      onTap: _handleTap,
-      child: AnimatedBuilder(
-        animation: _scale,
-        builder: (_, child) =>
-            Transform.scale(scale: _scale.value, child: child),
-        child: Container(
-          width: 140,
-          margin: const EdgeInsets.only(right: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Artwork ──
-              // FIX: this artwork had ZERO shadow/elevation — a flat
-              // ClipRRect with nothing behind it, while every other card
-              // type in the app (playlist cards, the mini player capsule)
-              // carries a proper drop shadow for depth. That flatness is
-              // exactly what made the Afternoon Picks / Bollywood Mix rows
-              // read as a plain list instead of a designed, "paid app"
-              // product — subtle consistent elevation across every card
-              // type is one of the cheapest, highest-impact premium-feel
-              // fixes available here.
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(
-                          Theme.of(context).brightness == Brightness.dark
-                              ? 0.35
-                              : 0.14),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Stack(children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: AurumArtwork(
-                      url: song.artworkUrl, size: 140, borderRadius: 12),
-                ),
-                // Playing overlay
-                if (isPlaying)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      width: 140, height: 140,
-                      color: Colors.black.withOpacity(0.42),
-                      child: Center(
-                        child: AurumEqualizerBars(
-                          playing: isActuallyPlaying,
-                          color: AurumTheme.gold,
-                          size: 26,
-                        ),
-                      ),
-                    ),
-                  ),
-                // Gold border ring when playing
-                if (isPlaying)
-                  Container(
-                    width: 140, height: 140,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AurumTheme.gold.withOpacity(0.65),
-                        width: 1.5,
-                      ),
-                    ),
-                  ),
-                ]),
-              ),
-              // ── Title ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 8, 4, 2),
-                child: Text(
-                  song.title,
-                  style: TextStyle(
-                    color: isPlaying
-                        ? AurumTheme.gold
-                        : AurumTheme.textPrimaryOf(context),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              // ── Artist ──
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text(
-                  song.artist,
-                  style: TextStyle(
-                      color: AurumTheme.textSecondaryOf(context),
-                      fontSize: 11),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

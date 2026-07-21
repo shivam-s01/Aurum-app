@@ -114,6 +114,7 @@ class RecommendationEngine {
   static const _kGenreW    = 'aurum_rec_genre_w';
   static const _kLangW     = 'aurum_rec_lang_w';
   static const _kSession   = 'aurum_rec_session';
+  static const _kHomeShown = 'aurum_rec_home_shown';
 
   // ---------------------------------------------------------------------------
   // SECTION 2: IN-MEMORY STATE
@@ -127,6 +128,12 @@ class RecommendationEngine {
   static Map<String, double> _langW     = {};
   static _SessionState?      _session;
   static bool                _loaded    = false;
+  // Rolling window of song IDs already surfaced on the home feed (most
+  // recent last). Purely a "don't show again so soon" queue — separate
+  // from _plays (actual listens) and sessionRecentIds (played-in-session),
+  // since a song can be repeatedly shown as a home *card* without ever
+  // being tapped/played.
+  static List<String>        _homeShown = [];
 
   // Decay factor applied to affinity weights over time.
   // Prevents old listening habits from dominating new ones.
@@ -162,6 +169,13 @@ class RecommendationEngine {
       }
     }
 
+    try {
+      final raw = p.getStringList(_kHomeShown);
+      _homeShown = raw ?? [];
+    } catch (_) {
+      _homeShown = [];
+    }
+
     _loaded = true;
   }
 
@@ -176,6 +190,7 @@ class RecommendationEngine {
     _genreW.clear();
     _langW.clear();
     _session = null;
+    _homeShown.clear();
 
     final p = await SharedPreferences.getInstance();
     await p.remove(_kPlays);
@@ -186,6 +201,7 @@ class RecommendationEngine {
     await p.remove(_kGenreW);
     await p.remove(_kLangW);
     await p.remove(_kSession);
+    await p.remove(_kHomeShown);
   }
 
   static Map<String, int> _loadIntMap(SharedPreferences p, String key) {
@@ -1131,6 +1147,49 @@ class RecommendationEngine {
     if (hour >= 17 && hour < 21) return TimeSlot.evening;
     if (hour >= 21 && hour < 24) return TimeSlot.night;
     return TimeSlot.lateNight;
+  }
+
+  /// Song IDs shown on the home feed in the last [_homeShownWindow] refreshes'
+  /// worth of songs. Passed into fetchHome() so a fresh pull-to-refresh
+  /// actively avoids re-surfacing songs the user just saw a moment ago —
+  /// this is what stops the "same few songs ghoom ghoom kar aate hain"
+  /// (same handful of songs looping) complaint: search ranking alone always
+  /// returns the same top hits for a given query, so without this a query
+  /// like "arijit singh best songs" would show an identical top-60 on every
+  /// single refresh forever.
+  static Set<String> get recentHomeShownIds => _homeShown.toSet();
+
+  // How many of the most-recently-shown song IDs to actively avoid
+  // repeating. Wide enough to cover several refreshes' worth of a typical
+  // ~8-section, 60-80-song-per-section home feed without permanently
+  // blacklisting a song (it ages back out of the window eventually), but
+  // not so wide that a small catalog runs out of "fresh" songs to show.
+  static const int _homeShownWindow = 2400;
+
+  /// Records that these song IDs were just shown on the home feed, ready to
+  /// be excluded from the next refresh's dedup pass. Call once per
+  /// successful fetchHome() with every song id across all sections.
+  static Future<void> recordHomeShown(Iterable<String> ids) async {
+    if (!_loaded) await load();
+    _homeShown.addAll(ids);
+    // Keep only the most recent window — oldest entries fall off first,
+    // so a song only stays "avoided" for a while, not forever.
+    if (_homeShown.length > _homeShownWindow) {
+      _homeShown = _homeShown.sublist(_homeShown.length - _homeShownWindow);
+    }
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_kHomeShown, _homeShown);
+  }
+
+  /// Song IDs the user has played often (3+ times). Used by the home feed
+  /// to gently deprioritize songs they've already heard a lot in favor of
+  /// fresher picks — same idea as [sessionRecentIds] but based on lifetime
+  /// play count rather than just the current session, so a song you loved
+  /// last month doesn't keep hogging the top slot of every "Made for You"
+  /// mix forever.
+  static Set<String> get heavilyPlayedIds {
+    if (!_loaded) return {};
+    return _plays.entries.where((e) => e.value >= 3).map((e) => e.key).toSet();
   }
 
   /// IDs in the current session recent window. Used for queue dedup.

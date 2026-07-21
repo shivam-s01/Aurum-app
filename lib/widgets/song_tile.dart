@@ -9,6 +9,8 @@ import '../theme/aurum_theme.dart';
 import '../screens/library_screen.dart' show showAddToPlaylistSheet;
 import '../screens/full_player_screen.dart';
 import '../screens/artist_screen.dart';
+import '../screens/album_screen.dart';
+import '../services/api_service.dart';
 import 'aurum_artwork.dart';
 import 'aurum_like_button.dart';
 import 'aurum_equalizer_bars.dart';
@@ -420,10 +422,9 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                         },
                       )),
                   if (song.album.isNotEmpty)
-                    _ArtistChip(
-                      name: song.album,
-                      icon: Icons.album_rounded,
-                      onTap: null,
+                    _AlbumChip(
+                      albumName: song.album,
+                      rootContext: widget.rootContext,
                     ),
                 ],
               ),
@@ -487,6 +488,88 @@ class _GridOption extends StatelessWidget {
 }
 
 // ── Artist / Album chip ───────────────────────────────────────────────────────
+class _AlbumChip extends StatefulWidget {
+  final String albumName;
+  final BuildContext rootContext;
+  const _AlbumChip({required this.albumName, required this.rootContext});
+
+  @override
+  State<_AlbumChip> createState() => _AlbumChipState();
+}
+
+class _AlbumChipState extends State<_AlbumChip> {
+  bool _resolving = false;
+
+  Future<void> _open() async {
+    if (_resolving) return;
+    setState(() => _resolving = true);
+    try {
+      final albumId = await ApiService.searchAlbumByName(widget.albumName);
+      if (!mounted) return;
+      if (albumId == null || albumId.isEmpty) {
+        setState(() => _resolving = false);
+        ScaffoldMessenger.of(widget.rootContext).showSnackBar(SnackBar(
+          content: Text('Couldn\'t find "${widget.albumName}"'),
+          backgroundColor: AurumTheme.bgElevatedOf(widget.rootContext),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ));
+        return;
+      }
+      Navigator.pop(context);
+      Navigator.push(
+        widget.rootContext,
+        MaterialPageRoute(
+          builder: (_) => AlbumScreen(
+            albumId: albumId,
+            albumName: widget.albumName,
+            artworkUrl: '',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (mounted) setState(() => _resolving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _open,
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgSurfaceOf(context),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AurumTheme.dividerOf(context)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          _resolving
+              ? SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.6,
+                    color: AurumTheme.gold,
+                  ),
+                )
+              : Icon(Icons.album_rounded, size: 14, color: AurumTheme.gold),
+          const SizedBox(width: 6),
+          Text(
+            widget.albumName,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
 class _ArtistChip extends StatelessWidget {
   final String name;
   final IconData icon;

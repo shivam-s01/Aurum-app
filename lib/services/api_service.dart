@@ -419,7 +419,7 @@ class ApiService {
   // regional/non-Hindi content out even if a user's play history briefly
   // tips a genre weight (e.g. one Tamil song played by accident).
   static const Set<String> _homeEligibleGenres = {
-    'bollywood', 'devotional', 'lofi',
+    'bollywood', 'devotional', 'lofi', 'bhojpuri',
   };
 
   static List<String> _filterMainstream(List<String> artists) => artists
@@ -503,16 +503,47 @@ class ApiService {
       }
     }
 
+    // ANTI-REPETITION ("users jaisa songs jyda sune vaisa aaye, kuch hi
+    // songs baar baar gum gum kr aaye na"): raw Saavn search ranking always
+    // returns the same top hits for a given query, so without this every
+    // refresh of e.g. "Made for You · Arijit Singh" showed an identical
+    // top-60 forever — same few songs on repeat. Fix is a SOFT demotion,
+    // not a hard filter: songs shown very recently (recentHomeShownIds) or
+    // already heavily played (heavilyPlayedIds) get pushed toward the back
+    // of each section instead of removed outright, so smaller catalogs
+    // (Bhojpuri, devotional, etc) never come up short of the 60-80 target
+    // just because the freshest picks ran out — the user's favorites still
+    // appear, just not glued to position #1 on every single load.
+    final recentlyShown = RecommendationEngine.recentHomeShownIds;
+    final heavilyPlayed = RecommendationEngine.heavilyPlayedIds;
+    int freshnessRank(Song s) {
+      if (recentlyShown.contains(s.id)) return 2;
+      if (heavilyPlayed.contains(s.id)) return 1;
+      return 0;
+    }
+
     final globalSeenIds = <String>{};
     final seen = <String>{};
     final sections = <SongSection>[];
     for (final s in results.whereType<SongSection>()) {
       if (!seen.add(s.title)) continue;
-      final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
+      final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList()
+        // Stable sort — ties (equal freshness rank) keep the original
+        // relevance order from Saavn's own ranking; only the "seen
+        // recently" / "played a lot" songs actually move.
+        ..sort((a, b) => freshnessRank(a).compareTo(freshnessRank(b)));
       if (uniqueSongs.isNotEmpty) {
         sections.add(SongSection(title: s.title, songs: uniqueSongs));
       }
     }
+
+    // Fire-and-forget: record everything just shown so the NEXT refresh
+    // knows to push these toward the back in turn. Doesn't block returning
+    // the feed to the UI.
+    unawaited(RecommendationEngine.recordHomeShown(
+      sections.expand((s) => s.songs.map((song) => song.id)),
+    ));
+
     return sections;
   }
 
@@ -550,21 +581,45 @@ class ApiService {
   }
 
   static Future<SongSection?> _saavnSectionV4(String query, String label) async {
-    // PERF FIX ("home sections load slowly"): this used to always call
-    // _searchSaavnDeep, which fires 3 parallel page requests (page 1+2+3)
-    // to the SAME backend host. With ~12-17 home sections all in flight at
-    // once (see fetchHomeStreaming's Future.wait), that's 35-50+
-    // simultaneous requests hitting one Render/CF instance — the shared
-    // backend queues/throttles under that load, so every section (not just
-    // one) waits longer than a single request's real round-trip time.
-    // Fix: try a single page first (still limit 40, still enough headroom
-    // for variant-filtering to leave a full section), and only pay for the
-    // extra page1+2+3 fan-out on the rare section where a single page came
-    // back thin. This cuts concurrent home-load requests to roughly one
-    // per section in the common case, instead of three.
-    var saavnSongs = await _searchSaavn(query, limit: 40);
-    if (saavnSongs.length < 15) {
-      saavnSongs = await _searchSaavnDeep(query, limit: 40);
+    // UPGRADE ("YT se bhi low data aa raha hai" — sections were landing at
+    // 25-40 songs, well under the 60-80 target): the single-page attempt
+    // only asked for 40 and only escalated to the deep 3-page fetch when
+    // under 15 songs came back — but variant-filtering below routinely
+    // strips 30-50% of results (remixes/covers/duplicate titles), so a
+    // "successful" 25-35 song single page still passed the old <15 bar and
+    // never escalated, leaving the section stuck well short of even 60.
+    // Now: ask for 70 up front, and escalate to the deep multi-page fetch
+    // whenever the single page doesn't already clear the 80 target itself
+    // (very common, since raw search rarely returns 80 clean non-variant
+    // results in one page) — so the common case is actually the deep fetch,
+    // not the rare one, until real usage data says otherwise. This does
+    // mean more concurrent requests against the shared Saavn backend during
+    // a home refresh than the old single-page-first approach — if that
+    // reintroduces the "home loads slowly" problem, the fix is request
+    // batching/throttling here, not shrinking the fetch size back down.
+    var saavnSongs = await _searchSaavn(query, limit: 70);
+    if (saavnSongs.length < 80) {
+      final deep = await _searchSaavnDeep(query, limit: 70);
+      // Merge rather than replace — keep whatever the single page already
+      // found and add anything new the deeper fetch turned up, instead of
+      // discarding page 1's results outright.
+      final seenDeep = saavnSongs.map((s) => s.id).toSet();
+      saavnSongs = [
+        ...saavnSongs,
+        ...deep.where((s) => seenDeep.add(s.id)),
+      ];
+    }
+    // FALLBACK ("Saavn se na ho to YT se songs laao"): Saavn's free-tier
+    // backend occasionally goes fully dark (cold Render instance, rate
+    // limit, host down) — when BOTH the single-page and deep attempts come
+    // back completely empty, fall back to YouTube search for this query
+    // instead of silently dropping the whole section from the home feed.
+    // Reuses the same _searchYt() helper already used for per-song
+    // fallback elsewhere, so this doesn't add a second YT client/quota
+    // path. Only triggers on total Saavn failure, not partial/thin
+    // results, since Saavn is still the preferred source when it's up.
+    if (saavnSongs.isEmpty) {
+      saavnSongs = await _searchYt(query, limit: 70);
     }
     if (saavnSongs.isEmpty) return null;
     final seenIds    = <String>{};
@@ -700,13 +755,38 @@ class ApiService {
           ? _suggestionSection(sq.suggestionSongId!, sq.label)
           : _saavnSectionV4(sq.query, sq.label)),
     );
+
+    // ANTI-REPETITION ("kuch hi songs baar baar gum gum kr aaye na"): raw
+    // Saavn search ranking returns the same top hits for a given query every
+    // time, so without this, refreshing Home kept showing an identical
+    // top-N for e.g. "Made for You · Arijit Singh" forever. This SOFTLY
+    // pushes songs shown very recently (recentHomeShownIds) or already
+    // heavily played (heavilyPlayedIds) toward the back of each section
+    // instead of removing them outright — smaller catalogs (Bhojpuri,
+    // devotional, etc) still reliably hit the 60-80 target, favorites still
+    // show up, they just stop being glued to slot #1 on every single load.
+    final recentlyShown = RecommendationEngine.recentHomeShownIds;
+    final heavilyPlayed = RecommendationEngine.heavilyPlayedIds;
+    int freshnessRank(Song s) {
+      if (recentlyShown.contains(s.id)) return 2;
+      if (heavilyPlayed.contains(s.id)) return 1;
+      return 0;
+    }
+
+    final shownIds = <String>[];
     for (final s in allResults.whereType<SongSection>()) {
       if (!seenTitles.add(s.title)) continue;
-      final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
+      final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList()
+        ..sort((a, b) => freshnessRank(a).compareTo(freshnessRank(b)));
       if (uniqueSongs.isNotEmpty) {
+        shownIds.addAll(uniqueSongs.map((s) => s.id));
         onSection(SongSection(title: s.title, songs: uniqueSongs));
       }
     }
+
+    // Fire-and-forget: record everything just shown so the NEXT refresh
+    // pushes these toward the back in turn.
+    unawaited(RecommendationEngine.recordHomeShown(shownIds));
   }
 
   // ===========================================================================
@@ -864,6 +944,7 @@ class ApiService {
       'hiphop':     'Hip Hop Mix',   'english': 'English Mix',
       'lofi':       'Lofi Mix',      'devotional': 'Devotional',
       'tamil':      'Tamil Hits',    'telugu': 'Telugu Hits',
+      'bhojpuri':   'Bhojpuri Hits',
     };
     return labels[genre] ?? '$genre Mix';
   }
@@ -873,6 +954,7 @@ class ApiService {
       'hiphop':     'hindi rap hip hop hits','english': 'english pop hits songs',
       'lofi':       'lofi chill hindi songs','devotional': 'bhakti devotional songs',
       'tamil':      'tamil hits songs',      'telugu': 'telugu hits songs',
+      'bhojpuri':   'bhojpuri hit songs',
     };
     return queries[genre] ?? '$genre top songs';
   }
@@ -1373,12 +1455,30 @@ class ApiService {
   // ===========================================================================
   static Future<List<Song>> _searchYt(String query, {int limit = 15}) async {
     try {
-      final results = await Future.any<List<dynamic>>([
-        _yt.search.search(query).then((list) => list.toList()),
-        Future.delayed(const Duration(seconds: 6), () => <dynamic>[]),
+      final videos = <Video>[];
+      var page = await Future.any<dynamic>([
+        _yt.search.search(query),
+        Future.delayed(const Duration(seconds: 6), () => null),
       ]);
-      return results
-          .whereType<Video>()
+      // PAGINATION FIX ("ekdam properly 70-80 songs" from YT fallback):
+      // SearchClient.search() returns a SearchList holding only ~20 videos
+      // per page — passing limit:70 straight into .take(70) on a single
+      // page silently capped out around 20 regardless of what was asked
+      // for. SearchList.nextPage() fetches the next batch of ~20, so keep
+      // calling it until either the limit is met or YouTube stops
+      // returning further pages (nextPage() returns null at the end).
+      var pagesFetched = 0;
+      const maxPages = 6; // hard ceiling so a slow/odd query can't hang forever
+      while (page != null && videos.length < limit && pagesFetched < maxPages) {
+        videos.addAll(page.whereType<Video>());
+        pagesFetched++;
+        if (videos.length >= limit) break;
+        page = await Future.any<dynamic>([
+          page.nextPage(),
+          Future.delayed(const Duration(seconds: 6), () => null),
+        ]);
+      }
+      return videos
           .take(limit)
           .map(_songFromYtVideo)
           .where((s) => s.id.isNotEmpty)
@@ -2392,6 +2492,32 @@ class ApiService {
 
   /// Resolve an artist's Saavn ID from their display name (used when navigating
   /// from a song tile, where we only have the artist's name string).
+  /// Resolves a bare album NAME (all a Song carries — see song.dart, no
+  /// albumId field) to a real Saavn albumId, so AlbumScreen (which requires
+  /// a hard albumId to call fetchAlbumSongs) can be opened from a song's
+  /// "GO TO" album chip. Mirrors searchArtistByName exactly.
+  static Future<String?> searchAlbumByName(String name) async {
+    if (name.trim().isEmpty) return null;
+    final lower = name.trim().toLowerCase();
+    final path = '/api/search/albums?query=${Uri.encodeQueryComponent(name)}';
+
+    // Try Node-family hosts first, then Flask-family — whichever answers.
+    for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
+      final body = await _getFromHosts(hosts, path,
+          isValid: (b) => b['data']?['results'] is List &&
+              (b['data']['results'] as List).isNotEmpty);
+      if (body == null) continue;
+      final results = (body['data']['results'] as List);
+      final exact = results.firstWhere(
+        (r) => (r is Map ? (r['name'] ?? '') : '').toString().toLowerCase() == lower,
+        orElse: () => results.first,
+      );
+      if (exact is Map) return (exact['id'] ?? '').toString();
+    }
+    _log('[artist] searchAlbumByName: all hosts failed for "$name"');
+    return null;
+  }
+
   static Future<String?> searchArtistByName(String name) async {
     if (name.trim().isEmpty) return null;
     final lower = name.trim().toLowerCase();
