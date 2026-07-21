@@ -115,6 +115,14 @@ class RecommendationEngine {
   static const _kLangW     = 'aurum_rec_lang_w';
   static const _kSession   = 'aurum_rec_session';
   static const _kHomeShown = 'aurum_rec_home_shown';
+  // ── Recommendation Intelligence System extensions ──
+  // Additive only — existing keys/maps above are untouched, so anyone on
+  // an older build's saved prefs upgrades cleanly (missing keys just
+  // decode to empty maps via the same _loadIntMap/_loadDoubleMap helpers
+  // already used for everything else).
+  static const _kAlbumPlays  = 'aurum_rec_album_plays';
+  static const _kDecadeW     = 'aurum_rec_decade_w';
+  static const _kLastPlayed  = 'aurum_rec_last_played_at';
 
   // ---------------------------------------------------------------------------
   // SECTION 2: IN-MEMORY STATE
@@ -134,6 +142,13 @@ class RecommendationEngine {
   // since a song can be repeatedly shown as a home *card* without ever
   // being tapped/played.
   static List<String>        _homeShown = [];
+  // ── Recommendation Intelligence System extensions ──
+  static Map<String, int>    _albumPlays = {};   // album name -> play count
+  static Map<String, double> _decadeW    = {};   // "90s"/"2000s"/... -> affinity weight
+  // song id -> epoch ms of most recent play. Powers "Continue Listening"
+  // (played recently, not finished) and "Rediscover Favorites" (high
+  // affinity artist/genre but not played in a long while).
+  static Map<String, int>    _lastPlayedAt = {};
 
   // Decay factor applied to affinity weights over time.
   // Prevents old listening habits from dominating new ones.
@@ -155,6 +170,9 @@ class RecommendationEngine {
     _artistW   = _loadDoubleMap(p, _kArtistW);
     _genreW    = _loadDoubleMap(p, _kGenreW);
     _langW     = _loadDoubleMap(p, _kLangW);
+    _albumPlays   = _loadIntMap(p, _kAlbumPlays);
+    _decadeW      = _loadDoubleMap(p, _kDecadeW);
+    _lastPlayedAt = _loadIntMap(p, _kLastPlayed);
 
     final sessionJson = p.getString(_kSession);
     if (sessionJson != null) {
@@ -191,6 +209,9 @@ class RecommendationEngine {
     _langW.clear();
     _session = null;
     _homeShown.clear();
+    _albumPlays.clear();
+    _decadeW.clear();
+    _lastPlayedAt.clear();
 
     final p = await SharedPreferences.getInstance();
     await p.remove(_kPlays);
@@ -202,6 +223,9 @@ class RecommendationEngine {
     await p.remove(_kLangW);
     await p.remove(_kSession);
     await p.remove(_kHomeShown);
+    await p.remove(_kAlbumPlays);
+    await p.remove(_kDecadeW);
+    await p.remove(_kLastPlayed);
   }
 
   static Map<String, int> _loadIntMap(SharedPreferences p, String key) {
@@ -240,6 +264,7 @@ class RecommendationEngine {
 
     // Update play count
     _plays[song.id] = (_plays[song.id] ?? 0) + 1;
+    _lastPlayedAt[song.id] = DateTime.now().millisecondsSinceEpoch;
 
     // Light immediate signal — user chose to play this, so nudge affinity
     // right away instead of waiting for 80% completion. Small delta so a
@@ -266,6 +291,24 @@ class RecommendationEngine {
     _boostArtist(song.artist, delta: 0.15);
     _boostGenre(detectGenre(song), delta: 0.10);
     _boostLanguage(detectLanguage(song), delta: 0.08);
+
+    // Album + decade tracking (Recommendation Intelligence extensions).
+    // Same "only count real listens, not just taps" reasoning as the rest
+    // of this method — completion is the strongest available signal.
+    if (song.album.trim().isNotEmpty) {
+      // Lighter normalization than _normalizeKey on purpose: that helper
+      // strips ALL non-alphanumeric characters (spaces included), which
+      // is fine for artist/genre matching but would turn "Aashiqui 2" into
+      // "aashiqui2" — unusable both as a search query and as a display
+      // label for "Your Top Albums · <name>". Lowercase+trim is enough to
+      // dedupe near-identical casing without destroying the readable name.
+      final albumKey = song.album.trim().toLowerCase();
+      if (albumKey.isNotEmpty) {
+        _albumPlays[albumKey] = (_albumPlays[albumKey] ?? 0) + 1;
+      }
+    }
+    final decade = _songDecade(song);
+    if (decade != null) _boostDecade(decade, delta: 0.10);
 
     _saveAll();
   }
@@ -342,6 +385,11 @@ class RecommendationEngine {
   static void _boostLanguage(String lang, {required double delta}) {
     final current = _langW[lang] ?? 0.5;
     _langW[lang] = (current + delta).clamp(0.0, 1.0);
+  }
+
+  static void _boostDecade(String decade, {required double delta}) {
+    final current = _decadeW[decade] ?? 0.5;
+    _decadeW[decade] = (current + delta).clamp(0.0, 1.0);
   }
 
   // ---------------------------------------------------------------------------
@@ -1136,6 +1184,85 @@ class RecommendationEngine {
     return sorted.where((e) => e.value > 0.5).take(count).map((e) => e.key).toList();
   }
 
+  // ───────────────────────────────────────────────────────────────────────
+  // Recommendation Intelligence System — home-section-facing getters.
+  // All read-only, all O(n log n) at worst on maps that stay small (a few
+  // hundred entries even for a heavy listener), so calling these on every
+  // Home build is cheap — the actual network/recompute work they gate
+  // still only happens in HomeScreen's existing cache/refresh logic.
+  // ───────────────────────────────────────────────────────────────────────
+
+  /// Song IDs ordered by raw play count, most-played first. Backs "Your
+  /// Top Songs"-style logic and (combined with a title/artist lookup
+  /// elsewhere) the "Most Played" facet of listening history.
+  static List<String> topPlayedSongIds({int count = 20}) {
+    if (!_loaded) return [];
+    final sorted = _plays.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.take(count).map((e) => e.key).toList();
+  }
+
+  /// Album names (normalized keys) ordered by completed-play count,
+  /// most-played first. Backs "Your Top Albums".
+  static List<String> topAlbumsByPlays({int count = 10}) {
+    if (!_loaded) return [];
+    final sorted = _albumPlays.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.where((e) => e.value > 0).take(count).map((e) => e.key).toList();
+  }
+
+  /// Decades ("90s", "2000s", ...) by user affinity, strongest first.
+  /// Backs "Favorite Decades" and decade-locked query generation for
+  /// sections like "Because You Listened To 90s Bollywood".
+  static List<String> topAffinityDecades({int count = 2}) {
+    if (!_loaded) return [];
+    final sorted = _decadeW.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.where((e) => e.value > 0.5).take(count).map((e) => e.key).toList();
+  }
+
+  /// Song IDs played within the last [within] (default 48h) but not
+  /// necessarily completed — i.e. genuinely "in progress" listening,
+  /// most-recent first. Backs "Continue Listening".
+  static List<String> recentlyPlayedSongIds({
+    int count = 15,
+    Duration within = const Duration(hours: 48),
+  }) {
+    if (!_loaded) return [];
+    final cutoff = DateTime.now().subtract(within).millisecondsSinceEpoch;
+    final sorted = _lastPlayedAt.entries.where((e) => e.value >= cutoff).toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.take(count).map((e) => e.key).toList();
+  }
+
+  /// Song IDs with real listening signal (played at least twice, or ever
+  /// completed) that HAVEN'T been played in a long while (default 21
+  /// days). Backs "Rediscover Favorites" — old favorites resurfaced,
+  /// never a song with no real history behind it.
+  static List<String> rediscoverCandidateIds({
+    int count = 15,
+    Duration olderThan = const Duration(days: 21),
+  }) {
+    if (!_loaded) return [];
+    final cutoff = DateTime.now().subtract(olderThan).millisecondsSinceEpoch;
+    final candidates = _plays.entries
+        .where((e) => e.value >= 2 || (_completes[e.key] ?? 0) >= 1)
+        .map((e) => e.key)
+        .where((id) {
+          final last = _lastPlayedAt[id];
+          return last == null || last < cutoff;
+        })
+        .toList();
+    // Rank by how much genuine listening signal each song has (plays +
+    // 2x weight for completions), strongest favorites resurfaced first.
+    candidates.sort((a, b) {
+      final scoreA = (_plays[a] ?? 0) + 2 * (_completes[a] ?? 0);
+      final scoreB = (_plays[b] ?? 0) + 2 * (_completes[b] ?? 0);
+      return scoreB.compareTo(scoreA);
+    });
+    return candidates.take(count).toList();
+  }
+
   /// Current session mood (for home feed "mood mix" section labeling).
   static SessionMood? get currentMood => _session?.mood;
 
@@ -1277,6 +1404,9 @@ class RecommendationEngine {
       p.setString(_kArtistW,   jsonEncode(_artistW)),
       p.setString(_kGenreW,    jsonEncode(_genreW)),
       p.setString(_kLangW,     jsonEncode(_langW)),
+      p.setString(_kAlbumPlays, jsonEncode(_albumPlays)),
+      p.setString(_kDecadeW,    jsonEncode(_decadeW)),
+      p.setString(_kLastPlayed, jsonEncode(_lastPlayedAt)),
       if (_session != null)
         p.setString(_kSession, jsonEncode(_session!.toJson())),
     ]);

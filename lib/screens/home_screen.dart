@@ -14,6 +14,8 @@ import '../providers/source_provider.dart';
 import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../services/api_service.dart';
+import '../services/recommendation_engine.dart';
+import '../providers/download_provider.dart';
 import '../services/audio_prefs.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
@@ -52,21 +54,32 @@ class HomeScreen extends StatefulWidget {
 }
 
 // ── Curated playlists shown as Spotify/JioSaavn-style cards ──
-// Focused on current-era (2025/2026) Bollywood trending music instead of
-// generic mood buckets — these queries are written to surface recent
-// releases first on Saavn's search ranking (which favors recency +
-// popularity for these kinds of phrasing).
-// `id` is a stable, non-localized key used for routing logic (see
-// _fetchSongsForThisCard); `name` is the localized display label.
+// Each entry's `query` is deliberately genre/language-locked (not just
+// "top songs") so the songs actually inside the card match what its
+// title promises — e.g. "English Pop" must return English pop, not a
+// generic mixed bucket. `id` is a stable, non-localized key used for
+// routing/dedupe logic (see _fetchSongsForThisCard); `name` is the
+// display label. Names are plain strings (not l10n keys) — matching the
+// existing _PoolEntry pattern used by the dynamic home sections below —
+// so adding/renaming an editorial playlist never requires touching the
+// ARB translation files.
 List<_PlaylistMeta> _kCuratedPlaylists(AppLocalizations l10n) => [
-  _PlaylistMeta('trendingNow', l10n.homePlaylistTrendingNow, 'bollywood songs 2026', '🔥', const Color(0xFF8B1A1A)),
-  _PlaylistMeta('newReleases', l10n.homePlaylistNewReleases, 'new bollywood songs 2026', '🆕', const Color(0xFF1A3A8B)),
-  _PlaylistMeta('chartbusters2025', l10n.homePlaylistChartbusters2025, 'top bollywood songs 2025', '⭐', const Color(0xFF7B3F00)),
-  _PlaylistMeta('arijitSinghHits', l10n.homePlaylistArijitSinghHits, 'arijit singh new songs 2025', '🎤', const Color(0xFF3A2A00)),
-  _PlaylistMeta('romanticThisWeek', l10n.homePlaylistRomanticThisWeek, 'bollywood romantic songs 2025', '❤️', const Color(0xFF8B1A1A)),
-  _PlaylistMeta('partyAnthems', l10n.homePlaylistPartyAnthems, 'bollywood party songs 2025', '🎉', const Color(0xFF1A3A8B)),
-  _PlaylistMeta('freshBollywood', l10n.homePlaylistFreshBollywood, 'latest bollywood songs', '✨', const Color(0xFF2A1A00)),
-  _PlaylistMeta('movieBlockbusters', l10n.homePlaylistMovieBlockbusters, 'bollywood movie songs 2025 2026', '🎬', const Color(0xFF1A3A3A)),
+  _PlaylistMeta('90sBollywood', '90s Bollywood', '90s bollywood hit songs original', '📻', const Color(0xFF7B3F00)),
+  _PlaylistMeta('topHindiHits', 'Top Hindi Hits', 'top hindi songs 2025 2026', '🔥', const Color(0xFF8B1A1A)),
+  _PlaylistMeta('bollywoodLoveSongs', 'Bollywood Love Songs', 'bollywood love songs romantic hindi', '❤️', const Color(0xFF8B1A1A)),
+  _PlaylistMeta('newHindiReleases', 'New Hindi Releases', 'new hindi songs 2026 latest', '🆕', const Color(0xFF1A3A8B)),
+  _PlaylistMeta('bhojpuriHits', 'Bhojpuri Hits', 'bhojpuri hit songs', '🎪', const Color(0xFF7B3F00)),
+  _PlaylistMeta('punjabiPower', 'Punjabi Power', 'punjabi hit songs new', '💥', const Color(0xFF1A3A3A)),
+  _PlaylistMeta('tamilEssentials', 'Tamil Essentials', 'tamil hit songs', '🎶', const Color(0xFF2A1A00)),
+  _PlaylistMeta('teluguHits', 'Telugu Hits', 'telugu hit songs', '🎵', const Color(0xFF3A2A00)),
+  _PlaylistMeta('englishPop', 'English Pop', 'english pop songs hits', '🎧', const Color(0xFF1A3A8B)),
+  _PlaylistMeta('englishRock', 'English Rock', 'english rock songs classic', '🎸', const Color(0xFF2A1A1A)),
+  _PlaylistMeta('chillEvening', 'Chill Evening', 'chill hindi songs evening acoustic', '🌆', const Color(0xFF1A3A3A)),
+  _PlaylistMeta('lateNightVibes', 'Late Night Vibes', 'late night hindi songs slow', '🌙', const Color(0xFF1A1A3A)),
+  _PlaylistMeta('workoutMix', 'Workout Mix', 'workout gym songs energetic hindi english', '💪', const Color(0xFF7B3F00)),
+  _PlaylistMeta('partyHits', 'Party Hits', 'bollywood party songs dance', '🎉', const Color(0xFF8B1A1A)),
+  _PlaylistMeta('topIndia', 'Top India', 'top songs india 2026', '🇮🇳', const Color(0xFF1A3A8B)),
+  _PlaylistMeta('topGlobal', 'Top Global', 'top global english songs 2026', '🌍', const Color(0xFF2A1A3A)),
 ];
 
 class _PlaylistMeta {
@@ -161,6 +174,21 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {
       if (mounted) setState(() => _artistsLoading = false);
     }
+  }
+
+  // Recommendation Intelligence helper — RecommendationEngine only ever
+  // stores/returns song IDs (kept intentionally lightweight so its
+  // SharedPreferences footprint stays tiny even for a heavy listener), so
+  // Home resolves those IDs back to full Song objects (for art, title,
+  // artist, playback) from RecentlyPlayedProvider's own history, which
+  // already holds every song the engine could possibly reference here
+  // (Continue Listening / Rediscover Favorites only ever draw from songs
+  // the user has actually played). Order follows `ids` (the engine's own
+  // ranking), not `history`'s order.
+  List<Song> _songsForIds(List<Song> history, List<String> ids) {
+    if (ids.isEmpty) return [];
+    final byId = {for (final s in history) s.id: s};
+    return ids.map((id) => byId[id]).whereType<Song>().toList();
   }
 
   Future<void> _loadOnline() async {
@@ -281,8 +309,48 @@ class _HomeScreenState extends State<HomeScreen> {
                             key: const ValueKey('online'),
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // ── Continue Listening (Recommendation
+                              // Intelligence: RecommendationEngine's own
+                              // recency window, not just "last N played" —
+                              // a song completed days ago won't linger here
+                              // once RecommendationEngine.onSongCompleted's
+                              // 48h cutoff passes) ──
+                              _RecentlyPlayedSection(
+                                title: 'Continue Listening',
+                                songs: _songsForIds(
+                                  context.watch<RecentlyPlayedProvider>().history,
+                                  RecommendationEngine.recentlyPlayedSongIds(count: 12),
+                                ),
+                              ),
                               // ── Curated Playlists ──
                               _CuratedPlaylistsSection(refreshKey: _playlistRefreshKey),
+                              // ── Rediscover Favorites (Recommendation
+                              // Intelligence: real past favorites — songs
+                              // with genuine play/complete history — that
+                              // haven't come up in 21+ days, not a random
+                              // pick from history) ──
+                              _RecentlyPlayedSection(
+                                title: 'Rediscover Favorites',
+                                songs: _songsForIds(
+                                  context.watch<RecentlyPlayedProvider>().history,
+                                  RecommendationEngine.rediscoverCandidateIds(count: 12),
+                                ),
+                              ),
+                              // ── Recently Added (Recommendation
+                              // Intelligence: real download history —
+                              // there's no "date added to catalog" concept
+                              // for a streaming search backend, so this
+                              // uses the one genuine "added" timestamp
+                              // Aurum actually has: DownloadItem.addedAt) ──
+                              _RecentlyPlayedSection(
+                                title: 'Recently Added',
+                                songs: context
+                                    .watch<DownloadProvider>()
+                                    .completed
+                                    .take(12)
+                                    .map((d) => d.song)
+                                    .toList(),
+                              ),
                               // ── Premium upsell banner (free users only) ──
                               const _HomePremiumBanner(),
                               // ── Song sections ──
@@ -1894,6 +1962,90 @@ class _SourceOptionState extends State<_SourceOption> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Recently Played — square art tiles of the user's own play history, tap to
+// play directly (unlike every other row on this page, these are individual
+// songs, not a mix/album to open — so no MixScreen navigation here).
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _RecentlyPlayedSection extends StatelessWidget {
+  final String title;
+  final List<Song> songs;
+  const _RecentlyPlayedSection({required this.title, required this.songs});
+
+  @override
+  Widget build(BuildContext context) {
+    if (songs.isEmpty) return const SizedBox.shrink();
+    final player = context.read<PlayerProvider>();
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 168,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 600,
+              padding: const EdgeInsets.only(right: 4),
+              itemCount: songs.length,
+              itemBuilder: (_, i) => AurumPressable(
+                scaleAmount: 0.96,
+                onTap: () => player.playSong(songs[i], queue: songs, index: i),
+                child: Container(
+                  width: 130,
+                  margin: const EdgeInsets.only(right: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: AurumArtwork(
+                            url: songs[i].artworkUrl, size: 260, borderRadius: 12),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        songs[i].title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        songs[i].artist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AurumTheme.textSecondaryOf(context),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Artist Strip — 5-6 circular artist cards, random each hour
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2131,8 +2283,8 @@ class _PlaylistCardState extends State<_PlaylistCard> {
   // (fetchPlaylistSongs) — that variety is intentional and desired for
   // "Trending Now" / "Party Anthems" / etc, so only this one card's
   // fetch path changes.
-  Future<List<Song>> _fetchSongsForThisCard({int limit = 65}) {
-    if (widget.playlist.id == 'newReleases') {
+  Future<List<Song>> _fetchSongsForThisCard({int limit = 75}) {
+    if (widget.playlist.id == 'newHindiReleases') {
       return ApiService.fetchNewReleaseSongs(limit: limit);
     }
     return ApiService.fetchPlaylistSongs(widget.playlist.query, limit: limit);
@@ -2140,7 +2292,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
 
   Future<void> _loadArt() async {
     try {
-      final songs = await _fetchSongsForThisCard(limit: 65)
+      final songs = await _fetchSongsForThisCard(limit: 75)
           .timeout(const Duration(seconds: 12));
       if (!mounted) return;
       // Cache the fetched songs on the card itself (not globally) so
@@ -2193,7 +2345,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
       // Reuse the songs already fetched for the thumbnail when available —
       // same Saavn-first, variant-filtered set the user is about to see
       // art for. Only re-fetch if that hasn't resolved yet.
-      final songs = _cachedSongs ?? await _fetchSongsForThisCard(limit: 65);
+      final songs = _cachedSongs ?? await _fetchSongsForThisCard(limit: 75);
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       if (songs.isEmpty) return;
