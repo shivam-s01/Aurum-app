@@ -132,7 +132,8 @@ class _FadedHorizontalList extends StatelessWidget {
 }
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
+  final bool isActive;
+  const SearchScreen({super.key, this.isActive = true});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -178,31 +179,22 @@ class _SearchScreenState extends State<SearchScreen>
     // Ping Saavn backend the moment search opens — absorbs Render free-tier
     // cold-start delay before the user finishes typing their query.
     ApiService.wakeSaavn();
+    _applyActiveState();
   }
 
-  // FIX: SearchScreen sits in an IndexedStack — it's never disposed when the
-  // user switches tabs, just hidden. If the TextField had focus, that focus
-  // (and the keyboard) stays alive in the background. Any rebuild triggered
-  // by PlayerProvider (song change, position update) can cause Android to
-  // resurface the keyboard even on a completely different tab.
-  //
-  // didUpdateWidget fires every time the parent rebuilds this widget. When
-  // the search tab is no longer visible (user switched away), we drop focus
-  // immediately so there's nothing for Android to resurface.
-  //
-  // We detect visibility via ModalRoute.of(context)?.isCurrent — if the
-  // search tab is not the active tab, the route is not current and we unfocus.
+  // ROOT FIX (keyboard stuck closed after leaving the Search tab): see
+  // widget.isActive doc comment above. We react to real tab-visibility
+  // changes here instead of a ModalRoute check that is always true for
+  // this whole shell.
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // STRICT keyboard policy: when this screen is not the active tab,
-    // force-unfocus AND block any future focus requests on the node.
-    // canRequestFocus=false means even if PlayerProvider triggers a rebuild
-    // (song change, position update) the TextField can never auto-grab focus
-    // and resurface the keyboard. It's re-enabled only when user explicitly
-    // taps the search bar (onTap on the TextField container).
-    final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
-    if (!isCurrent) {
+  void didUpdateWidget(covariant SearchScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) return;
+    _applyActiveState();
+  }
+
+  void _applyActiveState() {
+    if (!widget.isActive) {
       if (_focusNode.hasFocus) _focusNode.unfocus();
       _focusNode.canRequestFocus = false;
       SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
@@ -673,6 +665,14 @@ class _SearchScreenState extends State<SearchScreen>
         child: TextField(
           controller: _controller,
           focusNode: _focusNode,
+          // SAFETY NET: force canRequestFocus back on and request focus
+          // whenever the user actually taps the field, regardless of what
+          // isActive-driven state thinks it should be. This is the direct
+          // fix for the keyboard never opening again after leaving the tab.
+          onTap: () {
+            if (!_focusNode.canRequestFocus) _focusNode.canRequestFocus = true;
+            if (!_focusNode.hasFocus) _focusNode.requestFocus();
+          },
           onChanged: _onChanged,
           onSubmitted: _search,
           style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500),

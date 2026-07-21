@@ -49,9 +49,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   // an IndexedStack tab, so it never inherits the persistent MiniPlayer/
   // nav bar chrome or interferes with the main queue's IndexedStack
   // state. _screens stays 3 items; _tab only ever indexes 0..2 here.
-  late final _screens = [
+  // NOTE: SearchScreen needs isActive rebuilt on every _tab change, so it
+  // can't be `late final` like before — it's rebuilt as a getter that
+  // reflects the current _tab so the search keyboard focus logic knows
+  // exactly when the Search tab is really visible (see search_screen.dart).
+  List<Widget> get _screens => [
     HomeScreen(key: _homeKey),
-    const SearchScreen(),
+    SearchScreen(isActive: _tab == 1),
     const LibraryScreen(),
   ];
 
