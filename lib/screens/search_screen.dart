@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../services/api_service.dart';
-import '../services/itunes_discovery_service.dart'; // ITUNES DISCOVERY — removable, see file header
 
 import '../services/browse_service.dart';
 import '../providers/player_provider.dart';
@@ -336,27 +335,7 @@ class _SearchScreenState extends State<SearchScreen>
     _saveToHistory(query);
     _debounce = Timer(const Duration(milliseconds: 150), () async {
       final results = await ApiService.search(query);
-      // ITUNES DISCOVERY — isolated, removable block. Fetches extra
-      // rich-metadata rows (proper artist/album/hi-res art) from iTunes
-      // and appends any that aren't already covered by the Saavn/YT
-      // results above. Playback for these rows still goes through
-      // Saavn/YT — see itunes_discovery_service.dart file header.
-      // To remove this feature: delete this try/catch block and the
-      // itunes_discovery_service.dart file.
-      var merged = results;
-      try {
-        final discovery = await ItunesDiscoveryService.search(query, limit: 15);
-        final seen = results
-            .map((s) => '${s.title.toLowerCase()}|${s.artist.toLowerCase()}')
-            .toSet();
-        final extra = discovery.where((s) =>
-            !seen.contains('${s.title.toLowerCase()}|${s.artist.toLowerCase()}'));
-        merged = [...results, ...extra];
-      } catch (_) {
-        // Discovery is purely additive — any failure here must never
-        // block or clear the already-working Saavn/YT results.
-      }
-      if (mounted) setState(() { _results = merged; _loading = false; });
+      if (mounted) setState(() { _results = results; _loading = false; });
     });
   }
 
