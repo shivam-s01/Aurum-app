@@ -16,7 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
 import '../providers/player_provider.dart';
-import '../providers/saved_mixes_provider.dart';
+import '../providers/followed_albums_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
@@ -142,16 +142,16 @@ class MixScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Consumer<SavedMixesProvider>(
-                    builder: (context, savedMixes, _) {
-                      final saved = savedMixes.isSaved(mixId);
+                  Consumer<FollowedAlbumsProvider>(
+                    builder: (context, followedAlbums, _) {
+                      final saved = followedAlbums.isFollowing(mixId);
                       return AurumSaveButton(
                         saved: saved,
-                        onTap: () => savedMixes.toggleSave(
-                          mixId: mixId,
+                        onTap: () => followedAlbums.toggleFollow(
+                          albumId: mixId,
                           name: mixName,
                           artworkUrl: artworkUrl,
-                          emoji: emoji,
+                          isMix: true,
                           songs: songs,
                         ),
                       );

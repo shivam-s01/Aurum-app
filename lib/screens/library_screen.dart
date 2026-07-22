@@ -54,6 +54,7 @@ import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
+import 'mix_screen.dart';
 import '../widgets/aurum_focus_field.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2541,13 +2542,29 @@ class _FollowedAlbumTile extends StatelessWidget {
     final id = (album['id'] ?? '').toString();
     final name = (album['name'] ?? '').toString();
     final artworkUrl = (album['artworkUrl'] ?? '').toString();
+    final isMix = album['isMix'] == true;
 
     return AurumPressable(
       onTap: () {
-        AurumPageRoute.to(
-          context,
-          AlbumScreen(albumId: id, albumName: name, artworkUrl: artworkUrl),
-        );
+        if (isMix) {
+          final songs =
+              context.read<FollowedAlbumsProvider>().songsFor(id);
+          AurumPageRoute.to(
+            context,
+            MixScreen(
+              mixId: id,
+              mixName: name,
+              artworkUrl: artworkUrl,
+              emoji: '🎵',
+              songs: songs,
+            ),
+          );
+        } else {
+          AurumPageRoute.to(
+            context,
+            AlbumScreen(albumId: id, albumName: name, artworkUrl: artworkUrl),
+          );
+        }
       },
       onLongPress: () {
         HapticFeedback.mediumImpact();

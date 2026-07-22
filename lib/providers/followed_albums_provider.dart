@@ -7,8 +7,10 @@
 // =============================================================================
 
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../models/song.dart';
 import '../services/sync_service.dart';
 
 class FollowedAlbumsProvider extends ChangeNotifier {
@@ -36,20 +38,48 @@ class FollowedAlbumsProvider extends ChangeNotifier {
     required String albumId,
     required String name,
     required String artworkUrl,
+    // Curated home-page mixes (Trending Now, 90s Bollywood, etc) don't have
+    // a real JioSaavn album id to re-fetch songs from later, so when saving
+    // one of these we snapshot its current song list instead. `isMix` flags
+    // the entry so AlbumScreen knows to skip fetchAlbumSongs and use the
+    // snapshot on reopen.
+    bool isMix = false,
+    List<Song> songs = const [],
   }) async {
     if (isFollowing(albumId)) {
       await _box.delete(albumId);
-      unawaited(SyncService.instance.pushUnfollowedAlbum(albumId));
+      if (!isMix) {
+        unawaited(SyncService.instance.pushUnfollowedAlbum(albumId));
+      }
     } else {
       final data = {
         'id': albumId,
         'name': name,
         'artworkUrl': artworkUrl,
+        'isMix': isMix,
+        if (isMix) 'songs': jsonEncode(songs.map((s) => s.toJson()).toList()),
       };
       await _box.put(albumId, data);
-      unawaited(SyncService.instance.pushFollowedAlbum(data));
+      if (!isMix) {
+        unawaited(SyncService.instance.pushFollowedAlbum(data));
+      }
     }
     notifyListeners();
+  }
+
+  /// Rehydrates the snapshotted song list for a saved mix entry.
+  /// Returns an empty list for real albums (those re-fetch by id instead).
+  List<Song> songsFor(String albumId) {
+    final raw = _box.get(albumId);
+    if (raw == null) return [];
+    final data = Map<String, dynamic>.from(raw);
+    if (data['isMix'] != true) return [];
+    final encoded = data['songs'];
+    if (encoded is! String) return [];
+    final list = (jsonDecode(encoded) as List?) ?? [];
+    return list
+        .map((j) => Song.fromJson(Map<String, dynamic>.from(j as Map)))
+        .toList();
   }
 
   /// Called by SyncService while pulling from Supabase — local write
