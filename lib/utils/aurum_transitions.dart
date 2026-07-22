@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import '../services/audio_prefs.dart';
+import '../theme/aurum_theme.dart';
 import 'aurum_motion.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -167,18 +168,21 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
               curve: AurumMotion.standard,
             );
 
-            final content = FadeTransition(
-              opacity: curved,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0.08, 0),
-                  end: Offset.zero,
-                ).animate(curved),
-                child: FadeTransition(
-                  opacity: Tween<double>(begin: 1.0, end: 0.96).animate(
-                    secondaryCurved,
+            final content = ColoredBox(
+              color: AurumTheme.bgOf(context),
+              child: FadeTransition(
+                opacity: curved,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.08, 0),
+                    end: Offset.zero,
+                  ).animate(curved),
+                  child: FadeTransition(
+                    opacity: Tween<double>(begin: 1.0, end: 0.96).animate(
+                      secondaryCurved,
+                    ),
+                    child: child,
                   ),
-                  child: child,
                 ),
               ),
             );
@@ -282,26 +286,29 @@ class AurumSlidePageRoute<T> extends PageRouteBuilder<T> {
               curve: AurumMotion.standard,
             );
 
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(1.0, 0),
-                end: Offset.zero,
-              ).animate(curved),
-              child: FadeTransition(
-                opacity: curved,
-                child: SlideTransition(
-                  // Outgoing screen drifts left ~6% and dims — a light
-                  // parallax cue that the new screen is arriving "on top",
-                  // not just cross-fading in place.
-                  position: Tween<Offset>(
-                    begin: Offset.zero,
-                    end: const Offset(-0.06, 0),
-                  ).animate(secondaryCurved),
-                  child: FadeTransition(
-                    opacity: Tween<double>(begin: 1.0, end: 0.92).animate(
-                      secondaryCurved,
+            return ColoredBox(
+              color: AurumTheme.bgOf(context),
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(1.0, 0),
+                  end: Offset.zero,
+                ).animate(curved),
+                child: FadeTransition(
+                  opacity: curved,
+                  child: SlideTransition(
+                    // Outgoing screen drifts left ~6% and dims — a light
+                    // parallax cue that the new screen is arriving "on top",
+                    // not just cross-fading in place.
+                    position: Tween<Offset>(
+                      begin: Offset.zero,
+                      end: const Offset(-0.06, 0),
+                    ).animate(secondaryCurved),
+                    child: FadeTransition(
+                      opacity: Tween<double>(begin: 1.0, end: 0.92).animate(
+                        secondaryCurved,
+                      ),
+                      child: child,
                     ),
-                    child: child,
                   ),
                 ),
               ),
