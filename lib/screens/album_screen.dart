@@ -22,6 +22,7 @@ import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_save_button.dart';
 import '../widgets/song_tile.dart';
 import 'artist_screen.dart';
+import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
 
 class AlbumScreen extends StatefulWidget {
@@ -702,6 +703,98 @@ class _ActionIcon extends StatelessWidget {
                   ? AurumTheme.gold
                   : AurumTheme.textSecondaryOf(context),
         ),
+      ),
+    );
+  }
+}
+
+/// Local copy of the icon-grid option tile used in the album options sheet.
+/// (song_tile.dart's _GridOption is private to that file, so this screen
+/// keeps its own equivalent rather than trying to reuse it.)
+class _GridOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _GridOption({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withOpacity(0.18), width: 0.8),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 19),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Local copy of the "GO TO" artist chip used in the album options sheet.
+/// (song_tile.dart's _ArtistChip is private to that file.)
+class _ArtistChip extends StatelessWidget {
+  final String name;
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  const _ArtistChip({
+    required this.name,
+    this.onTap,
+    this.icon = Icons.person_rounded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgSurfaceOf(context),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AurumTheme.dividerOf(context)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 14, color: AurumTheme.gold),
+          const SizedBox(width: 6),
+          Text(
+            name,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ]),
       ),
     );
   }
