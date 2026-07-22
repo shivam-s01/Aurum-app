@@ -2804,12 +2804,26 @@ class ApiService {
   static String _onrenderArtwork(Map<String, dynamic> j) {
     final imgField = j['image'];
     if (imgField is List && imgField.isNotEmpty) {
-      for (final entry in imgField.reversed) {
-        if (entry is Map && entry['url'] is String) {
-          final u = entry['url'] as String;
-          if (u.startsWith('http')) return u;
+      // saavn.dev / jiosaavn-op both return image as an array of
+      // {quality: "50x50"|"150x150"|"500x500", url: "..."} ordered small→large.
+      // Pick the entry with the largest declared quality instead of assuming
+      // the array's last element is always the biggest — future-proofs
+      // against a host ever adding a 1000x1000 tier ahead of 500x500.
+      Map? best;
+      int bestSize = -1;
+      for (final entry in imgField) {
+        if (entry is! Map || entry['url'] is! String) continue;
+        final u = entry['url'] as String;
+        if (!u.startsWith('http')) continue;
+        final q = (entry['quality'] ?? '').toString();
+        final match = RegExp(r'(\d+)x\d+').firstMatch(q);
+        final size = match != null ? int.parse(match.group(1)!) : 0;
+        if (size >= bestSize) {
+          bestSize = size;
+          best = entry;
         }
       }
+      if (best != null) return best['url'] as String;
     }
     if (imgField is String && imgField.startsWith('http')) {
       return imgField

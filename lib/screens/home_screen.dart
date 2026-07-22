@@ -14,6 +14,7 @@ import '../providers/source_provider.dart';
 import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../services/api_service.dart';
+import '../services/itunes_discovery_service.dart'; // ITUNES DISCOVERY — removable, see file header
 import '../services/recommendation_engine.dart';
 import '../providers/download_provider.dart';
 import '../services/audio_prefs.dart';
@@ -239,6 +240,26 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         },
       ).timeout(const Duration(seconds: 25));
+      // ITUNES DISCOVERY — isolated, removable block. Adds one extra
+      // "Discover" row sourced from iTunes for richer metadata/artwork.
+      // Purely additive: never blocks or replaces the Saavn/YT sections
+      // above, and playback for these songs still goes through Saavn/YT
+      // (see itunes_discovery_service.dart file header).
+      // To remove this feature: delete this try/catch block.
+      try {
+        final discoverySongs = await ItunesDiscoveryService.fetchByTerm(
+          topArtistsRotating.isNotEmpty ? topArtistsRotating.first : 'Trending Hits',
+          limit: 15,
+        );
+        if (mounted && discoverySongs.isNotEmpty) {
+          setState(() {
+            liveSections.add(SongSection(title: 'Discover', songs: discoverySongs));
+          });
+        }
+      } catch (_) {
+        // Discovery is purely additive — failure here must never affect
+        // the already-loaded/working sections above.
+      }
       if (mounted) {
         setState(() {
           _onlineLoading = false;
@@ -2206,16 +2227,28 @@ class _PlaylistCardState extends State<_PlaylistCard> {
   // (fetchPlaylistSongs) — that variety is intentional and desired for
   // "Trending Now" / "Party Anthems" / etc, so only this one card's
   // fetch path changes.
-  Future<List<Song>> _fetchSongsForThisCard({int limit = 75}) {
+  // ITUNES DISCOVERY — all "See All" category cards (90s Bollywood,
+  // English Pop, Punjabi Power, etc.) now source their 80-song lists from
+  // iTunes for richer metadata/artwork. fetchCategory() rotates its
+  // internal offset per query, so pull-to-refresh and reopening "See All"
+  // bring a genuinely different slice instead of the same songs each
+  // time. Playback is unaffected — resolveStreamUrl() still resolves
+  // every tapped song via Saavn-first/YT-fallback (see
+  // itunes_discovery_service.dart file header). "New Hindi Releases"
+  // keeps its existing newest-first Saavn behaviour since "freshest
+  // releases" is a Saavn-specific signal iTunes can't reliably replicate.
+  // To remove this feature: revert this method to
+  // `return ApiService.fetchPlaylistSongs(widget.playlist.query, limit: limit);`
+  Future<List<Song>> _fetchSongsForThisCard({int limit = 80}) {
     if (widget.playlist.id == 'newHindiReleases') {
       return ApiService.fetchNewReleaseSongs(limit: limit);
     }
-    return ApiService.fetchPlaylistSongs(widget.playlist.query, limit: limit);
+    return ItunesDiscoveryService.fetchCategory(widget.playlist.query, limit: limit);
   }
 
   Future<void> _loadArt() async {
     try {
-      final songs = await _fetchSongsForThisCard(limit: 75)
+      final songs = await _fetchSongsForThisCard(limit: 80)
           .timeout(const Duration(seconds: 12));
       if (!mounted) return;
       // Cache the fetched songs on the card itself (not globally) so
@@ -2268,7 +2301,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
       // Reuse the songs already fetched for the thumbnail when available —
       // same Saavn-first, variant-filtered set the user is about to see
       // art for. Only re-fetch if that hasn't resolved yet.
-      final songs = _cachedSongs ?? await _fetchSongsForThisCard(limit: 75);
+      final songs = _cachedSongs ?? await _fetchSongsForThisCard(limit: 80);
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       if (songs.isEmpty) return;
