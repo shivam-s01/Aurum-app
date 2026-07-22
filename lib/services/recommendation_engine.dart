@@ -681,11 +681,10 @@ class RecommendationEngine {
     r'reprise|mashup|tribute|remaster(?:ed)?|unplugged|acoustic version|'
     r'orchestra|choir|chillout|drill remix|female version|male version|'
     r'recreated|recreation|refix|redux|rework(?:ed)?|revamp(?:ed)?|'
-    r'lounge mix|jukebox|full song|lyric video|lyrics|'
-    r'official video|music video|audio|video song|full video|'
-    r'version|recreate|extended|edit|flip|bootleg|'
-    r'vibe|mood|chill mix|punjabi mix|hindi mix|tapori|dj |club mix|'
-    r'old is gold|the return|revisited|throwback mix|new version|'
+    r'lounge mix|jukebox|'
+    r'recreate|extended|flip|bootleg|'
+    r'chill mix|punjabi mix|hindi mix|tapori|dj |club mix|'
+    r'the return|revisited|throwback mix|new version|'
     r'ringtone|bgm|background music|type beat|'
     r'\d\.\d)\b',
     caseSensitive: false,

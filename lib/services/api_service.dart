@@ -378,33 +378,58 @@ class ApiService {
     _PoolEntry('kishore kumar hindi classics',                  'Kishore Kumar'),
     _PoolEntry('lata mangeshkar timeless songs',                'Lata Mangeshkar'),
     _PoolEntry('mohammed rafi golden hits',                     'Mohammed Rafi'),
+    _PoolEntry('a.r. rahman best songs',                        'A.R. Rahman'),
     _PoolEntry('rd burman classic bollywood songs',             'R.D. Burman Classics'),
+    // ── Trending / New / Discovery ──────────────────────────────────────────
+    _PoolEntry('trending hindi songs this week',                'Trending Now'),
+    _PoolEntry('new hindi songs 2026 latest',                    'New Releases'),
+    _PoolEntry('viral hindi songs reels',                        'Viral Hits'),
+    _PoolEntry('trending songs india',                           'Trending in India'),
+    _PoolEntry('new music hindi bollywood',                      'New Music'),
+    _PoolEntry('top charts bollywood songs',                     'Top Charts'),
+    _PoolEntry('hidden gems bollywood underrated songs',         'Discovery'),
+    _PoolEntry('top bollywood albums 2025 2026',                 'Top Albums'),
+    _PoolEntry('best bollywood playlists hits',                  'Top Playlists'),
     // ── Eras ──────────────────────────────────────────────────────────────
     _PoolEntry('90s bollywood superhits original',              '90s Bollywood'),
     _PoolEntry('2000s bollywood original songs',                '2000s Bollywood'),
     _PoolEntry('2010s bollywood hit songs',                     '2010s Bollywood'),
-    _PoolEntry('top bollywood songs 2025',                       'Best of 2025'),
-    _PoolEntry('new hindi songs 2026 latest',                    'Latest Releases'),
-    _PoolEntry('dhurandhar movie songs',                         'Dhurandhar'),
+    _PoolEntry('2020s bollywood hit songs',                     '2020s Hits'),
     _PoolEntry('old is gold hindi songs kishore kumar lata',     'Old Is Gold'),
+    _PoolEntry('retro bollywood hindi classics',                 'Retro'),
     // ── Mood & Occasion ───────────────────────────────────────────────────
-    _PoolEntry('romantic bollywood songs hindi',                 'Romantic Hits'),
-    _PoolEntry('sad hindi songs heartbreak',                     'Heartbreak'),
-    _PoolEntry('soulful hindi songs best playlist',              'Soulful Hindi'),
-    _PoolEntry('sufi qawwali hindi songs original',              'Sufi & Qawwali'),
-    _PoolEntry('ghazal jagjit singh mehdi hassan',               'Ghazals'),
-    _PoolEntry('bollywood party songs dance',                    'Party Anthems'),
-    _PoolEntry('feel good happy bollywood songs',                'Feel Good Hindi'),
-    _PoolEntry('late night hindi songs drive',                   'Late Night Drive'),
-    _PoolEntry('morning fresh hindi songs upbeat',                'Morning Fresh'),
+    _PoolEntry('romantic bollywood songs hindi',                 'Romance'),
+    _PoolEntry('sad hindi songs heartbreak',                     'Sad Songs'),
+    _PoolEntry('lofi chill hindi songs',                         'Chill'),
+    _PoolEntry('bollywood party songs dance',                    'Party'),
+    _PoolEntry('workout gym hindi motivation songs',              'Workout'),
     _PoolEntry('bhakti bhajan aarti original songs',              'Devotional'),
+    _PoolEntry('sufi qawwali hindi songs original',              'Sufi'),
+    _PoolEntry('ghazal jagjit singh mehdi hassan',               'Ghazals'),
+    _PoolEntry('feel good happy bollywood songs',                'Feel Good'),
+    _PoolEntry('late night hindi songs drive',                   'Late Night'),
+    _PoolEntry('road trip hindi songs playlist',                  'Road Trip'),
+    // ── Genres (regional) ────────────────────────────────────────────────
+    _PoolEntry('bollywood hits songs',                            'Bollywood'),
+    _PoolEntry('punjabi hits songs',                              'Punjabi'),
+    _PoolEntry('indie india hindi songs',                         'Indie India'),
+    _PoolEntry('hindi pop songs playlist',                        'Hindi Pop'),
+    _PoolEntry('tamil hits songs',                                'Tamil'),
+    _PoolEntry('telugu hits songs',                               'Telugu'),
+    _PoolEntry('marathi hit songs',                               'Marathi'),
+    _PoolEntry('bengali hit songs',                               'Bengali'),
+    _PoolEntry('bhojpuri hit songs',                              'Bhojpuri'),
+    _PoolEntry('gujarati hit songs',                              'Gujarati'),
+    _PoolEntry('malayalam hit songs',                             'Malayalam'),
+    _PoolEntry('kannada hit songs',                               'Kannada'),
   ];
 
 
-  // Whitelist of mainstream Bollywood/Hindi playback artists eligible for
-  // "Made for You" personalization. Prevents obscure/regional names that
-  // happen to accumulate affinity weight (e.g. from one stray play) from
-  // ever surfacing as a home section — keeps the feed premium and curated.
+  // Whitelist of mainstream playback artists eligible for "Made for You"
+  // personalization. Prevents obscure names that happen to accumulate
+  // affinity weight (e.g. from one stray play) from ever surfacing as a
+  // home section — keeps the feed premium and curated. 15+ names so the
+  // rotating artist section always has real breadth to pick from.
   static const Set<String> _mainstreamArtists = {
     'arijit singh', 'atif aslam', 'jubin nautiyal', 'shreya ghoshal',
     'armaan malik', 'sonu nigam', 'kk', 'kishore kumar', 'lata mangeshkar',
@@ -415,11 +440,47 @@ class ApiService {
     'a.r. rahman', 'ar rahman', 'pritam', 'vishal-shekhar', 'amit trivedi',
   };
 
-  // Genres eligible for automatic home-feed injection via affinity. Keeps
-  // regional/non-Hindi content out even if a user's play history briefly
-  // tips a genre weight (e.g. one Tamil song played by accident).
+  // Genres eligible for automatic home-feed injection via affinity. Widened
+  // to cover every regional language the app now surfaces — home should
+  // follow whatever the user actually searches/plays (Bhojpuri, Tamil,
+  // English, etc.), not just a fixed Bollywood-only whitelist.
   static const Set<String> _homeEligibleGenres = {
-    'bollywood', 'devotional', 'lofi',
+    'bollywood', 'devotional', 'lofi', 'punjabi', 'bhojpuri', 'tamil',
+    'telugu', 'english', 'hiphop',
+  };
+
+  // Languages eligible for affinity-driven home injection — mirrors
+  // detectLanguage()'s output set. Drives the "user's actual listening
+  // language shows up on home" behavior via topAffinityLanguages().
+  static const Set<String> _homeEligibleLanguages = {
+    'hindi', 'punjabi', 'english', 'tamil', 'telugu', 'bengali',
+    'marathi', 'gujarati', 'malayalam', 'bhojpuri',
+  };
+
+  static const Map<String, String> _languageQueryMap = {
+    'punjabi':   'punjabi hits songs',
+    'english':   'english pop hits songs',
+    'tamil':     'tamil hits songs',
+    'telugu':    'telugu hits songs',
+    'bengali':   'bengali hit songs',
+    'marathi':   'marathi hit songs',
+    'gujarati':  'gujarati hit songs',
+    'malayalam': 'malayalam hit songs',
+    'bhojpuri':  'bhojpuri hit songs',
+    'hindi':     'bollywood hits songs',
+  };
+
+  static const Map<String, String> _languageLabelMap = {
+    'punjabi':   'Punjabi',
+    'english':   'English',
+    'tamil':     'Tamil',
+    'telugu':    'Telugu',
+    'bengali':   'Bengali',
+    'marathi':   'Marathi',
+    'gujarati':  'Gujarati',
+    'malayalam': 'Malayalam',
+    'bhojpuri':  'Bhojpuri',
+    'hindi':     'Hindi',
   };
 
   static List<String> _filterMainstream(List<String> artists) => artists
@@ -444,6 +505,13 @@ class ApiService {
     final topGenres = _filterHomeGenres(
       RecommendationEngine.rotatingAffinityGenres(count: 3, seed: refreshSalt ^ 0x9E3779B9),
     );
+    // User's actual listening languages (from real plays via onSongStarted/
+    // detectLanguage) — this is what makes home follow "jaisa user search
+    // karke sune vaisa aaye": if someone actually plays Bhojpuri/Tamil/
+    // English songs, that affinity weight rises and shows up here.
+    final topLanguages = RecommendationEngine.topAffinityLanguages(count: 2)
+        .where((l) => _homeEligibleLanguages.contains(l))
+        .toList();
 
     final slot = RecommendationEngine.currentTimeSlot();
     final timeMoodQuery = _timeMoodQuery(slot);
@@ -456,6 +524,13 @@ class ApiService {
     }
     for (final genre in topGenres) {
       queryList.add(_SectionQuery(_genreMixQuery(genre), _genreMixLabel(genre), priority: true));
+    }
+    for (final lang in topLanguages) {
+      final q = _languageQueryMap[lang];
+      final lbl = _languageLabelMap[lang];
+      if (q == null || lbl == null) continue;
+      if (queryList.any((sq) => sq.label == lbl)) continue;
+      queryList.add(_SectionQuery(q, lbl, priority: true));
     }
     // ── "Because You Played" — Saavn suggestions from recent history ──────
     final recentOnline = recentlyPlayed
@@ -470,20 +545,21 @@ class ApiService {
       }
     }
 
+    // Randomized total section count (7-10) per refresh, per explicit
+    // request ("kabhi 7 kabhi 8 aaye") instead of a fixed pool-pick count.
+    final targetTotal = 7 + math.Random(refreshSalt ^ 0x51ED270B).nextInt(4); // 7..10
     int poolPicks = 0;
     for (final entry in shuffledPool) {
-      if (poolPicks >= 8) break;
+      if (queryList.length >= targetTotal) break;
       if (queryList.any((q) => q.label == entry.label)) continue;
       queryList.add(_SectionQuery(entry.query, entry.label));
       poolPicks++;
     }
-    if (personalArtists.isEmpty && topGenres.isEmpty && recentOnline.isEmpty) {
-      int extra = 0;
+    if (personalArtists.isEmpty && topGenres.isEmpty && topLanguages.isEmpty && recentOnline.isEmpty) {
       for (final entry in shuffledPool.reversed) {
-        if (extra >= 3) break;
+        if (queryList.length >= targetTotal) break;
         if (!queryList.any((q) => q.label == entry.label)) {
           queryList.add(_SectionQuery(entry.query, entry.label));
-          extra++;
         }
       }
     }
@@ -531,88 +607,85 @@ class ApiService {
     // consistently landing only ~25-30 survivors — nowhere near the 50-80
     // the code above claimed to target. Bumped to 4 pages so there's real
     // headroom for that filtering to still leave a full-looking section.
-    final results = await Future.wait([
-      _fetchSaavnPage(
-        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
-        limit,
-      ),
-      _fetchSaavnPage(
-        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=2',
-        limit,
-      ).catchError((_) => <Song>[]),
-      _fetchSaavnPage(
-        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=3',
-        limit,
-      ).catchError((_) => <Song>[]),
-      _fetchSaavnPage(
-        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=4',
-        limit,
-      ).catchError((_) => <Song>[]),
-    ]);
-    final page1 = results[0];
-    if (page1.isEmpty) return _searchSaavn(query, limit: limit);
+    //
+    // FIX (rotation): a given query's Saavn pages are STABLE — page 1 today
+    // is page 1 tomorrow. Always fetching pages 1-4 meant every "refresh"
+    // just re-shuffled the display order of the exact same ~200 songs,
+    // which is why sections looked like they never actually changed.
+    // Rotating the starting page (still 4 consecutive pages from there)
+    // means each refresh has a real chance of pulling a different slice
+    // of Saavn's catalog for the same query.
+    final startPage = 1 + math.Random().nextInt(5); // 1..5
+    final pages = List.generate(4, (i) => startPage + i);
+    final futures = pages.map((p) => _fetchSaavnPage(
+          '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=$p',
+          limit,
+        ).catchError((_) => <Song>[]));
+    final results = await Future.wait(futures);
+    final anyResults = results.any((r) => r.isNotEmpty);
+    if (!anyResults) return _searchSaavn(query, limit: limit);
     final seen = <String>{};
     final merged = <Song>[];
-    for (final s in [...results[0], ...results[1], ...results[2], ...results[3]]) {
-      if (seen.add(s.id)) merged.add(s);
+    for (final page in results) {
+      for (final s in page) {
+        if (seen.add(s.id)) merged.add(s);
+      }
     }
     return merged;
   }
 
   static Future<SongSection?> _saavnSectionV4(String query, String label) async {
-    // Fetch deep and wide — variants get filtered, so we need real headroom
-    // to still land 50-80 unique songs per section after dedup/filtering.
-    // 4 pages × 50/page = up to 200 raw songs before the variant filter and
-    // id/title dedup run (previously 3×40=120 raw, which after filtering
-    // was consistently landing sections around ~12-25 songs, far short of
-    // the 50-80 this comment always claimed to target).
-    final saavnSongs = await _searchSaavnDeep(query, limit: 50);
-    if (saavnSongs.isEmpty) return null;
+    // EQUAL WEIGHT: Saavn and YouTube are fetched in PARALLEL (not
+    // sequentially, so this adds zero latency vs the old gap-fill design)
+    // and interleaved round-robin so a section is a genuine 50/50 mix
+    // instead of "Saavn primary, YT only fills leftover gaps."
+    final results = await Future.wait([
+      _searchSaavnDeep(query, limit: 50),
+      _searchYt(query, limit: 60),
+    ]);
+    final rawSaavn = results[0];
+    final rawYt    = results[1];
+    if (rawSaavn.isEmpty && rawYt.isEmpty) return null;
+
+    final seed = query.hashCode ^ DateTime.now().millisecondsSinceEpoch ^ math.Random().nextInt(1000000);
+    final saavnShuffled = List<Song>.from(rawSaavn)..shuffle(math.Random(seed));
+    // rawYt is already official-channel-sorted by _searchYt — shuffling
+    // would throw that priority away, so only lightly shuffle within same-
+    // priority runs is skipped; keep official-first order intact.
+
     final seenIds    = <String>{};
     final seenTitles = <String>{};
     final merged     = <Song>[];
-    final seed = query.hashCode ^ DateTime.now().millisecondsSinceEpoch ^ math.Random().nextInt(1000000);
-    final saavnShuffled = List<Song>.from(saavnSongs)..shuffle(math.Random(seed));
-    for (final s in saavnShuffled) {
-      if (!seenIds.add(s.id)) continue;
-      // HARD BLOCK: no remix/dj/cover/lofi/female-version etc in home feed
-      if (RecommendationEngine.isInherentVariant(s.title)) continue;
-      if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
-      final tk = _normTitle(s.title);
-      if (!seenTitles.add(tk)) continue;
-      merged.add(s);
-    }
-    if (merged.isEmpty) return null;
 
-    // FILL: if Saavn alone didn't reach a full-looking section (common for
-    // less mainstream queries), top it up with YouTube results for the same
-    // query — same dedup/variant-filter, so no risk of remix/cover spam.
-    // Saavn results always come first/stay primary; YouTube only fills the
-    // remaining gap, it never replaces what Saavn already found.
-    //
-    // FIX: isPremiumQuality() now requires ≥100k views on YT results, which
-    // rejects a much bigger share of raw search hits than the old keyword-
-    // only filter did. Fetching just `need + 15` used to be enough headroom
-    // for keyword-filtering alone, but against the view-count gate it was
-    // consistently landing sections short of 70. Widened to `(need + 15) * 3`
-    // (capped at 60) so there's enough raw pool for the stricter filter to
-    // still leave a full 70-80 song section.
-    if (merged.length < 70) {
-      final need = 80 - merged.length;
-      final ytFetchSize = ((need + 15) * 3).clamp(0, 60);
-      final ytSongs = await _searchYt(query, limit: ytFetchSize);
-      for (final s in ytSongs) {
-        if (merged.length >= 80) break;
-        if (!seenIds.add(s.id)) continue;
-        if (RecommendationEngine.isInherentVariant(s.title)) continue;
-        if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
-        if (!RecommendationEngine.isPremiumQuality(s)) continue;
-        final tk = _normTitle(s.title);
-        if (!seenTitles.add(tk)) continue;
-        merged.add(s);
+    bool tryAdd(Song s, {required bool isYt}) {
+      if (merged.length >= 80) return false;
+      if (!seenIds.add(s.id)) return false;
+      if (RecommendationEngine.isInherentVariant(s.title)) return false;
+      if (RecommendationEngine.isLowQualityUpload(s.title)) return false;
+      if (isYt && !RecommendationEngine.isPremiumQuality(s)) return false;
+      final tk = _normTitle(s.title);
+      if (!seenTitles.add(tk)) return false;
+      merged.add(s);
+      return true;
+    }
+
+    // Round-robin interleave: one Saavn, one YT, one Saavn, one YT... so
+    // the final section is genuinely balanced rather than front-loaded
+    // with one source. Whichever source runs out first, the other keeps
+    // contributing until the 80-cap or its own pool is exhausted.
+    var si = 0, yi = 0;
+    while ((si < saavnShuffled.length || yi < rawYt.length) && merged.length < 80) {
+      if (si < saavnShuffled.length) {
+        tryAdd(saavnShuffled[si], isYt: false);
+        si++;
+      }
+      if (yi < rawYt.length && merged.length < 80) {
+        tryAdd(rawYt[yi], isYt: true);
+        yi++;
       }
     }
 
+    if (merged.isEmpty) return null;
     return SongSection(title: label, songs: merged.take(80).toList());
   }
 
@@ -1146,11 +1219,62 @@ class ApiService {
     // match score.
     saavnScored.sort((a, b) => b.score.compareTo(a.score));
     ytScored.sort((a, b) => b.score.compareTo(a.score));
-    final results = [...saavnScored, ...ytScored].map((s) => s.song).toList();
+    final directResults = [...saavnScored, ...ytScored].map((s) => s.song).toList();
+
+    // ── RELATED EXPANSION (Spotify-style) ──────────────────────────────────
+    // A single-song search shouldn't dead-end at just that one result.
+    // Detect the top match's era/genre/mood and pull in its category
+    // siblings — same signal engine Up Next already uses (generateQueries),
+    // so search and Up Next behave consistently: search "Gori Hai
+    // Kalaiyaan" and its 90s/genre-mates show up too, exactly like tapping
+    // play and watching Up Next fill in with the same vibe.
+    final results = List<Song>.from(directResults);
+    if (directResults.isNotEmpty) {
+      final topMatch = directResults.first;
+      final directIds    = <String>{for (final s in directResults) s.id};
+      final directTitles = <String>{for (final s in directResults) _normTitle(s.title)};
+      final relatedQueries = RecommendationEngine.generateQueries(topMatch);
+      final relatedPool = <Song>[];
+      final seenRelated = <String>{};
+      for (final rq in relatedQueries) {
+        if (relatedPool.length >= 40) break;
+        try {
+          final r = await _searchSaavn(rq.query, limit: 25)
+              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
+          for (final s in r) {
+            if (relatedPool.length >= 40) break;
+            if (directIds.contains(s.id)) continue;
+            if (RecommendationEngine.isInherentVariant(s.title)) continue;
+            final tk = _normTitle(s.title);
+            if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
+            relatedPool.add(s);
+          }
+        } catch (_) {}
+      }
+      if (relatedPool.length < 20) {
+        for (final rq in relatedQueries) {
+          if (relatedPool.length >= 40) break;
+          try {
+            final r = await _searchYt(rq.query, limit: 20)
+                .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
+            for (final s in r) {
+              if (relatedPool.length >= 40) break;
+              if (directIds.contains(s.id)) continue;
+              if (RecommendationEngine.isInherentVariant(s.title)) continue;
+              if (!RecommendationEngine.isPremiumQuality(s)) continue;
+              final tk = _normTitle(s.title);
+              if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
+              relatedPool.add(s);
+            }
+          } catch (_) {}
+        }
+      }
+      results.addAll(relatedPool);
+    }
 
     _writeSearchCache(cacheKey, results);
     _log('[search] "$q" → ${results.length} results '
-         '(saavn:${saavnResults.length} yt:${ytResults.length})');
+         '(direct:${directResults.length} related:${results.length - directResults.length})');
     return results;
   }
 
@@ -1423,14 +1547,43 @@ class ApiService {
   // ===========================================================================
   // YOUTUBE SEARCH
   // ===========================================================================
+  // Known official music-label / publisher channel names (lowercased,
+  // partial match). No verified-badge field is exposed by
+  // youtube_explode_dart's Video object, so this is the only zero-latency
+  // signal available — pure string match against the channel/author name,
+  // no extra API call, so it costs nothing on speed.
+  static const List<String> _officialChannelMarkers = [
+    't-series', 'zee music', 'sony music', 'saregama', 'tips official',
+    'tips music', 'speed records', 'desi music factory', 'shemaroo',
+    'venus', 'eros now music', 'yrf', 'jjust music', 'white hill music',
+    'times music', 'muzik one', 'goldmines', 'ultra music', 'divo',
+    'universal music', 'sony music south', 'aditya music', 'lahari music',
+    'think music', 'zee music south', 'wave music', 'atlantic records',
+    'republic records', 'columbia records', 'interscope', 'def jam',
+    'rca records', 'capitol records', 'warner records',
+  ];
+
+  static bool _isOfficialChannel(String channelName) {
+    final c = channelName.toLowerCase();
+    return _officialChannelMarkers.any((m) => c.contains(m));
+  }
+
   static Future<List<Song>> _searchYt(String query, {int limit = 15}) async {
     try {
       final results = await Future.any<List<dynamic>>([
         _yt.search.search(query).then((list) => list.toList()),
         Future.delayed(const Duration(seconds: 6), () => <dynamic>[]),
       ]);
-      return results
-          .whereType<Video>()
+      final videos = results.whereType<Video>().toList();
+      // Official-channel uploads first — same list, just reordered, so
+      // when we later `.take(limit)` or dedup by title, the cleanest/most
+      // premium (official) version of a song wins over a random reupload.
+      videos.sort((a, b) {
+        final aOfficial = _isOfficialChannel(a.author) ? 0 : 1;
+        final bOfficial = _isOfficialChannel(b.author) ? 0 : 1;
+        return aOfficial.compareTo(bOfficial);
+      });
+      return videos
           .take(limit)
           .map(_songFromYtVideo)
           .where((s) => s.id.isNotEmpty)
@@ -2833,12 +2986,71 @@ class ApiService {
     return '';
   }
 
-  static String _cleanText(String s) => s
-      .replaceAll('&amp;',  '&')
-      .replaceAll('&quot;', '"')
-      .replaceAll('&#039;', "'")
-      .replaceAll('&lt;',   '<')
-      .replaceAll('&gt;',   '>');
+  // ===========================================================================
+  // PREMIUM DISPLAY CLEANING
+  //
+  // Raw YouTube/Saavn titles carry upload-platform noise that a paid,
+  // Spotify-level app should never surface: emoji, bracket tags
+  // ("(Official Video)", "[Lyrics]"), "| Channel Name" suffixes, and
+  // leftover pipe/dash clutter. This is DISPLAY-ONLY cleanup — it never
+  // rejects a song (that's isInherentVariant/isLowQualityUpload's job) and
+  // never touches streamUrl/id resolution, so it can't affect playback
+  // speed or correctness.
+  // ===========================================================================
+
+  // Emoji + symbol pictographs + dingbats + variation selectors. Covers the
+  // ranges YouTube uploaders actually use in titles (🎵💔🔥✨ etc.) without
+  // touching Devanagari/Tamil/other real-language scripts.
+  static final RegExp _emojiPattern = RegExp(
+    r'[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]',
+    unicode: true,
+  );
+
+  // Bracketed upload-platform tags: "(Official Video)", "[Lyrics]",
+  // "{HD}" — content in brackets that's pure metadata noise, not part of
+  // the actual song title.
+  static final RegExp _bracketTagPattern = RegExp(
+    r'[\(\[\{]\s*(official\s*(video|audio|music\s*video)?|lyrics?(\s*video)?|'
+    r'hd|4k|full\s*(video|song|audio)?|new|latest|original|explicit|'
+    r'visualizer|audio\s*only|with\s*lyrics|from\s*.*?)\s*[\)\]\}]',
+    caseSensitive: false,
+  );
+
+  // Trailing "| Channel Name" / "- T-Series" style suffixes uploaders
+  // append after the real title.
+  static final RegExp _channelSuffixPattern = RegExp(
+    r'\s*[\|•]\s*(t-?series|zee music|sony music|saregama|tips|speed records|'
+    r'desi music|shemaroo|venus|eros now music|vevo|records?)\b.*$',
+    caseSensitive: false,
+  );
+
+  // Standalone noise words left over after bracket removal, when they
+  // weren't inside brackets to begin with (e.g. "Song Name Official Video").
+  static final RegExp _looseNoiseWords = RegExp(
+    r'\b(official\s*(music\s*)?video|official\s*audio|lyrical\s*video|'
+    r'lyrics\s*video|full\s*video\s*song|video\s*song|full\s*song|'
+    r'audio\s*jukebox|hd\s*video)\b',
+    caseSensitive: false,
+  );
+
+  static String _cleanText(String s) {
+    var out = s
+        .replaceAll('&amp;',  '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#039;', "'")
+        .replaceAll('&lt;',   '<')
+        .replaceAll('&gt;',   '>');
+    out = out.replaceAll(_emojiPattern, '');
+    out = out.replaceAll(_channelSuffixPattern, '');
+    out = out.replaceAll(_bracketTagPattern, '');
+    out = out.replaceAll(_looseNoiseWords, '');
+    // Collapse leftover separator debris ("Title -  | ", "Title ()") left
+    // behind after tag/emoji stripping.
+    out = out.replaceAll(RegExp(r'[\(\[\{]\s*[\)\]\}]'), '');
+    out = out.replaceAll(RegExp(r'\s*[-|•]\s*$'), '');
+    out = out.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+    return out;
+  }
 
   static int? _parseInt(dynamic d) {
     if (d == null)   return null;
