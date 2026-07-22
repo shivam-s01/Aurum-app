@@ -398,18 +398,6 @@ class ApiService {
     _PoolEntry('late night hindi songs drive',                   'Late Night Drive'),
     _PoolEntry('morning fresh hindi songs upbeat',                'Morning Fresh'),
     _PoolEntry('bhakti bhajan aarti original songs',              'Devotional'),
-    // ── Editorial/album-style rows (spec asks for "Popular Albums",
-    // "Editor's Picks", "Recommended Albums" alongside mood mixes) —
-    // these render through the same _MixSectionCard/MixScreen path as
-    // every other section here (poster art + Play + Save + 60-80 songs),
-    // just with a query phrasing that leans toward well-known
-    // soundtrack/album-era material so the results read as "albums"
-    // rather than a loose mood mix. Regional (Punjabi/Tamil/Telugu) and
-    // English content already has its own dedicated row in
-    // _kCuratedPlaylists above, so it's deliberately not repeated here.
-    _PoolEntry('bollywood movie soundtrack album songs',          'Popular Albums'),
-    _PoolEntry('best bollywood album songs all time',             'Top Albums'),
-    _PoolEntry('trending hindi songs this week editor picks',     "Editor's Picks"),
   ];
 
 
@@ -475,14 +463,10 @@ class ApiService {
         .take(3)
         .toList();
     for (final recent in recentOnline) {
+      final cleanId = recent.id.replaceFirst(RegExp(r'^[a-z]+_'), '');
       final lbl = 'Because You Played · ${recent.title.length > 22 ? recent.title.substring(0, 22) + "…" : recent.title}';
       if (!queryList.any((q) => q.label == lbl)) {
-        // FIX: previously routed through the unimplemented _suggestionSection
-        // stub (always returned null) via isSuggestion/suggestionSongId — so
-        // this section silently never appeared. Building a real query from
-        // the recently-played song's own artist reuses the same reliable
-        // _saavnSectionV4 path "Made for You · <artist>" already uses.
-        queryList.add(_SectionQuery('${recent.artist} songs', lbl));
+        queryList.add(_SectionQuery('__suggestions__$cleanId', lbl, isSuggestion: true, suggestionSongId: cleanId));
       }
     }
 
@@ -541,6 +525,12 @@ class ApiService {
     // tripling latency for every section that needed deep results. Fetching
     // all three in parallel cuts this to roughly one request's round-trip
     // time, since none of the pages depend on each other's results.
+    //
+    // FIX (2026-07-22): 3 pages × 40/page = up to 120 raw songs, but after
+    // variant-filtering (remix/cover/lofi) + id/title dedup, sections were
+    // consistently landing only ~25-30 survivors — nowhere near the 50-80
+    // the code above claimed to target. Bumped to 4 pages so there's real
+    // headroom for that filtering to still leave a full-looking section.
     final results = await Future.wait([
       _fetchSaavnPage(
         '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
@@ -554,12 +544,16 @@ class ApiService {
         '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=3',
         limit,
       ).catchError((_) => <Song>[]),
+      _fetchSaavnPage(
+        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=4',
+        limit,
+      ).catchError((_) => <Song>[]),
     ]);
     final page1 = results[0];
     if (page1.isEmpty) return _searchSaavn(query, limit: limit);
     final seen = <String>{};
     final merged = <Song>[];
-    for (final s in [...results[0], ...results[1], ...results[2]]) {
+    for (final s in [...results[0], ...results[1], ...results[2], ...results[3]]) {
       if (seen.add(s.id)) merged.add(s);
     }
     return merged;
@@ -617,10 +611,7 @@ class ApiService {
     final shuffledPool = List<_PoolEntry>.from(_pool)..shuffle(rng);
 
     final affinityArtists = _filterMainstream(
-      // count: 5, not 4 — index 4 (the 5th) seeds the "Similar Artists"
-      // section further below; indices 0-3 still drive "Made for You"
-      // exactly as before, so that existing behavior is unchanged.
-      RecommendationEngine.rotatingAffinityArtists(count: 5, seed: refreshSalt),
+      RecommendationEngine.rotatingAffinityArtists(count: 4, seed: refreshSalt),
     );
     // ROOT CAUSE (actual): when RecommendationEngine doesn't yet have enough
     // learned affinity weight (a newer account, or weights not past the 0.5
@@ -656,77 +647,15 @@ class ApiService {
     for (final genre in topGenres) {
       queryList.add(_SectionQuery(_genreMixQuery(genre), _genreMixLabel(genre), priority: true));
     }
-    // ── Recommendation Intelligence: "Trending In Your Language" ──────────
-    // Only the single strongest language (not all of them) to avoid one
-    // section per language diluting the feed with near-duplicate content —
-    // topAffinityLanguages is itself min-weight-filtered (>0.5), so this
-    // only fires once real language preference is actually established.
-    final topLanguages = RecommendationEngine.topAffinityLanguages(count: 1);
-    if (topLanguages.isNotEmpty) {
-      final lang = topLanguages.first;
-      queryList.add(_SectionQuery(
-        'trending $lang songs 2026',
-        'Trending In $lang',
-        priority: true,
-      ));
-    }
-    // ── Recommendation Intelligence: "Your Top Albums" ─────────────────────
-    // Album *names* the user has actually completed songs from, most-played
-    // first — genuinely "their" albums, not a generic popularity list.
-    final topAlbums = RecommendationEngine.topAlbumsByPlays(count: 2);
-    for (final albumKey in topAlbums) {
-      final lbl = 'Your Top Albums · ${_titleCaseAlbumKey(albumKey)}';
-      if (!queryList.any((q) => q.label == lbl)) {
-        queryList.add(_SectionQuery('$albumKey songs', lbl, priority: true));
-      }
-    }
-    // ── Recommendation Intelligence: "Similar Artists" ─────────────────────
-    // A second, DIFFERENT top artist (personalArtists.take(4) above already
-    // covers the first 4 as "Made for You · <artist>" sections) framed as
-    // "similar to who you already listen to" — same underlying affinity
-    // data, different framing/section so the feed doesn't just repeat
-    // "Made for You" under two names.
-    if (personalArtists.length > 4) {
-      final similarSeed = personalArtists[4];
-      queryList.add(_SectionQuery(
-        '$similarSeed similar artists songs',
-        'Similar Artists · $similarSeed',
-        priority: true,
-      ));
-    }
-    // ── Recommendation Intelligence: "Recommended For You" ─────────────────
-    // Blends the user's #1 affinity genre with their #1 affinity language
-    // (when both are established) into one query — a genuinely
-    // personalized cross-signal mix distinct from the single-genre
-    // "Afternoon Picks"-style mood mixes already generated above from
-    // topGenres, and distinct from the pure-language "Trending In X" row.
-    if (topGenres.isNotEmpty && topLanguages.isNotEmpty) {
-      final lbl = 'Recommended For You';
-      if (!queryList.any((q) => q.label == lbl)) {
-        queryList.add(_SectionQuery(
-          '${topGenres.first} ${topLanguages.first} songs',
-          lbl,
-          priority: true,
-        ));
-      }
-    }
     final recentOnline = recentlyPlayed
         .where((s) => !s.isLocal && s.source == SongSource.saavn && s.id.isNotEmpty)
         .take(3)
         .toList();
     for (final recent in recentOnline) {
+      final cleanId = recent.id.replaceFirst(RegExp(r'^[a-z]+_'), '');
       final lbl = 'Because You Played · ${recent.title.length > 22 ? recent.title.substring(0, 22) + "…" : recent.title}';
       if (!queryList.any((q) => q.label == lbl)) {
-        // FIX: this previously routed through _SectionQuery(..., isSuggestion:
-        // true, suggestionSongId: cleanId) → _suggestionSection(id, label),
-        // which is (and always was) an unimplemented stub that unconditionally
-        // returns null — so every "Because You Played" section silently
-        // vanished from the feed (allResults.whereType<SongSection>() just
-        // filtered the null out) no matter how much the user listened.
-        // Building a real query from the same recently-played song's own
-        // artist reuses the exact _saavnSectionV4 path "Made for You ·
-        // <artist>" already relies on, so this now actually returns songs.
-        queryList.add(_SectionQuery('${recent.artist} songs', lbl));
+        queryList.add(_SectionQuery('__suggestions__$cleanId', lbl, isSuggestion: true, suggestionSongId: cleanId));
       }
     }
 
@@ -750,24 +679,33 @@ class ApiService {
 
     final globalSeenIds = <String>{};
     final seenTitles = <String>{};
-    // FIX: previously ran in batches of 3 with a 100ms gap between rounds
-    // — with 15+ queries that meant 5-6 sequential rounds, each waiting
-    // on the slowest request in its batch. Running everything in parallel
-    // (bounded only by network/server capacity) cuts total home-feed load
-    // time roughly to the time of the single slowest individual query,
-    // instead of the sum of every batch's slowest query.
-    final allResults = await Future.wait(
-      queryList.map((sq) => sq.isSuggestion
+    // FIX (2026-07-22): this used a single `Future.wait(queryList.map(...))`
+    // — which sounds parallel, and IS parallel in terms of network requests,
+    // but the `onSection` callback loop only ran AFTER every single query in
+    // the batch resolved. With ~15-19 queries in flight (each itself firing
+    // 4 parallel Saavn page requests after the _searchSaavnDeep fix above),
+    // the home screen showed nothing until the single slowest query in the
+    // whole batch finished — completely defeating the "progressive reveal"
+    // this was supposed to give. Firing onSection off each query's own
+    // Future independently (no shared Future.wait) means the first section
+    // to land appears immediately, exactly as the section comments above
+    // already claimed was happening.
+    final pending = queryList.map((sq) {
+      final future = sq.isSuggestion
           ? _suggestionSection(sq.suggestionSongId!, sq.label)
-          : _saavnSectionV4(sq.query, sq.label)),
-    );
-    for (final s in allResults.whereType<SongSection>()) {
-      if (!seenTitles.add(s.title)) continue;
-      final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
-      if (uniqueSongs.isNotEmpty) {
-        onSection(SongSection(title: s.title, songs: uniqueSongs));
-      }
-    }
+          : _saavnSectionV4(sq.query, sq.label);
+      return future.then((s) {
+        if (s == null) return;
+        if (!seenTitles.add(s.title)) return;
+        final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
+        if (uniqueSongs.isNotEmpty) {
+          onSection(SongSection(title: s.title, songs: uniqueSongs));
+        }
+      }).catchError((_) {
+        // one query failing shouldn't stop the rest of the feed from loading
+      });
+    }).toList();
+    await Future.wait(pending);
   }
 
   // ===========================================================================
@@ -792,12 +730,7 @@ class ApiService {
   // Fix: shuffle the merged/deduped results with a genuinely random seed
   // before slicing to `limit`, exactly like _saavnSectionV4 already does.
   static Future<List<Song>> fetchPlaylistSongs(String query, {int limit = 30}) async {
-    // Request extra headroom: dedupe (by id/title) + variant-filtering
-    // below routinely drops 20-30% of raw results, so asking Saavn for
-    // exactly `limit` often left a curated card with only 45-55 songs
-    // after filtering instead of the 70-80 the card promises. Overfetch,
-    // filter, then trim back down to `limit`.
-    final songs = await _searchSaavn(query, limit: (limit * 1.4).ceil());
+    final songs = await _searchSaavn(query, limit: limit);
     if (songs.isEmpty) return [];
     final seed = query.hashCode ^ DateTime.now().millisecondsSinceEpoch ^ math.Random().nextInt(1000000);
     final shuffled = List<Song>.from(songs)..shuffle(math.Random(seed));
@@ -810,7 +743,6 @@ class ApiService {
       final tk = _normTitle(s.title);
       if (!seenTitles.add(tk)) continue;
       result.add(s);
-      if (result.length >= limit) break;
     }
     return result;
   }
@@ -835,12 +767,7 @@ class ApiService {
   // last rather than being dropped, so a thin result set never goes empty
   // just because some entries lack metadata.
   static Future<List<Song>> fetchNewReleaseSongs({int limit = 30}) async {
-    // Same overfetch-headroom reasoning as fetchPlaylistSongs above —
-    // *3 (not *2) here because this path also sorts by year, and entries
-    // with unparseable/missing year metadata are kept (sorted last)
-    // rather than dropped, so a thinner-than-expected raw batch was more
-    // likely to under-deliver on this path specifically.
-    final songs = await _searchSaavn('new bollywood songs 2026', limit: limit * 3);
+    final songs = await _searchSaavn('new bollywood songs 2026', limit: limit * 2);
     if (songs.isEmpty) return [];
 
     final seenIds = <String>{};
@@ -1228,15 +1155,6 @@ class ApiService {
       RecommendationEngine.isInherentVariant(query);
 
   // Wider dedup window (30 chars) so fewer legitimate songs are dropped
-  /// Turns a stored album key (lowercase+trimmed, e.g. "aashiqui 2") back
-  /// into a display-friendly title (e.g. "Aashiqui 2") for section labels
-  /// like "Your Top Albums · Aashiqui 2".
-  static String _titleCaseAlbumKey(String key) => key
-      .split(' ')
-      .where((w) => w.isNotEmpty)
-      .map((w) => w[0].toUpperCase() + w.substring(1))
-      .join(' ');
-
   static String _normTitle(String title) {
     final clean = title
         .toLowerCase()
@@ -2563,30 +2481,6 @@ class ApiService {
       _log('[artist] fetchArtist parse failed: $e');
       return null;
     }
-  }
-
-  /// Resolve an album's Saavn ID from its display name (used when navigating
-  /// from a song tile's album chip, where we only have the album name string).
-  static Future<String?> searchAlbumByName(String name) async {
-    if (name.trim().isEmpty) return null;
-    final lower = name.trim().toLowerCase();
-    final path = '/api/search/albums?query=${Uri.encodeQueryComponent(name)}';
-
-    // Try Node-family hosts first, then Flask-family — whichever answers.
-    for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
-      final body = await _getFromHosts(hosts, path,
-          isValid: (b) => b['data']?['results'] is List &&
-              (b['data']['results'] as List).isNotEmpty);
-      if (body == null) continue;
-      final results = (body['data']['results'] as List);
-      final exact = results.firstWhere(
-        (r) => (r is Map ? (r['name'] ?? '') : '').toString().toLowerCase() == lower,
-        orElse: () => results.first,
-      );
-      if (exact is Map) return (exact['id'] ?? '').toString();
-    }
-    _log('[artist] searchAlbumByName: all hosts failed for "$name"');
-    return null;
   }
 
   /// Fetch the songs inside an album or single, by its Saavn ID.
