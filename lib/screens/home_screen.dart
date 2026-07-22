@@ -309,48 +309,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             key: const ValueKey('online'),
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // ── Continue Listening (Recommendation
-                              // Intelligence: RecommendationEngine's own
-                              // recency window, not just "last N played" —
-                              // a song completed days ago won't linger here
-                              // once RecommendationEngine.onSongCompleted's
-                              // 48h cutoff passes) ──
-                              _RecentlyPlayedSection(
-                                title: 'Continue Listening',
-                                songs: _songsForIds(
-                                  context.watch<RecentlyPlayedProvider>().history,
-                                  RecommendationEngine.recentlyPlayedSongIds(count: 12),
-                                ),
-                              ),
                               // ── Curated Playlists ──
                               _CuratedPlaylistsSection(refreshKey: _playlistRefreshKey),
-                              // ── Rediscover Favorites (Recommendation
-                              // Intelligence: real past favorites — songs
-                              // with genuine play/complete history — that
-                              // haven't come up in 21+ days, not a random
-                              // pick from history) ──
-                              _RecentlyPlayedSection(
-                                title: 'Rediscover Favorites',
-                                songs: _songsForIds(
-                                  context.watch<RecentlyPlayedProvider>().history,
-                                  RecommendationEngine.rediscoverCandidateIds(count: 12),
-                                ),
-                              ),
-                              // ── Recently Added (Recommendation
-                              // Intelligence: real download history —
-                              // there's no "date added to catalog" concept
-                              // for a streaming search backend, so this
-                              // uses the one genuine "added" timestamp
-                              // Aurum actually has: DownloadItem.addedAt) ──
-                              _RecentlyPlayedSection(
-                                title: 'Recently Added',
-                                songs: context
-                                    .watch<DownloadProvider>()
-                                    .completed
-                                    .take(12)
-                                    .map((d) => d.song)
-                                    .toList(),
-                              ),
                               // ── Premium upsell banner (free users only) ──
                               const _HomePremiumBanner(),
                               // ── Song sections ──
