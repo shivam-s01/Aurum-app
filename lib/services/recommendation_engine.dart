@@ -686,9 +686,80 @@ class RecommendationEngine {
     r'version|recreate|extended|edit|flip|bootleg|'
     r'vibe|mood|chill mix|punjabi mix|hindi mix|tapori|dj |club mix|'
     r'old is gold|the return|revisited|throwback mix|new version|'
+    r'ringtone|bgm|background music|type beat|'
     r'\d\.\d)\b',
     caseSensitive: false,
   );
+
+  /// Catches low-quality ORIGINAL uploads that aren't remixes/covers but
+  /// still don't belong in a premium "Top Hits" feed — random local
+  /// uploaders' New Year jingles, generic "naya dhamaka" spam, wedding/
+  /// folk-event tracks, freestyle filler. These pass isInherentVariant()
+  /// (no remix/cover keyword) but are still junk. Used only for the
+  /// curated home-feed playlist cards (_kCuratedPlaylists), which use
+  /// broad queries like "top hindi songs 2025 2026" that Saavn's search
+  /// matches loosely against any title containing those words/years.
+  static bool isLowQualityUpload(String title) {
+    return _junkUploadPattern.hasMatch(title);
+  }
+
+  static final RegExp _junkUploadPattern = RegExp(
+    r'\b(naya dhamaka|dhamaka 20\d\d|happy new year|nav varsh|'
+    r'naye saal|det badhai|badhai ho|beet phone|bhaiya ji|'
+    r'freestyle|panwadi|wedding dance|vivah geet|shaadi geet|'
+    r'jukebox 20\d\d|mp3 song|whatsapp status|status video|'
+    r'trending status|viral video song|dance video|'
+    r'gana 20\d\d|new gana|superhit gana|bhojpuri gana)\b',
+    caseSensitive: false,
+  );
+
+  // ---------------------------------------------------------------------------
+  // PREMIUM QUALITY GATE — the real Spotify/YouTube-Music-style signal.
+  //
+  // Keyword blocklists (isInherentVariant / isLowQualityUpload) only catch
+  // junk that happens to use predictable words. New junk uploaders constantly
+  // invent new phrasing that slips past any word list. A real premium feed
+  // instead trusts ENGAGEMENT — genuine hit songs accumulate massive view
+  // counts; random local/wedding/status uploads almost never do. This is the
+  // same signal Spotify/YouTube Music algorithms lean on (popularity/plays),
+  // and it can't be defeated by a junk uploader just picking different words.
+  //
+  // Applies to YouTube results only (Song.viewCount is null for Saavn/local —
+  // Saavn's catalog is already pre-curated licensed content, so it doesn't
+  // carry this same junk-upload risk the same way raw YouTube search does).
+  // ---------------------------------------------------------------------------
+
+  // Below this view count, a YouTube result is treated as an unproven/
+  // low-quality upload and excluded from home-feed sections. Chosen so a
+  // genuine mainstream Bollywood/Hindi song (which routinely sits in the
+  // lakhs-to-crores range within weeks) clears it easily, while one-off
+  // wedding/status/local uploads (typically hundreds to low thousands of
+  // views) do not.
+  static const int _minViewsForPremiumFeed = 100000;
+
+  // Real songs are rarely under 90s (that's a ringtone/status clip length).
+  // Upper bound is generous — qawwali/ghazal tracks legitimately run long —
+  // and only exists to catch actual jukebox/full-album compilations mislabeled
+  // as a single track.
+  static const int _minDurationSeconds = 90;
+  static const int _maxDurationSeconds = 1200;
+
+  /// True if `song` meets the bar for a premium home-feed section.
+  /// For YouTube: requires a minimum view count AND a sane song-length
+  /// duration. For Saavn/local: only the existing duration sanity check
+  /// applies (no view-count data available from that source).
+  static bool isPremiumQuality(Song song) {
+    if (song.duration != null) {
+      if (song.duration! < _minDurationSeconds) return false;
+      if (song.duration! > _maxDurationSeconds) return false;
+    }
+    if (song.source == SongSource.youtube) {
+      // No view count at all (fetch failed/hidden) — don't trust it blind.
+      if (song.viewCount == null) return false;
+      if (song.viewCount! < _minViewsForPremiumFeed) return false;
+    }
+    return true;
+  }
 
   // Strip variant tags from title to get the "core" for comparison
   static String _titleCore(String title) {

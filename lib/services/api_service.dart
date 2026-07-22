@@ -577,6 +577,7 @@ class ApiService {
       if (!seenIds.add(s.id)) continue;
       // HARD BLOCK: no remix/dj/cover/lofi/female-version etc in home feed
       if (RecommendationEngine.isInherentVariant(s.title)) continue;
+      if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
       final tk = _normTitle(s.title);
       if (!seenTitles.add(tk)) continue;
       merged.add(s);
@@ -588,13 +589,24 @@ class ApiService {
     // query — same dedup/variant-filter, so no risk of remix/cover spam.
     // Saavn results always come first/stay primary; YouTube only fills the
     // remaining gap, it never replaces what Saavn already found.
+    //
+    // FIX: isPremiumQuality() now requires ≥100k views on YT results, which
+    // rejects a much bigger share of raw search hits than the old keyword-
+    // only filter did. Fetching just `need + 15` used to be enough headroom
+    // for keyword-filtering alone, but against the view-count gate it was
+    // consistently landing sections short of 70. Widened to `(need + 15) * 3`
+    // (capped at 60) so there's enough raw pool for the stricter filter to
+    // still leave a full 70-80 song section.
     if (merged.length < 70) {
       final need = 80 - merged.length;
-      final ytSongs = await _searchYt(query, limit: need + 15);
+      final ytFetchSize = ((need + 15) * 3).clamp(0, 60);
+      final ytSongs = await _searchYt(query, limit: ytFetchSize);
       for (final s in ytSongs) {
         if (merged.length >= 80) break;
         if (!seenIds.add(s.id)) continue;
         if (RecommendationEngine.isInherentVariant(s.title)) continue;
+        if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
+        if (!RecommendationEngine.isPremiumQuality(s)) continue;
         final tk = _normTitle(s.title);
         if (!seenTitles.add(tk)) continue;
         merged.add(s);
@@ -778,6 +790,8 @@ class ApiService {
     for (final s in shuffled) {
       if (!seenIds.add(s.id)) continue;
       if (RecommendationEngine.isInherentVariant(s.title)) continue;
+      if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
+      if (!RecommendationEngine.isPremiumQuality(s)) continue;
       final tk = _normTitle(s.title);
       if (!seenTitles.add(tk)) continue;
       result.add(s);
@@ -814,6 +828,7 @@ class ApiService {
     for (final s in songs) {
       if (!seenIds.add(s.id)) continue;
       if (RecommendationEngine.isInherentVariant(s.title)) continue;
+      if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
       final tk = _normTitle(s.title);
       if (!seenTitles.add(tk)) continue;
       deduped.add(s);
@@ -1439,6 +1454,8 @@ class ApiService {
     for (final s in ytSongs) {
       if (!seenIds.add(s.id)) continue;
       if (RecommendationEngine.isInherentVariant(s.title)) continue;
+      if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
+      if (!RecommendationEngine.isPremiumQuality(s)) continue;
       final tk = _normTitle(s.title);
       if (!seenTitles.add(tk)) continue;
       merged.add(s);
@@ -1456,7 +1473,20 @@ class ApiService {
         streamUrl:  null,
         duration:   v.duration?.inSeconds,
         source:     SongSource.youtube,
+        viewCount:  _safeViewCount(v),
       );
+
+  // Defensive: some search results (deleted/restricted/live videos) can come
+  // back with missing or zero engagement data. Never let a metadata quirk
+  // crash a home-feed fetch — treat unknown as null so isPremiumQuality()
+  // correctly excludes it rather than the app throwing.
+  static int? _safeViewCount(Video v) {
+    try {
+      return v.engagement.viewCount;
+    } catch (_) {
+      return null;
+    }
+  }
 
   static String _bestThumbnail(dynamic t) {
     for (final url in [t.maxResUrl, t.highResUrl, t.standardResUrl, t.mediumResUrl, t.lowResUrl]) {

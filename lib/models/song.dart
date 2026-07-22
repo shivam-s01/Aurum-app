@@ -14,6 +14,7 @@ class Song {
   final String? year;
   final String? localPath; // ← NEW: set for local songs, null for online
   final SongSource source;
+  final int? viewCount; // YouTube-only quality signal; null for Saavn/local
 
   Song({
     required this.id,
@@ -27,6 +28,7 @@ class Song {
     this.year,
     this.localPath,
     this.source = SongSource.saavn,
+    this.viewCount,
   });
 
   /// True when this song came from the device library
@@ -53,6 +55,7 @@ class Song {
       year: _safeYear(json['releaseDate']) ?? json['year']?.toString(),
       localPath: json['localPath'],
       source: source,
+      viewCount: json['viewCount'] is int ? json['viewCount'] as int : null,
     );
   }
 
@@ -125,6 +128,7 @@ class Song {
     'year': year,
     'localPath': localPath,
     'source': source.name,
+    'viewCount': viewCount,
   };
 
   Song copyWith({String? streamUrl, String? localPath}) => Song(
@@ -139,6 +143,7 @@ class Song {
     year: year,
     localPath: localPath ?? this.localPath,
     source: source,
+    viewCount: viewCount,
   );
 }
 
