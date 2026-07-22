@@ -562,7 +562,11 @@ class ApiService {
   static Future<SongSection?> _saavnSectionV4(String query, String label) async {
     // Fetch deep and wide — variants get filtered, so we need real headroom
     // to still land 50-80 unique songs per section after dedup/filtering.
-    final saavnSongs = await _searchSaavnDeep(query, limit: 40);
+    // 4 pages × 50/page = up to 200 raw songs before the variant filter and
+    // id/title dedup run (previously 3×40=120 raw, which after filtering
+    // was consistently landing sections around ~12-25 songs, far short of
+    // the 50-80 this comment always claimed to target).
+    final saavnSongs = await _searchSaavnDeep(query, limit: 50);
     if (saavnSongs.isEmpty) return null;
     final seenIds    = <String>{};
     final seenTitles = <String>{};
@@ -578,6 +582,25 @@ class ApiService {
       merged.add(s);
     }
     if (merged.isEmpty) return null;
+
+    // FILL: if Saavn alone didn't reach a full-looking section (common for
+    // less mainstream queries), top it up with YouTube results for the same
+    // query — same dedup/variant-filter, so no risk of remix/cover spam.
+    // Saavn results always come first/stay primary; YouTube only fills the
+    // remaining gap, it never replaces what Saavn already found.
+    if (merged.length < 70) {
+      final need = 80 - merged.length;
+      final ytSongs = await _searchYt(query, limit: need + 15);
+      for (final s in ytSongs) {
+        if (merged.length >= 80) break;
+        if (!seenIds.add(s.id)) continue;
+        if (RecommendationEngine.isInherentVariant(s.title)) continue;
+        final tk = _normTitle(s.title);
+        if (!seenTitles.add(tk)) continue;
+        merged.add(s);
+      }
+    }
+
     return SongSection(title: label, songs: merged.take(80).toList());
   }
 
@@ -647,6 +670,19 @@ class ApiService {
     for (final genre in topGenres) {
       queryList.add(_SectionQuery(_genreMixQuery(genre), _genreMixLabel(genre), priority: true));
     }
+    // ── English/International (direct YouTube search) ──
+    // JioSaavn's catalog is weak for English/Western music. Simpler than
+    // the earlier iTunes-discovery approach: one search call per section
+    // straight to YouTube, no extra per-song lookup — fewer moving parts,
+    // fewer failure points, faster.
+    const englishQueries = [
+      ('top english songs 2026', 'Top English Hits'),
+      ('english pop hits', 'English Pop'),
+      ('english love songs', 'English Love Songs'),
+    ];
+    for (final (q, label) in englishQueries) {
+      queryList.add(_SectionQuery(q, label, isEnglish: true));
+    }
     final recentOnline = recentlyPlayed
         .where((s) => !s.isLocal && s.source == SongSource.saavn && s.id.isNotEmpty)
         .take(3)
@@ -693,7 +729,9 @@ class ApiService {
     final pending = queryList.map((sq) {
       final future = sq.isSuggestion
           ? _suggestionSection(sq.suggestionSongId!, sq.label)
-          : _saavnSectionV4(sq.query, sq.label);
+          : sq.isEnglish
+              ? _ytSectionV1(sq.query, sq.label)
+              : _saavnSectionV4(sq.query, sq.label);
       return future.then((s) {
         if (s == null) return;
         if (!seenTitles.add(s.title)) return;
@@ -1386,6 +1424,27 @@ class ApiService {
       _log('[_searchYt] Error: $e');
     }
     return [];
+  }
+
+  /// Builds a home-feed section straight from YouTube search — used for
+  /// English/international content where JioSaavn's catalog is weak.
+  /// Deliberately simple: one search call, same dedup/variant-filter as the
+  /// Saavn section path, no secondary API or per-song lookup.
+  static Future<SongSection?> _ytSectionV1(String query, String label) async {
+    final ytSongs = await _searchYt(query, limit: 25);
+    if (ytSongs.isEmpty) return null;
+    final seenIds = <String>{};
+    final seenTitles = <String>{};
+    final merged = <Song>[];
+    for (final s in ytSongs) {
+      if (!seenIds.add(s.id)) continue;
+      if (RecommendationEngine.isInherentVariant(s.title)) continue;
+      final tk = _normTitle(s.title);
+      if (!seenTitles.add(tk)) continue;
+      merged.add(s);
+    }
+    if (merged.isEmpty) return null;
+    return SongSection(title: label, songs: merged);
   }
 
   static Song _songFromYtVideo(Video v) => Song(
@@ -2983,10 +3042,12 @@ class _SectionQuery {
   final bool    priority;
   final bool    isSuggestion;
   final String? suggestionSongId;
+  final bool    isEnglish;
   const _SectionQuery(this.query, this.label, {
     this.priority = false,
     this.isSuggestion = false,
     this.suggestionSongId,
+    this.isEnglish = false,
   });
 }
 

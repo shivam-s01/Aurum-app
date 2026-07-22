@@ -2273,85 +2273,26 @@ class _PlaylistCardState extends State<_PlaylistCard> {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       if (songs.isEmpty) return;
 
-      // FIX: tapping the card used to immediately start playback of the
-      // first song before the sheet even opened — jarring if the user
-      // just wanted to browse the playlist first. Now tapping only opens
-      // the song list; playback starts only when the user taps an
-      // individual song inside it (each SongTile below already handles
-      // that itself via its own onTap).
-      showModalBottomSheet(
-        context: context,
-        backgroundColor: AurumTheme.bgCardOf(context),
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      // FIX (2026-07-22): this used to open a DraggableScrollableSheet modal
+      // — a half-height popup that felt like a throwaway/secondary surface
+      // compared to every other "See all" entry point (genre-mix rows) on
+      // this same screen, which already open the full-screen MixScreen.
+      // Two different presentations for the same "browse a playlist" action
+      // read as inconsistent/unfinished. Now Trending Playlists cards open
+      // the exact same MixScreen everything else does.
+      final art = songs.first.artworkUrl.isNotEmpty
+          ? songs.first.artworkUrl
+          : songs.where((s) => s.artworkUrl.isNotEmpty).map((s) => s.artworkUrl).firstOrNull ?? '';
+      if (!mounted) return;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => MixScreen(
+          mixId: widget.playlist.id,
+          mixName: widget.playlist.name,
+          artworkUrl: art,
+          emoji: widget.playlist.emoji,
+          songs: songs,
         ),
-        isScrollControlled: true,
-        builder: (_) => DraggableScrollableSheet(
-          initialChildSize: 0.75,
-          maxChildSize: 0.93,
-          minChildSize: 0.4,
-          expand: false,
-          builder: (_, ctrl) => Column(children: [
-            // Header
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 36, height: 4,
-              decoration: BoxDecoration(
-                color: AurumTheme.dividerOf(context),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Row(children: [
-                Container(
-                  width: 48, height: 48,
-                  decoration: BoxDecoration(
-                    color: widget.playlist.color,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Center(
-                    child: Text(widget.playlist.emoji,
-                        style: const TextStyle(fontSize: 24)),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(widget.playlist.name,
-                        style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        )),
-                    Text('${songs.length} songs',
-                        style: TextStyle(
-                            color: AurumTheme.textSecondaryOf(context),
-                            fontSize: 12)),
-                  ],
-                ),
-              ]),
-            ),
-            const SizedBox(height: 8),
-            Divider(height: 1, color: AurumTheme.dividerOf(context)),
-            Expanded(
-              child: ListView.builder(
-                controller: ctrl,
-                physics: const BouncingScrollPhysics(),
-                // PERF: same vertical-list pop-in fix as the section above.
-                cacheExtent: 1000,
-                itemCount: songs.length,
-                itemBuilder: (ctx, i) => SongTile(
-                  song: songs[i],
-                  queue: songs,
-                  index: i,
-                ),
-              ),
-            ),
-          ]),
-        ),
-      );
+      ));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
     }
