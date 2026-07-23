@@ -488,15 +488,15 @@ class AurumAudioEngine(
     private var stopAfterCurrentSong = false
 
     companion object {
-        // FIX: was prewarming 3 songs ahead / 2 behind every 900ms — across
-        // a 50-80 song queue (typical home-feed section size) this kept
-        // resolving stream URLs for songs the user may never reach,
-        // burning mobile data in the background for no playback benefit.
-        // Trimmed to a tighter window (still covers "tap next twice
-        // quickly" instant-skip) with a longer pace, so background data
-        // use drops significantly without losing the instant-skip feel
-        // for the songs actually likely to be played next.
-        private const val PRIORITY_FORWARD_WINDOW = 1
+        // Prewarm window: how many songs ahead/behind the current one get
+        // resolved + added to ExoPlayer's timeline immediately (vs. paced
+        // resolution further out). Forward window is 2 so two rapid
+        // next-taps in a row both land on an already-buffered song —
+        // Spotify-style instant skip. This trades a bit more background
+        // data/battery for that extra smoothness (previously 1, tightened
+        // down from an original 3 purely for data savings — bumped back up
+        // deliberately, not a regression).
+        private const val PRIORITY_FORWARD_WINDOW = 2
         private const val PRIORITY_BACKWARD_WINDOW = 1
         private const val PACED_RESOLVE_DELAY_MS = 2500L
 
@@ -1338,12 +1338,6 @@ class AurumAudioEngine(
     // ─────────────────────────────────────────────────────────────────
     // QUEUE MUTATIONS
     // ─────────────────────────────────────────────────────────────────
-    fun lookaheadResolve(song: NativeSong) {
-        scope.launch {
-            try { resolveFast(song, playSessionId, maxAttempts = 1) } catch (e: Exception) {}
-        }
-    }
-
     fun addToQueue(song: NativeSong) {
         scope.launch { addToQueueInternal(song, playSessionId) }
     }

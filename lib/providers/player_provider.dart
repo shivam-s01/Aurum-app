@@ -28,10 +28,12 @@
 //   - All existing getters unchanged (position, duration, buffered,
 //     loopMode, shuffle, currentSong, queue, currentIndex, hasSong, etc.)
 //   - All existing public methods unchanged in name/signature
-//   - `playNext`, `lookaheadResolve`, `loadQueueSilently`, and
-//     `runRealPlaybackTest` had no NativeAudioEngine equivalent as of this
-//     bridge version — they're adapted below (see inline notes) rather than
-//     silently dropped, since UI call sites still call them.
+//   - `playNext`, `loadQueueSilently`, and `runRealPlaybackTest` had no
+//     NativeAudioEngine equivalent as of this bridge version — they're
+//     adapted below (see inline notes) rather than silently dropped, since
+//     UI call sites still call them. (`lookaheadResolve` was later removed
+//     entirely — see the LOOKAHEAD PRELOAD note in _onPosition — its result
+//     was discarded natively and never fed back into playback.)
 //   - No breaking API changes for callers of PlayerProvider.
 // =============================================================================
 
@@ -235,7 +237,6 @@ class PlayerProvider extends ChangeNotifier {
   bool    _completionFired = false; // 80%+ fired for current song?
   bool    _earlySkipArmed  = false; // true when position < 15s
   bool    _replayArmed     = false; // true when position near 0 after non-start
-  bool    _nextPrefetchFired = false; // true once next-song prefetch has fired for current song
 
   // Subscriptions — cancelled on dispose (memory leak prevention)
   final List<StreamSubscription<dynamic>> _subs = [];
@@ -441,7 +442,6 @@ class PlayerProvider extends ChangeNotifier {
     _completionFired  = false;
     _earlySkipArmed   = song.source != SongSource.local; // arm for online songs
     _replayArmed      = false;
-    _nextPrefetchFired = false;
 
     // History: save here — once the native engine has actually confirmed
     // and settled on this song (post 150ms debounce, see caller) — not on
@@ -519,21 +519,25 @@ class PlayerProvider extends ChangeNotifier {
       _rp?.notifyReplay(song);
     }
 
-    // ── LOOKAHEAD PRELOAD (70%) ──────────────────────────────────────────────
-    // At 70% of current song, ask the native engine to pre-warm the next
-    // song's stream so the transition feels gapless. NativeAudioEngine
-    // doesn't expose a Dart-side lookaheadResolve — under Stage 2/Kotlin
-    // orchestration this pre-warming is handled natively (see Worker v5's
-    // predictive pre-warm), so this hook now just invalidates nothing and
-    // is kept as a no-op trigger point in case a future engine build adds
-    // an explicit prefetch method.
-    if (!_nextPrefetchFired && durSeconds > 10 && posSeconds / durSeconds >= 0.70) {
-      _nextPrefetchFired = true;
-      final nextIdx = _currentIndex + 1;
-      if (nextIdx < _queue.length) {
-        _engine.lookaheadResolve(_queue[nextIdx]);
-      }
-    }
+    // ── LOOKAHEAD PRELOAD ──────────────────────────────────────────────────
+    // REMOVED (was previously fired at 70% progress via
+    // _engine.lookaheadResolve): this called Kotlin's lookaheadResolve(),
+    // which resolves the next song's stream URL and then immediately
+    // discards it — HybridStreamResolver.kt doesn't cache resolved URLs
+    // natively, and lookaheadResolve() never calls player.addMediaItem(),
+    // so the result was thrown away and the next song still resolved from
+    // scratch on transition. Pure wasted network calls, no playback benefit.
+    //
+    // The actual gapless mechanism lives in two places that already cover
+    // this properly:
+    //   1. AurumAudioEngine.resolveQueueInBackground() (Kotlin) — fires the
+    //      moment a queue starts playing, resolves the immediate next/prev
+    //      song and adds it directly to ExoPlayer's own timeline via
+    //      player.addMediaItem(), so seekToNext() is truly gapless.
+    //   2. _prewarmUpcoming() above (Dart) — warms the Worker/CDN cache for
+    //      the next 5 upcoming YouTube songs the moment the current index
+    //      settles, so even songs beyond ExoPlayer's immediate window
+    //      resolve fast when their turn comes.
   }
 
   // Called when user explicitly taps skipNext() — check if it was an early skip

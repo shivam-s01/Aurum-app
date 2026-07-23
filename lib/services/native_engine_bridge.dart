@@ -229,7 +229,6 @@ class NativeAudioEngine {
 
   Future<void> playSong(Song song) => _method.invokeMethod('playSong', {'song': _songToArgs(song)});
   Future<void> addToQueue(Song song) => _method.invokeMethod('addToQueue', {'song': _songToArgs(song)});
-  Future<void> lookaheadResolve(Song song) => _method.invokeMethod('lookaheadResolve', {'song': _songToArgs(song)});
   Future<void> removeFromQueue(int index) => _method.invokeMethod('removeFromQueue', {'index': index});
   Future<void> moveQueueItem(int from, int to) =>
       _method.invokeMethod('moveQueueItem', {'from': from, 'to': to});

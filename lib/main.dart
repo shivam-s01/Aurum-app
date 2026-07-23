@@ -271,6 +271,21 @@ class AurumApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) {
             final pp = PremiumProvider();
+            // Spotify-style cross-device check: _refresh() now calls
+            // Supabase's getUser() (real network round-trip, not the
+            // locally cached session) so a payment made on another
+            // device shows up here without the user having to sign out
+            // and back in. If that check is stuck long enough to look
+            // broken rather than just "loading", let them know it's a
+            // connectivity problem, not premium being lost/denied.
+            pp.onSlowNetwork = () {
+              scaffoldMessengerKey.currentState?.showSnackBar(
+                const SnackBar(
+                  content: Text('Please check your internet connection'),
+                  duration: Duration(seconds: 3),
+                ),
+              );
+            };
             pp.init();
             // Keep AudioPrefs in sync so service-layer (ApiService) can
             // check isPremium without a BuildContext.
@@ -479,9 +494,56 @@ class _BlurShaderWarmupState extends State<_BlurShaderWarmup> {
           top: -100,
           child: IgnorePointer(
             child: RepaintBoundary(
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: const SizedBox(width: 4, height: 4),
+              child: Stack(
+                children: [
+                  // Blur shader (nav bar, mini player, dialogs, mix/profile
+                  // screens all use BackdropFilter.blur at various sigmas —
+                  // one compile covers every sigma; Skia caches by filter
+                  // *type*, not by parameter).
+                  ImageFiltered(
+                    imageFilter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                    child: const SizedBox(width: 4, height: 4),
+                  ),
+                  // PERF FIX (extends the blur-only warmup above): the
+                  // "very laggy for ~1 min, then smooth" symptom wasn't
+                  // just the blur shader — Home's hero gradients, card
+                  // drop-shadows, and rounded-rect image clips (artwork,
+                  // hero cards) are each their own distinct Skia shader,
+                  // and every one of them was still compiling for the
+                  // first time exactly when the user hit it while
+                  // scrolling Home right after launch. Warming the same
+                  // small set of primitives Home actually paints with
+                  // means those first real paints on Home are no longer
+                  // "first ever" paints.
+                  Container(
+                    width: 4,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.black.withValues(alpha: 0.4),
+                          Colors.transparent,
+                        ],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      width: 4,
+                      height: 4,
+                      color: Colors.black,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

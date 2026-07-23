@@ -17,13 +17,20 @@
 //
 //   HOW IT WORKS (important - secret key is NEVER in this file or the app):
 //     1. App calls the Cloudflare Worker's /api/create-cf-order endpoint,
-//        which holds the Cashfree secret key server-side only.
+//        sending its Supabase access token (not a plain user id) along
+//        with the plan. The Worker verifies that token server-side and
+//        stamps the real user id into the Cashfree order's order_tags —
+//        the client cannot forge which account an order belongs to.
 //     2. Worker creates the order with Cashfree and returns a
 //        `payment_session_id` (a short-lived, payment-scoped token - NOT
 //        the account secret, so it's safe to hand to the client).
 //     3. App opens the Cashfree Drop-in Checkout using that session id.
-//     4. On completion, app asks the Worker to verify the order status
-//        server-side (source of truth) before granting premium locally.
+//     4. On completion, app asks the Worker to verify the order status.
+//        The Worker checks PAID status directly with Cashfree (source of
+//        truth) and, only then, grants premium SERVER-SIDE via Supabase's
+//        Admin API using the plan/user stamped in step 1. The app never
+//        writes is_premium to Supabase itself — see PremiumProvider for
+//        why that matters (a client-writable premium flag can be forged).
 // =============================================================================
 
 import 'dart:convert';
@@ -96,6 +103,14 @@ class PaymentService {
   static const _kPremiumPlan       = 'aurum_premium_plan';
   static const _kPremiumPaymentId  = 'aurum_premium_payment_id';
   static const _kPremiumExpiresAt  = 'aurum_premium_expires_at';
+  // Which account this local grant belongs to — 'guest' if paid while
+  // signed out, otherwise the Supabase user id. Lets hasValidLocalGrant()
+  // refuse to hand a paid grant to a *different* signed-in user on a
+  // shared/resold device, while still honouring it for the payer
+  // (signed out, or signed back into the same account) and for guests
+  // (who have no Supabase identity to check against).
+  static const _kPremiumOwnerId    = 'aurum_premium_owner_id';
+  static const String guestOwnerId = 'guest';
 
   final CFPaymentGatewayService _cfPaymentGatewayService = CFPaymentGatewayService();
 
@@ -132,6 +147,12 @@ class PaymentService {
       final orderId = 'aurum_${plan.id}_${DateTime.now().millisecondsSinceEpoch}';
       _pendingOrderId = orderId;
 
+      // Sent so the Worker can verify server-side WHO is actually paying
+      // (via Supabase's /auth/v1/user) rather than trusting a client-
+      // supplied identity. Null for guest checkout — the Worker treats a
+      // missing/invalid token as "no verified user", same as before.
+      final accessToken = Supabase.instance.client.auth.currentSession?.accessToken;
+
       final resp = await http.post(
         Uri.parse('$_workerBaseUrl/api/create-cf-order'),
         headers: {'Content-Type': 'application/json'},
@@ -141,6 +162,7 @@ class PaymentService {
           'planId': plan.id,
           'customerEmail': userEmail ?? 'guest@aurum.app',
           'customerName': userName ?? 'Aurum User',
+          'accessToken': accessToken,
         }),
       );
 
@@ -193,8 +215,22 @@ class PaymentService {
       final status = data['order_status'] as String?;
 
       if (status == 'PAID') {
+        // Local grant: instant UI update on this device, and the fallback
+        // PremiumProvider._refresh() uses if a later Supabase check is
+        // offline/slow.
+        //
+        // Supabase sync now happens SERVER-SIDE, inside the Worker's own
+        // /api/verify-cf-order handler (grantPremiumServerSide) — using
+        // order_tags it stamped at order-creation time from a verified
+        // access token, and the service-role key it holds. The app used
+        // to also call Supabase's updateUser() from here directly, but
+        // that let any client forge the same call from their own session
+        // and grant themselves premium for free — updateUser() only
+        // proves "a logged-in user made this request", not "this user
+        // paid". Removing it and trusting only the Worker's server-side
+        // write (which only fires when Cashfree itself confirms PAID) is
+        // what actually closes that hole.
         await _grantPremiumLocally(plan, orderId);
-        await _syncToSupabase(plan, orderId);
         onPaymentSuccess?.call(plan, orderId);
       } else if (status == 'ACTIVE') {
         // Payment still pending/in-progress on Cashfree's side.
@@ -219,40 +255,20 @@ class PaymentService {
     onPaymentError?.call(message);
   }
 
-  Future<void> _syncToSupabase(AurumPlan plan, String orderId) async {
-    // Best-effort: mirror grant into Supabase user_metadata so it syncs
-    // across devices too. Server-side validation still happens via the
-    // Worker's verify-cf-order call above - this is a convenience cache,
-    // not the source of truth for entitlement enforcement.
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user != null) {
-        await Supabase.instance.client.auth.updateUser(
-          UserAttributes(
-            data: {
-              'is_premium': true,
-              'premium_plan': plan.id,
-              'premium_payment_id': orderId,
-              'premium_granted_at': DateTime.now().toIso8601String(),
-              if (plan.isLifetime) 'premium_lifetime': true,
-            },
-          ),
-        );
-      }
-    } catch (e) {
-      if (kDebugMode) debugPrint('[PaymentService] supabase sync error: $e');
-      // Non-fatal - local grant already saved.
-    }
-  }
-
   Future<void> _grantPremiumLocally(AurumPlan plan, String orderId) async {
     final prefs = await SharedPreferences.getInstance();
     final now = DateTime.now();
+
+    // Stamp the grant with whoever is signed in at the moment of payment
+    // (or 'guest' if no one is). This is what lets a later, *different*
+    // signed-in user on the same device be refused this grant.
+    final payerId = Supabase.instance.client.auth.currentUser?.id ?? guestOwnerId;
 
     await prefs.setBool(_kCachedPremium, true);
     await prefs.setString(_kPremiumGrantedAt, now.toIso8601String());
     await prefs.setString(_kPremiumPlan, plan.id);
     await prefs.setString(_kPremiumPaymentId, orderId);
+    await prefs.setString(_kPremiumOwnerId, payerId);
 
     if (!plan.isLifetime && plan.duration != null) {
       final expiry = now.add(plan.duration!);
@@ -262,13 +278,39 @@ class PaymentService {
     }
   }
 
-  /// Reads the locally-cached payment-based premium grant, if any,
-  /// and whether it's still within its validity window.
-  /// Lifetime grants (no expiry key) always return true.
+  /// Reads the locally-cached payment-based premium grant, if any, and
+  /// whether it's still within its validity window AND belongs to the
+  /// currently signed-in account.
+  ///
+  /// Ownership check: a grant stamped 'guest' (paid while signed out) is
+  /// honoured for anyone, since it was never tied to an account in the
+  /// first place. A grant stamped with a real user id is only honoured
+  /// while that same user is the one signed in (or while signed out
+  /// entirely, so the payer doesn't lose access mid-session) — never for
+  /// a *different* signed-in user. This stops a paid grant on a
+  /// shared/resold device from being silently inherited by whoever signs
+  /// in next.
+  ///
+  /// Grants written before this field existed have no owner id on disk;
+  /// they're treated as 'guest' (old behaviour: honoured for whoever's
+  /// signed in) rather than invalidated, so no existing paying user loses
+  /// premium on the app update that introduces this check.
+  ///
+  /// Lifetime grants (no expiry key) skip the expiry check but still go
+  /// through the ownership check above.
   static Future<bool> hasValidLocalGrant() async {
     final prefs = await SharedPreferences.getInstance();
     final isCached = prefs.getBool(_kCachedPremium) ?? false;
     if (!isCached) return false;
+
+    final ownerId = prefs.getString(_kPremiumOwnerId) ?? guestOwnerId;
+    if (ownerId != guestOwnerId) {
+      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+      if (currentUserId != null && currentUserId != ownerId) {
+        // Signed in as someone other than the payer — not their grant.
+        return false;
+      }
+    }
 
     final plan = prefs.getString(_kPremiumPlan);
     if (plan == 'lifetime') return true;

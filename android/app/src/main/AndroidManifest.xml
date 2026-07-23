@@ -72,6 +72,26 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2"/>
+        <!-- PERF FIX (the "very laggy for ~1 min on open, then buttery
+             smooth" symptom): with the old Skia rendering backend, every
+             GPU shader (blur, gradient, rounded-clip, shadow, etc.) is
+             compiled lazily, on the GPU thread, the FIRST time it's
+             actually painted. Aurum's home screen paints ~5-6 different
+             blur/gradient/shadow combos within its first few frames (nav
+             bar glass blur, mini player blur, hero card gradients, card
+             shadows, artwork rounded-clips) — each one independently
+             stalls the GPU thread for tens to hundreds of ms the first
+             time it's hit, which reads exactly as "laggy at open, smooth
+             after". Once every distinct shader combo has been hit once
+             (usually within the first minute of normal scrolling/
+             navigation), nothing new needs compiling and it's smooth.
+             Impeller precompiles its (much smaller, fixed) shader set
+             ahead of time instead of compiling on first paint, which
+             eliminates this whole class of jank. Available/stable for
+             Android since Flutter 3.24+. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="true"/>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
