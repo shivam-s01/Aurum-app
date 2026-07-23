@@ -101,7 +101,17 @@ class _SongTileState extends State<SongTile> {
       (p) => p.isPlaying,
     );
 
-    return InkWell(
+    // PERF: RepaintBoundary isolates each tile into its own compositor
+    // layer. Without it, every tile in a ListView shares a paint layer
+    // with its siblings — so even though context.select() above already
+    // limits which tiles *rebuild*, Flutter can still end up re-painting
+    // a wider region than just the one tile that changed (e.g. during
+    // fast scroll, or when a neighboring tile's like-button animates).
+    // A dedicated layer per tile keeps each row's paint cost isolated to
+    // itself, which matters most exactly where the CPU/GPU is weakest —
+    // long lists on lower-end devices.
+    return RepaintBoundary(
+      child: InkWell(
       onTap: () => _handleTap(context),
       onLongPress: () => _showOptions(context),
       borderRadius: BorderRadius.circular(8),
@@ -175,6 +185,7 @@ class _SongTileState extends State<SongTile> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -105,6 +105,14 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   // Sleep timer UI state
   bool _sleepTimerFinishSong = false;
 
+  // FIX (toggle flash — see settings_appearance_screen.dart for the full
+  // root-cause writeup): every field above defaults to a hardcoded value
+  // before _load()'s async SharedPreferences read resolves, so the first
+  // build() paints those hardcoded defaults for a frame, then snaps to the
+  // real saved value once _load() completes. Gate the real UI behind a
+  // brief loader until the real values are ready, so it only paints once.
+  bool _loaded = false;
+
   @override
   void initState() {
     super.initState();
@@ -154,6 +162,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
       _bassBoost           = p.getBool('bass_boost') ?? false;
       _premiumSound        = p.getBool('premium_sound') ?? false;
       _sleepTimerFinishSong = p.getBool('sleep_timer_finish_song') ?? false;
+      _loaded = true;
     });
   }
 
@@ -425,6 +434,14 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final timer = SleepTimerService.instance;
+
+    if (!_loaded) {
+      return Scaffold(
+        backgroundColor: AurumTheme.bgOf(context),
+        appBar: _appBar(context, l10n.settingsPlayerAudio),
+        body: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),

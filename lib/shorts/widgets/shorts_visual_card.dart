@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/shorts_palette.dart';
@@ -126,7 +127,17 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
         AnimatedBuilder(
           animation: _zoomCtrl,
           builder: (context, child) {
-            final t = Curves.easeInOut.transform(_zoomCtrl.value);
+            // FIX (same glitch as full_player_screen.dart's Ken Burns
+            // pan): _zoomCtrl already reverses direction on its own via
+            // repeat(reverse: true). Layering Curves.easeInOut.transform()
+            // on top of that raw value re-eases a value that's already
+            // changing direction — right at each turnaround the
+            // controller's own velocity flip and the curve's steep slope
+            // combine into a visible snap, most noticeable on the return
+            // ("back") stroke. A raised-cosine is smooth at both ends of
+            // a reversing triangle wave, so the zoom/pan now reverses
+            // with no visible glitch.
+            final t = (1 - math.cos(_zoomCtrl.value * math.pi)) / 2;
             final scale = 1.06 + (t * 0.05); // 1.06 → 1.11, gentle
             final dx = (t - 0.5) * 14; // slight horizontal drift
             return Transform.translate(

@@ -41,6 +41,18 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   bool _scrollAnimations = true;
   bool _bgGradientAnimation = true;
 
+  // FIX (toggle flash): every field above defaults to `true`/some default
+  // BEFORE _load() has actually read SharedPreferences (that read is async,
+  // so the very first build() always paints with these hardcoded defaults
+  // for at least one frame). If the user had actually turned a setting OFF
+  // previously, the toggle would render ON for that first frame, then snap
+  // to OFF the instant _load()'s setState lands a moment later — reading as
+  // "I open settings and it looks on, then it turns off by itself."
+  // _loaded gates the real content behind a tiny loader until the actual
+  // saved values are in hand, so the screen only ever paints once, with the
+  // correct values already in place — no flash, no snap.
+  bool _loaded = false;
+
   static const List<Color> _accentOptions = [
     Color(0xFF6D5DF6), Color(0xFF4F8CFF), Color(0xFFE91E63),
     Color(0xFF4CAF50), Color(0xFF9C27B0), Color(0xFFFF5722),
@@ -74,6 +86,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _fontStyle           = p.getString('font_style') ?? 'Default';
       _nowPlayingCardStyle = p.getString('now_playing_card_style') ?? 'Card';
       _artworkShape        = p.getString('artwork_shape') ?? 'Rounded';
+      _loaded = true;
     });
   }
 
@@ -89,6 +102,20 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final tp = context.watch<ThemeProvider>();
+
+    // See _loaded's declaration above: skip painting the (possibly wrong)
+    // hardcoded defaults for a frame — show a tiny loader instead until the
+    // real saved values are ready, then paint once, correctly.
+    if (!_loaded) {
+      return Scaffold(
+        backgroundColor: AurumTheme.bgOf(context),
+        appBar: _appBar(context, l10n.settingsAppearance),
+        body: const Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, l10n.settingsAppearance),

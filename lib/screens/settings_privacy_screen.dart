@@ -27,6 +27,17 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
   String _lockDelayKey    = 'after10';
   bool   _dontLockPlaying = false;
 
+  // FIX (toggle flash — same root cause across every settings screen):
+  // all the fields above are given hardcoded defaults, but the real saved
+  // values only arrive once _load()'s async SharedPreferences read
+  // completes. The very first build() always paints with these hardcoded
+  // defaults for at least a frame, then snaps to the real value the moment
+  // _load() finishes — reading as "a toggle looked on/off for a moment,
+  // then flipped by itself." _loaded gates the real UI behind a brief
+  // loader until the actual saved values are in hand, so the screen only
+  // ever paints once, already correct.
+  bool _loaded = false;
+
   static const _delayKeys = ['immediately', 'after1', 'after5', 'after10', 'after30'];
 
   String _delayLabel(AppLocalizations l10n, String key) {
@@ -56,6 +67,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
       _appLockPin      = p.getString('app_lock_pin')      ?? '';
       _lockDelayKey    = p.getString('lock_delay_key')     ?? 'after10';
       _dontLockPlaying = p.getBool('dont_lock_while_playing') ?? false;
+      _loaded = true;
     });
   }
 
@@ -101,6 +113,15 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+
+    if (!_loaded) {
+      return Scaffold(
+        backgroundColor: AurumTheme.bgOf(context),
+        appBar: _appBar(context, l10n.settingsPrivacy),
+        body: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, l10n.settingsPrivacy),

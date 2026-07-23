@@ -105,10 +105,27 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   void _startShakeListener() {
     _accelSub?.cancel();
+    _accelSub = null;
+    // PERF FIX (battery/CPU): this used to always subscribe to the
+    // accelerometer stream at gameInterval (~50Hz) for the app's entire
+    // foreground lifetime, regardless of whether Shake to Skip was even
+    // turned on — the callback checked the setting and bailed out, but
+    // only *after* the stream had already woken the CPU, delivered the
+    // event across the platform channel, and run the sqrt/magnitude
+    // math. On a 2GB device that's a continuous, pointless background
+    // cost for a feature most people never enable.
+    // Now: don't subscribe at all unless the setting is actually on, and
+    // react live to it being toggled (see the listener added in
+    // initState) instead of subscribing unconditionally up front.
+    if (!AudioPrefs.shakeToSkipNotifier.value) return;
     _accelSub = accelerometerEventStream(
-      samplingPeriod: SensorInterval.gameInterval,
+      // uiInterval (~60ms/~16Hz) is still plenty fast to catch a
+      // deliberate shake gesture — a shake unfolds over a few hundred ms,
+      // not a single frame — while roughly a third of gameInterval's
+      // wake-up/compute frequency. Cuts this listener's own CPU cost
+      // further for the (now much rarer) case where it's actually active.
+      samplingPeriod: SensorInterval.uiInterval,
     ).listen((event) {
-      if (!AudioPrefs.shakeToSkipNotifier.value) return;
       final magnitude = math.sqrt(
         event.x * event.x + event.y * event.y + event.z * event.z,
       );
@@ -164,6 +181,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startShakeListener();
+    // Live-react to the setting: if the user turns Shake to Skip on/off
+    // from Settings while the app is open, start/stop the sensor stream
+    // immediately rather than waiting for MainShell to rebuild.
+    AudioPrefs.shakeToSkipNotifier.addListener(_startShakeListener);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _startFeedbackTracking();
@@ -279,6 +300,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    AudioPrefs.shakeToSkipNotifier.removeListener(_startShakeListener);
     _accelSub?.cancel();
     if (_feedbackListener != null) {
       _trackedPlayer?.removeListener(_feedbackListener!);

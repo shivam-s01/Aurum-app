@@ -2,6 +2,7 @@ import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../main.dart' show aurumRouteObserver;
 import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/services.dart';
@@ -1023,7 +1024,17 @@ class _ArtworkState extends State<_Artwork> {
                   builder: (_, child) {
                     // Pure vertical float: 0 → -7px → 0, easeInOut — Echo Nightly spec.
                     // No horizontal drift, no scale — just a clean gentle rise and fall.
-                    final t = Curves.easeInOut.transform(widget.breatheCtrl.value);
+                    // FIX (same glitch as the Ken Burns background pan
+                    // below): breatheCtrl already reverses direction on
+                    // its own via repeat(reverse: true). Layering
+                    // Curves.easeInOut.transform() on that raw value
+                    // re-eases something already changing direction — at
+                    // each turnaround the controller's own velocity flip
+                    // and the curve's steep slope combine into a visible
+                    // snap in the float, most noticeable on the way back
+                    // down. A raised-cosine is smooth at both ends of a
+                    // reversing triangle wave.
+                    final t = (1 - math.cos(widget.breatheCtrl.value * math.pi)) / 2;
                     final floatY = -7.0 * t;
                     final dragScale = _dragging
                         ? (1.0 - (_dragDx.abs() / 800).clamp(0.0, 0.08))
@@ -4057,7 +4068,23 @@ class _StaticBlurArtwork extends StatelessWidget {
             builder: (context, child) {
               final animsOn = AudioPrefs.enableAnimationsNotifier.value;
               final tRaw = animsOn ? ctrl.value : 0.5; // 0→1→0 (reverse: true)
-              final t = Curves.easeInOut.transform(tRaw);
+              // FIX (glitch on the reverse/"back" stroke): `ctrl` already
+              // reverses direction on its own via repeat(reverse: true),
+              // which alone plays back as a linear triangle wave (fine).
+              // Layering `Curves.easeInOut.transform()` on top of that
+              // raw value re-eases a value that's *already* changing
+              // direction — right at each turnaround (t=0 and t=1) the
+              // controller's own velocity flips AND the curve's slope is
+              // steepest, so the two combine into a visible snap/jerk
+              // exactly at the turnaround. It reads as fine going one way
+              // and glitchy coming back because the same curve is being
+              // traversed in reverse on the return stroke.
+              // A raised-cosine (equivalent to a sine easing) is C1-
+              // continuous at both ends of a reversing triangle wave —
+              // velocity smoothly approaches zero at each turnaround
+              // instead of snapping — so the pan/zoom drift now reverses
+              // direction smoothly with no visible glitch.
+              final t = (1 - math.cos(tRaw * math.pi)) / 2;
 
               // Zoom breathes between 1.0x and 1.14x on top of the base
               // 1.55x already applied inside the core widget — clearly

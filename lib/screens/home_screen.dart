@@ -881,7 +881,16 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
                   ),
                 ),
                 builder: (_, child) {
-                  final b = Curves.easeInOut.transform(_breatheCtrl.value);
+                  // FIX (same glitch as full_player_screen.dart's Ken
+                  // Burns pan): _breatheCtrl already reverses direction on
+                  // its own via repeat(reverse: true). Layering
+                  // Curves.easeInOut.transform() on that raw value
+                  // re-eases something already changing direction — at
+                  // each turnaround the controller's own velocity flip and
+                  // the curve's steep slope combine into a visible snap,
+                  // most noticeable on the return stroke. A raised-cosine
+                  // is smooth at both ends of a reversing triangle wave.
+                  final b = (1 - math.cos(_breatheCtrl.value * math.pi)) / 2;
                   return Transform.scale(
                     scale: 1.0 + (b * 0.015), // 1.00 -> 1.015: alive, not animated
                     child: child,
@@ -1336,7 +1345,12 @@ class _SongGridCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    // PERF: isolates each horizontally-scrolling card into its own
+    // compositor layer — same reasoning as SongTile/the followed-albums
+    // grid. These rows can hold up to 12 cards each and there are several
+    // per Home screen, so this adds up on weaker devices during scroll.
+    return RepaintBoundary(
+      child: GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
         context.read<PlayerProvider>().playSong(song, queue: queue, index: index);
@@ -1378,6 +1392,7 @@ class _SongGridCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
       ),
     );
   }

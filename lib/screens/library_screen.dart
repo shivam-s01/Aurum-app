@@ -2544,7 +2544,14 @@ class _FollowedAlbumTile extends StatelessWidget {
     final artworkUrl = (album['artworkUrl'] ?? '').toString();
     final isMix = album['isMix'] == true;
 
-    return AurumPressable(
+    // PERF: see the matching note on SongTile — isolates each grid cell
+    // into its own compositor layer so scrolling a long saved-albums grid
+    // doesn't repaint neighboring cells unnecessarily. Safe to wrap here:
+    // AurumPressable's own tap-scale animation happens inside it, and the
+    // Hero transition already snapshots this subtree during flight
+    // regardless of any RepaintBoundary around it.
+    return RepaintBoundary(
+      child: AurumPressable(
       onTap: () {
         if (isMix) {
           final songs =
@@ -2615,6 +2622,7 @@ class _FollowedAlbumTile extends StatelessWidget {
             ],
           ),
         ],
+      ),
       ),
     );
   }

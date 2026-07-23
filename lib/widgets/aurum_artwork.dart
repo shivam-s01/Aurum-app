@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -391,7 +392,15 @@ class _ShimmerPulse extends StatelessWidget {
     )..repeat(reverse: true);
     _ctrl!.addListener(() {
       final t = _ctrl!.value;
-      final curved = Curves.easeInOut.transform(t);
+      // FIX (same glitch as full_player_screen.dart's Ken Burns pan):
+      // _ctrl already reverses direction on its own via
+      // repeat(reverse: true). Layering Curves.easeInOut.transform() on
+      // that raw value re-eases something already changing direction —
+      // at each turnaround the controller's own velocity flip and the
+      // curve's steep slope combine into a visible snap in the shimmer
+      // pulse, most noticeable on the return stroke. A raised-cosine is
+      // smooth at both ends of a reversing triangle wave.
+      final curved = (1 - math.cos(t * math.pi)) / 2;
       _opacity.value = 0.03 + curved * 0.07;
     });
   }

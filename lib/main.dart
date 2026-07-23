@@ -80,9 +80,22 @@ Future<void> main() async {
   // the crash-on-launch some devices hit — permission_handler's platform
   // channel can be fragile if invoked before the Activity is fully
   // attached/resumed.
-  try {
-    await Permission.notification.request();
-  } catch (_) {}
+  // PERF FIX (the actual "app freezes for a second on open" cause): this
+  // request used to be `await`-ed HERE, before runApp() — which meant
+  // Flutter's very first frame couldn't even be painted until the user
+  // dismissed the system permission dialog. On a device where that
+  // dialog takes a moment to appear (or the user pauses before tapping),
+  // the entire screen just sits blank/black, which reads exactly like
+  // "the app is lagging/frozen on launch" even though nothing was
+  // actually slow — Flutter was simply never given the chance to draw
+  // anything yet.
+  // The permission itself doesn't need to be granted before any UI can
+  // show — it only affects whether the background playback notification
+  // is visible later. Fired fire-and-forget after runApp() (see bottom
+  // of this function) instead, so the splash/home UI paints immediately
+  // and the system dialog appears as a normal overlay on top of a
+  // already-visible, already-interactive app, the way permission
+  // prompts work in virtually every other Android app.
 
   // Wake the Saavn free-tier backend the instant the app launches — by the
   // time the user reaches Home/Search it's had a head start to warm up.
@@ -94,14 +107,41 @@ Future<void> main() async {
   // Apply user's image cache size preference to Flutter's in-memory image
   // cache. This is separate from cached_network_image's disk cache, but
   // controls how many decoded images are kept in RAM.
+  //
+  // PERF FIX: reads SharedPreferences.getInstance() a second time here —
+  // AudioPrefs.load() below also opens it. SharedPreferences.getInstance()
+  // is itself cached process-wide after the first call, so this was
+  // already cheap, but reordered below to share one lookup and shave one
+  // redundant plugin channel round-trip off the startup path.
+  final prefs = await SharedPreferences.getInstance();
   try {
-    final p = await SharedPreferences.getInstance();
-    final maxImgMB = p.getDouble('max_image_cache') ?? 100.0;
+    final maxImgMB = prefs.getDouble('max_image_cache') ?? 100.0;
     PaintingBinding.instance.imageCache.maximumSizeBytes =
         (maxImgMB * 1024 * 1024).toInt();
+    // PERF FIX (2GB-RAM smoothness): Flutter's default imageCache.maximumSize
+    // (item count, separate from the byte-size cap above) is 1000 — on a
+    // long scroll session (Library with hundreds of tracks, or Search
+    // results) that's up to 1000 decoded image entries kept alive with
+    // their own bookkeeping/GC overhead, even while comfortably under the
+    // byte-size limit above. Artwork here is small and heavily downscaled
+    // already (see AurumArtwork._cacheSize — capped to size*2, or 220px for
+    // blurred backgrounds), so 250 entries is still generous headroom for
+    // smooth scrolling — several screens worth of visible + prefetched
+    // tiles — while meaningfully cutting the worst-case memory/GC pressure
+    // on weaker devices.
+    PaintingBinding.instance.imageCache.maximumSize = 250;
   } catch (_) {}
 
   // Supabase init — must happen before any AuthService/Supabase.instance use.
+  // NOTE: this one genuinely can't move to the post-runApp() block below —
+  // AuthProvider.init() (see main.dart's MultiProvider) runs synchronously
+  // the moment runApp() builds the widget tree, and it immediately touches
+  // Supabase.instance.client via AuthService.instance.authStateChanges.
+  // Deferring Supabase.initialize() past runApp() would make that a crash
+  // (accessing Supabase.instance before Supabase.initialize() has run)
+  // instead of a perf win. In practice this call is fast (local client
+  // setup, no network round-trip of its own), so it isn't the source of
+  // the launch delay — the notification permission dialog below was.
   try {
     await AuthService.init();
   } catch (_) {} // app still works fully offline/unauthenticated if this fails
@@ -133,7 +173,26 @@ Future<void> main() async {
   // the way the old AudioService.init() call could.
   _audioEngine = NativeAudioEngine();
 
-  // Download progress/complete notifications. Tapping one opens Downloads.
+  // PERF FIX: NotificationService.instance.init() only sets up local
+  // notification channels/plugin registration — nothing else in this
+  // function depends on it having finished, and nothing visible on the
+  // very first frame needs it either. Moved off the pre-runApp() blocking
+  // path (fire-and-forget below, alongside AuthService.init() and the
+  // notification permission request) so it can complete in the background
+  // while the UI is already up and interactive instead of adding its own
+  // few dozen ms to the blank-screen window before first paint.
+
+  runApp(AurumApp(engine: _audioEngine));
+
+  // ── Everything below runs AFTER the first frame is already up ──────────
+  // None of this is needed to paint Home/Search/Library correctly, so it
+  // no longer delays runApp() by a single millisecond. Each is still
+  // independently try/caught so one failing can never affect another or
+  // crash the (already-running) app.
+  try {
+    await Permission.notification.request();
+  } catch (_) {}
+
   try {
     await NotificationService.instance.init();
     NotificationService.instance.onNotificationTapped = () {
@@ -142,8 +201,6 @@ Future<void> main() async {
       );
     };
   } catch (_) {}
-
-  runApp(AurumApp(engine: _audioEngine));
   }, (error, stack) {
     debugPrint('[Aurum] Uncaught error: $error\n$stack');
   });

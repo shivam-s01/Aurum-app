@@ -33,6 +33,14 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
   // once at initState.
   bool _batteryOptimizationIgnored = false;
 
+  // FIX (toggle flash — see settings_appearance_screen.dart for the full
+  // root-cause writeup): _showMediaNotif/_showArtworkInNotif/etc default to
+  // hardcoded values before _load()'s async SharedPreferences read
+  // resolves, so the first build() paints those defaults for a frame, then
+  // snaps to the real saved value once _load() completes. Gate the real UI
+  // behind a brief loader until the real values are ready.
+  bool _loaded = false;
+
   Future<void> _refreshBatteryStatus() async {
     final status = await Permission.ignoreBatteryOptimizations.status;
     if (mounted) setState(() => _batteryOptimizationIgnored = status.isGranted);
@@ -67,6 +75,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
       _showArtworkInNotif = p.getBool('show_artwork_notif')  ?? true;
       _notifStyle         = p.getString('notif_style')       ?? 'Expanded';
       _showPrevButton     = p.getBool('notif_show_prev')     ?? true;
+      _loaded = true;
     });
   }
 
@@ -94,6 +103,15 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+
+    if (!_loaded) {
+      return Scaffold(
+        backgroundColor: AurumTheme.bgOf(context),
+        appBar: _appBar(context, l10n.settingsNotifications),
+        body: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, l10n.settingsNotifications),
