@@ -97,14 +97,23 @@ class ArtworkPaletteCache {
   static Future<ArtworkPalette?> _extract(String url) async {
     if (url.isEmpty || !url.startsWith('http')) return null;
     try {
-      // 40x40 is plenty for averaged palette swatches (this never renders
-      // the decoded bitmap, just quantizes it into a handful of colors),
-      // and decodes noticeably faster than the previous 120x120 target.
+      // FIX (the "player stays black for a minute+" bug): on a slow/weak
+      // connection (screenshots showed ~1 KB/s), PaletteGenerator's own
+      // image fetch+decode could take well over a minute with nothing
+      // bounding it — the caller just awaited forever, so _BgLayer sat on
+      // its hardcoded near-black default the entire time, then snapped to
+      // the real palette the instant it finally arrived. A firm timeout
+      // means the UI is never left waiting indefinitely: past 1.2s we give
+      // up on THIS attempt and fall through to the neutral fallback below,
+      // so the background always settles quickly even when the network
+      // doesn't cooperate. (If the fetch does complete later, the shared
+      // CachedNetworkImageProvider disk cache means any retry — e.g. the
+      // next time this song plays — resolves instantly from disk.)
       final pg = await PaletteGenerator.fromImageProvider(
         CachedNetworkImageProvider(url),
         size: const Size(40, 40),
         maximumColorCount: 12,
-      );
+      ).timeout(const Duration(milliseconds: 1200));
       return ArtworkPalette(
         vibrant: pg.vibrantColor?.color ??
             pg.lightVibrantColor?.color ??

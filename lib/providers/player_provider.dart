@@ -44,6 +44,7 @@ import '../services/native_engine_bridge.dart';
 import '../services/api_service.dart';
 import '../services/audio_prefs.dart';
 import '../services/recommendation_engine.dart';
+import '../utils/artwork_palette_cache.dart';
 import 'recently_played_provider.dart';
 import 'favorites_provider.dart';
 
@@ -693,6 +694,27 @@ class PlayerProvider extends ChangeNotifier {
     _lastHandledIndex = null;
     _uiPlaySession++;
     final mySession = _uiPlaySession;
+
+    // FIX ("player still shows black for a moment on first tap"): the full
+    // player's background color palette was only ever extracted once
+    // FullPlayerScreen itself had already built and its first frame
+    // callback fired — i.e. AFTER the push transition had already started
+    // (or finished). That meant even with the 1.2s extraction timeout in
+    // place, a brand-new (never-before-played) song's artwork still had to
+    // be decoded from a cold start before any themed color could show, and
+    // none of that decode work overlapped with the screen-open animation.
+    // Firing the warm-up here — the instant playSong() is called, which is
+    // the same tap that triggers navigation to the full player in every
+    // call site (song tile, mini player, library, search, home) — means
+    // the palette extraction now runs in parallel with the push transition
+    // instead of starting only after it. By the time the full player's
+    // first frame is up, the palette is very often already sitting in
+    // cache, so _extractColor's `ArtworkPaletteCache.peek()` fast path
+    // hits immediately and the themed background applies on that same
+    // first frame instead of a visible beat later.
+    if (song.artworkUrl.isNotEmpty) {
+      ArtworkPaletteCache.warm(song.artworkUrl);
+    }
 
     if (queue != null && index != null) {
       _queue = List<Song>.from(queue);

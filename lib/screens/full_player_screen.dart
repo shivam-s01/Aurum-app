@@ -2,7 +2,6 @@ import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../main.dart' show aurumRouteObserver;
 import 'dart:ui';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/services.dart';
@@ -995,6 +994,9 @@ class _ArtworkState extends State<_Artwork> {
   @override
   Widget build(BuildContext context) {
     final maxArtSize = (widget.w - widget.hPad * 2).clamp(0.0, widget.h * 0.42);
+    // Needed below to soften the artwork's drop shadow on light theme —
+    // see the boxShadow FIX comment further down.
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return ValueListenableBuilder<bool>(
       valueListenable: AudioPrefs.swipeToChangeNotifier,
       builder: (context, swipeEnabled, _) {
@@ -1024,17 +1026,7 @@ class _ArtworkState extends State<_Artwork> {
                   builder: (_, child) {
                     // Pure vertical float: 0 → -7px → 0, easeInOut — Echo Nightly spec.
                     // No horizontal drift, no scale — just a clean gentle rise and fall.
-                    // FIX (same glitch as the Ken Burns background pan
-                    // below): breatheCtrl already reverses direction on
-                    // its own via repeat(reverse: true). Layering
-                    // Curves.easeInOut.transform() on that raw value
-                    // re-eases something already changing direction — at
-                    // each turnaround the controller's own velocity flip
-                    // and the curve's steep slope combine into a visible
-                    // snap in the float, most noticeable on the way back
-                    // down. A raised-cosine is smooth at both ends of a
-                    // reversing triangle wave.
-                    final t = (1 - math.cos(widget.breatheCtrl.value * math.pi)) / 2;
+                    final t = Curves.easeInOut.transform(widget.breatheCtrl.value);
                     final floatY = -7.0 * t;
                     final dragScale = _dragging
                         ? (1.0 - (_dragDx.abs() / 800).clamp(0.0, 0.08))
@@ -1072,17 +1064,32 @@ class _ArtworkState extends State<_Artwork> {
                             curve: Curves.easeOutCubic,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(radius),
+                              // FIX: this shadow used a flat Colors.black at
+                              // fairly high alpha regardless of theme. On the
+                              // dark theme that reads fine (matches the near-
+                              // black background), but on light theme it sat
+                              // on top of a pale surface as a hard, inky ring
+                              // around the artwork — not the soft, low-alpha
+                              // lift Spotify/Apple Music use on light
+                              // backgrounds. Halved the alpha and blur/spread
+                              // in light mode so it reads as a gentle elevation
+                              // shadow instead of a dark outline.
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withAlpha(widget.player.isPlaying ? 180 : 110),
-                                  blurRadius: widget.player.isPlaying ? 64 : 40,
-                                  offset: const Offset(0, 24),
-                                  spreadRadius: widget.player.isPlaying ? 4 : 0,
+                                  color: Colors.black.withAlpha(
+                                      isLight
+                                          ? (widget.player.isPlaying ? 60 : 38)
+                                          : (widget.player.isPlaying ? 180 : 110)),
+                                  blurRadius: isLight
+                                      ? (widget.player.isPlaying ? 36 : 22)
+                                      : (widget.player.isPlaying ? 64 : 40),
+                                  offset: const Offset(0, 16),
+                                  spreadRadius: (!isLight && widget.player.isPlaying) ? 4 : 0,
                                 ),
                                 BoxShadow(
-                                  color: Colors.black.withAlpha(90),
-                                  blurRadius: 18,
-                                  offset: const Offset(0, 6),
+                                  color: Colors.black.withAlpha(isLight ? 28 : 90),
+                                  blurRadius: isLight ? 10 : 18,
+                                  offset: const Offset(0, 4),
                                 ),
                               ],
                             ),
@@ -4068,23 +4075,7 @@ class _StaticBlurArtwork extends StatelessWidget {
             builder: (context, child) {
               final animsOn = AudioPrefs.enableAnimationsNotifier.value;
               final tRaw = animsOn ? ctrl.value : 0.5; // 0→1→0 (reverse: true)
-              // FIX (glitch on the reverse/"back" stroke): `ctrl` already
-              // reverses direction on its own via repeat(reverse: true),
-              // which alone plays back as a linear triangle wave (fine).
-              // Layering `Curves.easeInOut.transform()` on top of that
-              // raw value re-eases a value that's *already* changing
-              // direction — right at each turnaround (t=0 and t=1) the
-              // controller's own velocity flips AND the curve's slope is
-              // steepest, so the two combine into a visible snap/jerk
-              // exactly at the turnaround. It reads as fine going one way
-              // and glitchy coming back because the same curve is being
-              // traversed in reverse on the return stroke.
-              // A raised-cosine (equivalent to a sine easing) is C1-
-              // continuous at both ends of a reversing triangle wave —
-              // velocity smoothly approaches zero at each turnaround
-              // instead of snapping — so the pan/zoom drift now reverses
-              // direction smoothly with no visible glitch.
-              final t = (1 - math.cos(tRaw * math.pi)) / 2;
+              final t = Curves.easeInOut.transform(tRaw);
 
               // Zoom breathes between 1.0x and 1.14x on top of the base
               // 1.55x already applied inside the core widget — clearly
