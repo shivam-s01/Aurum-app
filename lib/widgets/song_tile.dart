@@ -84,7 +84,20 @@ class _SongTileState extends State<SongTile> {
         );
       }
     } finally {
-      await Future.delayed(const Duration(milliseconds: 800));
+      // FIX (premium-feel latency) — this used to be a flat 800ms before
+      // the tile could be tapped again, on every single tap, regardless
+      // of how quickly navigation actually completed. playSong() itself
+      // is fire-and-forget here (not awaited — see .catchError above), so
+      // this delay had no relationship to how long the actual song
+      // resolve takes; it was purely an arbitrary number blocking re-taps
+      // on THIS tile. The real "don't let a stale tap's background work
+      // clobber a newer one" protection already lives in
+      // PlayerProvider._uiPlaySession (see player_provider.dart), so this
+      // only ever needed to be long enough to swallow an accidental
+      // double-tap/double-fire from the same physical touch — 250ms is
+      // comfortably above that and far below the old 800ms, so rapid
+      // deliberate browsing across different tiles no longer feels sticky.
+      await Future.delayed(const Duration(milliseconds: 250));
       if (mounted) _isTapping = false;
     }
   }
