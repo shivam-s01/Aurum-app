@@ -19,6 +19,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
@@ -101,6 +102,21 @@ class _MixScreenState extends State<MixScreen> {
       }
     }
     return out;
+  }
+
+  /// "24 songs • 1 hr 32 min" style summary line, skipping songs with
+  /// unknown duration rather than guessing — matches how AlbumScreen
+  /// already treats missing durations elsewhere.
+  String _summaryLine(List<Song> songs) {
+    final count = songs.length;
+    final totalSeconds = songs.fold<int>(
+        0, (sum, s) => sum + (s.duration ?? 0));
+    final songLabel = count == 1 ? 'song' : 'songs';
+    if (totalSeconds <= 0) return '$count $songLabel';
+    final hrs = totalSeconds ~/ 3600;
+    final mins = (totalSeconds % 3600) ~/ 60;
+    final timeLabel = hrs > 0 ? '$hrs hr $mins min' : '$mins min';
+    return '$count $songLabel • $timeLabel';
   }
 
   @override
@@ -196,23 +212,32 @@ class _MixScreenState extends State<MixScreen> {
                               ),
                             ],
                           ),
-                          child: widget.artworkUrl.isNotEmpty
-                              ? AurumArtwork(
-                                  url: widget.artworkUrl,
-                                  size: 180,
-                                  borderRadius: 14,
-                                )
-                              : Container(
-                                  decoration: BoxDecoration(
-                                    color: AurumTheme.bgCardOf(context),
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: Center(
-                                    child: Text(widget.emoji,
-                                        style:
-                                            const TextStyle(fontSize: 48)),
-                                  ),
-                                ),
+                          child: Hero(
+                            tag: 'mix_art_${widget.mixId}',
+                            child: Material(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(14),
+                              clipBehavior: Clip.antiAlias,
+                              child: widget.artworkUrl.isNotEmpty
+                                  ? AurumArtwork(
+                                      url: widget.artworkUrl,
+                                      size: 180,
+                                      borderRadius: 14,
+                                    )
+                                  : Container(
+                                      decoration: BoxDecoration(
+                                        color: AurumTheme.bgCardOf(context),
+                                        borderRadius:
+                                            BorderRadius.circular(14),
+                                      ),
+                                      child: Center(
+                                        child: Text(widget.emoji,
+                                            style: const TextStyle(
+                                                fontSize: 48)),
+                                      ),
+                                    ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -238,6 +263,21 @@ class _MixScreenState extends State<MixScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+              child: Center(
+                child: Text(
+                  _summaryLine(songs),
+                  style: TextStyle(
+                    color: AurumTheme.textMutedOf(context),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
             ),
           ),
@@ -290,6 +330,7 @@ class _MixScreenState extends State<MixScreen> {
                     onTap: songs.isEmpty
                         ? null
                         : () {
+                            HapticFeedback.mediumImpact();
                             final queue = _shuffle
                                 ? (List<Song>.from(songs)..shuffle())
                                 : songs;
@@ -689,7 +730,12 @@ class _ActionIcon extends StatelessWidget {
     final disabled = onTap == null;
     return AurumPressable(
       scaleAmount: 0.88,
-      onTap: onTap,
+      onTap: disabled
+          ? null
+          : () {
+              HapticFeedback.selectionClick();
+              onTap!();
+            },
       child: SizedBox(
         width: 40,
         height: 40,
@@ -724,7 +770,10 @@ class _GridOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
       child: Container(
         decoration: BoxDecoration(
           color: color.withOpacity(0.08),
@@ -770,7 +819,12 @@ class _ArtistChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: onTap == null
+          ? null
+          : () {
+              HapticFeedback.selectionClick();
+              onTap!();
+            },
       child: Container(
         margin: const EdgeInsets.only(right: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),

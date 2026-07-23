@@ -2578,7 +2578,13 @@ class _FollowedAlbumTile extends StatelessWidget {
             aspectRatio: 1,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: AurumArtwork(url: artworkUrl, size: 300, borderRadius: 12),
+              child: Hero(
+                tag: isMix ? 'mix_art_$id' : 'album_art_$id',
+                child: Material(
+                  color: Colors.transparent,
+                  child: AurumArtwork(url: artworkUrl, size: 300, borderRadius: 12),
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 8),

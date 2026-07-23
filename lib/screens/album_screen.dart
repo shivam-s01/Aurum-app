@@ -134,10 +134,18 @@ class _AlbumScreenState extends State<AlbumScreen> {
                             ),
                           ],
                         ),
-                        child: AurumArtwork(
-                          url: widget.artworkUrl,
-                          size: 220,
-                          borderRadius: 10,
+                        child: Hero(
+                          tag: 'album_art_${widget.albumId}',
+                          child: Material(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                            clipBehavior: Clip.antiAlias,
+                            child: AurumArtwork(
+                              url: widget.artworkUrl,
+                              size: 220,
+                              borderRadius: 10,
+                            ),
+                          ),
                         ),
                       ),
                     ),
