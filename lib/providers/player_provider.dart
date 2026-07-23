@@ -833,7 +833,15 @@ class PlayerProvider extends ChangeNotifier {
     _recordSkip();
     _fireEarlySkipIfArmed(); // ← behavior tracking hook
 
-    if (_currentIndex + 1 < _queue.length) {
+    // The optimistic "just show queue[currentIndex + 1] immediately" guess
+    // below is only correct in linear (non-shuffled) order — ExoPlayer's
+    // actual shuffled "next" is a different index entirely, so applying
+    // this guess while shuffle is on used to briefly flash the wrong
+    // song's title/artwork before the real native state event corrected
+    // it a beat later. Skipping the guess when shuffled means the UI just
+    // waits those same tens-of-milliseconds for the authoritative index
+    // instead of showing something wrong in the meantime.
+    if (!_shuffle && _currentIndex + 1 < _queue.length) {
       _currentIndex += 1;
       _currentSong = _queue[_currentIndex];
       _lastHandledIndex = _currentIndex;
@@ -845,7 +853,9 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> skipPrev() async {
-    if (_currentIndex - 1 >= 0) {
+    // Same reasoning as skipNext — only safe to guess the next index
+    // optimistically when the queue is in linear order.
+    if (!_shuffle && _currentIndex - 1 >= 0) {
       _currentIndex -= 1;
       _currentSong = _queue[_currentIndex];
       _lastHandledIndex = _currentIndex;

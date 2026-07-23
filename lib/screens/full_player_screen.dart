@@ -6,8 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:palette_generator/palette_generator.dart';
+import '../utils/artwork_palette_cache.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
 import 'package:share_plus/share_plus.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -358,71 +357,67 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     if (url.isEmpty || url == _lastArtUrl) return;
     _lastArtUrl = url;
     final gen = ++_artGen;
+
+    // Cache hit — the common case once a session has been running for a
+    // bit (replays, shuffle loops, or a queue-neighbour that was already
+    // pre-warmed) — applies the color change on this exact frame instead
+    // of waiting on a fresh decode, which is what made this feel laggy.
+    final cached = ArtworkPaletteCache.peek(url);
+    if (cached != null) {
+      _applyPalette(cached, gen: gen, isLight: isLight);
+      return;
+    }
+
     try {
-      final ImageProvider provider;
-      if (url.startsWith('http')) {
-        provider = CachedNetworkImageProvider(url);
-      } else {
-        return;
-      }
-      // 120x120 gives better palette quality with minimal decode cost
-      final pg = await PaletteGenerator.fromImageProvider(
-          provider, size: const Size(120, 120));
-
-      // Stale check: a newer song was switched to while this decode was
-      // still in flight. Bail out without touching any color/animation
-      // state — whatever the newer call already committed (or is about
-      // to) stays authoritative. This is what actually stops the
-      // background from ever trailing behind fast rapid-fire switching.
-      if (gen != _artGen) return;
-
-      // 4 distinct roles: vibrant glow, dominant base, muted mid, dark anchor
-      final c1 = pg.vibrantColor?.color ??
-          pg.lightVibrantColor?.color ??
-          pg.dominantColor?.color ??
-          const Color(0xFF1A1630);
-      final c2 = pg.dominantColor?.color ??
-          pg.mutedColor?.color ??
-          const Color(0xFF120F24);
-      final c3 = pg.darkMutedColor?.color ??
-          pg.mutedColor?.color ??
-          const Color(0xFF080810);
-      final c4 = pg.lightVibrantColor?.color ??
-          pg.vibrantColor?.color ??
-          pg.lightMutedColor?.color ??
-          c1;
-
-      if (!mounted || gen != _artGen) return;
-
-      // Snapshot current lerped position before morphing
-      final t = _bgColorCtrl.value;
-      _currentBg1 = Color.lerp(_currentBg1, _targetBg1, t) ?? _currentBg1;
-      _currentBg2 = Color.lerp(_currentBg2, _targetBg2, t) ?? _currentBg2;
-      _currentBg3 = Color.lerp(_currentBg3, _targetBg3, t) ?? _currentBg3;
-      _currentBg4 = Color.lerp(_currentBg4, _targetBg4, t) ?? _currentBg4;
-
-      if (isLight) {
-        // Previously blended 35-58% toward white, which washed the
-        // artwork's actual colors out into a flat grey/white haze (the
-        // "bekar" light-mode look). Cut the white blend way down so the
-        // extracted palette stays visibly saturated — matching how the
-        // dark-mode branch keeps most of the color and only deepens it
-        // toward black. Light mode now lightens just enough to keep dark
-        // text/icons readable, without losing the artwork's identity.
-        _targetBg1 = Color.lerp(c1, Colors.white, 0.16)!;
-        _targetBg2 = Color.lerp(c2, Colors.white, 0.10)!;
-        _targetBg3 = Color.lerp(c3, Colors.white, 0.04)!;
-        _targetBg4 = Color.lerp(c4, Colors.white, 0.20)!;
-      } else {
-        // Less black = more saturated, more cinematic — Echo Nightly style
-        _targetBg1 = Color.lerp(c1, Colors.black, 0.22)!;
-        _targetBg2 = Color.lerp(c2, Colors.black, 0.48)!;
-        _targetBg3 = Color.lerp(c3, Colors.black, 0.70)!;
-        _targetBg4 = Color.lerp(c4, Colors.black, 0.30)!;
-      }
-
-      _bgColorCtrl.forward(from: 0.0);
+      final palette = await ArtworkPaletteCache.get(url);
+      if (gen != _artGen || !mounted) return;
+      _applyPalette(palette, gen: gen, isLight: isLight);
     } catch (_) {}
+  }
+
+  void _applyPalette(ArtworkPalette p, {required int gen, required bool isLight}) {
+    if (gen != _artGen || !mounted) return;
+    final c1 = p.vibrant;
+    final c2 = p.dominant;
+    final c3 = p.darkMuted;
+    final c4 = p.lightVibrant;
+
+    // Snapshot current lerped position before morphing
+    final t = _bgColorCtrl.value;
+    _currentBg1 = Color.lerp(_currentBg1, _targetBg1, t) ?? _currentBg1;
+    _currentBg2 = Color.lerp(_currentBg2, _targetBg2, t) ?? _currentBg2;
+    _currentBg3 = Color.lerp(_currentBg3, _targetBg3, t) ?? _currentBg3;
+    _currentBg4 = Color.lerp(_currentBg4, _targetBg4, t) ?? _currentBg4;
+
+    if (isLight) {
+      _targetBg1 = Color.lerp(c1, Colors.white, 0.16)!;
+      _targetBg2 = Color.lerp(c2, Colors.white, 0.10)!;
+      _targetBg3 = Color.lerp(c3, Colors.white, 0.04)!;
+      _targetBg4 = Color.lerp(c4, Colors.white, 0.20)!;
+    } else {
+      _targetBg1 = Color.lerp(c1, Colors.black, 0.22)!;
+      _targetBg2 = Color.lerp(c2, Colors.black, 0.48)!;
+      _targetBg3 = Color.lerp(c3, Colors.black, 0.70)!;
+      _targetBg4 = Color.lerp(c4, Colors.black, 0.30)!;
+    }
+
+    _bgColorCtrl.forward(from: 0.0);
+  }
+
+  /// Opportunistically pre-decodes the next queued song's palette while
+  /// the current one is still playing, so by the time playback actually
+  /// reaches it the color morph is instant instead of waiting on a
+  /// cold decode. Cheap no-op if already cached/in-flight or if there's
+  /// no next song.
+  void _warmNextInQueue() {
+    final player = context.read<PlayerProvider>();
+    final queue = player.queue;
+    final idx = player.currentIndex;
+    if (queue.isEmpty || idx < 0 || idx + 1 >= queue.length) return;
+    final next = queue[idx + 1];
+    if (next.artworkUrl.isNotEmpty) {
+      ArtworkPaletteCache.warm(next.artworkUrl);
+    }
   }
 
   void _triggerArtworkAnimation() {
@@ -550,6 +545,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             if (!mounted) return;
             _triggerArtworkAnimation();
             if (song.artworkUrl.isNotEmpty) _extractColor(song.artworkUrl, isLight: isLight);
+            _warmNextInQueue();
           });
         }
 
