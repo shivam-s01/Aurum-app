@@ -77,7 +77,9 @@ class _SongTileState extends State<SongTile> {
               child: child,
             ),
             transitionDuration: const Duration(milliseconds: 380),
-            reverseTransitionDuration: const Duration(milliseconds: 300),
+            // FIX ("back feels stuck/not smooth"): matched to the forward
+            // duration above — was 300ms vs 380ms open.
+            reverseTransitionDuration: const Duration(milliseconds: 380),
           ),
         );
       }

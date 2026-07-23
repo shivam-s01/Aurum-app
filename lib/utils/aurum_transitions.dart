@@ -77,16 +77,37 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> {
     // flick even from a shorter drag — mirrors how forgiving Spotify's own
     // gesture threshold feels rather than requiring a full deliberate drag.
     final shouldPop = widget.animationController.value < 0.6 || velocity > 600;
+    // FIX ("back feels stuck/not smooth"): this release-settle used to
+    // always run at a fixed AurumMotion.short2 (150ms) — a different,
+    // faster duration than the 350ms every other close path in the app
+    // (tap-back, OS back gesture) uses. That mismatch is what made the
+    // swipe-back specifically feel like it "catches" or snaps compared to
+    // a normal back — not slow, just visibly a different speed/rhythm.
+    // Scaling long1 (350ms, the same duration used everywhere else) by
+    // how much of the drag is actually left to animate keeps the FEEL
+    // (pixels-per-second) consistent with a full close, without making a
+    // late release (already 80% of the way closed) crawl through a full
+    // 350ms for the last 20% — the remaining motion still completes at
+    // the same visual speed as the rest of the transition, just scaled to
+    // however much of it is actually left.
+    final remaining = shouldPop
+        ? widget.animationController.value
+        : (1.0 - widget.animationController.value);
+    final settleMs = (AurumMotion.long1.inMilliseconds * remaining)
+        .clamp(80.0, AurumMotion.long1.inMilliseconds.toDouble())
+        .round();
     if (shouldPop) {
       widget.animationController
           .animateBack(0.0,
-              duration: AurumMotion.short2, curve: AurumMotion.standardReverse)
+              duration: Duration(milliseconds: settleMs),
+              curve: AurumMotion.standardReverse)
           .whenComplete(() {
         if (navigator.canPop()) navigator.pop();
       });
     } else {
       widget.animationController.animateTo(1.0,
-          duration: AurumMotion.short2, curve: AurumMotion.standard);
+          duration: Duration(milliseconds: settleMs),
+          curve: AurumMotion.standard);
     }
   }
 
@@ -143,11 +164,22 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
           settings: settings,
           fullscreenDialog: fullscreenDialog,
           opaque: true,
+          // FIX ("back feels stuck/not smooth"): reverseTransitionDuration
+          // used to be AurumMotion.medium2 (280ms) while the forward push
+          // used long1 (350ms) — two different speeds for the same motion
+          // depending on direction. That alone reads as slightly clipped on
+          // the way back. It compounded with _EdgeSwipeBack below, whose
+          // manual release-animation used a THIRD duration (short2, 150ms)
+          // — so depending on whether you tapped back, used the OS back
+          // gesture, or used Aurum's own edge-swipe, you'd get three
+          // different close speeds. Unified to long1 everywhere so every
+          // path back uses the exact same duration/curve as the push it's
+          // reversing — back now always mirrors forward 1:1.
           transitionDuration: _animsOn()
               ? AurumMotion.long1
               : Duration.zero,
           reverseTransitionDuration: _animsOn()
-              ? AurumMotion.medium2
+              ? AurumMotion.long1
               : Duration.zero,
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
@@ -347,8 +379,11 @@ class AurumModalRoute<T> extends PageRouteBuilder<T> {
   }) : super(
           settings: settings,
           opaque: true,
+          // Same fix as AurumPageRoute above — reverse matches forward
+          // (long1) so closing this modal-style route mirrors the speed
+          // it opened at, instead of a different, faster close.
           transitionDuration: AurumMotion.long1,
-          reverseTransitionDuration: AurumMotion.medium2,
+          reverseTransitionDuration: AurumMotion.long1,
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {

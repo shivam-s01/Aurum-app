@@ -109,7 +109,10 @@ class _MiniPlayerState extends State<MiniPlayer> {
           child: child,
         ),
         transitionDuration: const Duration(milliseconds: 380),
-        reverseTransitionDuration: const Duration(milliseconds: 300),
+        // FIX ("back feels stuck/not smooth"): matched to the forward
+        // duration above — was 300ms vs 380ms open (same root-cause fix
+        // as aurum_transitions.dart).
+        reverseTransitionDuration: const Duration(milliseconds: 380),
       ),
     )
         .then((_) => _opening = false);

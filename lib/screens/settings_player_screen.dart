@@ -1294,5 +1294,7 @@ PageRouteBuilder _slideRoute(Widget screen) => PageRouteBuilder(
         return SlideTransition(position: animation.drive(tween), child: child);
       },
       transitionDuration: const Duration(milliseconds: 280),
-      reverseTransitionDuration: const Duration(milliseconds: 250),
+      // FIX ("back feels stuck/not smooth"): matched to the forward
+      // duration above — was 250ms vs 280ms open.
+      reverseTransitionDuration: const Duration(milliseconds: 280),
     );

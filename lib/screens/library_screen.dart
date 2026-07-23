@@ -2418,7 +2418,11 @@ class _DownloadTile extends StatelessWidget {
                 child: child,
               ),
               transitionDuration: const Duration(milliseconds: 380),
-              reverseTransitionDuration: const Duration(milliseconds: 300),
+              // FIX ("back feels stuck/not smooth"): was 300ms while the
+              // forward push above is 380ms — closing the full player ran
+              // at a different, faster speed than opening it. Matched so
+              // back mirrors forward 1:1.
+              reverseTransitionDuration: const Duration(milliseconds: 380),
             ),
           );
         }
