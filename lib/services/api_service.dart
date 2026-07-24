@@ -36,6 +36,7 @@ import 'dart:developer' as dev;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:html/parser.dart' as html_parser;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:async/async.dart';
 import 'package:just_audio/just_audio.dart';
@@ -2807,8 +2808,19 @@ class ApiService {
     // rights), so it's kept only as a last-resort fallback when LRCLIB has
     // nothing at all for this track.
     String? lyrics = await _fetchLrcLibLyrics(song.title, song.artist);
-    if ((lyrics == null || lyrics.isEmpty) && song.source == SongSource.saavn) {
-      lyrics = await _fetchSaavnLyrics(song.id);
+    if (lyrics == null || lyrics.isEmpty) {
+      final saavnId = song.source == SongSource.saavn
+          ? song.id
+          : await _resolveSaavnIdForLyrics(song.title, song.artist);
+      if (saavnId != null) lyrics = await _fetchSaavnLyrics(saavnId);
+    }
+    // Two more free plain-lyrics sources as a last resort — mostly help
+    // Western/English tracks that LRCLIB and Saavn both miss.
+    if (lyrics == null || lyrics.isEmpty) {
+      lyrics = await _fetchLyricsOvh(song.artist, song.title);
+    }
+    if (lyrics == null || lyrics.isEmpty) {
+      lyrics = await _fetchLyricsMania(song.artist, song.title);
     }
     if (lyrics != null && lyrics.isNotEmpty) _lyricsCache[cacheKey] = lyrics;
     return lyrics;
@@ -2828,15 +2840,58 @@ class ApiService {
     final result = await _fetchLrcLibSynced(song.title, song.artist, song.duration);
     LyricsResult finalResult = result;
 
-    if (!finalResult.hasAny && song.source == SongSource.saavn) {
-      final saavnPlain = await _fetchSaavnLyrics(song.id);
-      if (saavnPlain != null && saavnPlain.isNotEmpty) {
-        finalResult = LyricsResult(plain: saavnPlain);
+    if (!finalResult.hasAny) {
+      final saavnId = song.source == SongSource.saavn
+          ? song.id
+          : await _resolveSaavnIdForLyrics(song.title, song.artist);
+      if (saavnId != null) {
+        final saavnPlain = await _fetchSaavnLyrics(saavnId);
+        if (saavnPlain != null && saavnPlain.isNotEmpty) {
+          finalResult = LyricsResult(plain: saavnPlain);
+        }
+      }
+    }
+
+    if (!finalResult.hasAny) {
+      final ovhPlain = await _fetchLyricsOvh(song.artist, song.title);
+      if (ovhPlain != null && ovhPlain.isNotEmpty) {
+        finalResult = LyricsResult(plain: ovhPlain);
+      }
+    }
+
+    if (!finalResult.hasAny) {
+      final maniaPlain = await _fetchLyricsMania(song.artist, song.title);
+      if (maniaPlain != null && maniaPlain.isNotEmpty) {
+        finalResult = LyricsResult(plain: maniaPlain);
       }
     }
 
     if (finalResult.hasAny) _syncedLyricsCache[cacheKey] = finalResult;
     return finalResult;
+  }
+
+  /// For non-Saavn songs (YouTube, etc.), Saavn's lyrics route needs a Saavn
+  /// song ID we don't have. This searches Saavn by title+artist to find the
+  /// closest matching track's ID purely as a lyrics lookup key. Cached so
+  /// repeated lyric fetches for the same song don't re-search.
+  static final Map<String, String?> _saavnIdForLyricsCache = {};
+
+  static Future<String?> _resolveSaavnIdForLyrics(String title, String artist) async {
+    final key = '$title|$artist';
+    if (_saavnIdForLyricsCache.containsKey(key)) return _saavnIdForLyricsCache[key];
+    String? foundId;
+    try {
+      final cleanTitle = _cleanTitleForLyricsSearch(title);
+      final results = await _searchSaavn('$cleanTitle $artist', limit: 5);
+      if (results.isNotEmpty) {
+        foundId = results.first.id;
+      } else {
+        final titleOnly = await _searchSaavn(cleanTitle, limit: 5);
+        if (titleOnly.isNotEmpty) foundId = titleOnly.first.id;
+      }
+    } catch (_) {}
+    _saavnIdForLyricsCache[key] = foundId;
+    return foundId;
   }
 
   static Future<LyricsResult> _fetchLrcLibSynced(
@@ -2877,6 +2932,60 @@ class ApiService {
     return null;
   }
 
+  /// lyrics.ovh — free, no-auth plain lyrics API. Mostly strong for
+  /// Western/English tracks; used as a last-resort fallback after
+  /// LRCLIB and Saavn both miss.
+  static Future<String?> _fetchLyricsOvh(String artist, String title) async {
+    try {
+      final primaryArtist = artist.split(RegExp(r'[,&/]')).first.trim();
+      final a = Uri.encodeComponent(_cleanTitleForLyricsSearch(primaryArtist));
+      final t = Uri.encodeComponent(_cleanTitleForLyricsSearch(title));
+      if (a.isEmpty || t.isEmpty) return null;
+      final res = await _client
+          .get(Uri.parse('https://api.lyrics.ovh/v1/$a/$t'))
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final l = data['lyrics'] as String?;
+        return (l != null && l.isNotEmpty) ? l.trim() : null;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// lyricsmania.com scrape — another free plain-lyrics fallback, mostly
+  /// English catalog. Site is old/lightly maintained so failures here are
+  /// expected and silently swallowed; it only ever fires after every other
+  /// source has already missed.
+  static Future<String?> _fetchLyricsMania(String artist, String title) async {
+    try {
+      final primaryArtist = artist.split(RegExp(r'[,&/]')).first.trim();
+      final a = _lyricsManiaSlug(primaryArtist);
+      final t = _lyricsManiaSlug(_cleanTitleForLyricsSearch(title));
+      if (a.isEmpty || t.isEmpty) return null;
+      final uri = Uri.parse('https://www.lyricsmania.com/${t}_lyrics_$a.html');
+      final res = await _client.get(uri).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final document = html_parser.parse(res.body);
+        final body = document.querySelectorAll('.lyrics-body');
+        if (body.isNotEmpty) {
+          final text = body.first.text.trim();
+          return text.isNotEmpty ? text : null;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static String _lyricsManiaSlug(String input) {
+    var result = input.replaceAll(' ', '_').toLowerCase();
+    result = result.replaceAll(RegExp(r'[^a-z0-9_]'), '');
+    result = result.replaceAll(RegExp(r'_+'), '_');
+    if (result.startsWith('_')) result = result.substring(1);
+    if (result.endsWith('_')) result = result.substring(0, result.length - 1);
+    return result;
+  }
+
   /// Strips common noise from a song title that hurts LRCLIB matching —
   /// "(From "Movie Name")", "- Remastered", bracketed year tags, etc.
   /// LRCLIB's own database uses clean official titles, so a title still
@@ -2902,10 +3011,16 @@ class ApiService {
     int? durationSeconds,
   }) async {
     final cleanTitle = _cleanTitleForLyricsSearch(title);
+    // Primary artist only — Saavn/YouTube often stack "Artist1, Artist2,
+    // Composer" while LRCLIB indexes under just the lead artist, so a
+    // multi-name query can miss even when the track exists.
+    final primaryArtist = artist.split(RegExp(r'[,&/]')).first.trim();
     final queries = <String>{
       '$cleanTitle $artist',
+      if (primaryArtist != artist && primaryArtist.isNotEmpty) '$cleanTitle $primaryArtist',
       if (cleanTitle != title) '$title $artist',
       cleanTitle,
+      if (primaryArtist.isNotEmpty) '$primaryArtist $cleanTitle',
     }.where((q) => q.trim().isNotEmpty).toList();
 
     for (final q in queries) {

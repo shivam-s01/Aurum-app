@@ -35,6 +35,7 @@ dependencies:
 
   # HTTP
   http: ^1.2.0
+  html: ^0.15.4
 
   # YouTube
   youtube_explode_dart: ^2.2.1
