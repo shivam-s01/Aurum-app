@@ -67,7 +67,27 @@ class AurumMotion {
   // Standard-reverse: for anything animating back out / closing —
   // mirrors `standard` so open/close feels like one continuous motion
   // rather than two different personalities.
-  static const standardReverse = Curves.easeInCubic;
+  //
+  // FIX ("back animation feels stuck/awkward"): this was
+  // Curves.easeInCubic. easeIn curves start with near-zero velocity and
+  // accelerate toward the end — correct for a FORWARD 0→1 animation that
+  // should ease OUT of rest at the finish. But PageRouteBuilder's
+  // reverseCurve is applied to an animation that Flutter is already
+  // driving backward (1→0) on pop. Layering an easeIn shape on top of
+  // that backward motion means the transition spends its first 30-40%
+  // barely moving (that's the "stuck" feeling on back-press — the tap
+  // registers but nothing visibly happens for a beat), then rushes
+  // through the rest. The forward curve doesn't have this problem
+  // because forward playback (0→1) already reads as "start fast, settle
+  // slow" with easeOut — which is also just the correct feel for a
+  // back/close motion (it should read as immediately responsive to the
+  // tap/swipe, not build up speed after a delay). Using the same
+  // easeOutCubic for both directions means back now actually starts
+  // moving the instant it's triggered, matching how forward navigation
+  // already feels — one consistent motion language both ways, which is
+  // what the comment above already claimed but the curve choice didn't
+  // deliver.
+  static const standardReverse = Curves.easeOutCubic;
 
   // Emphasized: reserved for the rare moment something should call
   // attention to itself (a celebratory pop, a first-run reveal). Not a

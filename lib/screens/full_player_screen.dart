@@ -137,6 +137,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // ── Palette / song cache ──
   String? _lastArtUrl;
   String? _lastSongId;
+  // Distinguishes "screen just opened" from "song changed while this
+  // screen was already open" — see the skip of _triggerArtworkAnimation()
+  // in build() below for why this matters.
+  bool _isFirstBuild = true;
 
   // Bumped every time _extractColor is (re)triggered by a song change.
   // Palette extraction is async (PaletteGenerator awaits an image decode),
@@ -207,6 +211,22 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     );
     _artworkAnim = Tween<double>(begin: 0.94, end: 1.0)
         .animate(CurvedAnimation(parent: _artworkCtrl, curve: Curves.easeOutCubic));
+    // FIX (first-open scale-pop) — the comment above _staggerCtrl says the
+    // intent is "artwork appears with entry" (i.e. already settled,
+    // riding in with the route's own 380ms slide-up), while info/seekbar/
+    // controls are the ones that stagger in afterward. But
+    // AnimationController defaults to value=0.0, so _artworkAnim actually
+    // read 0.94x on this screen's very first built frame — before the
+    // addPostFrameCallback in build() reaches _triggerArtworkAnimation()
+    // and calls forward(). That's a real (if brief) extra "pop" from
+    // 0.94x→1.0x layered on top of the slide transition, which reads as
+    // slightly less solid than a paid-app open should. Starting at 1.0
+    // (matching _titleChangeCtrl's identical pattern just above) makes
+    // the artwork already at rest for that first frame, exactly matching
+    // the stated design — the 0.94→1.0 motion is then purely what plays
+    // on an actual in-screen song change (skip/tap), which is what
+    // _triggerArtworkAnimation()'s forward(from: 0.0) is actually for.
+    _artworkCtrl.value = 1.0;
 
     _playBtnCtrl = AnimationController(
       vsync: this,
@@ -456,6 +476,60 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     }
   }
 
+  // FIX (awkward jerk on swipe-to-dismiss) — the old onVerticalDragEnd
+  // path called `_dragY = 0` (an instant, unanimated snap back to the
+  // top) immediately followed by _close()'s Navigator.pop(), whose route
+  // reverse-transition always starts its own slide from y=0. On a drag
+  // that had already moved the screen down (say 200-280px, following the
+  // finger), releasing past the dismiss threshold produced two competing
+  // motions back to back: a one-frame snap UP to y=0, then the route
+  // transition sliding the whole screen back DOWN from y=0 — a visible
+  // direction reversal right at the moment of release, which read as a
+  // jerk/stutter rather than the swipe simply continuing through.
+  //
+  // This replaces that: instead of resetting to 0, it animates _dragY
+  // from wherever the finger left off the REST of the way off-screen
+  // (using the actual screen height, not the old hard 280px visual clamp
+  // in _DragTransform, so the screen genuinely finishes leaving the
+  // frame) over a short duration, and only pops the route once that
+  // animation completes — by which point the screen is already fully
+  // off-screen, so the route's own reverse-transition is invisible
+  // (there's nothing left on screen for it to animate). The swipe now
+  // reads as one continuous motion instead of two.
+  void _completeDismissDrag() {
+    if (!mounted) return;
+    HapticFeedback.lightImpact();
+    final screenH = MediaQuery.of(context).size.height;
+    final start = _dragY;
+    _springBackCtrl.reset();
+    // Duration scales down from the already-covered distance so a
+    // near-threshold release (long remaining distance) doesn't feel
+    // slower than a deep drag (short remaining distance) — both read as
+    // "the same swipe speed carried through" rather than a fixed-time
+    // animation that'd feel like it's dragging or snapping depending on
+    // how far the user had already gone.
+    final remaining = (screenH - start).clamp(1.0, screenH);
+    final ms = (140 + (remaining / screenH) * 160).round();
+    _springBackCtrl.duration = Duration(milliseconds: ms);
+    final anim = Tween<double>(begin: start, end: screenH).animate(
+      CurvedAnimation(parent: _springBackCtrl, curve: Curves.easeIn),
+    );
+    void listener() {
+      if (!mounted) return;
+      _dragY = anim.value;
+    }
+
+    anim.addListener(listener);
+    _springBackCtrl.forward().whenCompleteOrCancel(() {
+      anim.removeListener(listener);
+      _springBackCtrl.duration = const Duration(milliseconds: 320);
+      if (!mounted) return;
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+    });
+  }
+
   Future<void> _onPlayTap(PlayerProvider player) async {
     HapticFeedback.heavyImpact();
     await _playBtnCtrl.forward();
@@ -541,9 +615,24 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         if (song.id != _lastSongId) {
           _lastSongId = song.id;
           final isLight = Theme.of(context).brightness == Brightness.light;
+          // FIX (double-animation on first open) — on the screen's very
+          // first build, song.id is always != _lastSongId (which starts
+          // null), so this used to always fire _triggerArtworkAnimation()
+          // too — replaying the 0.94→1.0 artwork pop and the title
+          // fade-out/in on top of the route's own 380ms slide-up
+          // transition, even though nothing had actually "changed" from
+          // the user's perspective. That's the extra pop this fix
+          // removes: _triggerArtworkAnimation() (and the redundant
+          // _artworkCtrl.value = 1.0 set in initState) is now reserved
+          // for genuine song changes that happen while this screen is
+          // already open (skip/tap-another-song), not the screen's own
+          // opening — which the route transition already animates on
+          // its own.
+          final isFirstBuild = _isFirstBuild;
+          _isFirstBuild = false;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            _triggerArtworkAnimation();
+            if (!isFirstBuild) _triggerArtworkAnimation();
             if (song.artworkUrl.isNotEmpty) _extractColor(song.artworkUrl, isLight: isLight);
             _warmNextInQueue();
           });
@@ -603,13 +692,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 final velocity = d.primaryVelocity ?? 0;
 
                 if (!_dragIsUpward && (_dragY > 110 || velocity > 750)) {
-                  // Reset drag offset before popping — _close() now just
-                  // pops the route directly, so the route's own reverse
-                  // transition (see PageRouteBuilder callers) takes over
-                  // immediately with no extra internal animation in front
-                  // of it.
-                  _dragY = 0;
-                  _close();
+                  // FIX (see _completeDismissDrag() doc comment above) —
+                  // this used to hard-reset _dragY to 0 (snap back to the
+                  // top with no animation) and immediately pop, which
+                  // fought against the drag the user had just done.
+                  // Continuing the drag's own motion the rest of the way
+                  // off-screen reads as one smooth swipe-through instead.
+                  _completeDismissDrag();
                 } else if (_dragIsUpward &&
                     (_upwardDragDistance < -20 || velocity < -400)) {
                   _dragY = 0;
@@ -811,15 +900,30 @@ class _DragTransform extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // FIX (awkward jerk on swipe-to-dismiss, part 2 — pairs with
+    // _completeDismissDrag() above) — this used to hard-clamp the visual
+    // translate to 280px and opacity to a floor of 0.45, regardless of
+    // how far dragY actually went. That was fine for a LIVE drag (finger
+    // still down, following it 1:1 felt right even past 280px of raw
+    // delta), but it meant the screen could never actually finish
+    // leaving the frame — so even the old instant "_dragY = 0 then pop"
+    // path popped while the screen was still ~280px up and ~45% opaque,
+    // and this new smooth completion animation would have hit the same
+    // ceiling and looked like it stalled a quarter-of-the-way through
+    // instead of finishing the swipe. The translate clamp is now the
+    // actual screen height (so the completion animation can carry it
+    // all the way to fully off-screen) and opacity now reaches 0 at that
+    // same point, instead of bottoming out at 0.45.
+    final screenH = MediaQuery.of(context).size.height;
     return ValueListenableBuilder<double>(
       valueListenable: dragYListenable,
       builder: (context, dragY, child) {
         final dragOpacity =
-            (1.0 - (dragY / 320).clamp(0.0, 0.55)).clamp(0.0, 1.0);
+            (1.0 - (dragY / screenH)).clamp(0.0, 1.0);
         final dragScale =
             (1.0 - (dragY / 2200).clamp(0.0, 0.06)).clamp(0.0, 1.0);
         return Transform.translate(
-          offset: Offset(0, dragY.clamp(0.0, 280.0)),
+          offset: Offset(0, dragY.clamp(0.0, screenH)),
           child: Transform.scale(
             scale: dragScale,
             child: Opacity(opacity: dragOpacity, child: child),
@@ -3869,11 +3973,33 @@ class _BgLayer extends StatelessWidget {
         final bg3 = Color.lerp(startBg3, targetBg3, t)!;
         final bg4 = Color.lerp(startBg4, targetBg4, t)!;
 
-        final staticBlur = _StaticBlurArtwork(
-          key: ValueKey('${song.id}_${song.artworkUrl}'),
-          song: song,
-          isLight: isLight,
-          breatheCtrl: breatheCtrl,
+        // FIX (black-flash on song change, part 2) — pairs with the
+        // fadeIn:true fix inside _BlurredArtworkCore/AurumArtwork above.
+        // That fix makes the NEW image fade in once it starts loading,
+        // but the ValueKey below still means Flutter discards the OLD
+        // _StaticBlurArtwork widget instantly the moment song.id changes
+        // — so the previous blurred artwork was gone from the tree
+        // before the new one had anything to show, leaving the same
+        // gap (base ColoredBox showing through) for however long the
+        // new image took to decode. Wrapping in AnimatedSwitcher keeps
+        // the outgoing widget alive and cross-fades it out over the same
+        // window the incoming one fades in, so there's always a blurred
+        // image on screen during the transition — a proper dissolve
+        // between covers instead of a flash to bare background.
+        final staticBlur = AnimatedSwitcher(
+          duration: const Duration(milliseconds: 320),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            fit: StackFit.expand,
+            children: [...previousChildren, if (currentChild != null) currentChild],
+          ),
+          child: _StaticBlurArtwork(
+            key: ValueKey('${song.id}_${song.artworkUrl}'),
+            song: song,
+            isLight: isLight,
+            breatheCtrl: breatheCtrl,
+          ),
         );
 
         return isLight
@@ -4140,7 +4266,26 @@ class _BlurredArtworkCore extends StatelessWidget {
               url: song.artworkUrl,
               size: double.infinity,
               borderRadius: 0,
-              fadeIn: false,
+              // FIX (black-flash on song change) — this was `fadeIn: false`.
+              // The background blur layer is keyed by
+              // ValueKey('${song.id}_${song.artworkUrl}') at the _BgLayer
+              // call site, which makes Flutter discard and rebuild this
+              // entire widget the instant the song changes — the previous
+              // blurred image disappears immediately, not gradually. With
+              // fadeIn off, CachedNetworkImage's fadeInDuration was zero,
+              // so there was no crossfade to cover that gap: for however
+              // long the new artwork took to decode (worse on a cold
+              // cache/slow network), the screen showed nothing but this
+              // layer's ColoredBox base underneath — which in dark mode
+              // is a near-black color, reading as a hard black flash
+              // exactly at the moment the title/artwork-disc had already
+              // switched to the new song. Enabling fadeIn restores
+              // CachedNetworkImage's built-in 280ms fade-in / 120ms
+              // fade-out crossfade, so the transition reads as an
+              // intentional dissolve instead of a jarring cut — this is
+              // the single biggest lever for the "paid app" feel here,
+              // since it's the layer covering ~90% of the screen.
+              fadeIn: true,
             ),
           ),
         ),
