@@ -163,4 +163,23 @@ class SongSection {
       .trim()
       .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
       .replaceAll(RegExp(r'^_+|_+$'), '');
+
+  // Added for the home-screen cold-start cache (see
+  // services/home_feed_cache.dart): lets a full List<SongSection> batch be
+  // written to disk after a successful fetch and read back instantly on the
+  // next app launch, before the network round-trip for a fresh batch has
+  // even started.
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'id': id,
+    'songs': songs.map((s) => s.toJson()).toList(),
+  };
+
+  factory SongSection.fromJson(Map<String, dynamic> json) => SongSection(
+    title: json['title'] as String,
+    id: json['id'] as String?,
+    songs: (json['songs'] as List)
+        .map((s) => Song.fromJson(s as Map<String, dynamic>))
+        .toList(),
+  );
 }

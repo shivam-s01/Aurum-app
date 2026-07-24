@@ -14,6 +14,7 @@ import '../providers/source_provider.dart';
 import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../services/api_service.dart';
+import '../services/home_feed_cache.dart';
 import '../services/recommendation_engine.dart';
 import '../providers/download_provider.dart';
 import '../services/audio_prefs.dart';
@@ -131,7 +132,16 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadOnline();
+    // FIX (cold-start instant load, Spotify-style): render whatever was
+    // cached from the last successful load FIRST, synchronously into
+    // initial state where possible, so the very first frame already shows
+    // real content instead of shimmer — then kick off the real network
+    // fetch in the background exactly as before. _hydrateFromCache reads
+    // SharedPreferences (fast, no network) and silently no-ops if this is
+    // a genuine first-ever launch with nothing cached yet, in which case
+    // behavior is identical to before this fix.
+    _hydrateFromCache();
+    _loadOnline(clearExisting: false);
     _loadArtists();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final lib = context.read<LibraryProvider>();
@@ -161,6 +171,35 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _hydrateFromCache() async {
+    final cachedSections = await HomeFeedCache.loadSections();
+    final cachedArtists = await HomeFeedCache.loadArtists();
+    if (!mounted) return;
+    // Only apply the cache if the real fetch hasn't already produced
+    // something newer/better by the time this resolves — SharedPreferences
+    // reads are fast but still technically async, and _loadOnline() is
+    // fired in the same initState right after this call. Guarding on
+    // `_onlineSections.isEmpty`/`_homeArtists.isEmpty` means whichever
+    // source lands first (almost always the cache, since it's pure local
+    // disk vs a network round-trip) wins the initial paint, and the other
+    // one simply never overwrites it with less/older data.
+    setState(() {
+      if (_onlineSections.isEmpty && cachedSections.isNotEmpty) {
+        _onlineSections = cachedSections;
+        // Real content already on screen from cache — the shimmer-only
+        // loading state no longer applies, even though the fresh fetch is
+        // still running in the background. _loadOnline()'s own onSection
+        // stream will progressively replace these with live sections as
+        // they arrive, same as it already does for a from-scratch load.
+        _onlineLoading = false;
+      }
+      if (_homeArtists.isEmpty && cachedArtists.isNotEmpty) {
+        _homeArtists = cachedArtists;
+        _artistsLoading = false;
+      }
+    });
+  }
+
   @override
   void dispose() {
     _scrollCtrl.dispose();
@@ -171,6 +210,9 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final artists = await ApiService.fetchHomeArtists();
       if (mounted) setState(() { _homeArtists = artists; _artistsLoading = false; });
+      // Cache for next cold start (see home_feed_cache.dart) — fire-and-forget,
+      // failure here just means next launch falls back to a normal load.
+      unawaited(HomeFeedCache.saveArtists(artists));
     } catch (_) {
       if (mounted) setState(() => _artistsLoading = false);
     }
@@ -191,12 +233,28 @@ class _HomeScreenState extends State<HomeScreen> {
     return ids.map((id) => byId[id]).whereType<Song>().toList();
   }
 
-  Future<void> _loadOnline() async {
+  Future<void> _loadOnline({bool clearExisting = true}) async {
     setState(() {
       _onlineLoading = true;
       _onlineError = null;
       _playlistRefreshKey++;
-      _onlineSections = []; // cleared until the full batch is ready
+      // FIX (cold-start cache, see home_feed_cache.dart / _hydrateFromCache):
+      // this used to unconditionally wipe _onlineSections to [] on every
+      // call, including the very first call fired right after
+      // _hydrateFromCache() had just populated the screen with last
+      // session's cached content. That meant the cache's whole benefit —
+      // real content on the very first frame — was immediately undone a
+      // moment later, flashing back to an empty/shimmer state until the
+      // fresh network batch streamed back in, which is exactly the
+      // loading flash this feature exists to eliminate. Cold start now
+      // passes clearExisting: false so the cached sections stay on screen
+      // (and get progressively replaced one-by-one as real sections arrive
+      // via onSection below) instead of being cleared out first. Explicit
+      // pull-to-refresh still passes the default true — clearing before a
+      // user-initiated refresh remains the right call there, since that's
+      // a deliberate "give me a new batch" action, not a passive cold
+      // start where stale-but-real content is strictly better than blank.
+      if (clearExisting) _onlineSections = [];
     });
     try {
       final recentlyPlayedProvider = context.read<RecentlyPlayedProvider>();
@@ -225,8 +283,20 @@ class _HomeScreenState extends State<HomeScreen> {
       // this lightweight even as more sections stream in. setState
       // triggers the rebuild Flutter needs; the List reference itself
       // doesn't need to change for that.
-      final liveSections = <SongSection>[];
-      _onlineSections = liveSections;
+      // FIX (cold-start cache continuation): this used to always start
+      // from a fresh empty list, which — combined with the
+      // `clearExisting: false` fix above — meant cache-hydrated sections
+      // would survive the setState above only to be wiped out right here
+      // instead, the instant this line ran and before the first real
+      // onSection callback even fired. Seeding from whatever's already in
+      // _onlineSections (the cache, on a cold start) means those sections
+      // stay visible on screen exactly as they were, and get replaced
+      // title-by-title as genuine live sections stream in below — a
+      // section whose title matches an already-shown cached one is
+      // swapped in place instead of appended as a duplicate, so the user
+      // never sees the same shelf twice while a refresh is in flight.
+      final liveSections = clearExisting ? <SongSection>[] : List<SongSection>.from(_onlineSections);
+      if (clearExisting) _onlineSections = liveSections;
       await ApiService.fetchHomeStreaming(
         topArtists: topArtists,
         topArtistsRotating: topArtistsRotating,
@@ -234,7 +304,13 @@ class _HomeScreenState extends State<HomeScreen> {
         onSection: (section) {
           if (!mounted) return;
           setState(() {
-            liveSections.add(section);
+            final existingIdx = liveSections.indexWhere((s) => s.id == section.id);
+            if (existingIdx != -1) {
+              liveSections[existingIdx] = section;
+            } else {
+              liveSections.add(section);
+            }
+            _onlineSections = liveSections;
             _onlineLoading = false;
           });
         },
@@ -244,6 +320,11 @@ class _HomeScreenState extends State<HomeScreen> {
           _onlineLoading = false;
         });
       }
+      // Cache the finished batch for next cold start (see
+      // home_feed_cache.dart) — only once the full streamed batch has
+      // actually finished, so a partial/interrupted load never overwrites
+      // a previously-complete good cache with a thinner one.
+      unawaited(HomeFeedCache.saveSections(liveSections));
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -251,8 +332,30 @@ class _HomeScreenState extends State<HomeScreen> {
           if (_onlineSections.isEmpty) _onlineError = AppLocalizations.of(context)!.homeFailedToLoadCheckConnection;
         });
       }
+      // RELIABILITY (premium/"never stuck" requirement): if cached content
+      // is currently covering the screen (cold start showed it, then this
+      // fetch failed — a transient network blip, DNS hiccup, whatever),
+      // the user has no visible error (by design — the cache is doing its
+      // job) but ALSO has no path back to genuinely fresh data until they
+      // manually pull-to-refresh, which most people never think to do.
+      // Silently retry once after a short delay so a passing connectivity
+      // issue self-heals without the user ever needing to notice or act —
+      // if this retry also fails, we simply stop (no error shown either
+      // way since cached content is already on screen) rather than
+      // retrying indefinitely and hammering a genuinely-down backend.
+      if (!_onlineRetriedAfterFailure && _onlineSections.isNotEmpty && mounted) {
+        _onlineRetriedAfterFailure = true;
+        Future.delayed(const Duration(seconds: 4), () {
+          if (mounted) _loadOnline(clearExisting: false);
+        });
+      }
     }
   }
+
+  // Guards the silent auto-retry above to exactly one attempt per
+  // HomeScreen lifetime — prevents a persistently-down backend from being
+  // hammered every few seconds for as long as the user stays on this screen.
+  bool _onlineRetriedAfterFailure = false;
 
   @override
   Widget build(BuildContext context) {
@@ -1316,7 +1419,13 @@ class _OnlineContent extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               cacheExtent: 600,
-              padding: const EdgeInsets.only(right: 4),
+              // FIX: last card was reading as cut-off against the right
+              // screen edge — the outer section Padding has right:16, but
+              // this list's own trailing padding was only 4px, so once the
+              // per-card right:12 margin was consumed by the last item
+              // there wasn't a matching gap to the edge like the left side
+              // has. Bumping this to 16 mirrors the left inset exactly.
+              padding: const EdgeInsets.only(right: 16),
               itemCount: section.songs.length.clamp(0, 12),
               itemBuilder: (_, i) => _SongGridCard(
                 song: section.songs[i],
@@ -1645,6 +1754,8 @@ class _ProfileAvatarButton extends StatelessWidget {
                 ? CachedNetworkImage(
                     imageUrl: avatarUrl,
                     fit: BoxFit.cover,
+                    memCacheWidth: 96,
+                    memCacheHeight: 96,
                     errorWidget: (_, __, ___) => _defaultIcon(context),
                   )
                 : _defaultIcon(context),
@@ -1938,8 +2049,7 @@ class _RecentlyPlayedSection extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               cacheExtent: 600,
-              padding: const EdgeInsets.only(right: 4),
-              itemCount: songs.length,
+              padding: const EdgeInsets.only(right: 16),
               itemBuilder: (_, i) => AurumPressable(
                 scaleAmount: 0.96,
                 onTap: () => player.playSong(songs[i], queue: songs, index: i),
@@ -2107,6 +2217,8 @@ class _ArtistChip extends StatelessWidget {
               child: CachedNetworkImage(
                 imageUrl: artist.imageUrl,
                 fit: BoxFit.cover,
+                memCacheWidth: 160,
+                memCacheHeight: 160,
                 placeholder: (_, __) => Container(
                   color: AurumTheme.bgCardOf(context),
                   child: Icon(Icons.person_rounded,
@@ -2182,8 +2294,7 @@ class _CuratedPlaylistsSection extends StatelessWidget {
               // the whole row. Adding matching trailing padding here
               // gives the last card the same clean peek/inset the first
               // one already had, instead of an asymmetric hard cut.
-              padding: const EdgeInsets.only(right: 4),
-              itemCount: curated.length,
+              padding: const EdgeInsets.only(right: 16),
               itemBuilder: (_, i) => _PlaylistCard(
                 // New key per refresh forces a fresh State → fresh fetch,
                 // so art + songs genuinely rotate on pull-to-refresh.
@@ -2366,6 +2477,8 @@ class _PlaylistCardState extends State<_PlaylistCard> {
                 child: CachedNetworkImage(
                   imageUrl: _artUrl!,
                   fit: BoxFit.cover,
+                  memCacheWidth: 300,
+                  memCacheHeight: 300,
                   fadeInDuration: const Duration(milliseconds: 260),
                   errorWidget: (_, __, ___) => _gradientFallback(p),
                 ),
