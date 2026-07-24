@@ -2926,10 +2926,46 @@ class ApiService {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final l = data['data']?['lyrics'] as String?;
-        return (l != null && l.isNotEmpty) ? l : null;
+        if (l == null || l.isEmpty) return null;
+        final cleaned = _sanitizeHtmlLyrics(l);
+        return cleaned.isNotEmpty ? cleaned : null;
       }
     } catch (_) {}
     return null;
+  }
+
+  /// Saavn's lyrics endpoint returns HTML-formatted text — line breaks come
+  /// through as literal "<br>" tags rather than real newlines, and other
+  /// stray markup can appear too. Left unsanitized, this showed up as
+  /// literal "<br><br>" text stitched between lines both in the full
+  /// lyrics view and the inline player strip. This normalizes <br> (and
+  /// <br/>, <BR>, etc.) to real newlines, strips any other HTML tags, and
+  /// decodes the handful of HTML entities Saavn's lyrics commonly contain.
+  static String _sanitizeHtmlLyrics(String raw) {
+    var t = raw;
+    t = t.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
+    t = t.replaceAll(RegExp(r'<p\s*/?>', caseSensitive: false), '\n');
+    t = t.replaceAll(RegExp(r'</p>', caseSensitive: false), '');
+    // Strip any remaining HTML tags (bold/italic wrappers etc.) without
+    // touching the text content between them.
+    t = t.replaceAll(RegExp(r'<[^>]+>'), '');
+    t = t
+        .replaceAll('&amp;', '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'")
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&nbsp;', ' ');
+    // Collapse the double blank lines <br><br> produces (every line has a
+    // trailing empty line after it) down to single line breaks, and trim
+    // stray leading/trailing whitespace per line.
+    t = t
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .join('\n');
+    return t.trim();
   }
 
   /// lyrics.ovh — free, no-auth plain lyrics API. Mostly strong for
@@ -2947,7 +2983,9 @@ class ApiService {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final l = data['lyrics'] as String?;
-        return (l != null && l.isNotEmpty) ? l.trim() : null;
+        if (l == null || l.isEmpty) return null;
+        final cleaned = _sanitizeHtmlLyrics(l);
+        return cleaned.isNotEmpty ? cleaned : null;
       }
     } catch (_) {}
     return null;
