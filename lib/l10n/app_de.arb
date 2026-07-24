@@ -232,6 +232,8 @@
   "saLyricsTextPositionSubtitle": "Ausrichtung des Songtexts auf dem Bildschirm",
   "saLyricsTextSize": "Songtext-Schriftgröße",
   "saLyricsLineSpacing": "Songtext-Zeilenabstand",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "Animationen aktivieren",
   "saEnableAnimationsSubtitle": "Hauptschalter für alle Animationen",
   "saBackAnimations": "Zurück-Animationen",

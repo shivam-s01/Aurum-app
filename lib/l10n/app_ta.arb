@@ -224,6 +224,8 @@
   "saLyricsTextPositionSubtitle": "திரையில் பாடல் வரிகளின் சீரமைப்பு",
   "saLyricsTextSize": "பாடல் வரிகள் உரை அளவு",
   "saLyricsLineSpacing": "பாடல் வரிகள் இடைவெளி",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "அசைவூட்டங்களை இயக்கு",
   "saEnableAnimationsSubtitle": "அனைத்து அசைவூட்டங்களுக்கான முதன்மை நிலைமாற்றி",
   "saBackAnimations": "பேக் அசைவூட்டங்கள்",

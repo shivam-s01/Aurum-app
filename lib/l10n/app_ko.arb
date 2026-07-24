@@ -232,6 +232,8 @@
   "saLyricsTextPositionSubtitle": "화면상 가사 정렬",
   "saLyricsTextSize": "가사 텍스트 크기",
   "saLyricsLineSpacing": "가사 줄 간격",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "애니메이션 활성화",
   "saEnableAnimationsSubtitle": "모든 애니메이션의 마스터 스위치",
   "saBackAnimations": "뒤로 가기 애니메이션",

@@ -236,6 +236,8 @@
   "saLyricsTextPositionSubtitle": "屏幕上歌词的对齐方式",
   "saLyricsTextSize": "歌词文本大小",
   "saLyricsLineSpacing": "歌词行间距",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "启用动画",
   "saEnableAnimationsSubtitle": "所有动画的主开关",
   "saBackAnimations": "返回动画",

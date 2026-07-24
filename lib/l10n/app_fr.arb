@@ -224,6 +224,8 @@
   "saLyricsTextPositionSubtitle": "Alignement des paroles à l'écran",
   "saLyricsTextSize": "Taille du texte des paroles",
   "saLyricsLineSpacing": "Espacement des lignes des paroles",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "Activer les animations",
   "saEnableAnimationsSubtitle": "Interrupteur principal pour toutes les animations",
   "saBackAnimations": "Animations retour",

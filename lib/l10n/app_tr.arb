@@ -232,6 +232,8 @@
   "saLyricsTextPositionSubtitle": "Ekranda sözlerin hizalanması",
   "saLyricsTextSize": "Söz Metni Boyutu",
   "saLyricsLineSpacing": "Söz Satır Aralığı",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "Animasyonları Etkinleştir",
   "saEnableAnimationsSubtitle": "Tüm animasyonlar için ana anahtar",
   "saBackAnimations": "Geri Animasyonları",

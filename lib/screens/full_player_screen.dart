@@ -538,7 +538,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _triggerArtworkAnimation();
   }
 
-  void _openPanel() {
+  void _openPanel({int initialTab = 0}) {
     HapticFeedback.mediumImpact();
     _panelOpen = true;
     _pauseAmbientAnims();
@@ -552,6 +552,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         bg1: _currentBg1,
         bg2: _currentBg2,
         bg3: _currentBg3,
+        initialTab: initialTab,
       ),
     ).whenComplete(() {
       _panelOpen = false;
@@ -833,6 +834,20 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   ),
                 ),
               ),
+            ),
+            SizedBox(height: vGapSm),
+            // Inline synced lyrics — Spotify-style single active line,
+            // sitting between title/artist and the seek bar. Tapping it
+            // opens straight to the full Lyrics tab.
+            ValueListenableBuilder<bool>(
+              valueListenable: AudioPrefs.showLyricsOnPlayerNotifier,
+              builder: (context, show, _) {
+                if (!show) return const SizedBox.shrink();
+                return _InlineLyricsStrip(
+                  hPad: hPad,
+                  onTap: () => _openPanel(initialTab: 1),
+                );
+              },
             ),
             SizedBox(height: vGapSm),
             // Seek bar — delay ~150ms
@@ -1309,6 +1324,228 @@ class _SongInfo extends StatelessWidget {
           _FavButton(isFav: isFav, onTap: onFavTap),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inline Lyrics Strip — Spotify-style single active line shown between the
+// song title/artist and the seek bar. Reuses PlayerProvider.fetchSyncedLyrics()
+// (already cached by ApiService), so this never triggers an extra network
+// fetch beyond what the full Lyrics tab would already do. Only ever shows
+// one line at a time; tapping it jumps straight to the full Lyrics tab.
+//
+// STABILITY NOTES:
+//  - Wrapped in a fixed-height SizedBox so the strip never collapses to
+//    zero height (whether loading, between lyric lines, or when a track
+//    has no lyrics at all). Without this, every gap between lines — or
+//    every song skip while the next track's lyrics are still loading —
+//    would yank the seek bar up/down by the strip's height, which reads
+//    as the whole player "jumping"/stuttering.
+//  - Only the active-line text rebuilds on each playback tick (via a tiny
+//    position-listener bridge), not the whole strip — keeps this cheap
+//    even at 10 rebuilds/sec while a song plays.
+//  - Song-skip is handled by keeping the OLD line on screen until the new
+//    song's lyrics resolve, instead of clearing to blank first — avoids a
+//    visible blank flash between tracks.
+// ─────────────────────────────────────────────────────────────────────────────
+class _InlineLyricsStrip extends StatefulWidget {
+  final double hPad;
+  final VoidCallback onTap;
+  const _InlineLyricsStrip({required this.hPad, required this.onTap});
+
+  @override
+  State<_InlineLyricsStrip> createState() => _InlineLyricsStripState();
+}
+
+class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
+  static const double _stripHeight = 34.0;
+
+  LyricsResult? _result;
+  String? _loadedForId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final song = context.read<PlayerProvider>().currentSong;
+    if (song != null && song.id != _loadedForId) {
+      _loadedForId = song.id;
+      _fetch();
+    }
+  }
+
+  int _fetchGeneration = 0;
+
+  Future<void> _fetch() async {
+    // Deliberately does NOT clear _result first — keeps showing the
+    // previous track's last line on screen rather than blanking the strip,
+    // avoiding a visible flash right at the moment of a song skip.
+    //
+    // Uses a generation counter rather than a busy-flag: a busy-flag would
+    // let an in-flight fetch for song A silently swallow the request for
+    // song B if the user skips again before A's fetch resolves. Bumping
+    // the generation on every call means only the LATEST request's result
+    // is ever applied, but every request still actually fires.
+    final myGeneration = ++_fetchGeneration;
+    final requestedForId = _loadedForId;
+    final result = await context.read<PlayerProvider>().fetchSyncedLyrics();
+    if (!mounted) return;
+    // Stale response (a newer skip happened while this was in flight, or
+    // the song id changed again) — ignore it.
+    if (myGeneration != _fetchGeneration || requestedForId != _loadedForId) return;
+    setState(() => _result = result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final result = _result;
+    if (result == null || !result.hasAny) {
+      // Reserve the height either way — SizedBox.shrink() here would let
+      // the layout collapse/expand as lyrics resolve, jumping the seek
+      // bar. An invisible fixed-height box keeps everything else pinned.
+      return SizedBox(height: _stripHeight);
+    }
+
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final activeColor = isLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final mutedColor = isLight
+        ? AurumTheme.lightTextSecondary
+        : Colors.white.withAlpha(150);
+
+    return SizedBox(
+      height: _stripHeight,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: widget.hPad),
+          child: result.hasSynced
+              ? _SyncedLineTicker(
+                  result: result,
+                  activeColor: activeColor,
+                  mutedColor: mutedColor,
+                )
+              : _PlainLineTeaser(plain: result.plain!, mutedColor: mutedColor),
+        ),
+      ),
+    );
+  }
+}
+
+/// Isolates position-driven rebuilds to just this small widget — the
+/// active line index is read from PlayerProvider's position every tick,
+/// but only this Row (not the whole strip, not the seek bar, not song
+/// info) rebuilds as a result.
+class _SyncedLineTicker extends StatelessWidget {
+  final LyricsResult result;
+  final Color activeColor;
+  final Color mutedColor;
+
+  const _SyncedLineTicker({
+    required this.result,
+    required this.activeColor,
+    required this.mutedColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final position = context.select<PlayerProvider, Duration>((p) => p.position);
+    final idx = result.activeIndexFor(position);
+    final lineText =
+        (idx >= 0 && idx < result.synced!.length) ? result.synced![idx].text : '';
+
+    // Empty line (gap between lyric sections, or before the first
+    // timestamp) — render an invisible zero-opacity placeholder of the
+    // SAME row shape rather than nothing, so AnimatedSwitcher's exit/enter
+    // transition still has consistent geometry to animate between and the
+    // chevron icon doesn't visibly shift.
+    final showText = lineText.trim().isNotEmpty;
+
+    return ClipRect(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 280),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, anim) => FadeTransition(
+          opacity: anim,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.35),
+              end: Offset.zero,
+            ).animate(anim),
+            child: child,
+          ),
+        ),
+        // AnimatedSwitcher stacks outgoing+incoming children on top of each
+        // other during the crossfade; without a shared alignment they can
+        // sit at different vertical anchors mid-transition and look like a
+        // tiny jump. Pin both to centerLeft explicitly.
+        layoutBuilder: (currentChild, previousChildren) => Stack(
+          alignment: Alignment.centerLeft,
+          children: [...previousChildren, if (currentChild != null) currentChild],
+        ),
+        child: showText
+            ? Row(
+                key: ValueKey(lineText),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      lineText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: activeColor,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.1,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right_rounded, size: 18, color: mutedColor),
+                ],
+              )
+            : const SizedBox.shrink(key: ValueKey('empty-line')),
+      ),
+    );
+  }
+}
+
+/// Static single-line teaser for tracks that only have plain (unsynced)
+/// lyrics — shown once and never re-animated, since there's no timeline to
+/// follow.
+class _PlainLineTeaser extends StatelessWidget {
+  final String plain;
+  final Color mutedColor;
+  const _PlainLineTeaser({required this.plain, required this.mutedColor});
+
+  @override
+  Widget build(BuildContext context) {
+    final firstLine = plain
+        .split('\n')
+        .map((l) => l.trim())
+        .firstWhere((l) => l.isNotEmpty, orElse: () => '');
+    if (firstLine.isEmpty) return const SizedBox.shrink();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            firstLine,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: mutedColor,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.1,
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Icon(Icons.chevron_right_rounded, size: 18, color: mutedColor),
+      ],
     );
   }
 }
@@ -2458,8 +2695,9 @@ class _SheetActionTileState extends State<_SheetActionTile> {
 // ─────────────────────────────────────────────────────────────────────────────
 class _PremiumContentPanel extends StatefulWidget {
   final Color bg1, bg2, bg3;
+  final int initialTab;
   const _PremiumContentPanel(
-      {required this.bg1, required this.bg2, required this.bg3});
+      {required this.bg1, required this.bg2, required this.bg3, this.initialTab = 0});
 
   @override
   State<_PremiumContentPanel> createState() => _PremiumContentPanelState();
@@ -2467,7 +2705,7 @@ class _PremiumContentPanel extends StatefulWidget {
 
 class _PremiumContentPanelState extends State<_PremiumContentPanel>
     with TickerProviderStateMixin {
-  int _activeTab = 0;
+  late int _activeTab = widget.initialTab;
   double _dragY = 0;
 
   late final AnimationController _tabCtrl;

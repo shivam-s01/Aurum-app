@@ -232,6 +232,8 @@
   "saLyricsTextPositionSubtitle": "Căn chỉnh lời bài hát trên màn hình",
   "saLyricsTextSize": "Cỡ chữ lời bài hát",
   "saLyricsLineSpacing": "Giãn dòng lời bài hát",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "Bật hoạt ảnh",
   "saEnableAnimationsSubtitle": "Công tắc chính cho tất cả hoạt ảnh",
   "saBackAnimations": "Hoạt ảnh quay lại",

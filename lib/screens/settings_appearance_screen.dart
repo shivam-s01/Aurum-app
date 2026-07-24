@@ -31,6 +31,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   String _lyricsTextPosition = 'Centre';
   double _lyricsTextSize = 16.0;
   double _lyricsLineSpacing = 1.5;
+  bool _showLyricsOnPlayer = true;
   // New
   String _fontStyle = 'Default';
   String _nowPlayingCardStyle = 'Card';
@@ -79,6 +80,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';
       _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;
       _lyricsLineSpacing = p.getDouble('lyrics_line_spacing') ?? 1.5;
+      _showLyricsOnPlayer = p.getBool('show_lyrics_on_player') ?? true;
       _enableAnimations = p.getBool('enable_animations') ?? true;
       _backAnimations = p.getBool('back_animations') ?? true;
       _scrollAnimations = p.getBool('scroll_animations') ?? true;
@@ -287,6 +289,12 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // restart" bugs).
           // ── Lyrics ──
           _sectionLabel(l10n.saLyrics),
+          _inlineSwitch(context,
+            title: l10n.saShowLyricsOnPlayer,
+            subtitle: l10n.saShowLyricsOnPlayerSubtitle,
+            value: _showLyricsOnPlayer,
+            onChanged: (v) { setState(() => _showLyricsOnPlayer = v); _save('show_lyrics_on_player', v); AudioPrefs.setShowLyricsOnPlayer(v); },
+          ),
           _dropdownTile(context,
             title: l10n.saLyricsTextPosition,
             subtitle: l10n.saLyricsTextPositionSubtitle,

@@ -98,6 +98,12 @@ class AudioPrefs {
   static final ValueNotifier<LyricsStyle> lyricsStyleNotifier =
       ValueNotifier<LyricsStyle>(const LyricsStyle());
 
+  /// Spotify-style single active lyric line shown inline on the full
+  /// player between the song title/artist and the seek bar. Set from
+  /// Settings → Appearance → Lyrics.
+  static final ValueNotifier<bool> showLyricsOnPlayerNotifier =
+      ValueNotifier<bool>(true);
+
   /// If true, swiping left/right on the full player artwork
   /// skips to the next/previous track. Set from Settings → Player & Audio.
   static final ValueNotifier<bool> swipeToChangeNotifier =
@@ -176,6 +182,7 @@ class AudioPrefs {
   static const _kLyricsPos     = 'lyrics_text_position';
   static const _kLyricsSize    = 'lyrics_text_size';
   static const _kLyricsSpacing = 'lyrics_line_spacing';
+  static const _kShowLyricsOnPlayer = 'show_lyrics_on_player';
   static const _kSwipeChange   = 'swipe_to_change';
   static const _kShakeToSkip   = 'shake_to_skip';
   static const _kStopOnSwipe   = 'stop_on_swipe';
@@ -210,6 +217,8 @@ class AudioPrefs {
       lineSpacing: p.getDouble(_kLyricsSpacing) ?? lyricsStyleNotifier.value.lineSpacing,
     );
     swipeToChangeNotifier.value = p.getBool(_kSwipeChange) ?? swipeToChangeNotifier.value;
+    showLyricsOnPlayerNotifier.value =
+        p.getBool(_kShowLyricsOnPlayer) ?? showLyricsOnPlayerNotifier.value;
     shakeToSkipNotifier.value = p.getBool(_kShakeToSkip) ?? shakeToSkipNotifier.value;
     stopOnSwipeNotifier.value = p.getBool(_kStopOnSwipe) ?? stopOnSwipeNotifier.value;
     await pushStopOnSwipeToNative(stopOnSwipeNotifier.value);
@@ -286,6 +295,12 @@ class AudioPrefs {
     lyricsStyleNotifier.value = lyricsStyleNotifier.value.copyWith(lineSpacing: v);
     final p = await SharedPreferences.getInstance();
     await p.setDouble(_kLyricsSpacing, v);
+  }
+
+  static Future<void> setShowLyricsOnPlayer(bool v) async {
+    showLyricsOnPlayerNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kShowLyricsOnPlayer, v);
   }
 
   static Future<void> setSwipeToChange(bool v) async {

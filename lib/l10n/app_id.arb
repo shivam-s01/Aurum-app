@@ -232,6 +232,8 @@
   "saLyricsTextPositionSubtitle": "Perataan lirik di layar",
   "saLyricsTextSize": "Ukuran Teks Lirik",
   "saLyricsLineSpacing": "Jarak Baris Lirik",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "Aktifkan Animasi",
   "saEnableAnimationsSubtitle": "Sakelar utama untuk semua animasi",
   "saBackAnimations": "Animasi Kembali",

@@ -224,6 +224,8 @@
   "saLyricsTextPositionSubtitle": "स्क्रीन पर गीत का संरेखण",
   "saLyricsTextSize": "गीत टेक्स्ट आकार",
   "saLyricsLineSpacing": "गीत लाइन स्पेसिंग",
+  "saShowLyricsOnPlayer": "प्लेयर पर गीत दिखाएं",
+  "saShowLyricsOnPlayerSubtitle": "सीक बार के ऊपर वर्तमान लाइन दिखाएं",
   "saEnableAnimations": "एनिमेशन सक्षम करें",
   "saEnableAnimationsSubtitle": "सभी एनिमेशन के लिए मास्टर टॉगल",
   "saBackAnimations": "बैक एनिमेशन",

@@ -224,6 +224,8 @@
   "saLyricsTextPositionSubtitle": "Выравнивание текста песни на экране",
   "saLyricsTextSize": "Размер текста песни",
   "saLyricsLineSpacing": "Межстрочный интервал текста",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "Включить анимации",
   "saEnableAnimationsSubtitle": "Главный переключатель всех анимаций",
   "saBackAnimations": "Анимации возврата",

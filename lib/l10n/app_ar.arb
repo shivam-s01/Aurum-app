@@ -232,6 +232,8 @@
   "saLyricsTextPositionSubtitle": "محاذاة كلمات الأغنية على الشاشة",
   "saLyricsTextSize": "حجم نص كلمات الأغنية",
   "saLyricsLineSpacing": "تباعد أسطر كلمات الأغنية",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "تمكين الحركات",
   "saEnableAnimationsSubtitle": "المفتاح الرئيسي لجميع الحركات",
   "saBackAnimations": "حركات الرجوع",

@@ -311,6 +311,8 @@
   "saLyricsTextPositionSubtitle": "Alignment of lyrics on screen",
   "saLyricsTextSize": "Lyrics Text Size",
   "saLyricsLineSpacing": "Lyrics Line Spacing",
+  "saShowLyricsOnPlayer": "Show Lyrics on Player",
+  "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saEnableAnimations": "Enable Animations",
   "saEnableAnimationsSubtitle": "Master toggle for all animations",
   "saBackAnimations": "Back Animations",
