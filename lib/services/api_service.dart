@@ -2837,6 +2837,29 @@ class ApiService {
       return _syncedLyricsCache[cacheKey]!;
     }
 
+    // The full fallback chain below (LRCLIB's up-to-9 query variants, then
+    // Saavn, then lyrics.ovh, then lyricsmania) has no shared upper bound —
+    // each individual HTTP call times out on its own, but back-to-back that
+    // can still add up to 60-80s for a song with no match anywhere, which
+    // reads as the lyrics tab being permanently "stuck" loading. Capping the
+    // whole chain here means a genuine miss surfaces as "not found" quickly
+    // instead — same as Spotify not making you wait a minute to find out
+    // lyrics aren't available.
+    try {
+      return await _fetchSyncedLyricsChain(song, cacheKey)
+          .timeout(const Duration(seconds: 12));
+    } on TimeoutException {
+      // Deliberately not cached — leaves the door open for a later manual
+      // retry (e.g. reopening the Lyrics tab) to succeed once a slow source
+      // responds, rather than permanently locking in "not found".
+      return const LyricsResult();
+    }
+  }
+
+  static Future<LyricsResult> _fetchSyncedLyricsChain(
+    Song song,
+    String cacheKey,
+  ) async {
     final result = await _fetchLrcLibSynced(song.title, song.artist, song.duration);
     LyricsResult finalResult = result;
 
@@ -3166,6 +3189,11 @@ class ApiService {
       if (bareTitle.isNotEmpty && bareTitle != cleanTitle) '$bareTitle $primaryArtist',
       if (bareTitle.isNotEmpty && bareTitle != cleanTitle) bareTitle,
       if (noFeatTitle.isNotEmpty && noFeatTitle != cleanTitle) '$noFeatTitle $primaryArtist',
+      // "Artist - Title" reversed order — a good number of LRCLIB entries,
+      // especially Western and Japanese/J-pop tracks, are indexed with the
+      // artist name leading rather than the title, so a straight
+      // "title artist" query can miss them even though the track exists.
+      if (primaryArtist.isNotEmpty) '$primaryArtist - $cleanTitle',
       // Title-only as an absolute last resort — widest net, relies entirely
       // on the scoring floor above to reject a wrong song.
       if (bareTitle.isNotEmpty) bareTitle,
