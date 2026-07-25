@@ -63,29 +63,37 @@ final RouteObserver<ModalRoute<void>> aurumRouteObserver =
 // then snap") regardless of what duration/curve is configured, because
 // no frames can render while the thread is blocked. This times every
 // route pop app-wide, from the moment Navigator.didPop fires to the
-// next frame actually drawn after it. Read the numbers via:
-//   adb logcat -s flutter
-// or in Termux:
-//   adb logcat | grep BackNav
-// A consistent gap close to the 350ms transition itself = the animation
-// really is just running at its configured speed (nothing to fix here).
-// A gap noticeably LARGER than 350ms (600ms, 1000ms+) = something is
-// blocking the thread on top of the transition — the actual next thing
-// to hunt down, and the printed milliseconds pinpoint how big that block
-// is even before finding what's causing it.
+// next frame actually drawn after it, and shows the result directly ON
+// SCREEN as a SnackBar — no adb/logcat/computer needed, just watch the
+// phone after backing out of any screen.
+// A number close to 350 = the animation really is just running at its
+// configured speed (nothing further to fix). A number noticeably LARGER
+// (600, 1000+) = something is blocking the thread on top of the
+// transition — the actual thing to hunt down next, now with a concrete
+// size instead of a guess.
 class _PopTimingObserver extends NavigatorObserver {
   DateTime? _popAt;
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
     _popAt = DateTime.now();
-    debugPrint('[BackNav] pop start (popping '
-        '${route.settings.name ?? route.runtimeType})');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final at = _popAt;
       if (at == null) return;
       final gap = DateTime.now().difference(at).inMilliseconds;
-      debugPrint('[BackNav] first frame after pop: +${gap}ms');
+      // A second post-frame hop so this SnackBar shows on the SCREEN
+      // THAT'S NOW VISIBLE after the pop (previousRoute's context),
+      // rather than trying to show on a context that's mid-transition.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final messenger = scaffoldMessengerKey.currentState;
+        if (messenger == null) return;
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(SnackBar(
+          content: Text('[BackNav] first frame after pop: +${gap}ms'),
+          duration: const Duration(seconds: 4),
+          backgroundColor: gap > 500 ? Colors.red : Colors.green,
+        ));
+      });
     });
     super.didPop(route, previousRoute);
   }
