@@ -56,6 +56,43 @@ final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
 final RouteObserver<ModalRoute<void>> aurumRouteObserver =
     RouteObserver<ModalRoute<void>>();
 
+// DEBUG (diagnosing "back navigation still feels stuck for ~1s even
+// after durations were unified to 350ms everywhere"): durations/curves
+// being correct doesn't rule out something blocking the UI thread for a
+// beat right as the pop happens — that would look identical ("stuck,
+// then snap") regardless of what duration/curve is configured, because
+// no frames can render while the thread is blocked. This times every
+// route pop app-wide, from the moment Navigator.didPop fires to the
+// next frame actually drawn after it. Read the numbers via:
+//   adb logcat -s flutter
+// or in Termux:
+//   adb logcat | grep BackNav
+// A consistent gap close to the 350ms transition itself = the animation
+// really is just running at its configured speed (nothing to fix here).
+// A gap noticeably LARGER than 350ms (600ms, 1000ms+) = something is
+// blocking the thread on top of the transition — the actual next thing
+// to hunt down, and the printed milliseconds pinpoint how big that block
+// is even before finding what's causing it.
+class _PopTimingObserver extends NavigatorObserver {
+  DateTime? _popAt;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _popAt = DateTime.now();
+    debugPrint('[BackNav] pop start (popping '
+        '${route.settings.name ?? route.runtimeType})');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final at = _popAt;
+      if (at == null) return;
+      final gap = DateTime.now().difference(at).inMilliseconds;
+      debugPrint('[BackNav] first frame after pop: +${gap}ms');
+    });
+    super.didPop(route, previousRoute);
+  }
+}
+
+final _PopTimingObserver _popTimingObserver = _PopTimingObserver();
+
 Future<void> main() async {
   runZonedGuarded(() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -384,7 +421,7 @@ class AurumApp extends StatelessWidget {
             themeMode: themeProvider.themeMode,
             theme: lightTheme,
             darkTheme: darkTheme,
-            navigatorObservers: [aurumRouteObserver],
+            navigatorObservers: [aurumRouteObserver, _popTimingObserver],
             locale: localeProvider.locale,
             supportedLocales: kSupportedLocales,
             localizationsDelegates: const [

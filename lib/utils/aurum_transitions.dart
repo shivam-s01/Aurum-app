@@ -379,14 +379,24 @@ class AurumModalRoute<T> extends PageRouteBuilder<T> {
   }) : super(
           settings: settings,
           opaque: true,
-          // Same fix as AurumPageRoute above — reverse matches forward
-          // (long1) so closing this modal-style route mirrors the speed
-          // it opened at, instead of a different, faster close.
-          transitionDuration: AurumMotion.long1,
-          reverseTransitionDuration: AurumMotion.long1,
+          // FIX: this route ignored the "Back Animations" setting
+          // entirely — AurumPageRoute and AurumSlidePageRoute both
+          // collapse to Duration.zero (instant, no slide/fade) when the
+          // setting is off, but this one was hardcoded to always animate
+          // at long1. With animations off, most of the app would jump
+          // instantly while paywall/song-info screens kept sliding in —
+          // a visible inconsistency even to someone who's never seen
+          // this file. Same _animsOn() check as the other two routes.
+          transitionDuration: _animsOn()
+              ? AurumMotion.long1
+              : Duration.zero,
+          reverseTransitionDuration: _animsOn()
+              ? AurumMotion.long1
+              : Duration.zero,
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            if (!_animsOn()) return child;
             final curved = CurvedAnimation(
               parent: animation,
               curve: AurumMotion.standard,
@@ -404,6 +414,11 @@ class AurumModalRoute<T> extends PageRouteBuilder<T> {
             );
           },
         );
+
+  // Same "Enable Animations" (master) AND "Back Animations" gate as
+  // AurumPageRoute/AurumSlidePageRoute.
+  static bool _animsOn() =>
+      AudioPrefs.enableAnimationsNotifier.value && AudioPrefs.backAnimations;
 
   static Future<T?> to<T extends Object?>(BuildContext context, Widget screen) {
     return Navigator.of(context).push<T>(

@@ -68,6 +68,15 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
+    // FIX: setState() was called unconditionally right after an await
+    // gap. If the user backs out of this screen before
+    // SharedPreferences.getInstance() resolves (easy to do — Settings
+    // screens are quick to bounce off of), this widget is already
+    // disposed by the time the await returns, and calling setState() on
+    // a disposed State throws "setState() called after dispose()" —
+    // a real, if intermittent, crash. Guarding with `mounted` is the
+    // standard fix: if the widget's gone, there's nothing to update.
+    if (!mounted) return;
     setState(() {
       _dynamicThemeColor = p.getBool('dynamic_theme_color') ?? true;
       _highRefreshRate = p.getBool('high_refresh_rate') ?? true;

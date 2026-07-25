@@ -1391,15 +1391,24 @@ class _OnlineContent extends StatelessWidget {
                       .where((s) => s.artworkUrl.isNotEmpty)
                       .map((s) => s.artworkUrl)
                       .firstOrNull ?? '';
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => MixScreen(
+                  // FIX ("navigation feels inconsistent"): this was the
+                  // one flat "See all" tap in the app still using a plain
+                  // MaterialPageRoute — default Android transition, not
+                  // Aurum's 350ms fade+slide every other direct
+                  // navigation (Library sections, other "See all" rows,
+                  // etc.) uses. Switched to AurumPageRoute.to so this
+                  // matches the rest of the app and respects the "Back
+                  // Animations" setting like everything else does.
+                  AurumPageRoute.to(
+                    context,
+                    MixScreen(
                       mixId: section.id,
                       mixName: section.title,
                       artworkUrl: art,
                       emoji: '🎵',
                       songs: section.songs,
                     ),
-                  ));
+                  );
                 },
                 child: Text(
                   'See all',
@@ -2413,15 +2422,20 @@ class _PlaylistCardState extends State<_PlaylistCard> {
           ? songs.first.artworkUrl
           : songs.where((s) => s.artworkUrl.isNotEmpty).map((s) => s.artworkUrl).firstOrNull ?? '';
       if (!mounted) return;
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => MixScreen(
+      // FIX ("navigation feels inconsistent"): same plain-MaterialPageRoute
+      // gap as the genre-mix "See all" rows above — this comment already
+      // says the goal was matching those in every other way; the
+      // transition itself was the one thing that didn't match yet.
+      AurumPageRoute.to(
+        context,
+        MixScreen(
           mixId: widget.playlist.id,
           mixName: widget.playlist.name,
           artworkUrl: art,
           emoji: widget.playlist.emoji,
           songs: songs,
         ),
-      ));
+      );
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
     }
