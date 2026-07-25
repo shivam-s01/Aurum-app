@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -327,9 +328,28 @@ class _HomeScreenState extends State<HomeScreen> {
       unawaited(HomeFeedCache.saveSections(liveSections));
     } catch (e) {
       if (mounted) {
+        // FIX (2026-07-25): this used to blame "check your internet
+        // connection" for EVERY failure of the batch above — including a
+        // 25s timeout caused by our own ~19-section fan-out, a transient
+        // backend hiccup, or any other exception. On a perfectly good
+        // connection that reads as flatly wrong to the user (which is
+        // exactly what was being reported) since nothing here actually
+        // confirmed the device was offline. Doing one real connectivity
+        // check here means the "check your internet connection" wording
+        // only ever shows when the device is genuinely offline/has no
+        // usable network; every other failure (slow backend, timeout,
+        // one-off error) gets a neutral, accurate "couldn't load, try
+        // again" message instead — same distinction Spotify/Netflix make
+        // between "you're offline" and "something went wrong on our end".
+        final connectivity = await Connectivity().checkConnectivity();
+        final isOffline = connectivity.every((r) => r == ConnectivityResult.none);
         setState(() {
           _onlineLoading = false;
-          if (_onlineSections.isEmpty) _onlineError = AppLocalizations.of(context)!.homeFailedToLoadCheckConnection;
+          if (_onlineSections.isEmpty) {
+            _onlineError = isOffline
+                ? AppLocalizations.of(context)!.homeFailedToLoadCheckConnection
+                : AppLocalizations.of(context)!.homeFailedToLoad;
+          }
         });
       }
       // RELIABILITY (premium/"never stuck" requirement): if cached content

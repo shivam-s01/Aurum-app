@@ -18,6 +18,7 @@ import '../providers/premium_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/song.dart';
 import '../models/lyrics.dart';
+import '../utils/devanagari_transliterator.dart';
 import '../theme/aurum_theme.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/audio_prefs.dart';
@@ -3817,21 +3818,19 @@ class _LyricsPageState extends State<_LyricsPage> {
   Song? _loadedFor;
   int _activeIndex = -1;
 
+  // Bumped on every fetch so a late-arriving response from a previous
+  // song's in-flight request can never overwrite the lyrics for whatever
+  // song is current by the time it resolves (same fix as
+  // _InlineLyricsStripState._fetch above).
+  int _fetchGeneration = 0;
+
   final ItemScrollController _scrollController = ItemScrollController();
   final ItemPositionsListener _positionsListener = ItemPositionsListener.create();
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final song = context.read<PlayerProvider>().currentSong;
-    if (song != null && song.id != _loadedFor?.id) {
-      _loadedFor = song;
-      _fetchLyrics();
-    }
-  }
-
   Future<void> _fetchLyrics() async {
     if (!mounted) return;
+    final myGeneration = ++_fetchGeneration;
+    final requestedForId = _loadedFor?.id;
     setState(() {
       _loading = true;
       _notFound = false;
@@ -3840,6 +3839,12 @@ class _LyricsPageState extends State<_LyricsPage> {
     });
     final result = await context.read<PlayerProvider>().fetchSyncedLyrics();
     if (!mounted) return;
+    // Stale response — a newer song change (and fetch) happened while this
+    // one was in flight. Ignore it so old lyrics can never clobber the
+    // current song's.
+    if (myGeneration != _fetchGeneration || requestedForId != _loadedFor?.id) {
+      return;
+    }
     setState(() {
       _loading = false;
       if (result.hasAny) {
@@ -3872,6 +3877,28 @@ class _LyricsPageState extends State<_LyricsPage> {
 
   @override
   Widget build(BuildContext context) {
+    // FIX: this widget previously detected song changes only via
+    // didChangeDependencies, which fires solely when THIS widget's own
+    // InheritedWidget subscriptions change — and nothing on the actual
+    // path from here up to _FullPlayerScreen's build() subscribed to
+    // PlayerProvider (the tab content above is wrapped only in a
+    // FadeTransition, no Selector/Consumer/context.watch on it). So
+    // detection depended on some unrelated part of the tree happening to
+    // rebuild first — exactly the gap that let the lyrics tab keep
+    // showing the previous song after a skip. Explicitly watching
+    // currentSong here makes this widget rebuild deterministically the
+    // instant the song changes, every time, with no dependency on
+    // anything else in the tree choosing to rebuild.
+    final song = context.watch<PlayerProvider>().currentSong;
+    if (song != null && song.id != _loadedFor?.id) {
+      _loadedFor = song;
+      // _fetchLyrics() calls setState, which can't run synchronously from
+      // inside build() — schedule it for right after this frame instead.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fetchLyrics();
+      });
+    }
+
     final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final mutedIcon =
@@ -3915,22 +3942,41 @@ class _LyricsPageState extends State<_LyricsPage> {
         ),
       );
     } else if (_result!.hasSynced) {
+      final rawLines = _result!.synced!;
+      final hasDevanagari = rawLines.any(
+        (l) => DevanagariTransliterator.containsDevanagari(l.text),
+      );
+      // Always romanize when the fetched lyrics contain Devanagari — no
+      // user toggle, this is the only display mode now.
+      final displayLines = hasDevanagari
+          ? rawLines
+              .map((l) => LyricLine(
+                    time: l.time,
+                    text: DevanagariTransliterator.transliterate(l.text),
+                  ))
+              .toList()
+          : rawLines;
       content = _SyncedLyricsView(
         key: const ValueKey('synced-lyrics'),
-        lines: _result!.synced!,
+        lines: displayLines,
         activeIndex: _activeIndex,
         scrollController: _scrollController,
         positionsListener: _positionsListener,
         onPositionChanged: _onPositionChanged,
       );
     } else {
+      final rawPlain = _result!.plain ?? '';
+      final hasDevanagari = DevanagariTransliterator.containsDevanagari(rawPlain);
+      final displayPlain = hasDevanagari
+          ? DevanagariTransliterator.transliterate(rawPlain)
+          : rawPlain;
       content = ValueListenableBuilder<LyricsStyle>(
+        key: const ValueKey('plain-lyrics'),
         valueListenable: AudioPrefs.lyricsStyleNotifier,
         builder: (context, style, _) {
           final lyricsColor =
               isLight ? AurumTheme.lightTextPrimary : Colors.white.withAlpha(200);
           return TweenAnimationBuilder<double>(
-            key: const ValueKey('plain-lyrics'),
             tween: Tween(begin: 0.0, end: 1.0),
             duration: const Duration(milliseconds: 500),
             curve: Curves.easeOut,
@@ -3945,7 +3991,7 @@ class _LyricsPageState extends State<_LyricsPage> {
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(28, 16, 28, 32),
               child: Text(
-                _result!.plain ?? '',
+                displayPlain,
                 textAlign: style.position == 'Left' ? TextAlign.left : TextAlign.center,
                 style: TextStyle(
                   color: lyricsColor,
@@ -4040,22 +4086,37 @@ class _SyncedLyricsView extends StatelessWidget {
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => context.read<PlayerProvider>().seekTo(line.time),
-              child: AnimatedDefaultTextStyle(
-                duration: const Duration(milliseconds: 240),
-                curve: Curves.easeOut,
-                style: TextStyle(
-                  color: isActive ? activeColor : inactiveColor,
-                  fontSize: isActive ? style.textSize + 2 : style.textSize,
-                  height: style.lineSpacing,
-                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
-                  letterSpacing: 0.1,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  child: Text(
-                    line.text,
-                    textAlign:
-                        style.position == 'Left' ? TextAlign.left : TextAlign.center,
+              child: AnimatedScale(
+                // Matches the 320ms scroll-to duration in _onPositionChanged
+                // above so the line's own emphasis (scale + text style) lands
+                // in the same beat as the scroll settling on it, instead of
+                // the text style finishing ~80ms early and the scroll
+                // catching up after — that stagger is what made this feel a
+                // notch less polished than Spotify's version, where both
+                // happen as one motion.
+                scale: isActive ? 1.04 : 1.0,
+                duration: const Duration(milliseconds: 320),
+                curve: Curves.easeOutCubic,
+                alignment: style.position == 'Left'
+                    ? Alignment.centerLeft
+                    : Alignment.center,
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeOutCubic,
+                  style: TextStyle(
+                    color: isActive ? activeColor : inactiveColor,
+                    fontSize: isActive ? style.textSize + 2 : style.textSize,
+                    height: style.lineSpacing,
+                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+                    letterSpacing: 0.1,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Text(
+                      line.text,
+                      textAlign:
+                          style.position == 'Left' ? TextAlign.left : TextAlign.center,
+                    ),
                   ),
                 ),
               ),

@@ -430,7 +430,7 @@
   },
   "homeCouldntLoadSongsRetry": "Couldn't load songs right now.\nPull down or tap retry.",
   "homeFailedToLoad": "Failed to load.",
-  "homeFailedToLoadCheckConnection": "Failed to load. Check connection.",
+  "homeFailedToLoadCheckConnection": "Couldn't load right now. Pull down to try again.",
   "homeLoadingPlaylist": "Loading {name}...",
   "@homeLoadingPlaylist": {
     "description": "Snackbar shown while a curated playlist is loading",

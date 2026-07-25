@@ -801,18 +801,8 @@ class ApiService {
 
     final globalSeenIds = <String>{};
     final seenTitles = <String>{};
-    // FIX (2026-07-22): this used a single `Future.wait(queryList.map(...))`
-    // — which sounds parallel, and IS parallel in terms of network requests,
-    // but the `onSection` callback loop only ran AFTER every single query in
-    // the batch resolved. With ~15-19 queries in flight (each itself firing
-    // 4 parallel Saavn page requests after the _searchSaavnDeep fix above),
-    // the home screen showed nothing until the single slowest query in the
-    // whole batch finished — completely defeating the "progressive reveal"
-    // this was supposed to give. Firing onSection off each query's own
-    // Future independently (no shared Future.wait) means the first section
-    // to land appears immediately, exactly as the section comments above
-    // already claimed was happening.
-    final pending = queryList.map((sq) {
+
+    Future<void> runQuery(_SectionQuery sq) {
       final future = sq.isSuggestion
           ? _suggestionSection(sq.suggestionSongId!, sq.label)
           : sq.isEnglish
@@ -828,7 +818,54 @@ class ApiService {
       }).catchError((_) {
         // one query failing shouldn't stop the rest of the feed from loading
       });
-    }).toList();
+    }
+
+    // FIX (2026-07-25): the block this replaces fired every query in
+    // queryList — typically 15-19 of them — via a single Future.wait with
+    // no shared throttling. Each query itself opens ~5 of its own HTTP
+    // connections (4 parallel Saavn pages + 1 YouTube search inside
+    // _saavnSectionV4/_searchSaavnDeep above), so a single cold load or
+    // pull-to-refresh was routinely opening 80-95 simultaneous connections
+    // on the phone's radio. On anything less than a strong connection that
+    // self-congests: individual queries queue behind each other at the OS/
+    // radio level, several stack up past the 25s batch timeout in
+    // home_screen.dart, and the resulting failure surfaced as "check your
+    // internet connection" even on a perfectly fine connection — it was a
+    // self-inflicted thundering herd, not a connectivity problem. It's also
+    // the direct cause of the sluggish/janky first-load feel: dozens of
+    // concurrent responses landing in a tight window each trigger their own
+    // setState, and Flutter's UI thread has to lay out newly-arrived
+    // sections back-to-back rather than at a smooth trickle.
+    //
+    // Fix keeps the existing "fire independently, call onSection as each
+    // resolves" progressive-reveal behavior (still no shared Future.wait
+    // blocking the first section on the slowest one) but caps how many
+    // queries are ever in flight at once. Priority queries (time-of-day
+    // mood, "Made for You" artists, genre mixes — the sections users see
+    // first, at the top of the page) still go out immediately as a single
+    // wave since there are only ever ~8 of them, well within a phone's
+    // comfortable concurrent-connection range. Everything else (English
+    // rows, "Because You Played", pool picks) is split into small waves of
+    // 4 with a short gap between waves, so the total concurrent connection
+    // count at any instant stays roughly constant regardless of how many
+    // sections the feed ends up building.
+    final priorityQueries = queryList.where((q) => q.priority).toList();
+    final restQueries = queryList.where((q) => q.priority == false).toList();
+
+    final pending = <Future<void>>[
+      for (final sq in priorityQueries) runQuery(sq),
+    ];
+
+    const waveSize = 4;
+    const waveGap = Duration(milliseconds: 250);
+    for (var i = 0; i < restQueries.length; i += waveSize) {
+      if (i > 0) await Future.delayed(waveGap);
+      final wave = restQueries.skip(i).take(waveSize);
+      for (final sq in wave) {
+        pending.add(runQuery(sq));
+      }
+    }
+
     await Future.wait(pending);
   }
 
