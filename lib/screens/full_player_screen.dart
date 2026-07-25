@@ -139,6 +139,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // ── Palette / song cache ──
   String? _lastArtUrl;
   String? _lastSongId;
+  // Tracks the theme mode _extractColor last ran for — lets build() detect
+  // a live dark/light toggle independent of song changes (see the bug fix
+  // note above the extraction-trigger block in build()). Starts null so
+  // the very first build always counts as "no prior mode" rather than
+  // false-triggering a spurious "theme changed" re-extraction.
+  bool? _lastIsLight;
   // Distinguishes "screen just opened" from "song changed while this
   // screen was already open" — see the skip of _triggerArtworkAnimation()
   // in build() below for why this matters.
@@ -405,7 +411,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     }
   }
 
-  // ── Palette extraction → 4 colors, theme-adaptive, on track change only ──
+  // ── Palette / song cache ──
   Future<void> _extractColor(String url, {bool isLight = false}) async {
     if (url.isEmpty || url == _lastArtUrl) return;
     _lastArtUrl = url;
@@ -421,6 +427,29 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       return;
     }
 
+    try {
+      final palette = await ArtworkPaletteCache.get(url);
+      if (gen != _artGen || !mounted) return;
+      _applyPalette(palette, gen: gen, isLight: isLight);
+    } catch (_) {}
+  }
+
+  /// Same as [_extractColor] but deliberately bypasses the "same URL,
+  /// skip" dedup guard — used when only the theme mode (dark/light)
+  /// changed and the artwork URL is unchanged, so ensureContrastSafe()
+  /// gets re-run against the new mode instead of leaving colors clamped
+  /// for whichever mode was active when this song's palette was first
+  /// extracted. Always resolves from cache (palette itself never depends
+  /// on theme mode, only the contrast clamping applied on top of it does),
+  /// so this is cheap — no network/decode work repeats.
+  Future<void> _extractColorForce(String url, {required bool isLight}) async {
+    if (url.isEmpty) return;
+    final gen = ++_artGen;
+    final cached = ArtworkPaletteCache.peek(url);
+    if (cached != null) {
+      _applyPalette(cached, gen: gen, isLight: isLight);
+      return;
+    }
     try {
       final palette = await ArtworkPaletteCache.get(url);
       if (gen != _artGen || !mounted) return;
@@ -682,10 +711,28 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           return const SizedBox.shrink();
         }
 
-        // Trigger artwork + color extraction on song change only
-        if (song.id != _lastSongId) {
+        // Trigger artwork + color extraction on song change OR theme
+        // (dark/light) change.
+        //
+        // BUG FIX: this used to only fire inside the song.id != _lastSongId
+        // branch — so toggling dark/light mode while the full player was
+        // already open on the SAME song never re-ran _extractColor at all
+        // (the URL hadn't changed, and _extractColor's own dedup guard
+        // returns early on url == _lastArtUrl regardless of isLight). The
+        // background colors stayed clamped by ensureContrastSafe() for
+        // whichever mode was active when the song first loaded — e.g. a
+        // near-black dark-mode-safe background could persist right after
+        // switching to light mode, where the screen now draws dark text on
+        // top of it. Tracking the resolved isLight value separately and
+        // re-triggering extraction whenever it flips (independent of
+        // whether the song also changed) means a live theme toggle always
+        // recomputes contrast-safe colors for the new mode.
+        final isLight = Theme.of(context).brightness == Brightness.light;
+        final themeChanged = isLight != _lastIsLight;
+        _lastIsLight = isLight;
+        if (song.id != _lastSongId || themeChanged) {
+          final songChanged = song.id != _lastSongId;
           _lastSongId = song.id;
-          final isLight = Theme.of(context).brightness == Brightness.light;
           // FIX (double-animation on first open) — on the screen's very
           // first build, song.id is always != _lastSongId (which starts
           // null), so this used to always fire _triggerArtworkAnimation()
@@ -701,11 +748,23 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           // its own.
           final isFirstBuild = _isFirstBuild;
           _isFirstBuild = false;
+          // A pure theme toggle (song unchanged) has no reason to replay
+          // the artwork pop/title cross-fade — those are song-change cues.
+          // Only re-extraction needs to happen, and it needs to bypass
+          // _extractColor's own "same URL, skip" guard, since the URL
+          // genuinely hasn't changed here — only the contrast mode has.
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            if (!isFirstBuild) _triggerArtworkAnimation();
-            if (song.artworkUrl.isNotEmpty) _extractColor(song.artworkUrl, isLight: isLight);
-            _warmNextInQueue();
+            if (songChanged && !isFirstBuild) _triggerArtworkAnimation();
+            if (song.artworkUrl.isNotEmpty) {
+              if (songChanged) {
+                _extractColor(song.artworkUrl, isLight: isLight);
+              } else {
+                // Theme-only change: force past the same-URL dedup guard.
+                _extractColorForce(song.artworkUrl, isLight: isLight);
+              }
+            }
+            if (songChanged) _warmNextInQueue();
           });
         }
 
@@ -1435,39 +1494,23 @@ class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
   String? _loadedForId;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final song = context.read<PlayerProvider>().currentSong;
-    if (song != null && song.id != _loadedForId) {
-      _loadedForId = song.id;
-      _fetch();
-    }
-  }
-
-  int _fetchGeneration = 0;
-
-  Future<void> _fetch() async {
-    // Deliberately does NOT clear _result first — keeps showing the
-    // previous track's last line on screen rather than blanking the strip,
-    // avoiding a visible flash right at the moment of a song skip.
-    //
-    // Uses a generation counter rather than a busy-flag: a busy-flag would
-    // let an in-flight fetch for song A silently swallow the request for
-    // song B if the user skips again before A's fetch resolves. Bumping
-    // the generation on every call means only the LATEST request's result
-    // is ever applied, but every request still actually fires.
-    final myGeneration = ++_fetchGeneration;
-    final requestedForId = _loadedForId;
-    final result = await context.read<PlayerProvider>().fetchSyncedLyrics();
-    if (!mounted) return;
-    // Stale response (a newer skip happened while this was in flight, or
-    // the song id changed again) — ignore it.
-    if (myGeneration != _fetchGeneration || requestedForId != _loadedForId) return;
-    setState(() => _result = result);
-  }
-
-  @override
   Widget build(BuildContext context) {
+    // FIX: this previously detected song changes only in
+    // didChangeDependencies() using context.read — but context.read
+    // creates no subscription, so didChangeDependencies had nothing of
+    // its own to fire on and only happened to run when some unrelated
+    // ancestor rebuilt. That's the same class of gap that was fixed in
+    // _LyricsPageState below: explicitly watching currentSong in build()
+    // makes detection deterministic on every song change, with no
+    // dependency on anything else in the tree choosing to rebuild first.
+    final watchedSong = context.watch<PlayerProvider>().currentSong;
+    if (watchedSong != null && watchedSong.id != _loadedForId) {
+      _loadedForId = watchedSong.id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fetch();
+      });
+    }
+
     final result = _result;
     if (result == null || !result.hasAny) {
       // Reserve the height either way — SizedBox.shrink() here would let
@@ -1499,6 +1542,28 @@ class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
         ),
       ),
     );
+  }
+
+  int _fetchGeneration = 0;
+
+  Future<void> _fetch() async {
+    // Deliberately does NOT clear _result first — keeps showing the
+    // previous track's last line on screen rather than blanking the strip,
+    // avoiding a visible flash right at the moment of a song skip.
+    //
+    // Uses a generation counter rather than a busy-flag: a busy-flag would
+    // let an in-flight fetch for song A silently swallow the request for
+    // song B if the user skips again before A's fetch resolves. Bumping
+    // the generation on every call means only the LATEST request's result
+    // is ever applied, but every request still actually fires.
+    final myGeneration = ++_fetchGeneration;
+    final requestedForId = _loadedForId;
+    final result = await context.read<PlayerProvider>().fetchSyncedLyrics();
+    if (!mounted) return;
+    // Stale response (a newer skip happened while this was in flight, or
+    // the song id changed again) — ignore it.
+    if (myGeneration != _fetchGeneration || requestedForId != _loadedForId) return;
+    setState(() => _result = result);
   }
 }
 
@@ -3995,9 +4060,9 @@ class _LyricsPageState extends State<_LyricsPage> {
                 textAlign: style.position == 'Left' ? TextAlign.left : TextAlign.center,
                 style: TextStyle(
                   color: lyricsColor,
-                  fontSize: style.textSize,
+                  fontSize: style.textSize + 6,
                   height: style.lineSpacing,
-                  fontWeight: FontWeight.w400,
+                  fontWeight: FontWeight.w500,
                   letterSpacing: 0.1,
                 ),
               ),
@@ -4067,61 +4132,136 @@ class _SyncedLyricsView extends StatelessWidget {
         final activeColor =
             isLight ? AurumTheme.lightTextPrimary : Colors.white;
         final inactiveColor = isLight
-            ? AurumTheme.lightTextMuted.withAlpha(160)
-            : Colors.white.withAlpha(90);
+            ? AurumTheme.lightTextMuted.withAlpha(150)
+            : Colors.white.withAlpha(85);
+        // Soft glow tint behind the active line — same hue as the text,
+        // just a translucent halo. This is the detail that reads as
+        // "paid app" rather than a plain bold-and-bigger swap: real
+        // premium lyrics UIs (Spotify/Apple Music) give the current line
+        // a subtle luminous quality, not just a weight change.
+        final glowColor =
+            (isLight ? AurumTheme.lightTextPrimary : Colors.white)
+                .withAlpha(isLight ? 40 : 55);
 
-        return ScrollablePositionedList.builder(
+        final list = ScrollablePositionedList.builder(
           key: const ValueKey('synced-list'),
           itemScrollController: scrollController,
           itemPositionsListener: positionsListener,
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 200),
+          // Extra top padding gives the first few lines room to sit below
+          // the fade mask instead of emerging from directly under it;
+          // extra bottom padding keeps the last lines reachable above the
+          // tab bar, same as before.
+          padding: const EdgeInsets.fromLTRB(28, 32, 28, 220),
           itemCount: lines.length,
           itemBuilder: (context, index) {
             final line = lines[index];
             final isActive = index == activeIndex;
             if (line.text.isEmpty) {
-              return const SizedBox(height: 20);
+              return const SizedBox(height: 22);
             }
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => context.read<PlayerProvider>().seekTo(line.time),
-              child: AnimatedScale(
-                // Matches the 320ms scroll-to duration in _onPositionChanged
-                // above so the line's own emphasis (scale + text style) lands
-                // in the same beat as the scroll settling on it, instead of
-                // the text style finishing ~80ms early and the scroll
-                // catching up after — that stagger is what made this feel a
-                // notch less polished than Spotify's version, where both
-                // happen as one motion.
-                scale: isActive ? 1.04 : 1.0,
-                duration: const Duration(milliseconds: 320),
-                curve: Curves.easeOutCubic,
-                alignment: style.position == 'Left'
-                    ? Alignment.centerLeft
-                    : Alignment.center,
-                child: AnimatedDefaultTextStyle(
+            // Base size bumped up from the raw style.textSize — Spotify's
+            // lyrics screen runs noticeably larger than a body-text size
+            // like the 16sp default here, and the jump from inactive to
+            // active is bigger too (was +2, now +4) so the currently
+            // playing line reads as unmistakably the focal point rather
+            // than a slightly-bolder line among equals.
+            final baseSize = style.textSize + 8;
+            final activeSize = baseSize + 4;
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => context.read<PlayerProvider>().seekTo(line.time),
+                child: AnimatedScale(
+                  // Matches the 320ms scroll-to duration in
+                  // _onPositionChanged so the line's own emphasis (scale +
+                  // text style + glow) lands in the same beat as the
+                  // scroll settling on it, instead of the text style
+                  // finishing early and the scroll catching up after.
+                  scale: isActive ? 1.05 : 1.0,
                   duration: const Duration(milliseconds: 320),
                   curve: Curves.easeOutCubic,
-                  style: TextStyle(
-                    color: isActive ? activeColor : inactiveColor,
-                    fontSize: isActive ? style.textSize + 2 : style.textSize,
-                    height: style.lineSpacing,
-                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
-                    letterSpacing: 0.1,
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Text(
-                      line.text,
-                      textAlign:
-                          style.position == 'Left' ? TextAlign.left : TextAlign.center,
+                  alignment: style.position == 'Left'
+                      ? Alignment.centerLeft
+                      : Alignment.center,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 320),
+                    curve: Curves.easeOutCubic,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 11, horizontal: 14),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      color: isActive
+                          ? glowColor.withAlpha((glowColor.alpha * 0.5).round())
+                          : Colors.transparent,
+                      boxShadow: isActive
+                          ? [
+                              BoxShadow(
+                                color: glowColor,
+                                blurRadius: 28,
+                                spreadRadius: -6,
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 320),
+                      curve: Curves.easeOutCubic,
+                      style: TextStyle(
+                        color: isActive ? activeColor : inactiveColor,
+                        fontSize: isActive ? activeSize : baseSize,
+                        height: style.lineSpacing,
+                        fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                        letterSpacing: 0.1,
+                        // A faint text shadow only on the active line adds
+                        // the last bit of depth/lift that makes it feel
+                        // lit from within rather than just a font-weight
+                        // swap — the same trick Apple Music's lyrics use.
+                        shadows: isActive
+                            ? [
+                                Shadow(
+                                  color: glowColor,
+                                  blurRadius: 18,
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Text(
+                        line.text,
+                        textAlign: style.position == 'Left'
+                            ? TextAlign.left
+                            : TextAlign.center,
+                      ),
                     ),
                   ),
                 ),
               ),
             );
           },
+        );
+
+        // Top/bottom fade mask — the detail that most reads as "premium
+        // scrolling surface" rather than a plain list: lines don't hard-
+        // clip at the viewport edge, they dissolve into the background,
+        // exactly like Spotify/Apple Music's lyrics screens. Pure
+        // ShaderMask, no extra widgets rebuilding per scroll tick.
+        return ShaderMask(
+          shaderCallback: (rect) {
+            return const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.transparent,
+                Colors.black,
+                Colors.black,
+                Colors.transparent,
+              ],
+              stops: [0.0, 0.06, 0.88, 1.0],
+            ).createShader(rect);
+          },
+          blendMode: BlendMode.dstIn,
+          child: list,
         );
       },
     );
@@ -5063,6 +5203,24 @@ class _CtrlBtn extends StatelessWidget {
         ? AurumTheme.lightTextMuted
         : Colors.white.withAlpha(100);
     final c = color ?? (active ? AurumTheme.gold : inactiveColor);
+
+    // PREMIUM POLISH PASS: keeps the same restrained language as before
+    // (no pill, no glow, no shadow — that restraint is what reads as
+    // premium rather than gamified) but refines the motion quality:
+    //  - The icon's color now animates (AnimatedDefaultTextStyle-style
+    //    tween via TweenAnimationBuilder) instead of snapping instantly
+    //    between muted/gold on toggle — a deliberate, considered
+    //    transition rather than a hard cut.
+    //  - The active dot now scales in with a slight overshoot
+    //    (easeOutBack) rather than a flat fade — a small, confident
+    //    "settle" that reads as intentional rather than just appearing.
+    //  - Icon swap crossfade slowed very slightly (180ms -> 200ms) and
+    //    paired with a tiny scale so it reads as a soft transition rather
+    //    than a flicker.
+    // Only shuffle/repeat pass `active`; skip/prev/next never do, so all
+    // of this only affects the two toggle buttons.
+    final showActiveDot = color == null;
+
     return Semantics(
       label: semanticLabel,
       button: true,
@@ -5072,7 +5230,67 @@ class _CtrlBtn extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(10),
-          child: Icon(icon, size: size, color: c),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, anim) => FadeTransition(
+                  opacity: anim,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.88, end: 1.0).animate(anim),
+                    child: child,
+                  ),
+                ),
+                // Keyed on the icon shape only (not color) — a pure color
+                // change (shuffle/repeat toggling active while the icon
+                // shape stays the same) animates smoothly via the
+                // TweenAnimationBuilder below instead of retriggering the
+                // fade/scale switch, which is reserved for genuine icon
+                // shape changes (repeat -> repeat-one).
+                child: TweenAnimationBuilder<Color?>(
+                  key: ValueKey(icon),
+                  tween: ColorTween(end: c),
+                  duration: const Duration(milliseconds: 260),
+                  curve: Curves.easeOutCubic,
+                  builder: (_, animatedColor, __) =>
+                      Icon(icon, size: size, color: animatedColor ?? c),
+                ),
+              ),
+              if (showActiveDot) ...[
+                const SizedBox(height: 4),
+                // A single quiet dot under the icon when active — the
+                // one detail carried over from Spotify's own shuffle/
+                // repeat treatment. Scales in with a slight overshoot
+                // rather than a flat fade, giving it a confident "settle"
+                // instead of just materializing. Still flat-filled, no
+                // glow — status mark, not decoration. AnimatedContainer's
+                // implicit size (via AnimatedScale wrapping a fixed-size
+                // dot) keeps row height constant either way, so
+                // neighboring buttons never shift.
+                AnimatedScale(
+                  scale: active ? 1.0 : 0.4,
+                  duration: const Duration(milliseconds: 260),
+                  curve: active ? Curves.easeOutBack : Curves.easeIn,
+                  child: AnimatedOpacity(
+                    opacity: active ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                    child: Container(
+                      width: 4,
+                      height: 4,
+                      decoration: const BoxDecoration(
+                        color: AurumTheme.gold,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
