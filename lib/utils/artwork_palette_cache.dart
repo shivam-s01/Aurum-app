@@ -38,6 +38,36 @@ class ArtworkPalette {
   });
 }
 
+/// Clamps a color's perceived luminance into a safe range for the given
+/// mode, so background colors derived from artwork can never end up too
+/// close to the fixed white/dark text color drawn on top of them.
+///
+/// Why this exists: raw extracted palette colors (vibrant/dominant/etc.)
+/// can legitimately be pale/light even for an album whose artwork mostly
+/// reads as "dark" to the eye — a bright accent swatch, a pastel poster
+/// background, a washed-out scan. Full Player's text color is fixed per
+/// theme mode (white in dark mode, near-black in light mode), NOT derived
+/// from the background — so an unclamped light color in dark mode (or an
+/// unclamped dark color in light mode) silently produces a background the
+/// fixed text can barely be read against. This has shown up as "the song
+/// title/artist/controls are basically invisible" on specific album arts.
+///
+/// [maxLuma]/[minLuma] bound WCAG relative luminance (0=black, 1=white).
+Color ensureContrastSafe(Color c, {required bool isLight}) {
+  final luma = c.computeLuminance();
+  if (isLight) {
+    // Light mode draws dark text — background must stay light enough.
+    const minLuma = 0.55;
+    if (luma >= minLuma) return c;
+    return Color.lerp(c, Colors.white, ((minLuma - luma) / (1 - luma)).clamp(0.0, 1.0))!;
+  } else {
+    // Dark mode draws white text — background must stay dark enough.
+    const maxLuma = 0.22;
+    if (luma <= maxLuma) return c;
+    return Color.lerp(c, Colors.black, ((luma - maxLuma) / luma).clamp(0.0, 1.0))!;
+  }
+}
+
 class ArtworkPaletteCache {
   ArtworkPaletteCache._();
 

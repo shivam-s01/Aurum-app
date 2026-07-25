@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/artwork_palette_cache.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
 import 'package:share_plus/share_plus.dart';
@@ -276,6 +277,37 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // _springBackDrag below drives _dragYNotifier directly during the
     // spring-back animation, which only rebuilds the thin drag-transform
     // wrapper (see _DragTransform), not this whole State's build().
+
+    // FIX ("cold start: play a song, open full player, artwork is black
+    // for a beat"): mini_player.dart's tap handler precaches the 220px
+    // hero decode BEFORE pushing the route, but that's only reachable
+    // when a mini player widget actually existed to be tapped. On a true
+    // cold start (app process was killed, user opens app and playback +
+    // full player come up together, e.g. via notification/deep link/auto-
+    // resume) there's no prior tap to hook — FullPlayerScreen is simply
+    // the first screen with this song's URL anywhere in the widget tree,
+    // so nothing has warmed the 220px memCacheWidth decode yet and
+    // AurumArtwork's own shimmer placeholder is genuinely the first thing
+    // that can show. Firing the same precache here, as the very first
+    // thing this screen's initState does, means the decode starts
+    // immediately alongside the 380ms entry transition instead of only
+    // starting once AurumArtwork itself builds a frame later. Deferred
+    // one frame via addPostFrameCallback because `context` isn't safe to
+    // read Provider from synchronously inside initState.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final url = context.read<PlayerProvider>().currentSong?.artworkUrl;
+      if (url != null &&
+          url.isNotEmpty &&
+          !url.startsWith('content://') &&
+          !url.startsWith('/') &&
+          !url.startsWith('file://')) {
+        precacheImage(
+          CachedNetworkImageProvider(url, maxWidth: 220),
+          context,
+        ).catchError((_) {});
+      }
+    });
   }
 
   @override
@@ -410,25 +442,37 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _currentBg4 = Color.lerp(_currentBg4, _targetBg4, t) ?? _currentBg4;
 
     if (isLight) {
-      _targetBg1 = Color.lerp(c1, Colors.white, 0.16)!;
-      _targetBg2 = Color.lerp(c2, Colors.white, 0.10)!;
-      _targetBg3 = Color.lerp(c3, Colors.white, 0.04)!;
-      _targetBg4 = Color.lerp(c4, Colors.white, 0.20)!;
+      _targetBg1 = ensureContrastSafe(Color.lerp(c1, Colors.white, 0.16)!, isLight: true);
+      _targetBg2 = ensureContrastSafe(Color.lerp(c2, Colors.white, 0.10)!, isLight: true);
+      _targetBg3 = ensureContrastSafe(Color.lerp(c3, Colors.white, 0.04)!, isLight: true);
+      _targetBg4 = ensureContrastSafe(Color.lerp(c4, Colors.white, 0.20)!, isLight: true);
     } else {
-      _targetBg1 = Color.lerp(c1, Colors.black, 0.22)!;
-      _targetBg2 = Color.lerp(c2, Colors.black, 0.48)!;
-      _targetBg3 = Color.lerp(c3, Colors.black, 0.70)!;
-      _targetBg4 = Color.lerp(c4, Colors.black, 0.30)!;
+      _targetBg1 = ensureContrastSafe(Color.lerp(c1, Colors.black, 0.22)!, isLight: false);
+      _targetBg2 = ensureContrastSafe(Color.lerp(c2, Colors.black, 0.48)!, isLight: false);
+      _targetBg3 = ensureContrastSafe(Color.lerp(c3, Colors.black, 0.70)!, isLight: false);
+      _targetBg4 = ensureContrastSafe(Color.lerp(c4, Colors.black, 0.30)!, isLight: false);
     }
 
     _bgColorCtrl.forward(from: 0.0);
   }
 
-  /// Opportunistically pre-decodes the next queued song's palette while
-  /// the current one is still playing, so by the time playback actually
-  /// reaches it the color morph is instant instead of waiting on a
-  /// cold decode. Cheap no-op if already cached/in-flight or if there's
-  /// no next song.
+  /// Opportunistically pre-decodes the next queued song's palette AND its
+  /// hero-resolution (220px) artwork bytes while the current one is still
+  /// playing, so by the time playback actually reaches it both the color
+  /// morph and the image itself are instant instead of waiting on a cold
+  /// decode. Cheap no-op if already cached/in-flight or if there's no next
+  /// song.
+  ///
+  /// FIX ("next song shows blank/black artwork for a beat after skip"):
+  /// this used to only warm the extracted palette (ArtworkPaletteCache),
+  /// never the actual image bytes at the 220px width the hero Hero widget
+  /// decodes at (see AurumArtwork._cacheSize — full player always requests
+  /// size: double.infinity → fixed 220px memCacheWidth). Palette warming
+  /// alone made the *background gradient* transition instantly on skip,
+  /// but the artwork image itself still had to cold-decode the moment
+  /// _triggerArtworkAnimation() ran, which is exactly the blank gap users
+  /// saw. Precaching the image at the same 220px width here means that
+  /// decode already happened by the time the skip lands.
   void _warmNextInQueue() {
     final player = context.read<PlayerProvider>();
     final queue = player.queue;
@@ -437,7 +481,32 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     final next = queue[idx + 1];
     if (next.artworkUrl.isNotEmpty) {
       ArtworkPaletteCache.warm(next.artworkUrl);
+      _precacheHeroArtwork(next.artworkUrl);
     }
+  }
+
+  /// Precaches artwork at the exact 220px width AurumArtwork's hero
+  /// instance decodes at (size: double.infinity → _cacheSize fixed 220),
+  /// so the image cache key matches and the full player's Hero paints
+  /// instantly instead of cold-decoding. Local file:// / content:// URIs
+  /// aren't run through CachedNetworkImage at all (they use their own
+  /// MethodChannel/File loaders), so this only applies to network URLs —
+  /// harmless no-op otherwise.
+  void _precacheHeroArtwork(String url) {
+    if (url.isEmpty ||
+        url.startsWith('content://') ||
+        url.startsWith('/') ||
+        url.startsWith('file://')) {
+      return;
+    }
+    if (!mounted) return;
+    precacheImage(
+      CachedNetworkImageProvider(url, maxWidth: 220),
+      context,
+    ).catchError((_) {
+      // Fine to ignore — AurumArtwork still handles the normal
+      // fetch/retry/placeholder path if this opportunistic warm fails.
+    });
   }
 
   void _triggerArtworkAnimation() {

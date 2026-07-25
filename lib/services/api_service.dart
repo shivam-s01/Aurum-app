@@ -2882,13 +2882,35 @@ class ApiService {
     String? foundId;
     try {
       final cleanTitle = _cleanTitleForLyricsSearch(title);
-      final results = await _searchSaavn('$cleanTitle $artist', limit: 5);
-      if (results.isNotEmpty) {
-        foundId = results.first.id;
-      } else {
-        final titleOnly = await _searchSaavn(cleanTitle, limit: 5);
-        if (titleOnly.isNotEmpty) foundId = titleOnly.first.id;
+      final primaryArtist = artist.split(RegExp(r'[,&/]')).first.trim();
+
+      // Score every candidate from both queries instead of trusting
+      // whichever query's first result came back — same rationale as
+      // _lrcLibMatchScore: a plain "first hit" here is exactly how a
+      // same-titled different song ends up attached to this track's lyrics.
+      Song? best;
+      double bestScore = 0.0;
+      void consider(List<Song> candidates) {
+        for (final s in candidates) {
+          final titleSim = _tokenSimilarity(cleanTitle, s.title);
+          if (titleSim < 0.42) continue;
+          final artistSim = _tokenSimilarity(primaryArtist, s.artist);
+          final score = (titleSim * 0.6) + (artistSim * 0.4);
+          if (score > bestScore) {
+            bestScore = score;
+            best = s;
+          }
+        }
       }
+
+      consider(await _searchSaavn('$cleanTitle $artist', limit: 5));
+      if (bestScore < 0.95) {
+        consider(await _searchSaavn(cleanTitle, limit: 5));
+      }
+
+      // Same confidence floor as LRCLIB matching: prefer no lyrics over
+      // wrong lyrics.
+      if (best != null && bestScore >= 0.48) foundId = best!.id;
     } catch (_) {}
     _saavnIdForLyricsCache[key] = foundId;
     return foundId;
@@ -3038,11 +3060,77 @@ class ApiService {
     return t.trim();
   }
 
-  /// Searches LRCLIB with several query variants in order, returning the
-  /// first hit. A single "title artist" query frequently misses because
-  /// LRCLIB's own title text is cleaner than what Saavn/YouTube give us —
-  /// trying a cleaned title, then title-only, meaningfully raises the hit
-  /// rate without needing any new external source.
+  /// Normalizes a string for fuzzy comparison: lowercase, strip punctuation,
+  /// collapse whitespace. Used only to *score* candidate matches — never to
+  /// alter what gets displayed or sent upstream.
+  static String _normalizeForMatch(String s) {
+    var t = s.toLowerCase();
+    t = t.replaceAll(RegExp(r"[^\p{L}\p{N}\s]", unicode: true), ' ');
+    t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return t;
+  }
+
+  /// Token-overlap similarity in [0,1]: fraction of the shorter string's
+  /// words that also appear in the longer string. Cheap, dependency-free,
+  /// and good enough to tell "same song" from "different song, same word
+  /// somewhere in the title" — which is all we need this for.
+  static double _tokenSimilarity(String a, String b) {
+    final ta = _normalizeForMatch(a).split(' ').where((w) => w.isNotEmpty).toSet();
+    final tb = _normalizeForMatch(b).split(' ').where((w) => w.isNotEmpty).toSet();
+    if (ta.isEmpty || tb.isEmpty) return 0.0;
+    final overlap = ta.intersection(tb).length;
+    final smaller = ta.length < tb.length ? ta.length : tb.length;
+    return overlap / smaller;
+  }
+
+  /// Scores an LRCLIB candidate against the song we're actually looking for.
+  /// Returns a 0..1 confidence that this candidate IS the requested track
+  /// (not a cover, not a different song that happens to share a word).
+  /// Duration is the strongest signal when present (covers/remixes almost
+  /// always differ by more than a couple seconds); title+artist token
+  /// overlap is the fallback signal when duration is unavailable or ties.
+  static double _lrcLibMatchScore(
+    Map<String, dynamic> entry,
+    String title,
+    String artist,
+    int? durationSeconds,
+  ) {
+    final entryTitle = (entry['trackName'] as String?) ?? '';
+    final entryArtist = (entry['artistName'] as String?) ?? '';
+    final titleSim = _tokenSimilarity(_cleanTitleForLyricsSearch(title), entryTitle);
+    final primaryArtist = artist.split(RegExp(r'[,&/]')).first.trim();
+    final artistSim = _tokenSimilarity(primaryArtist, entryArtist);
+
+    // Title must clear a floor on its own — a strong artist match can't
+    // rescue a completely different song title (this is what previously let
+    // wrong tracks slip through when duration was missing). Kept slightly
+    // below 0.5 to tolerate Hindi/regional title spelling drift between
+    // Saavn/YouTube's romanization and LRCLIB's own indexing (e.g. one extra
+    // or missing word from a subtitle) without opening the door to
+    // genuinely unrelated songs.
+    if (titleSim < 0.42) return 0.0;
+
+    double score = (titleSim * 0.6) + (artistSim * 0.4);
+
+    final d = entry['duration'];
+    if (durationSeconds != null && d is num) {
+      final diff = (d.toInt() - durationSeconds).abs();
+      if (diff <= 3) {
+        score += 0.3; // near-exact duration match: strong extra confidence
+      } else if (diff > 15) {
+        score -= 0.4; // likely a different edit/cover entirely
+      }
+    }
+    return score.clamp(0.0, 1.0);
+  }
+
+  /// Searches LRCLIB with several query variants, scoring every candidate
+  /// from every query against the requested title/artist/duration and
+  /// returning the single best match overall — instead of trusting whichever
+  /// query happened to return a hit first. This is what prevents a cover or
+  /// same-titled different song from being served for the original, while
+  /// still trying enough query variants to maximize how many songs get a
+  /// hit at all.
   static Future<Map<String, dynamic>?> _searchLrcLib(
     String title,
     String artist, {
@@ -3053,13 +3141,38 @@ class ApiService {
     // Composer" while LRCLIB indexes under just the lead artist, so a
     // multi-name query can miss even when the track exists.
     final primaryArtist = artist.split(RegExp(r'[,&/]')).first.trim();
+
+    // Strips ANY parenthetical/bracketed content (not just the specific
+    // patterns _cleanTitleForLyricsSearch targets) — helps titles like
+    // "Kesariya (From 'Brahmastra')" or "Tum Hi Ho (Unplugged)" find the
+    // bare-title entry LRCLIB actually indexes under.
+    final bareTitle = cleanTitle
+        .replaceAll(RegExp(r'[\(\[].*?[\)\]]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    // Drops a trailing "feat./ft. X" from the title itself (as opposed to
+    // the artist field) — some Saavn/YouTube titles embed the featured
+    // artist directly in the title string.
+    final noFeatTitle = cleanTitle
+        .replaceAll(RegExp(r'\b(feat\.?|ft\.?)\s+.*$', caseSensitive: false), '')
+        .trim();
+
     final queries = <String>{
       '$cleanTitle $artist',
       if (primaryArtist != artist && primaryArtist.isNotEmpty) '$cleanTitle $primaryArtist',
       if (cleanTitle != title) '$title $artist',
       cleanTitle,
       if (primaryArtist.isNotEmpty) '$primaryArtist $cleanTitle',
+      if (bareTitle.isNotEmpty && bareTitle != cleanTitle) '$bareTitle $primaryArtist',
+      if (bareTitle.isNotEmpty && bareTitle != cleanTitle) bareTitle,
+      if (noFeatTitle.isNotEmpty && noFeatTitle != cleanTitle) '$noFeatTitle $primaryArtist',
+      // Title-only as an absolute last resort — widest net, relies entirely
+      // on the scoring floor above to reject a wrong song.
+      if (bareTitle.isNotEmpty) bareTitle,
     }.where((q) => q.trim().isNotEmpty).toList();
+
+    Map<String, dynamic>? bestEntry;
+    double bestScore = 0.0;
 
     for (final q in queries) {
       try {
@@ -3070,21 +3183,32 @@ class ApiService {
         final data = jsonDecode(res.body);
         if (data is! List || data.isEmpty) continue;
 
-        // Prefer a duration-matched result (within 3s) to avoid covers/
-        // remixes with the same title; otherwise take the first hit.
-        if (durationSeconds != null) {
-          for (final entry in data) {
-            final e = entry as Map<String, dynamic>;
-            final d = e['duration'];
-            if (d is num && (d.toInt() - durationSeconds).abs() <= 3) return e;
+        // Only check the first several candidates per query — LRCLIB ranks
+        // its own results, and going deeper mostly just risks scoring
+        // unrelated tracks that happen to share a common word.
+        for (final entry in data.take(8)) {
+          if (entry is! Map<String, dynamic>) continue;
+          final score = _lrcLibMatchScore(entry, title, artist, durationSeconds);
+          if (score > bestScore) {
+            bestScore = score;
+            bestEntry = entry;
           }
         }
-        final first = data.first;
-        if (first is Map<String, dynamic>) return first;
+
+        // A near-certain duration+title+artist match — no point trying
+        // further query variants.
+        if (bestScore >= 0.95) break;
       } catch (_) {
         continue;
       }
     }
+
+    // Confidence floor: below this, we'd rather report "no lyrics found"
+    // than risk showing the wrong song's lyrics. 0.48 still requires either
+    // a strong title match (title alone contributes up to 0.6) or a decent
+    // title+artist combination — a single shared word can't clear it, but
+    // genuine Hindi/regional title spelling drift now can.
+    if (bestEntry != null && bestScore >= 0.48) return bestEntry;
     return null;
   }
 

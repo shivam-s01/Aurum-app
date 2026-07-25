@@ -2,12 +2,14 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_artwork.dart';
 import 'aurum_pressable.dart';
 import '../screens/full_player_screen.dart';
+import '../main.dart' show aurumRouteObserver;
 
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
@@ -16,9 +18,76 @@ class MiniPlayer extends StatefulWidget {
   State<MiniPlayer> createState() => _MiniPlayerState();
 }
 
-class _MiniPlayerState extends State<MiniPlayer> {
+class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
   double _dragY = 0;
   bool _dragging = false;
+
+  // FIX ("back navigation feels stuck/slow/janky on EVERY screen"): the
+  // mini player sits as a persistent overlay on every screen (home,
+  // library, search, settings, ...) and renders its background via
+  // BackdropFilter(ImageFilter.blur(sigmaX: 14, sigmaY: 14)). A
+  // BackdropFilter has to re-sample and re-blur everything behind it on
+  // EVERY frame it's asked to paint — it can't cache the blurred result,
+  // because the content behind it can change. That's normally fine when
+  // the screen is static. But during ANY push/pop transition, the whole
+  // screen behind the mini player is sliding/fading every frame, which
+  // means the expensive 14px-radius blur is being fully recomputed on
+  // every single frame of the transition too — competing with the actual
+  // transition animation for GPU time. That contention is exactly what
+  // reads as "slow/awkward/stuck," and because the mini player is on
+  // every screen, it happens on every back navigation, not just one
+  // screen.
+  //
+  // MiniPlayer lives inside MainShell's bottomNavigationBar — MainShell
+  // itself never transitions when e.g. Settings is pushed on top of it,
+  // so ModalRoute.of(context) from inside MiniPlayer would always report
+  // MainShell's own (never-animating) route, not whatever screen is
+  // actually being pushed/popped. Subscribing to the app-wide
+  // aurumRouteObserver instead (same pattern FullPlayerScreen already
+  // uses for its own didPushNext/didPopNext) correctly reports ANY route
+  // change above MainShell.
+  bool _routeAnimating = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      aurumRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void dispose() {
+    aurumRouteObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  // A new route (Settings, Full Player, etc.) was just pushed on top of
+  // MainShell — its push transition is about to animate, so drop to the
+  // cheap tint immediately.
+  @override
+  void didPushNext() {
+    if (mounted) setState(() => _routeAnimating = true);
+    // Every close/open transition in this app uses AurumMotion.long1
+    // (350ms) per aurum_transitions.dart. A short buffer (60ms) absorbs
+    // minor scheduling jitter so this never restores the real blur a
+    // frame or two before the transition has actually finished painting.
+    Future.delayed(const Duration(milliseconds: 410), () {
+      if (mounted) setState(() => _routeAnimating = false);
+    });
+  }
+
+  // A route above MainShell was just popped (user backed out of
+  // Settings/Full Player/etc.) — the reverse transition is about to
+  // animate too.
+  @override
+  void didPopNext() {
+    if (mounted) setState(() => _routeAnimating = true);
+    Future.delayed(const Duration(milliseconds: 410), () {
+      if (mounted) setState(() => _routeAnimating = false);
+    });
+  }
 
   static const double _dismissThreshold = 64.0;
   static const double _openThreshold = -60.0;
@@ -78,6 +147,38 @@ class _MiniPlayerState extends State<MiniPlayer> {
     _opening = true;
     HapticFeedback.lightImpact();
 
+    // FIX ("artwork pops in after full player is already open"): the mini
+    // player's own AurumArtwork decodes at a small size (44-108px
+    // memCacheWidth), but the full player's hero artwork passes
+    // size: double.infinity, which AurumArtwork._cacheSize maps to a fixed
+    // 220px decode. That's a DIFFERENT memCacheWidth than the mini
+    // player's — Flutter's image cache keys on (url, cacheWidth), so even
+    // though the bytes are already on disk, the 220px-wide decode has
+    // never happened yet and only starts once FullPlayerScreen actually
+    // builds. That decode (plus a network round-trip if disk cache also
+    // misses) is what shows up as the shimmer-then-pop-in during/after the
+    // slide-up transition.
+    // Kicking off that exact same 220px precache HERE, before the route
+    // push, means the decode races the 380ms slide transition instead of
+    // the user's patience — by the time the screen is visible the image
+    // is already sitting in the in-memory cache and paints on the very
+    // first frame.
+    final artworkUrl = context.read<PlayerProvider>().currentSong?.artworkUrl;
+    if (artworkUrl != null &&
+        artworkUrl.isNotEmpty &&
+        !artworkUrl.startsWith('content://') &&
+        !artworkUrl.startsWith('/') &&
+        !artworkUrl.startsWith('file://')) {
+      precacheImage(
+        CachedNetworkImageProvider(artworkUrl, maxWidth: 220),
+        context,
+      ).catchError((_) {
+        // Fine to ignore — FullPlayerScreen's own AurumArtwork still
+        // handles the fetch/retry/placeholder path normally if this
+        // opportunistic precache fails for any reason.
+      });
+    }
+
     // DEBUG (diagnosing "2-3s stuck before full player opens"): timestamps
     // the whole open sequence so we can see exactly where the delay is —
     // between tap and route push starting, or between the route starting
@@ -126,7 +227,6 @@ class _MiniPlayerState extends State<MiniPlayer> {
           return const SizedBox.shrink();
         }
 
-        final song = player.currentSong!;
         final frac = (_dragY.abs() / 160.0).clamp(0.0, 1.0);
         final opacity = _dragging ? (1.0 - frac * 0.6).clamp(0.0, 1.0) : 1.0;
         final translateY = _dragging ? _dragY.clamp(-60.0, 200.0) : 0.0;
@@ -143,104 +243,147 @@ class _MiniPlayerState extends State<MiniPlayer> {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(28),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                    child: Container(
-                      height: 68,
-                      decoration: BoxDecoration(
-                        color: (Theme.of(context).brightness == Brightness.dark
-                                ? Colors.black
-                                : Colors.white)
-                            .withValues(
-                          alpha: Theme.of(context).brightness == Brightness.dark
-                              ? 0.42
-                              : 0.62,
-                        ),
-                        borderRadius: BorderRadius.circular(28),
-                        border: Border.all(
-                          color: (Theme.of(context).brightness == Brightness.dark
-                                  ? Colors.white
-                                  : Colors.black)
-                              .withValues(alpha: 0.08),
-                          width: 1,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          _MiniProgressBar(player: player),
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                              child: Row(
-                                children: [
-                                  AurumArtwork(
-                                    url: song.artworkUrl,
-                                    size: 44,
-                                    borderRadius: 10,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          song.title,
-                                          style: TextStyle(
-                                            color: AurumTheme.textPrimaryOf(context),
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          song.artist,
-                                          style: TextStyle(
-                                            color: AurumTheme.textSecondaryOf(context),
-                                            fontSize: 11,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  _ControlBtn(
-                                    icon: Icons.skip_previous_rounded,
-                                    onTap: () {
-                                      HapticFeedback.selectionClick();
-                                      player.skipPrev();
-                                    },
-                                    size: 22,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  _PlayBtn(player: player),
-                                  const SizedBox(width: 4),
-                                  _ControlBtn(
-                                    icon: Icons.skip_next_rounded,
-                                    onTap: () {
-                                      HapticFeedback.selectionClick();
-                                      player.skipNext();
-                                    },
-                                    size: 22,
-                                  ),
-                                ],
-                              ),
+                  child: _routeAnimating
+                      ? Container(
+                          height: 68,
+                          decoration: BoxDecoration(
+                            // Same visual color as the blurred version,
+                            // just without the per-frame blur recompute —
+                            // close enough over ~380ms that the eye can't
+                            // tell the difference mid-transition, and it's
+                            // gone the instant the transition settles.
+                            color: (Theme.of(context).brightness ==
+                                        Brightness.dark
+                                    ? Colors.black
+                                    : Colors.white)
+                                .withValues(
+                              alpha: Theme.of(context).brightness ==
+                                      Brightness.dark
+                                  ? 0.62
+                                  : 0.82,
+                            ),
+                            borderRadius: BorderRadius.circular(28),
+                            border: Border.all(
+                              color: (Theme.of(context).brightness ==
+                                          Brightness.dark
+                                      ? Colors.white
+                                      : Colors.black)
+                                  .withValues(alpha: 0.08),
+                              width: 1,
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
+                          child: _miniPlayerContent(context, player),
+                        )
+                      : BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                          child: Container(
+                            height: 68,
+                            decoration: BoxDecoration(
+                              color: (Theme.of(context).brightness ==
+                                          Brightness.dark
+                                      ? Colors.black
+                                      : Colors.white)
+                                  .withValues(
+                                alpha: Theme.of(context).brightness ==
+                                        Brightness.dark
+                                    ? 0.42
+                                    : 0.62,
+                              ),
+                              borderRadius: BorderRadius.circular(28),
+                              border: Border.all(
+                                color: (Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.white
+                                        : Colors.black)
+                                    .withValues(alpha: 0.08),
+                                width: 1,
+                              ),
+                            ),
+                            child: _miniPlayerContent(context, player),
+                          ),
+                        ),
                 ),
               ),
             ),
           ),
         );
       },
+    );
+  }
+
+  /// The mini player's actual row content (progress bar, artwork, title/
+  /// artist, transport controls) — shared between the normal BackdropFilter
+  /// path and the cheap-tint fallback used while a route transition is in
+  /// flight (see _routeAnimating above).
+  Widget _miniPlayerContent(BuildContext context, PlayerProvider player) {
+    final song = player.currentSong!;
+    return Column(
+      children: [
+        _MiniProgressBar(player: player),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                AurumArtwork(
+                  url: song.artworkUrl,
+                  size: 44,
+                  borderRadius: 10,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        song.title,
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        song.artist,
+                        style: TextStyle(
+                          color: AurumTheme.textSecondaryOf(context),
+                          fontSize: 11,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _ControlBtn(
+                  icon: Icons.skip_previous_rounded,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    player.skipPrev();
+                  },
+                  size: 22,
+                ),
+                const SizedBox(width: 4),
+                _PlayBtn(player: player),
+                const SizedBox(width: 4),
+                _ControlBtn(
+                  icon: Icons.skip_next_rounded,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    player.skipNext();
+                  },
+                  size: 22,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
