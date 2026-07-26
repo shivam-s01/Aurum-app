@@ -59,6 +59,15 @@ class PlaybackErrorEvent {
 
 class NativeAudioEngine {
   static const MethodChannel _method = MethodChannel('com.aurum.music/audio_engine');
+  // showCastPicker specifically needs MainActivity's own MethodChannel
+  // (not the audio_engine one above) because launching
+  // MediaRouteChooserDialog requires an actual Activity Context —
+  // AurumEngineChannelHandler (which owns the audio_engine channel) only
+  // has applicationContext, which can't host a dialog. MainActivity
+  // already registers "showCastPicker" on this channel (see
+  // MainActivity.kt's media_store MethodChannel handler) since it's the
+  // one place in this app with a live Activity reference.
+  static const MethodChannel _mediaStoreMethod = MethodChannel('com.aurum.music/media_store');
   static const EventChannel _stateEvents = EventChannel('com.aurum.music/audio_engine_state');
   static const EventChannel _errorEvents = EventChannel('com.aurum.music/audio_engine_errors');
   static const EventChannel _outputDeviceEvents =
@@ -414,7 +423,7 @@ class NativeAudioEngine {
   /// treat this the same as an unsupported-feature case, not an error to
   /// retry.
   Future<bool> showCastPicker() async {
-    final ok = await _method.invokeMethod('showCastPicker');
+    final ok = await _mediaStoreMethod.invokeMethod('showCastPicker');
     return ok as bool? ?? false;
   }
 
