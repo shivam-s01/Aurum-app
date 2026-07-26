@@ -36,8 +36,8 @@ class AurumCastOptionsProvider : OptionsProvider {
             // there — enough control without cluttering it.
             .setActions(
                 listOf(
-                    com.google.android.gms.cast.MediaIntentReceiver.ACTION_TOGGLE_PLAYBACK,
-                    com.google.android.gms.cast.MediaIntentReceiver.ACTION_SKIP_NEXT,
+                    com.google.android.gms.cast.framework.media.MediaIntentReceiver.ACTION_TOGGLE_PLAYBACK,
+                    com.google.android.gms.cast.framework.media.MediaIntentReceiver.ACTION_SKIP_NEXT,
                 ),
                 intArrayOf(0, 1),
             )
