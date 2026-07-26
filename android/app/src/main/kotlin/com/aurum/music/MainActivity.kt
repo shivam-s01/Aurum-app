@@ -143,7 +143,25 @@ class MainActivity : FlutterFragmentActivity() {
                             val castContext = CastContext.getSharedInstance(this)
                             val mergedSelector = castContext.mergedSelector
                             if (mergedSelector != null) {
-                                MediaRouteChooserDialog(this).apply {
+                                // MediaRouteChooserDialog is an AndroidX
+                                // support-library dialog that requires an
+                                // AppCompat-derived theme to inflate its
+                                // internal views correctly. MainActivity's
+                                // own theme (LaunchTheme, in styles.xml)
+                                // extends the plain platform
+                                // Theme.Black.NoTitleBar, NOT any
+                                // Theme.AppCompat.* variant — so passing
+                                // `this` directly here caused the dialog to
+                                // fail to inflate/show with no visible error
+                                // (tap did nothing). Wrapping just this one
+                                // dialog's context in an AppCompat theme
+                                // fixes that without touching the app's
+                                // actual theme anywhere else.
+                                val dialogContext = androidx.appcompat.view.ContextThemeWrapper(
+                                    this,
+                                    androidx.appcompat.R.style.Theme_AppCompat_DayNight_Dialog,
+                                )
+                                MediaRouteChooserDialog(dialogContext).apply {
                                     routeSelector = mergedSelector
                                 }.show()
                                 result.success(true)

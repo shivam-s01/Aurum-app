@@ -230,6 +230,12 @@ dependencies {
     // NewPipeExtractor forcing above).
     implementation "androidx.mediarouter:mediarouter:1.7.0"
 
+    // Needed only to theme MediaRouteChooserDialog correctly (see
+    // MainActivity's showCastPicker handler) — the app's own base theme
+    // isn't AppCompat-derived, so we wrap just that dialog's context in
+    // Theme.AppCompat.DayNight.Dialog to make it inflate/show properly.
+    implementation "androidx.appcompat:appcompat:1.7.0"
+
     // media3-cast: bridges ExoPlayer's Player interface to
     // RemoteMediaClient via CastPlayer, so AurumAudioEngine's existing
     // Player-based state/listener plumbing (position, duration,
