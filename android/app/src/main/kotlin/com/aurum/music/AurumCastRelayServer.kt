@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * bytes straight through. From the CDN's perspective, the request looks
  * identical to the one that already works for local playback, because
  * it IS that same request, just relayed. From the receiver's
- * perspective, it's a plain HTTP GET with a normal audio/* response —
+ * perspective, it's a plain HTTP GET with a normal audio response —
  * no special headers required on its end at all.
  *
  * This is the same "local relay" pattern used by Kodi, VLC, and other
