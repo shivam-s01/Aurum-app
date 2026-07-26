@@ -1168,12 +1168,35 @@ class _TopBar extends StatelessWidget {
             ]),
           ),
         ),
-        _IconBtn(
-          icon: Icons.speaker_group_rounded,
-          size: 21,
-          color: iconColor,
-          onTap: () => showAudioOutputSheet(context),
-          semanticLabel: l10n.audioOutputPickerTitle,
+        // Cast + output-device controls grouped into one quiet pill —
+        // same background/border treatment as the "Now Playing" pill
+        // above, so it reads as one deliberate, cohesive control cluster
+        // rather than two loose icons floating next to "more options".
+        // Spacing-only grouping (no divider line): CastIconButton can
+        // collapse to zero width when no Cast device is on the network,
+        // and a divider would look broken sitting next to nothing in
+        // that case — clean spacing holds up either way.
+        Container(
+          margin: const EdgeInsets.only(right: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          decoration: BoxDecoration(
+            color: pillBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: pillBorder, width: 0.5),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CastIconButton(size: 18, color: iconColor),
+              _IconBtn(
+                icon: Icons.speaker_group_rounded,
+                size: 19,
+                color: iconColor,
+                onTap: () => showAudioOutputSheet(context),
+                semanticLabel: l10n.audioOutputPickerTitle,
+              ),
+            ],
+          ),
         ),
         _IconBtn(
           icon: Icons.more_vert_rounded,
@@ -1477,7 +1500,6 @@ class _SongInfo extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 20),
-          CastIconButton(size: 19, color: Colors.white.withAlpha(128)),
           _FavButton(isFav: isFav, onTap: onFavTap),
         ],
       ),

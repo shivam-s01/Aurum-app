@@ -65,20 +65,47 @@ class AurumAudioOutputManager(
 
     /** Current output-capable devices (speaker, wired headset/headphones,
      *  Bluetooth A2DP/SCO, USB), each as a simple id/name/type map so Dart
-     *  doesn't need to know about AudioDeviceInfo at all. */
+     *  doesn't need to know about AudioDeviceInfo at all.
+     *
+     *  DEDUPE: Android reports the same physical Bluetooth headphones as
+     *  TWO separate AudioDeviceInfo entries — one TYPE_BLUETOOTH_A2DP
+     *  (the actual media/music route) and one TYPE_BLUETOOTH_SCO (the
+     *  voice-call route), both with the identical product name. Without
+     *  deduping, one paired Bluetooth device shows up twice in the
+     *  picker with the same name — confusing, and not what any other
+     *  music app's output picker does. A2DP is kept over SCO when both
+     *  exist for the same name, since A2DP is what music actually plays
+     *  through. */
     fun describeDevices(): List<Map<String, Any?>> {
         val infos = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
         val currentId = currentDeviceId()
-        return infos
-            .filter { isRelevantOutput(it.type) }
-            .map { info ->
-                mapOf(
-                    "id" to info.id,
-                    "name" to deviceLabel(info),
-                    "type" to deviceTypeName(info.type),
-                    "selected" to (info.id == currentId),
-                )
+        val relevant = infos.filter { isRelevantOutput(it.type) }
+
+        val byNameAndKind = LinkedHashMap<String, AudioDeviceInfo>()
+        for (info in relevant) {
+            val dedupeKey = "${deviceLabel(info)}|${deviceTypeName(info.type)}"
+            val existing = byNameAndKind[dedupeKey]
+            if (existing == null) {
+                byNameAndKind[dedupeKey] = info
+            } else if (existing.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO &&
+                info.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP) {
+                // Prefer the A2DP entry if we'd previously stored the SCO
+                // one for this same device name — keeps whichever one is
+                // actually selected/current if either matches, otherwise
+                // arbitrary preference doesn't matter since they're the
+                // same physical device to the user.
+                byNameAndKind[dedupeKey] = info
             }
+        }
+
+        return byNameAndKind.values.map { info ->
+            mapOf(
+                "id" to info.id,
+                "name" to deviceLabel(info),
+                "type" to deviceTypeName(info.type),
+                "selected" to (info.id == currentId),
+            )
+        }
     }
 
     /** Explicitly route playback to [deviceId] (from [describeDevices]).
