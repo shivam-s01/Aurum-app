@@ -17,7 +17,19 @@ pluginManagement {
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
     id "com.android.application" version "8.9.1" apply false
-    id "org.jetbrains.kotlin.android" version "2.1.0" apply false
+    // FIX (2026-07-27): was "2.1.0". Kotlin's own compatibility table
+    // (kotlinlang.org/docs/gradle-configure-project.html) states Kotlin
+    // 2.1.0–2.1.10 is only fully supported up to Gradle 8.10 — this
+    // project's gradle-wrapper.properties pins Gradle 8.11.1, one minor
+    // version past that supported range. That specific mismatch is what
+    // was sending Gradle's internal kotlin-dsl resolution hunting for
+    // kotlin-gradle-plugin:1.9.20 and gradle-kotlin-dsl-plugins:5.1.1 —
+    // the exact two resolutions failing in the build log — instead of
+    // using 2.1.0 directly. 1.9.24 is Gradle 8.11's own embedded Kotlin
+    // stdlib version (per Gradle's Kotlin DSL docs: "kotlin-dsl targets
+    // the Kotlin embedded version of your current distribution"), so
+    // there's no version gap for Gradle to try to bridge.
+    id "org.jetbrains.kotlin.android" version "1.9.24" apply false
 }
 
 include ":app"
