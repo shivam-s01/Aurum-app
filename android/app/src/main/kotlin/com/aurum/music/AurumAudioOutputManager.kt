@@ -37,6 +37,7 @@ class AurumAudioOutputManager(
     var onDevicesChanged: (() -> Unit)? = null
 
     private var forcedSpeaker = false
+    private var selectedDeviceId: Int? = null
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
@@ -90,6 +91,7 @@ class AurumAudioOutputManager(
         forcedSpeaker = false
         return try {
             player.setPreferredAudioDevice(target)
+            selectedDeviceId = target.id
             true
         } catch (e: Exception) {
             false
@@ -103,11 +105,13 @@ class AurumAudioOutputManager(
         if (!supportsExplicitRouting()) return
         if (!force) {
             player.setPreferredAudioDevice(null)
+            selectedDeviceId = null
             return
         }
         val speaker = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
         player.setPreferredAudioDevice(speaker)
+        selectedDeviceId = speaker?.id
     }
 
     fun release() {
@@ -119,8 +123,11 @@ class AurumAudioOutputManager(
         onDevicesChanged = null
     }
 
-    private fun currentDeviceId(): Int? =
-        player.audioDeviceInfo?.id
+    // Media3 1.4.1's Player interface has no getter to read back the
+    // currently-active output device (that landed in a later media3
+    // version), so we track our own last-explicitly-selected device
+    // instead of querying the player for it.
+    private fun currentDeviceId(): Int? = selectedDeviceId
 
     private fun isRelevantOutput(type: Int): Boolean = when (type) {
         AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
