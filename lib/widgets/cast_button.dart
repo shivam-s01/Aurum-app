@@ -12,6 +12,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
 import '../services/native_engine_bridge.dart';
+import '../services/audio_prefs.dart';
 
 /// Compact cast icon button for the full player's top bar. Renders
 /// nothing (zero width) if Cast isn't supported on this device, and
@@ -49,44 +50,62 @@ class CastIconButton extends StatelessWidget {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final c = color ?? (isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(200));
 
-    return StreamBuilder<CastState>(
-      stream: engine.castStateStream,
-      initialData: engine.castState,
-      builder: (context, snapshot) {
-        final state = snapshot.data ?? const CastState();
-        if (!state.supported || state.status == CastConnectionStatus.unavailable) {
-          return const SizedBox.shrink();
-        }
-        final connected = state.isConnected;
-        final connecting = state.isConnecting;
+    return ValueListenableBuilder<String>(
+      valueListenable: AudioPrefs.castIconVisibilityNotifier,
+      builder: (context, visibility, _) {
+        if (visibility == 'hidden') return const SizedBox.shrink();
 
-        return Semantics(
-          label: connected
-              ? AppLocalizations.of(context)!
-                  .castingToDevice(state.deviceName ?? AppLocalizations.of(context)!.castDeviceFallbackName)
-              : AppLocalizations.of(context)!.castToDeviceLabel,
-          button: true,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: () => _onTap(context, state),
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: connecting
-                  ? SizedBox(
-                      width: size,
-                      height: size,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AurumTheme.gold,
-                      ),
-                    )
-                  : Icon(
-                      connected ? Icons.cast_connected_rounded : Icons.cast_rounded,
-                      size: size,
-                      color: connected ? AurumTheme.gold : c,
-                    ),
-            ),
-          ),
+        return StreamBuilder<CastState>(
+          stream: engine.castStateStream,
+          initialData: engine.castState,
+          builder: (context, snapshot) {
+            final state = snapshot.data ?? const CastState();
+            // 'always': show once the Cast SDK itself is supported on this
+            // device, regardless of whether a device is currently detected
+            // on the network — matches what the setting promises ("always
+            // visible"). Still hidden if the Cast SDK genuinely can't run
+            // here (broken/missing Google Play Services), since there's
+            // nothing a tap could do in that case.
+            // 'auto' (default): only show once a device is actually
+            // reachable, same as Spotify/YT Music.
+            final shouldShow = visibility == 'always'
+                ? state.supported
+                : (state.supported && state.status != CastConnectionStatus.unavailable);
+            if (!shouldShow) {
+              return const SizedBox.shrink();
+            }
+            final connected = state.isConnected;
+            final connecting = state.isConnecting;
+
+            return Semantics(
+              label: connected
+                  ? AppLocalizations.of(context)!
+                      .castingToDevice(state.deviceName ?? AppLocalizations.of(context)!.castDeviceFallbackName)
+                  : AppLocalizations.of(context)!.castToDeviceLabel,
+              button: true,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () => _onTap(context, state),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: connecting
+                      ? SizedBox(
+                          width: size,
+                          height: size,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AurumTheme.gold,
+                          ),
+                        )
+                      : Icon(
+                          connected ? Icons.cast_connected_rounded : Icons.cast_rounded,
+                          size: size,
+                          color: connected ? AurumTheme.gold : c,
+                        ),
+                ),
+              ),
+            );
+          },
         );
       },
     );

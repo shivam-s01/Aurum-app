@@ -104,6 +104,19 @@ class AudioPrefs {
   static final ValueNotifier<bool> showLyricsOnPlayerNotifier =
       ValueNotifier<bool>(true);
 
+  /// Controls when the Chromecast icon shows on the full player:
+  ///  - 'auto'   (default) — icon only appears once a Cast device is
+  ///    actually detected on the network, same as Spotify/YT Music.
+  ///  - 'always' — icon always shows (even with no device detected yet),
+  ///    for users who'd rather see it's there and know casting exists,
+  ///    at the cost of a tap sometimes finding "no devices" if none are
+  ///    on the network at that moment.
+  ///  - 'hidden' — icon never shows, for users who don't use casting and
+  ///    want one less icon in the top bar.
+  /// Set from Settings → Player & Audio → "Show Chromecast icon".
+  static final ValueNotifier<String> castIconVisibilityNotifier =
+      ValueNotifier<String>('auto');
+
   /// If true, swiping left/right on the full player artwork
   /// skips to the next/previous track. Set from Settings → Player & Audio.
   static final ValueNotifier<bool> swipeToChangeNotifier =
@@ -199,6 +212,7 @@ class AudioPrefs {
   static const _kShowMediaNotif   = 'show_media_notif';
   static const _kShowArtworkNotif = 'show_artwork_notif';
   static const _kGapless          = 'gapless';
+  static const _kCastIconVisibility = 'cast_icon_visibility';
 
   /// Restore all values from disk. Call once at startup (from the audio
   /// handler's _init()).
@@ -235,6 +249,8 @@ class AudioPrefs {
     showMediaNotif      = p.getBool(_kShowMediaNotif) ?? showMediaNotif;
     showArtworkNotif    = p.getBool(_kShowArtworkNotif) ?? showArtworkNotif;
     gapless             = p.getBool(_kGapless) ?? gapless;
+    castIconVisibilityNotifier.value =
+        p.getString(_kCastIconVisibility) ?? castIconVisibilityNotifier.value;
   }
 
   static Future<void> setStreamQuality(String v) async {
@@ -301,6 +317,12 @@ class AudioPrefs {
     showLyricsOnPlayerNotifier.value = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kShowLyricsOnPlayer, v);
+  }
+
+  static Future<void> setCastIconVisibility(String v) async {
+    castIconVisibilityNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_kCastIconVisibility, v);
   }
 
   static Future<void> setSwipeToChange(bool v) async {

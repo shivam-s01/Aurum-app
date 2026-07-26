@@ -86,6 +86,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   String _streamQuality = 'Auto';
   bool _dataSaver = false;
   bool _gapless = true;
+  String _castIconVisibility = 'auto';
   double _playbackSpeed = 1.0;
   bool _keepQueue = true;
   bool _stopOnSwipe = false;
@@ -149,6 +150,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
           : savedQuality;
       _dataSaver           = p.getBool('data_saver') ?? false;
       _gapless             = p.getBool('gapless') ?? true;
+      _castIconVisibility  = p.getString('cast_icon_visibility') ?? 'auto';
       _playbackSpeed       = p.getDouble('playback_speed') ?? 1.0;
       _keepQueue           = p.getBool('keep_queue') ?? true;
       _stopOnSwipe         = p.getBool('stop_on_swipe') ?? false;
@@ -472,6 +474,24 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                 setState(() => _gapless = v);
                 _save('gapless', v);
                 AudioPrefs.gapless = v;
+              }),
+          _dropdownTile(context,
+              icon: Icons.cast_rounded,
+              title: l10n.spShowCastIcon,
+              subtitle: l10n.spShowCastIconSubtitle,
+              value: _castIconVisibilityLabel(l10n, _castIconVisibility),
+              options: [
+                _castIconVisibilityLabel(l10n, 'auto'),
+                _castIconVisibilityLabel(l10n, 'always'),
+                _castIconVisibilityLabel(l10n, 'hidden'),
+              ],
+              onChanged: (label) {
+                if (label == null) return;
+                final key = _castIconVisibilityKeyFromLabel(l10n, label);
+                HapticFeedback.selectionClick();
+                setState(() => _castIconVisibility = key);
+                _save('cast_icon_visibility', key);
+                AudioPrefs.setCastIconVisibility(key);
               }),
 
           // Playback Speed
@@ -1211,6 +1231,28 @@ Widget _switchTile(BuildContext context,
         trailing: Switch(value: value, onChanged: onChanged, activeColor: AurumTheme.gold),
       ),
     );
+
+/// Maps the stored preference key ('auto'/'always'/'hidden') to its
+/// localized display label for the dropdown, and back — AudioPrefs and
+/// SharedPreferences always store the stable English key regardless of
+/// display language, same as _streamQuality's 'Auto'/'High' keys elsewhere
+/// in this file.
+String _castIconVisibilityLabel(AppLocalizations l10n, String key) {
+  switch (key) {
+    case 'always':
+      return l10n.spCastIconAlways;
+    case 'hidden':
+      return l10n.spCastIconHidden;
+    default:
+      return l10n.spCastIconAuto;
+  }
+}
+
+String _castIconVisibilityKeyFromLabel(AppLocalizations l10n, String label) {
+  if (label == l10n.spCastIconAlways) return 'always';
+  if (label == l10n.spCastIconHidden) return 'hidden';
+  return 'auto';
+}
 
 Widget _dropdownTile(BuildContext context,
     {required IconData icon,
