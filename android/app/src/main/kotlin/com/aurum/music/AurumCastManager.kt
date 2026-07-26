@@ -1,6 +1,7 @@
 package com.aurum.music
 
 import android.content.Context
+import androidx.mediarouter.media.MediaRouter
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.common.MediaItem
@@ -140,11 +141,29 @@ class AurumCastManager(
         }
     }
 
+    // CastContext.castState stays stuck at NO_DEVICES_AVAILABLE (which
+    // the Dart side reads as "hide the button") until something actually
+    // asks MediaRouter to scan — the Cast SDK does NOT start route
+    // discovery on its own just because CastContext exists. Every other
+    // Cast app (YouTube, Spotify) keeps an active MediaRouter callback
+    // registered for exactly this reason. We register an empty one here,
+    // scoped to the same mergedSelector the picker dialog uses, purely to
+    // force ACTIVE_SCAN so castState reflects real devices on the LAN
+    // without the user having to open the picker first.
+    private val discoveryCallback = object : MediaRouter.Callback() {}
+
     init {
         castContext?.addCastStateListener(castStateListener)
         castContext?.sessionManager?.addSessionManagerListener(
             sessionManagerListener, CastSession::class.java,
         )
+        castContext?.mergedSelector?.let { selector ->
+            MediaRouter.getInstance(context).addCallback(
+                selector,
+                discoveryCallback,
+                MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
+            )
+        }
     }
 
     val isCasting: Boolean
