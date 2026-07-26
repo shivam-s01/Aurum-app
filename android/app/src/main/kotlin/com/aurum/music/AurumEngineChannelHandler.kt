@@ -17,6 +17,8 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
         private const val METHOD_CHANNEL = "com.aurum.music/audio_engine"
         private const val EVENT_CHANNEL = "com.aurum.music/audio_engine_state"
         private const val ERROR_CHANNEL = "com.aurum.music/audio_engine_errors"
+        private const val OUTPUT_DEVICES_EVENT_CHANNEL = "com.aurum.music/audio_output_devices"
+        private const val CAST_STATE_EVENT_CHANNEL = "com.aurum.music/cast_state"
     }
 
     private val resolver = HybridStreamResolver(messenger)
@@ -100,6 +102,117 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
             override fun onListen(args: Any?, sink: EventChannel.EventSink) { errorSink = sink }
             override fun onCancel(args: Any?) { errorSink = null }
         })
+
+        // Live audio-output-device-list updates (Bluetooth connect/
+        // disconnect, wired headset plug/unplug) so the picker sheet
+        // updates itself without the user closing and reopening it.
+        EventChannel(messenger, OUTPUT_DEVICES_EVENT_CHANNEL).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(args: Any?, sink: EventChannel.EventSink) {
+                engine.outputManager.onDevicesChanged = {
+                    sink.success(mapOf(
+                        "devices" to engine.outputManager.describeDevices(),
+                        "supportsExplicitRouting" to engine.outputManager.supportsExplicitRouting(),
+                    ))
+                }
+            }
+            override fun onCancel(args: Any?) {
+                engine.outputManager.onDevicesChanged = null
+            }
+        })
+
+        // ── Chromecast: state stream + session handoff ──────────────
+        // onStateChanged covers device-available/connecting/connected
+        // transitions (drives the cast button's icon). The actual
+        // playback handoff (local <-> CastPlayer) happens in
+        // onSessionStarted/onSessionEnded below, which fire specifically
+        // when a session becomes ready to receive media / stops being
+        // able to, per Media3's SessionAvailabilityListener contract.
+        EventChannel(messenger, CAST_STATE_EVENT_CHANNEL).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(args: Any?, sink: EventChannel.EventSink) {
+                engine.castManager.onStateChanged = {
+                    sink.success(engine.castManager.describeState())
+                }
+                sink.success(engine.castManager.describeState())
+            }
+            override fun onCancel(args: Any?) {
+                engine.castManager.onStateChanged = null
+            }
+        })
+
+        var castHandoffGeneration = 0
+
+        engine.castManager.onSessionStarted = {
+            val myGeneration = ++castHandoffGeneration
+            val cp = engine.castManager.castPlayer
+            if (cp != null) {
+                scope.launch {
+                    // Resolve the FULL queue (not just the songs local
+                    // ExoPlayer had already loaded) before handing off —
+                    // otherwise skipping to a song CastPlayer's own
+                    // internal queue navigation reaches, but that was
+                    // never resolved on the phone, would have no stream
+                    // URL at all and silently fail to play once cast
+                    // gets there. This mirrors how local playback lazily
+                    // resolves ahead-of-time via maybeAutoExtendQueue,
+                    // just done eagerly here since CastPlayer can't call
+                    // back into Dart/HybridStreamResolver itself.
+                    val fullQueue = engine.currentFullQueueForCast(resolver)
+                    // Guard against a slow resolve (many songs / slow
+                    // network) landing after the user has already
+                    // disconnected or started a NEW cast session in the
+                    // meantime — applying a stale queue snapshot at that
+                    // point would incorrectly restart/hijack whatever is
+                    // playing now.
+                    if (myGeneration != castHandoffGeneration) return@launch
+                    val startIndex = engine.currentCastStartIndexInFullQueue()
+                    val startPositionMs = engine.currentLocalPositionMs()
+                    if (fullQueue.isNotEmpty()) {
+                        val mediaItems = fullQueue.map { (song, url) ->
+                            // Relay every URL through the phone's local
+                            // server first — see AurumCastManager.relayUrlForCast
+                            // and AurumCastRelayServer's class doc for why this
+                            // is required (Cast receivers can't attach the
+                            // browser User-Agent JioSaavn/YouTube CDNs need).
+                            val relayedUrl = engine.castManager.relayUrlForCast(url)
+                            engine.castManager.buildCastMediaItem(
+                                mediaId = song.id,
+                                streamUrl = relayedUrl,
+                                title = song.title,
+                                artist = song.artist,
+                                artworkUrl = song.artworkUrl.ifEmpty { null },
+                                originalUrlForMimeDetection = url,
+                            )
+                        }
+                        if (myGeneration != castHandoffGeneration) return@launch
+                        cp.setMediaItems(mediaItems, startIndex.coerceIn(0, mediaItems.size - 1), startPositionMs)
+                        cp.prepare()
+                        cp.play()
+                    }
+                }
+                // Silence local playback now that the receiver has the
+                // queue — leaves position/queue state intact so ending
+                // the cast session can resume locally without a stutter.
+                engine.pauseLocalForCastHandoff()
+            }
+            engine.refreshState()
+        }
+
+        engine.castManager.onSessionEnded = {
+            ++castHandoffGeneration // invalidates any in-flight resolve from onSessionStarted above
+            // Copy the receiver's last known position back onto the local
+            // player before resuming, so ending a cast session (device
+            // turned off, user tapped disconnect, wifi drop) hands back
+            // to the phone at the same spot rather than wherever local
+            // playback happened to be paused at — this is the
+            // "seamless" half of the handoff, matching how Spotify/YT
+            // Music resume locally when a cast session drops.
+            val lastCastPositionMs = engine.castManager.castPlayer?.currentPosition
+            if (lastCastPositionMs != null && lastCastPositionMs > 0) {
+                engine.seek(lastCastPositionMs)
+            }
+            engine.play()
+            engine.refreshState()
+        }
     }
 
     private fun parseSong(map: Map<*, *>): NativeSong = NativeSong(
@@ -202,6 +315,44 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                 "getPremiumSoundCapabilities" -> {
                     result.success(engine.effects.describeCapabilities())
                 }
+                // ── Audio output device picker ──────────────────────────
+                "getAudioOutputDevices" -> {
+                    result.success(mapOf(
+                        "devices" to engine.outputManager.describeDevices(),
+                        "supportsExplicitRouting" to engine.outputManager.supportsExplicitRouting(),
+                    ))
+                }
+                "selectAudioOutputDevice" -> {
+                    val deviceId = call.argument<Int>("deviceId")
+                    if (deviceId == null) {
+                        result.error("BAD_ARGS", "deviceId required", null)
+                        return@onMethodCall
+                    }
+                    if (!engine.outputManager.supportsExplicitRouting()) {
+                        // Pre-API 31: no explicit per-device routing exists.
+                        // Returning false (not an error) lets Dart show its
+                        // "routing is automatic on this Android version"
+                        // messaging instead of a scary failure.
+                        result.success(false)
+                        return@onMethodCall
+                    }
+                    val ok = engine.outputManager.selectDevice(deviceId)
+                    result.success(ok)
+                }
+                "setForceSpeaker" -> {
+                    val force = call.argument<Boolean>("force") ?: false
+                    engine.outputManager.setForceSpeaker(force)
+                    result.success(null)
+                }
+                // ── Chromecast ───────────────────────────────────────────
+                "getCastState" -> {
+                    result.success(engine.castManager.describeState())
+                }
+                "endCastSession" -> {
+                    val stopCasting = call.argument<Boolean>("stopCasting") ?: false
+                    engine.castManager.endSession(stopCasting)
+                    result.success(null)
+                }
                 "setPremiumSoundCompare" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: false
                     engine.effects.setPremiumSoundCompare(enabled)
@@ -269,5 +420,14 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
      */
     fun release() {
         stateJob?.cancel()
+        engine.castManager.onStateChanged = null
+        // NOTE: onSessionStarted/onSessionEnded are deliberately NOT
+        // cleared here — engine (and its castManager) is the shared,
+        // service-owned instance (see sharedEngine), which can outlive
+        // this particular MainActivity/handler instance (e.g. Activity
+        // recreated on rotation). Clearing them would silently break
+        // cast handoff for the next handler instance that attaches to
+        // the same shared engine. Only per-Activity state (the
+        // EventChannel sink callback above) is torn down here.
     }
 }

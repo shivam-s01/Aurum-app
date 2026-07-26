@@ -212,6 +212,32 @@ dependencies {
 
     // Required by coreLibraryDesugaringEnabled above.
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs_nio:2.1.4"
+
+    // ── Chromecast support ──
+    // play-services-cast-framework: the standard Google Cast SDK —
+    // CastContext, CastSession, RemoteMediaClient, MediaRouteButton. This
+    // is the SAME SDK Spotify/YouTube Music/every Cast-enabled app uses;
+    // it talks to any Cast-certified device (Chromecast dongle, Google
+    // TV, Cast-enabled soundbars/speakers/smart TVs) via the standard
+    // Cast receiver protocol, not a custom one.
+    implementation "com.google.android.gms:play-services-cast-framework:21.5.0"
+
+    // MediaRouteChooserDialog — Google's standard system Cast device
+    // picker UI. play-services-cast-framework pulls this in transitively,
+    // but declaring it explicitly avoids relying on whatever transitive
+    // version happens to resolve, matching this project's existing
+    // "force declare, don't rely on transitives" pattern (see the
+    // NewPipeExtractor forcing above).
+    implementation "androidx.mediarouter:mediarouter:1.7.0"
+
+    // media3-cast: bridges ExoPlayer's Player interface to
+    // RemoteMediaClient via CastPlayer, so AurumAudioEngine's existing
+    // Player-based state/listener plumbing (position, duration,
+    // playWhenReady, queue) keeps working almost unchanged whether
+    // audio is playing locally or on a cast receiver — the app swaps
+    // which Player implementation is "active" rather than rebuilding
+    // separate playback logic for cast.
+    implementation "androidx.media3:media3-cast:$media3Version"
 }
 
 configurations.all {

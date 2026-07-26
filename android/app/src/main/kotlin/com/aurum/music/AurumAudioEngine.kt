@@ -7,6 +7,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.cast.CastPlayer
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -283,7 +284,7 @@ class AurumAudioEngine(
     // floor from 30%→55% means even mid-duck it's a gentle dip, not a
     // near-mute.
     private fun fadeVolumeTo(target: Float, durationMs: Long = 220L) {
-        volumeFadeJob?.cancel()
+        cancelAllVolumeFades()
         volumeFadeJob = scope.launch {
             val start = player.volume
             if (start == target) return@launch
@@ -309,7 +310,7 @@ class AurumAudioEngine(
                 // later requestAudioFocus() call (once the user taps play
                 // again) would wrongly no-op and never actually re-acquire it.
                 hasAudioFocus = false
-                volumeFadeJob?.cancel()
+                cancelAllVolumeFades()
                 if (duckedForTransientFocusLoss) {
                     player.volume = preduckVolume
                     duckedForTransientFocusLoss = false
@@ -327,7 +328,7 @@ class AurumAudioEngine(
                 // Same reasoning as AUDIOFOCUS_LOSS above: the OS took focus
                 // away, so reflect that here too.
                 hasAudioFocus = false
-                volumeFadeJob?.cancel()
+                cancelAllVolumeFades()
                 if (duckedForTransientFocusLoss) {
                     player.volume = preduckVolume
                     duckedForTransientFocusLoss = false
@@ -472,6 +473,21 @@ class AurumAudioEngine(
     private var liveMediaIds: MutableList<String> = mutableListOf()
 
     private var fadeJob: Job? = null
+    // Both fadeJob (crossfade ramp) and volumeFadeJob (focus-duck fade,
+    // declared below) independently write to player.volume over time, but
+    // used to only ever cancel THEMSELVES before starting — never each
+    // other. If a duck/restore fade and a crossfade ramp ever overlapped
+    // (e.g. a notification sound fires while a crossfade transition is
+    // still ramping in), both coroutines kept ticking and stomped on
+    // player.volume simultaneously — an audible fight between two fades
+    // that reads exactly like the volume randomly dipping and climbing on
+    // its own. cancelAllVolumeFades() is the single choke point every
+    // fade-starting site now goes through first, so starting either kind
+    // of fade always guarantees the other one is dead first.
+    private fun cancelAllVolumeFades() {
+        fadeJob?.cancel()
+        volumeFadeJob?.cancel()
+    }
     private var idleWatchdogJob: Job? = null
     // Safety net for the one gap the existing IDLE-recovery paths don't
     // cover: the player sitting in STATE_BUFFERING indefinitely with no
@@ -578,7 +594,7 @@ class AurumAudioEngine(
                     // with no fade, matching every other player's feel.
                     val isFreshFocusGrab = !hasAudioFocus
                     if (isFreshFocusGrab) {
-                        volumeFadeJob?.cancel()
+                        cancelAllVolumeFades()
                         player.volume = 0f
                     }
                     requestAudioFocus()
@@ -665,25 +681,37 @@ class AurumAudioEngine(
     }
 
     private fun pushState() {
+        // While casting, the local ExoPlayer is intentionally paused/muted
+        // (see AurumEngineChannelHandler's session-started handoff) and
+        // its position/duration are stale the moment the receiver starts
+        // playing — so every position-like field below reads from
+        // castManager's CastPlayer instead. currentIndex/queueIds/
+        // currentSongId stay sourced from this engine's own queue
+        // tracking either way since Dart's queue UI (up-next list, etc.)
+        // should keep showing Aurum's queue regardless of where audio is
+        // routing.
+        val casting = _castManager?.isCasting == true
+        val activePlayer: Player = if (casting) _castManager!!.castPlayer!! else player
+
         _state.value = NativeEngineState(
             processingState = when {
                 // Reported first: a resolve is in flight and ExoPlayer has no
                 // MediaItem yet, so player.playbackState would otherwise say
                 // "idle" — which Dart reads as "not loading". This is the
                 // actual fix for the silent 10-20s gap.
-                isResolving && player.playbackState == Player.STATE_IDLE -> "loading"
-                player.playbackState == Player.STATE_IDLE -> "idle"
-                player.playbackState == Player.STATE_BUFFERING -> "buffering"
-                player.playbackState == Player.STATE_READY -> "ready"
-                player.playbackState == Player.STATE_ENDED -> "completed"
+                !casting && isResolving && player.playbackState == Player.STATE_IDLE -> "loading"
+                activePlayer.playbackState == Player.STATE_IDLE -> "idle"
+                activePlayer.playbackState == Player.STATE_BUFFERING -> "buffering"
+                activePlayer.playbackState == Player.STATE_READY -> "ready"
+                activePlayer.playbackState == Player.STATE_ENDED -> "completed"
                 else -> "idle"
             },
-            playing = player.isPlaying,
-            positionMs = player.currentPosition,
-            bufferedPositionMs = player.bufferedPosition,
-            durationMs = player.duration.takeIf { it != C.TIME_UNSET },
+            playing = activePlayer.isPlaying,
+            positionMs = activePlayer.currentPosition,
+            bufferedPositionMs = activePlayer.bufferedPosition,
+            durationMs = activePlayer.duration.takeIf { it != C.TIME_UNSET },
             currentIndex = currentIndex,
-            speed = player.playbackParameters.speed,
+            speed = activePlayer.playbackParameters.speed,
             queueIds = queueSongs.map { it.id },
             currentSongId = queueSongs.getOrNull(currentIndex)?.id,
             liked = currentSongLiked,
@@ -720,7 +748,8 @@ class AurumAudioEngine(
     // _hardStopAndMute(sessionId:).
     // ─────────────────────────────────────────────────────────────────
     private suspend fun hardStopAndMute(sessionId: Int) {
-        fadeJob?.cancel(); fadeJob = null
+        cancelAllVolumeFades()
+        fadeJob = null
         fun stillCurrent() = sessionId == playSessionId
         if (!stillCurrent()) return
         player.volume = 0f
@@ -1349,15 +1378,42 @@ class AurumAudioEngine(
     }
 
     private fun applyCrossfadeFadeIn() {
-        fadeJob?.cancel()
+        cancelAllVolumeFades()
         val mySession = playSessionId
         val steps = (crossfadeSecs * 10).toInt().coerceIn(1, 120)
         val stepMs = (crossfadeSecs * 1000 / steps).toLong()
+        // BUGFIX: "changed the crossfade slider to max, and playback started
+        // randomly dipping in volume for ~2s then slowly climbing back up,
+        // on its own, without skipping tracks — until the app was
+        // restarted." Root cause: this function used to hard-set
+        // player.volume = 0f before starting the ramp. Every real track
+        // change correctly starts silent and ramps up, so that was fine —
+        // but onMediaItemTransition (which calls into here via
+        // handleCurrentIndexChanged) can also fire from internal ExoPlayer
+        // repositioning that ISN'T a genuine user-facing track change
+        // (seek-based repositioning, buffering-state churn right after a
+        // setCrossfadeSeconds() call touches player state). When that
+        // spurious fire happened while a song was already mid-playback at
+        // full volume, slamming volume to 0 and ramping back up over
+        // crossfadeSecs produced exactly that dip-then-slowly-recover
+        // artifact on a track that never actually changed.
+        //
+        // Fix: start the ramp from wherever player.volume ACTUALLY is
+        // right now, not from a hardcoded 0f. A genuine track change still
+        // starts the new MediaItem at volume 0 (ExoPlayer resets volume to
+        // 1f on its own for a fresh item in some paths, but ties into
+        // hardStopAndMute()'s explicit 0f below, so real transitions still
+        // fade in from silence exactly as before). A spurious same-song
+        // re-fire now ramps from whatever the current audible volume is
+        // (typically already ~1f) up to 1f — a no-op in practice — instead
+        // of audibly dipping first.
+        val startVolume = player.volume
         fadeJob = scope.launch {
             for (step in 1..steps) {
                 if (mySession != playSessionId) return@launch
                 delay(stepMs)
-                player.volume = (step.toFloat() / steps).coerceIn(0f, 1f)
+                val progress = step.toFloat() / steps
+                player.volume = (startVolume + (1f - startVolume) * progress).coerceIn(0f, 1f)
             }
             player.volume = 1f
         }
@@ -1524,15 +1580,46 @@ class AurumAudioEngine(
     // ─────────────────────────────────────────────────────────────────
     // TRANSPORT CONTROLS
     // ─────────────────────────────────────────────────────────────────
+    /** True once a Cast session has actually started receiving media —
+     *  checked at the top of every transport control below so cast
+     *  routing never touches the local `player`'s carefully-tuned skip/
+     *  resolve/splice logic. Deliberately checks _castManager (the
+     *  nullable backing field, not the lazy-init getter) so simply
+     *  reading it before any cast usage doesn't construct a CastManager
+     *  that was never needed. */
+    private val isCastActive: Boolean
+        get() = activeCastPlayer != null
+
+    /** Safe accessor for the active CastPlayer — never throws, unlike a
+     *  chain of !! assertions. Returns null (rather than crashing) in
+     *  the defensive edge case where isCasting reports true but
+     *  castPlayer somehow isn't available; every call site below already
+     *  falls through to local playback if this is null, so that edge
+     *  case degrades gracefully instead of crashing playback entirely. */
+    private val activeCastPlayer: CastPlayer?
+        get() {
+            val mgr = _castManager ?: return null
+            if (!mgr.isCasting) return null
+            return mgr.castPlayer
+        }
+
     fun play() {
+        activeCastPlayer?.let { it.play(); return }
         restoredSilently = false
         player.play()
     }
-    fun pause() { player.pause() }
+    fun pause() {
+        activeCastPlayer?.let { it.pause(); return }
+        player.pause()
+    }
     fun stop() {
+        activeCastPlayer?.let { try { it.stop() } catch (e: Exception) { }; return }
         try { player.stop() } catch (e: Exception) { }
     }
-    fun seek(positionMs: Long) { player.seekTo(positionMs) }
+    fun seek(positionMs: Long) {
+        activeCastPlayer?.let { it.seekTo(positionMs); return }
+        player.seekTo(positionMs)
+    }
 
     // FIX — "spam-tapping skip fast makes UI/audio lag behind, catches up
     // late": skipToNext()/skipToPrevious() previously launched a brand new
@@ -1555,6 +1642,12 @@ class AurumAudioEngine(
     private var skipGen = 0
 
     fun skipToNext() {
+        val cp = activeCastPlayer
+        if (cp != null) {
+            if (cp.hasNextMediaItem()) { cp.seekToNext(); cp.play() }
+            else if (cp.repeatMode == Player.REPEAT_MODE_ALL && cp.mediaItemCount > 0) { cp.seekTo(0, 0); cp.play() }
+            return
+        }
         val gen = ++skipGen
         scope.launch {
             skipMutex.withLock {
@@ -1573,6 +1666,12 @@ class AurumAudioEngine(
     }
 
     fun skipToPrevious() {
+        val cp = activeCastPlayer
+        if (cp != null) {
+            if (cp.currentPosition > 3000) cp.seekTo(0)
+            else if (cp.hasPreviousMediaItem()) cp.seekToPrevious()
+            return
+        }
         val gen = ++skipGen
         scope.launch {
             skipMutex.withLock {
@@ -1592,6 +1691,16 @@ class AurumAudioEngine(
     }
 
     fun skipToQueueItem(index: Int) {
+        val cp = activeCastPlayer
+        if (cp != null) {
+            if (index < cp.mediaItemCount) {
+                currentIndex = index
+                pushState()
+                cp.seekTo(index, 0)
+                cp.play()
+            }
+            return
+        }
         val gen = ++skipGen
         scope.launch {
             skipMutex.withLock {
@@ -1611,15 +1720,27 @@ class AurumAudioEngine(
     }
 
     fun setRepeatMode(mode: String) { // "none" | "one" | "all"
-        player.repeatMode = when (mode) {
+        val repeatMode = when (mode) {
             "one" -> Player.REPEAT_MODE_ONE
             "all" -> Player.REPEAT_MODE_ALL
             else -> Player.REPEAT_MODE_OFF
         }
+        player.repeatMode = repeatMode
+        activeCastPlayer?.repeatMode = repeatMode
     }
 
-    fun setShuffleMode(enabled: Boolean) { player.shuffleModeEnabled = enabled }
-    fun setSpeed(speed: Float) { player.setPlaybackSpeed(speed) }
+    fun setShuffleMode(enabled: Boolean) {
+        player.shuffleModeEnabled = enabled
+        activeCastPlayer?.shuffleModeEnabled = enabled
+    }
+    fun setSpeed(speed: Float) {
+        // Cast SDK / most Cast receivers don't support arbitrary playback
+        // speed the way local ExoPlayer does — silently a no-op on
+        // CastPlayer if unsupported, so we still update local `player`'s
+        // speed (takes effect immediately if/when casting ends) but don't
+        // bother forwarding to castPlayer.
+        player.setPlaybackSpeed(speed)
+    }
     fun setCurrentSongLiked(liked: Boolean) { currentSongLiked = liked; pushState() }
 
     /** Called by AurumMediaSessionService when the notification/lock-screen
@@ -1641,12 +1762,152 @@ class AurumAudioEngine(
     fun currentSongIndex(): Int = currentIndex
     fun currentSong(): NativeSong? = queueSongs.getOrNull(currentIndex)
 
+    /** Snapshot of the current queue paired with each song's already-
+     *  resolved stream URL, for handing off to CastPlayer when a Cast
+     *  session starts. Only includes songs Media3 has actually loaded a
+     *  MediaItem for (i.e. `player.getMediaItemAt`'s URI) — songs further
+     *  ahead in queueSongs that haven't been resolved/spliced in yet are
+     *  simply skipped rather than triggering a fresh resolve here; they'll
+     *  get added as playback reaches them normally (see maybeAutoExtendQueue/
+     *  splicing elsewhere), same lazy-resolve behavior as local playback. */
+    fun currentQueueForCast(): List<Pair<NativeSong, String>> {
+        val result = mutableListOf<Pair<NativeSong, String>>()
+        for (i in 0 until player.mediaItemCount) {
+            val song = queueSongs.getOrNull(i) ?: continue
+            val uri = player.getMediaItemAt(i).localConfiguration?.uri?.toString() ?: continue
+            result.add(song to uri)
+        }
+        return result
+    }
+
+    /** Index into currentQueueForCast()'s result matching currentIndex —
+     *  since some early queue entries may be skipped (see above) if
+     *  Media3 hasn't resolved them yet, this recomputes the offset rather
+     *  than assuming it equals currentIndex directly. */
+    fun currentCastStartIndex(): Int {
+        var idx = 0
+        for (i in 0 until player.mediaItemCount) {
+            if (queueSongs.getOrNull(i) == null) continue
+            if (player.getMediaItemAt(i).localConfiguration?.uri == null) continue
+            if (i == currentIndex) return idx
+            idx++
+        }
+        return 0
+    }
+
+    /** Full-queue variant for Cast handoff: unlike [currentQueueForCast]
+     *  (which only includes songs the LOCAL player has already loaded),
+     *  this resolves EVERY song in queueSongs, reusing the already-
+     *  loaded local URL where Media3 has one and falling back to
+     *  [resolver] (the same HybridStreamResolver/YoutubeInnertube chain
+     *  playback itself uses) for the rest. This matters because once
+     *  handed off, CastPlayer navigates its OWN queue independently —
+     *  it has no way to call back into this engine mid-cast to lazily
+     *  resolve a song the way maybeAutoExtendQueue does for local
+     *  playback, so every song needs a working URL up front or skip/
+     *  next on the receiver will land on a track with nothing to play.
+     *  Songs that fail to resolve are dropped from the cast queue
+     *  entirely (rather than sent with a null/broken URL that would
+     *  silently stall the receiver) — same "graceful skip" behavior as
+     *  a resolve failure during normal local playback.
+     *
+     *  Also updates [_lastCastStartIndex] as a side effect, so a caller
+     *  reads that AFTER awaiting this function to get the correct start
+     *  offset even when earlier songs were dropped — see
+     *  currentCastStartIndexInFullQueue(). */
+    suspend fun currentFullQueueForCast(resolver: StreamResolver): List<Pair<NativeSong, String>> {
+        val loadedUrls = mutableMapOf<Int, String>()
+        for (i in 0 until player.mediaItemCount) {
+            player.getMediaItemAt(i).localConfiguration?.uri?.toString()?.let { loadedUrls[i] = it }
+        }
+        val result = mutableListOf<Pair<NativeSong, String>>()
+        var resolvedStartIndex = 0
+        for (i in queueSongs.indices) {
+            val song = queueSongs[i]
+            val url = loadedUrls[i] ?: try {
+                resolver.resolve(song, forceRefresh = false)
+            } catch (e: Exception) {
+                null
+            }
+            if (url != null) {
+                result.add(song to url)
+                if (i < currentIndex) resolvedStartIndex++
+            }
+        }
+        _lastCastStartIndex = resolvedStartIndex
+        return result
+    }
+
+    private var _lastCastStartIndex = 0
+
+    /** Start index into [currentFullQueueForCast]'s result, correctly
+     *  accounting for any songs dropped before currentIndex due to
+     *  resolve failures. MUST be read only after awaiting
+     *  currentFullQueueForCast — it's a side-channel result rather than
+     *  a return value only because the channel-handler call site awaits
+     *  the queue first and needs the matching index right after,
+     *  mirroring how currentCastStartIndex() pairs with
+     *  currentQueueForCast() above. */
+    fun currentCastStartIndexInFullQueue(): Int = _lastCastStartIndex
+
+    /** Current local playback position — read once at the moment a Cast
+     *  session starts, so the receiver can resume from where the phone
+     *  left off instead of restarting the song from 0. */
+    fun currentLocalPositionMs(): Long = player.currentPosition
+
+    /** Pauses (does not stop/clear) the local player — used when a Cast
+     *  session starts, so local playback is silent while casting but the
+     *  queue/position stays intact for an instant, clean handoff back if
+     *  the Cast session ends. */
+    fun pauseLocalForCastHandoff() { player.pause() }
+
+    // ─────────────────────────────────────────────────────────────────
+    // In-app audio output device picker (speaker/wired/Bluetooth/USB) —
+    // see AurumAudioOutputManager for the full rationale. Built lazily so
+    // it's constructed after `player` and `audioManager` above already
+    // exist (Kotlin property initialization order requires this, since
+    // both are declared earlier in this class).
+    // ─────────────────────────────────────────────────────────────────
+    private var _outputManager: AurumAudioOutputManager? = null
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    val outputManager: AurumAudioOutputManager
+        get() = _outputManager ?: AurumAudioOutputManager(context, audioManager, player).also {
+            _outputManager = it
+        }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Chromecast — see AurumCastManager for the full rationale. Built
+    // lazily for the same Kotlin property-init-order reason as
+    // outputManager above. AurumEngineChannelHandler owns wiring
+    // onSessionStarted/onSessionEnded to actually hand off playback
+    // (loading the current queue into castPlayer / pausing local
+    // player), since that handoff needs the channel handler's queue
+    // snapshot — this engine only exposes the manager + a way to push a
+    // fresh state snapshot so the cast connect/disconnect moment is
+    // reflected in the very next EventChannel tick.
+    // ─────────────────────────────────────────────────────────────────
+    private var _castManager: AurumCastManager? = null
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    val castManager: AurumCastManager
+        get() = _castManager ?: AurumCastManager(context).also {
+            _castManager = it
+        }
+
+    /** Re-emits state immediately — used after a cast session starts/ends
+     *  so the "casting to X" UI updates without waiting for the next
+     *  natural playback tick (which may be several seconds away, or may
+     *  never come again if local `player` is now paused/idle because
+     *  audio moved to the cast receiver). */
+    fun refreshState() = pushState()
+
     fun release() {
         fadeJob?.cancel()
         idleWatchdogJob?.cancel()
         scope.cancel()
         effects.dispose()
         abandonAudioFocus()
+        _outputManager?.release()
+        _castManager?.release()
         player.release()
     }
 }

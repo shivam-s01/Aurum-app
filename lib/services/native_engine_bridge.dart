@@ -61,6 +61,10 @@ class NativeAudioEngine {
   static const MethodChannel _method = MethodChannel('com.aurum.music/audio_engine');
   static const EventChannel _stateEvents = EventChannel('com.aurum.music/audio_engine_state');
   static const EventChannel _errorEvents = EventChannel('com.aurum.music/audio_engine_errors');
+  static const EventChannel _outputDeviceEvents =
+      EventChannel('com.aurum.music/audio_output_devices');
+  static const EventChannel _castStateEvents =
+      EventChannel('com.aurum.music/cast_state');
 
   // I7: real per-request cancellation — each Kotlin resolve request gets a
   // CancelableCompleter-equivalent on the Dart side so a superseded resolve
@@ -70,13 +74,31 @@ class NativeAudioEngine {
 
   final _state = BehaviorSubject<NativeEngineState>.seeded(const NativeEngineState());
   final _errors = StreamController<PlaybackErrorEvent>.broadcast();
+  // Seeded null: no snapshot has arrived yet (native side only pushes an
+  // update on device connect/disconnect, not on subscribe) — callers
+  // should pair this stream with an initial getAudioOutputDevices() call
+  // rather than waiting on the stream alone for the first paint.
+  final _outputDevices =
+      BehaviorSubject<AudioOutputDevices?>.seeded(null);
+  // Seeded "unavailable/unsupported" rather than null: unlike output
+  // devices (where "no snapshot yet" and "not supported" are genuinely
+  // different states worth distinguishing), the cast button should just
+  // render hidden/disabled until the first real snapshot arrives, and
+  // "unavailable" already produces exactly that — no separate null
+  // handling needed at call sites.
+  final _castState = BehaviorSubject<CastState>.seeded(const CastState());
 
   Stream<NativeEngineState> get stateStream => _state.stream;
   Stream<PlaybackErrorEvent> get errorStream => _errors.stream;
+  Stream<AudioOutputDevices?> get outputDevicesStream => _outputDevices.stream;
+  Stream<CastState> get castStateStream => _castState.stream;
+  CastState get castState => _castState.value;
   NativeEngineState get value => _state.value;
 
   StreamSubscription? _stateSub;
   StreamSubscription? _errorSub;
+  StreamSubscription? _outputDevicesSub;
+  StreamSubscription? _castStateSub;
 
   // Fired when AurumMediaSessionService (lock screen / notification heart)
   // reports a like-toggle tap for the given song ID. PlayerProvider sets
@@ -120,6 +142,15 @@ class NativeAudioEngine {
         m['message'] as String? ?? 'Unknown playback error',
         m['silent'] as bool? ?? false,
       ));
+    });
+
+    _outputDevicesSub =
+        _outputDeviceEvents.receiveBroadcastStream().listen((raw) {
+      _outputDevices.add(_parseOutputDevices(raw));
+    });
+
+    _castStateSub = _castStateEvents.receiveBroadcastStream().listen((raw) {
+      _castState.add(_parseCastState(raw));
     });
   }
 
@@ -313,12 +344,98 @@ class NativeAudioEngine {
   Future<void> exitPremiumSoundCompare() =>
       _method.invokeMethod('exitPremiumSoundCompare');
 
+  /// Snapshot of currently available output devices (speaker, wired
+  /// headphones, each connected Bluetooth device, USB audio). Call this
+  /// once when opening the picker sheet; after that, [outputDevicesStream]
+  /// pushes updates live as devices connect/disconnect.
+  Future<AudioOutputDevices> getAudioOutputDevices() async {
+    final raw = await _method.invokeMethod('getAudioOutputDevices');
+    return _parseOutputDevices(raw) ??
+        const AudioOutputDevices(devices: [], supportsExplicitRouting: false);
+  }
+
+  /// Requests routing to the given device. Returns false (not an error)
+  /// on Android versions below 12 (API 31), which have no explicit
+  /// per-device routing API for media playback — the OS routes
+  /// automatically to the most recently connected device instead, same
+  /// as every other media app on those versions. The UI should treat
+  /// `false` there as "not supported on this Android version", not as a
+  /// failed tap.
+  Future<bool> selectAudioOutputDevice(int deviceId) async {
+    final ok = await _method
+        .invokeMethod('selectAudioOutputDevice', {'deviceId': deviceId});
+    return ok as bool? ?? false;
+  }
+
+  /// Pre-API-31 fallback control: force routing to the built-in speaker
+  /// (true) or step out of forced-speaker mode and let the OS route to
+  /// whatever external device is connected (false). No-op on 31+, where
+  /// [selectAudioOutputDevice] should be used instead.
+  Future<void> setForceSpeaker(bool force) =>
+      _method.invokeMethod('setForceSpeaker', {'force': force});
+
+  AudioOutputDevices? _parseOutputDevices(dynamic raw) {
+    if (raw == null) return null;
+    final m = Map<String, dynamic>.from(raw as Map);
+    final rawDevices = (m['devices'] as List? ?? const []);
+    return AudioOutputDevices(
+      devices: rawDevices.map((d) {
+        final dm = Map<String, dynamic>.from(d as Map);
+        return AudioOutputDevice(
+          id: dm['id'] as int? ?? -1,
+          name: dm['name'] as String? ?? 'Audio device',
+          kind: AudioOutputDeviceKind.fromNative(dm['kind'] as String?),
+          selected: dm['selected'] as bool? ?? false,
+        );
+      }).toList(),
+      supportsExplicitRouting: m['supportsExplicitRouting'] as bool? ?? false,
+    );
+  }
+
   /// Supported-device check + current output route, so the UI can show an
   /// accurate note (e.g. "Spatial widening isn't supported on this device
   /// — clarity and bass effects are still active") instead of implying a
   /// full effect on hardware that silently can't do part of the chain.
   /// Returns null if the native side hasn't attached yet (call again after
   /// playback starts).
+  /// Snapshot of current cast availability/connection state. Call once
+  /// when a cast-aware widget (mini player, full player) mounts; after
+  /// that [castStateStream] pushes live updates as devices come/go and
+  /// as sessions connect/disconnect — same pairing pattern as
+  /// [getAudioOutputDevices] + [outputDevicesStream].
+  Future<CastState> getCastState() async {
+    final raw = await _method.invokeMethod('getCastState');
+    return _parseCastState(raw);
+  }
+
+  /// Launches Google's own system Cast device picker (MediaRouteChooserDialog)
+  /// over the current screen. Returns false if the Cast SDK isn't available
+  /// on this device (broken/missing Google Play Services) — the UI should
+  /// treat this the same as an unsupported-feature case, not an error to
+  /// retry.
+  Future<bool> showCastPicker() async {
+    final ok = await _method.invokeMethod('showCastPicker');
+    return ok as bool? ?? false;
+  }
+
+  /// Ends the active cast session. [stopCasting] = true also stops
+  /// playback on the receiver ("Stop casting"); false just disconnects
+  /// this app's control while leaving the receiver playing
+  /// ("Disconnect") — mirrors the two options Spotify's cast sheet
+  /// offers.
+  Future<void> endCastSession({bool stopCasting = false}) =>
+      _method.invokeMethod('endCastSession', {'stopCasting': stopCasting});
+
+  CastState _parseCastState(dynamic raw) {
+    if (raw == null) return const CastState();
+    final m = Map<String, dynamic>.from(raw as Map);
+    return CastState(
+      status: CastConnectionStatus.fromNative(m['state'] as String?),
+      deviceName: m['deviceName'] as String?,
+      supported: m['supported'] as bool? ?? false,
+    );
+  }
+
   Future<PremiumSoundCapabilities?> getPremiumSoundCapabilities() async {
     final raw = await _method.invokeMethod('getPremiumSoundCapabilities');
     if (raw == null) return null;
@@ -348,8 +465,12 @@ class NativeAudioEngine {
   Future<void> dispose() async {
     await _stateSub?.cancel();
     await _errorSub?.cancel();
+    await _outputDevicesSub?.cancel();
+    await _castStateSub?.cancel();
     await _state.close();
     await _errors.close();
+    await _outputDevices.close();
+    await _castState.close();
   }
 }
 
@@ -392,4 +513,113 @@ class PremiumSoundCapabilities {
   });
 
   bool get fullySupported => virtualizerSupported && bassBoostSupported;
+}
+
+/// Icon/label category for an output device — kept small and stable (see
+/// AurumAudioOutputManager.kt's KIND_* constants) so the UI can map each
+/// to a fixed icon without needing to know Android's AudioDeviceInfo.TYPE_*
+/// constants.
+enum AudioOutputDeviceKind {
+  speaker,
+  wired,
+  bluetooth,
+  usb,
+  unknown;
+
+  static AudioOutputDeviceKind fromNative(String? kind) {
+    switch (kind) {
+      case 'speaker':
+        return AudioOutputDeviceKind.speaker;
+      case 'wired':
+        return AudioOutputDeviceKind.wired;
+      case 'bluetooth':
+        return AudioOutputDeviceKind.bluetooth;
+      case 'usb':
+        return AudioOutputDeviceKind.usb;
+      default:
+        return AudioOutputDeviceKind.unknown;
+    }
+  }
+}
+
+/// A single selectable audio output (the phone's own speaker, a connected
+/// Bluetooth speaker/headphones, wired headphones, USB audio).
+class AudioOutputDevice {
+  final int id;
+  final String name;
+  final AudioOutputDeviceKind kind;
+  final bool selected;
+
+  const AudioOutputDevice({
+    required this.id,
+    required this.name,
+    required this.kind,
+    required this.selected,
+  });
+}
+
+/// Full picker snapshot: the device list plus whether this Android version
+/// supports explicit per-device routing (API 31+) at all. Below that, the
+/// picker still shows what's connected but routing is automatic — the UI
+/// uses [supportsExplicitRouting] to show that distinction honestly rather
+/// than implying a tap always moves audio to that exact device.
+class AudioOutputDevices {
+  final List<AudioOutputDevice> devices;
+  final bool supportsExplicitRouting;
+
+  const AudioOutputDevices({
+    required this.devices,
+    required this.supportsExplicitRouting,
+  });
+}
+
+/// Cast connection lifecycle — kept small/stable (see
+/// AurumCastManager.State on the Kotlin side) so the cast button icon
+/// logic maps each to a fixed visual state without needing Cast SDK
+/// constants: [unavailable] hides the button entirely (no Cast devices
+/// on this network), [available] shows the outline "cast" icon,
+/// [connecting] shows a brief loading/pulse state, [connected] shows the
+/// filled icon plus the device name.
+enum CastConnectionStatus {
+  unavailable,
+  available,
+  connecting,
+  connected;
+
+  static CastConnectionStatus fromNative(String? state) {
+    switch (state) {
+      case 'AVAILABLE':
+        return CastConnectionStatus.available;
+      case 'CONNECTING':
+        return CastConnectionStatus.connecting;
+      case 'CONNECTED':
+        return CastConnectionStatus.connected;
+      default:
+        return CastConnectionStatus.unavailable;
+    }
+  }
+}
+
+/// Cast state snapshot for driving the cast button + "Casting to X" UI.
+/// [supported] is false only when the Cast SDK itself couldn't init on
+/// this device (broken/missing Google Play Services) — distinct from
+/// [status] == unavailable, which just means no Cast devices are
+/// currently visible on the network. The UI should hide the cast button
+/// entirely when [supported] is false, and show it (dimmed/outline) when
+/// [supported] is true but [status] is unavailable — same distinction
+/// [AudioOutputDevices.supportsExplicitRouting] makes for the audio
+/// output picker.
+class CastState {
+  final CastConnectionStatus status;
+  final String? deviceName;
+  final bool supported;
+
+  const CastState({
+    this.status = CastConnectionStatus.unavailable,
+    this.deviceName,
+    this.supported = false,
+  });
+
+  bool get isConnected => status == CastConnectionStatus.connected;
+  bool get isConnecting => status == CastConnectionStatus.connecting;
 }

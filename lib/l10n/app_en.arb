@@ -468,6 +468,66 @@
       }
     }
   },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{Added 1 song to \"{name}\"} other{Added {count} songs to \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "librarySelectedCount": "{count, plural, =1{1 selected} other{{count} selected}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryEnterSelectMode": "Select",
+  "librarySelectAll": "Select all",
+  "libraryDeselectAll": "Deselect all",
+  "libraryRemoveSelectedFromPlaylist": "Remove from playlist",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{Remove this song from the playlist?} other{Remove these {count} songs from the playlist?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{Removed 1 song} other{Removed {count} songs}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "audioOutputPickerTitle": "Play on",
+  "castingToDevice": "Casting to {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "castDeviceFallbackName": "device",
+  "castSessionDisconnect": "Disconnect",
+  "castSessionStopCasting": "Stop casting",
+  "castDeviceFallbackTitle": "Cast device",
+  "castToDeviceLabel": "Cast to device",
+  "audioOutputAutoRoutingNotice": "On this Android version, output switches automatically to the most recently connected device.",
+  "audioOutputSwitchFailed": "Couldn't switch output device. Try again.",
   "libraryAlbumTag": "Album",
   "libraryAlbumsYouSaveAppearHere": "Albums you save will appear here.",
   "libraryAlreadyInPlaylist": "Already in \"{name}\"",

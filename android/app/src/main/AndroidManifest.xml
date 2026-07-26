@@ -24,6 +24,18 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"/>
 
+    <!-- Chromecast discovery: Cast devices are found via mDNS/SSDP over the
+         LAN. Without CHANGE_WIFI_MULTICAST_STATE, the multicast packets
+         Cast device discovery depends on are silently dropped on some
+         OEM Wi-Fi stacks (especially with battery-optimized Wi-Fi), which
+         reads as "no devices found" even with a Chromecast active on the
+         same network. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+    <!-- Needed to read the phone's own LAN IP (WifiManager.connectionInfo)
+         so the local cast-relay server (AurumCastRelayServer) can hand
+         the Cast receiver a reachable http://<phone-ip>:<port>/... URL. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+
     <application
         android:label="Aurum Music"
         android:name="${applicationName}"
@@ -68,6 +80,15 @@
                 <action android:name="android.media.browse.MediaBrowserService"/>
             </intent-filter>
         </service>
+
+        <!-- Bootstraps the Cast SDK: CastContext.getSharedInstance() reads
+             this meta-data to find AurumCastOptionsProvider (below), which
+             supplies the receiver app ID and discovery filters. Without
+             this the Cast SDK has no way to know what to look for on the
+             network. -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="com.aurum.music.AurumCastOptionsProvider"/>
 
         <meta-data
             android:name="flutterEmbedding"

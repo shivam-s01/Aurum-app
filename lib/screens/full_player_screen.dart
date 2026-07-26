@@ -28,6 +28,8 @@ import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_like_button.dart';
 import '../widgets/premium_gate.dart';
 import 'library_screen.dart' show showAddToPlaylistSheet;
+import '../widgets/audio_output_sheet.dart';
+import '../widgets/cast_button.dart';
 import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -902,7 +904,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _DragHandle(isDragging: _isDragging),
-            _TopBar(song: song, onMore: () => _showOptions(context)),
+            TopBarWithCastBanner(song: song, onMore: () => _showOptions(context)),
             SizedBox(height: vGapMd),
             // Artwork — enters with the screen slide (no extra delay)
             _Artwork(
@@ -1167,6 +1169,13 @@ class _TopBar extends StatelessWidget {
           ),
         ),
         _IconBtn(
+          icon: Icons.speaker_group_rounded,
+          size: 21,
+          color: iconColor,
+          onTap: () => showAudioOutputSheet(context),
+          semanticLabel: l10n.audioOutputPickerTitle,
+        ),
+        _IconBtn(
           icon: Icons.more_vert_rounded,
           size: 22,
           color: iconColor,
@@ -1175,6 +1184,24 @@ class _TopBar extends StatelessWidget {
         ),
       ]),
     );
+  }
+}
+
+/// Thin wrapper placing the "Casting to X" banner directly under the
+/// top bar — kept as its own tiny widget so _TopBar itself stays
+/// untouched (it has no BuildContext access to Provider watch calls
+/// beyond what it already reads).
+class TopBarWithCastBanner extends StatelessWidget {
+  final Song song;
+  final VoidCallback onMore;
+  const TopBarWithCastBanner({super.key, required this.song, required this.onMore});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      _TopBar(song: song, onMore: onMore),
+      const CastingBanner(),
+    ]);
   }
 }
 
@@ -1450,6 +1477,7 @@ class _SongInfo extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 20),
+          CastIconButton(size: 19, color: Colors.white.withAlpha(128)),
           _FavButton(isFav: isFav, onTap: onFavTap),
         ],
       ),
