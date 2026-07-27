@@ -980,6 +980,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               },
             ),
             SizedBox(height: vGapSm),
+            ),
             // Seek bar — delay ~150ms
             FadeTransition(
               opacity: _seekStagger,
@@ -1480,7 +1481,7 @@ class _SongInfo extends StatelessWidget {
               const SizedBox(height: 4),
               Container(
                 height: 38,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 2),
                 decoration: BoxDecoration(
                   color: isLight
                       ? AurumTheme.lightBgSurface.withAlpha(180)
@@ -1494,14 +1495,20 @@ class _SongInfo extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CastIconButton(size: 19, color: textSecondary),
-                    const SizedBox(width: 8),
+                    CastIconButton(size: 18, color: textSecondary),
                     GestureDetector(
                       onTap: () => showAudioOutputSheet(context),
                       child: Semantics(
                         label: l10n.audioOutputPickerTitle,
                         button: true,
-                        child: Icon(Icons.speaker_group_rounded, size: 20, color: textSecondary),
+                        child: Padding(
+                          // Kept exactly equal to CastIconButton's own
+                          // internal tap padding so both icons sit with
+                          // identical breathing room inside the pill — see
+                          // note below on why both use 9, not 10.
+                          padding: const EdgeInsets.all(9),
+                          child: Icon(Icons.speaker_group_rounded, size: 18, color: textSecondary),
+                        ),
                       ),
                     ),
                   ],
@@ -1539,20 +1546,25 @@ class _SongInfo extends StatelessWidget {
 class _InlineLyricsStrip extends StatefulWidget {
   final double hPad;
   final VoidCallback onTap;
-  const _InlineLyricsStrip({required this.hPad, required this.onTap});
+  const _InlineLyricsStrip({
+    required this.hPad,
+    required this.onTap,
+  });
 
   @override
   State<_InlineLyricsStrip> createState() => _InlineLyricsStripState();
 }
 
 class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
-  // Deliberately NOT a standalone fixed height. When there's no line to
-  // show, this widget collapses to zero (SizedBox.shrink()) — exactly like
-  // the toggle-off case in the parent, where the two surrounding vGapSm
-  // gaps merge into one. That merged vGapSm gap IS the "reserved" gap; we
-  // never add a second, larger fixed height on top of it. This keeps the
-  // "lyrics off" gap and the "lyrics on but nothing to show right now" gap
-  // pixel-identical, by construction, instead of by matching two numbers.
+  // ALWAYS the same fixed height whenever this widget is in the tree at
+  // all — whether lyrics exist, are still loading, or the current instant
+  // has no active line (an instrumental gap). The one and only place the
+  // layout ever collapses to zero is the parent's toggle-off branch
+  // (`if (!show) return const SizedBox.shrink();`), which sits OUTSIDE
+  // this widget entirely. So: toggle off = no box, no gap change ever, no
+  // "faltu ka gap" opening up mid-song. Toggle on = this exact box, always,
+  // and only the text inside it fades/slides in and out — the box itself
+  // never grows, shrinks, or moves.
   static const double _stripHeight = 34.0;
 
   LyricsResult? _result;
@@ -1576,54 +1588,38 @@ class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
       });
     }
 
-    final result = _result;
-    if (result == null || !result.hasAny) {
-      // No lyrics at all for this track (or still resolving) — collapse to
-      // zero. The parent's own vGapSm-vGapSm gap around this widget then
-      // merges into a single gap, identical to the "lyrics off" state.
-      return const SizedBox.shrink();
-    }
-
     final isLight = Theme.of(context).brightness == Brightness.light;
     final activeColor = isLight ? AurumTheme.lightTextPrimary : Colors.white;
     final mutedColor = isLight
         ? AurumTheme.lightTextSecondary
         : Colors.white.withAlpha(150);
 
-    // Plain (unsynced) lyrics have no timeline — always show the static
-    // teaser at the fixed strip height.
-    if (!result.hasSynced) {
-      return SizedBox(
-        height: _stripHeight,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: widget.hPad),
-            child: _PlainLineTeaser(plain: result.plain!, mutedColor: mutedColor),
-          ),
-        ),
+    final result = _result;
+    Widget content;
+    if (result == null || !result.hasAny) {
+      // Still resolving, or no lyrics found — empty box, same fixed size.
+      content = const SizedBox.shrink();
+    } else if (!result.hasSynced) {
+      // Plain (unsynced) lyrics — static teaser line.
+      content = _PlainLineTeaser(plain: result.plain!, mutedColor: mutedColor);
+    } else {
+      // Synced lyrics — the ticker only ever fades text in/out inside the
+      // fixed-size box below; it never changes the box's own height.
+      content = _SyncedLineTicker(
+        result: result,
+        activeColor: activeColor,
+        mutedColor: mutedColor,
       );
     }
 
-    // Synced lyrics: the active line can be empty during a gap between
-    // timestamps (intro, interlude, outro). Rather than always reserving
-    // _stripHeight for the whole song just because it HAS lyrics data,
-    // animate the strip's own height down to zero for exactly those empty
-    // stretches — so an instrumental gap collapses to the same size as
-    // "lyrics off", and only expands back to _stripHeight while an actual
-    // line is on screen.
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: widget.onTap,
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: widget.hPad),
-        child: _SyncedLineTicker(
-          result: result,
-          activeColor: activeColor,
-          mutedColor: mutedColor,
-          collapsedHeight: 0.0,
-          expandedHeight: _stripHeight,
+    return SizedBox(
+      height: _stripHeight,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: widget.hPad),
+          child: content,
         ),
       ),
     );
@@ -1662,17 +1658,10 @@ class _SyncedLineTicker extends StatelessWidget {
   final Color mutedColor;
   // Height when there's no active line (instrumental gap) vs. when a line
   // is on screen. Owning both here — rather than a parent SizedBox fixing
-  // one height for the whole song — lets the strip itself collapse for
-  // each individual gap and expand for each individual line.
-  final double collapsedHeight;
-  final double expandedHeight;
-
   const _SyncedLineTicker({
     required this.result,
     required this.activeColor,
     required this.mutedColor,
-    required this.collapsedHeight,
-    required this.expandedHeight,
   });
 
   @override
@@ -1681,70 +1670,64 @@ class _SyncedLineTicker extends StatelessWidget {
     final idx = result.activeIndexFor(position);
     final lineText =
         (idx >= 0 && idx < result.synced!.length) ? result.synced![idx].text : '';
-
-    // Empty line (gap between lyric sections, or before the first
-    // timestamp) — no row to show, and the strip collapses to zero height
-    // for this stretch via the AnimatedSize wrapper below.
     final showText = lineText.trim().isNotEmpty;
 
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeOutCubic,
-      alignment: Alignment.topCenter,
-      child: SizedBox(
-        height: showText ? expandedHeight : collapsedHeight,
-        child: showText
-            ? ClipRect(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 280),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.35),
-                        end: Offset.zero,
-                      ).animate(anim),
-                      child: child,
-                    ),
-                  ),
-                  // AnimatedSwitcher stacks outgoing+incoming children on
-                  // top of each other during the crossfade; without a
-                  // shared alignment they can sit at different vertical
-                  // anchors mid-transition and look like a tiny jump. Pin
-                  // both to centerLeft explicitly.
-                  layoutBuilder: (currentChild, previousChildren) => Stack(
-                    alignment: Alignment.centerLeft,
-                    children: [
-                      ...previousChildren,
-                      if (currentChild != null) currentChild,
-                    ],
-                  ),
-                  child: Row(
-                    key: ValueKey(lineText),
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          lineText,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: activeColor,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.1,
-                          ),
+    // Always fills the parent's fixed-size box (set once, in
+    // _InlineLyricsStripState) — this widget never changes its own size.
+    // During a gap between timed lines it just fades to nothing and back
+    // in the same spot, so the box, and everything below it, never moves.
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ClipRect(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 280),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, anim) => FadeTransition(
+            opacity: anim,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.35),
+                end: Offset.zero,
+              ).animate(anim),
+              child: child,
+            ),
+          ),
+          // AnimatedSwitcher stacks outgoing+incoming children on top of
+          // each other during the crossfade; without a shared alignment
+          // they can sit at different vertical anchors mid-transition and
+          // look like a tiny jump. Pin both to centerLeft explicitly.
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            alignment: Alignment.centerLeft,
+            children: [
+              ...previousChildren,
+              if (currentChild != null) currentChild,
+            ],
+          ),
+          child: showText
+              ? Row(
+                  key: ValueKey(lineText),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        lineText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: activeColor,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.1,
                         ),
                       ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.chevron_right_rounded, size: 18, color: mutedColor),
-                    ],
-                  ),
-                ),
-              )
-            : const SizedBox.shrink(),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.chevron_right_rounded, size: 18, color: mutedColor),
+                  ],
+                )
+              : const SizedBox.shrink(key: ValueKey('empty-line')),
+        ),
       ),
     );
   }

@@ -97,7 +97,7 @@ class CastIconButton extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
                 onTap: () => _onTap(context, state),
                 child: Padding(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(9),
                   child: connecting
                       ? SizedBox(
                           width: size,
