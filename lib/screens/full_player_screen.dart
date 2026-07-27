@@ -1404,6 +1404,7 @@ class _SongInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
     final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(128);
