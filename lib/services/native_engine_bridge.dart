@@ -59,21 +59,14 @@ class PlaybackErrorEvent {
 
 class NativeAudioEngine {
   static const MethodChannel _method = MethodChannel('com.aurum.music/audio_engine');
-  // showCastPicker specifically needs MainActivity's own MethodChannel
-  // (not the audio_engine one above) because launching
-  // MediaRouteChooserDialog requires an actual Activity Context —
-  // AurumEngineChannelHandler (which owns the audio_engine channel) only
-  // has applicationContext, which can't host a dialog. MainActivity
-  // already registers "showCastPicker" on this channel (see
-  // MainActivity.kt's media_store MethodChannel handler) since it's the
-  // one place in this app with a live Activity reference.
-  static const MethodChannel _mediaStoreMethod = MethodChannel('com.aurum.music/media_store');
   static const EventChannel _stateEvents = EventChannel('com.aurum.music/audio_engine_state');
   static const EventChannel _errorEvents = EventChannel('com.aurum.music/audio_engine_errors');
   static const EventChannel _outputDeviceEvents =
       EventChannel('com.aurum.music/audio_output_devices');
   static const EventChannel _castStateEvents =
       EventChannel('com.aurum.music/cast_state');
+  static const EventChannel _castRoutesEvents =
+      EventChannel('com.aurum.music/cast_routes');
 
   // I7: real per-request cancellation — each Kotlin resolve request gets a
   // CancelableCompleter-equivalent on the Dart side so a superseded resolve
@@ -161,6 +154,42 @@ class NativeAudioEngine {
     _castStateSub = _castStateEvents.receiveBroadcastStream().listen((raw) {
       _castState.add(_parseCastState(raw));
     });
+  }
+
+  /// Live list of nearby Cast devices for the custom picker sheet.
+  /// Deliberately NOT auto-subscribed in the constructor like
+  /// [castStateStream] — listening to this stream is what starts
+  /// Kotlin's active MediaRouter scan (see AurumCastManager.startRouteDiscovery),
+  /// and cancelling the subscription stops it, so this should only be
+  /// listened to while the picker sheet is actually open (each
+  /// .listen() call gets its own underlying platform subscription via
+  /// receiveBroadcastStream(), so opening the sheet twice in a row
+  /// still behaves correctly).
+  Stream<List<CastRoute>> get castRoutesStream =>
+      _castRoutesEvents.receiveBroadcastStream().map(_parseCastRoutes);
+
+  List<CastRoute> _parseCastRoutes(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((m) => CastRoute(
+              id: m['id'] as String? ?? '',
+              name: m['name'] as String? ?? '',
+              description: m['description'] as String?,
+              selected: m['selected'] as bool? ?? false,
+            ))
+        .where((r) => r.id.isNotEmpty)
+        .toList();
+  }
+
+  /// Connects to the given route id from the custom picker sheet —
+  /// starts a Cast session the same way tapping a device in Google's
+  /// own picker dialog would. Returns false if the route disappeared
+  /// between being shown in the list and being tapped (rare, but a
+  /// device can go offline mid-pick).
+  Future<bool> selectCastRoute(String routeId) async {
+    final ok = await _method.invokeMethod('selectCastRoute', {'routeId': routeId});
+    return ok as bool? ?? false;
   }
 
   // ── Kotlin -> Dart: like-toggle reverse channel ──
@@ -417,16 +446,6 @@ class NativeAudioEngine {
     return _parseCastState(raw);
   }
 
-  /// Launches Google's own system Cast device picker (MediaRouteChooserDialog)
-  /// over the current screen. Returns false if the Cast SDK isn't available
-  /// on this device (broken/missing Google Play Services) — the UI should
-  /// treat this the same as an unsupported-feature case, not an error to
-  /// retry.
-  Future<bool> showCastPicker() async {
-    final ok = await _mediaStoreMethod.invokeMethod('showCastPicker');
-    return ok as bool? ?? false;
-  }
-
   /// Ends the active cast session. [stopCasting] = true also stops
   /// playback on the receiver ("Stop casting"); false just disconnects
   /// this app's control while leaving the receiver playing
@@ -631,4 +650,19 @@ class CastState {
 
   bool get isConnected => status == CastConnectionStatus.connected;
   bool get isConnecting => status == CastConnectionStatus.connecting;
+}
+
+/// A single Cast device as shown in the custom picker sheet.
+class CastRoute {
+  final String id;
+  final String name;
+  final String? description;
+  final bool selected;
+
+  const CastRoute({
+    required this.id,
+    required this.name,
+    this.description,
+    this.selected = false,
+  });
 }

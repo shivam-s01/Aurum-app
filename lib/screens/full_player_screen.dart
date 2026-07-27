@@ -1168,36 +1168,6 @@ class _TopBar extends StatelessWidget {
             ]),
           ),
         ),
-        // Cast + output-device controls grouped into one quiet pill —
-        // same background/border treatment as the "Now Playing" pill
-        // above, so it reads as one deliberate, cohesive control cluster
-        // rather than two loose icons floating next to "more options".
-        // Spacing-only grouping (no divider line): CastIconButton can
-        // collapse to zero width when no Cast device is on the network,
-        // and a divider would look broken sitting next to nothing in
-        // that case — clean spacing holds up either way.
-        Container(
-          margin: const EdgeInsets.only(right: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          decoration: BoxDecoration(
-            color: pillBg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: pillBorder, width: 0.5),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CastIconButton(size: 18, color: iconColor),
-              _IconBtn(
-                icon: Icons.speaker_group_rounded,
-                size: 19,
-                color: iconColor,
-                onTap: () => showAudioOutputSheet(context),
-                semanticLabel: l10n.audioOutputPickerTitle,
-              ),
-            ],
-          ),
-        ),
         _IconBtn(
           icon: Icons.more_vert_rounded,
           size: 22,
@@ -1463,6 +1433,10 @@ class _SongInfo extends StatelessWidget {
             Shadow(color: shadowColor, blurRadius: 16),
             Shadow(color: shadowColor, blurRadius: 6),
           ];
+    // Same treatment as _TopBar's "Now Playing" pill, defined locally
+    // here since that one lives in a different widget's scope.
+    final pillBg = isLight ? AurumTheme.lightBgSurface.withAlpha(180) : Colors.white.withAlpha(8);
+    final pillBorder = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(12);
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad),
       child: Row(
@@ -1500,7 +1474,44 @@ class _SongInfo extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 20),
-          _FavButton(isFav: isFav, onTap: onFavTap),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _FavButton(isFav: isFav, onTap: onFavTap),
+              const SizedBox(height: 10),
+              // Cast + output-device controls — moved here from the top
+              // bar per design direction: a quiet, self-contained pill
+              // sitting just under the favorite button, out of the way
+              // of the title/artist text and not competing with the
+              // top bar's navigation icons. Same pillBg/pillBorder
+              // treatment as the "Now Playing" pill above, so it reads
+              // as a deliberate part of this screen's design language
+              // rather than a bolted-on control cluster, in every theme
+              // (dark/light/AMOLED) automatically since those colors are
+              // already theme-aware.
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                decoration: BoxDecoration(
+                  color: pillBg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: pillBorder, width: 0.5),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CastIconButton(size: 17, color: textSecondary),
+                    _IconBtn(
+                      icon: Icons.speaker_group_rounded,
+                      size: 18,
+                      color: textSecondary,
+                      onTap: () => showAudioOutputSheet(context),
+                      semanticLabel: l10n.audioOutputPickerTitle,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

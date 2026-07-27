@@ -36,15 +36,18 @@ import com.google.android.gms.cast.framework.SessionManagerListener
  *    via CastStateListener — this powers the cast button's icon state
  *    (hidden / outline / connecting spinner / filled+device name),
  *    exactly like Spotify's cast icon behavior.
- * 2. The actual "which device" picker UI is Google's own
- *    MediaRouteButton + MediaRouteChooserDialog (system-provided, not
- *    custom-built) — see MainActivity's showCastDeviceChooser(). This is
- *    deliberate: it's the SAME picker UI users already recognize from
- *    every other Cast app, matches Android's system styling per-OEM, and
- *    Google keeps it current with new device categories automatically.
- *    Reimplementing this as custom Flutter UI would both look
- *    inconsistent with what users expect from "the cast picker" AND
- *    require maintaining device-discovery UI ourselves.
+ * 2. The "which device" picker is a CUSTOM Flutter bottom sheet backed
+ *    by MediaRouter route discovery in this class (see
+ *    [startRouteDiscovery]/[selectRoute] below) — NOT Google's
+ *    MediaRouteChooserDialog. That dialog requires the hosting Activity
+ *    to be AppCompatActivity-based (per Google's own MediaRouter docs);
+ *    MainActivity extends FlutterFragmentActivity, which isn't, so the
+ *    dialog silently failed to inflate/show (tap did nothing, no
+ *    crash/error). Rather than restructure MainActivity's whole Activity
+ *    base class — which Flutter's own docs warn against changing
+ *    lightly, and which could break other Flutter/plugin assumptions —
+ *    driving route discovery straight from MediaRouter and rendering
+ *    the list in Flutter avoids the AppCompat dependency entirely.
  * 3. Once a session starts, CastPlayer wraps the RemoteMediaClient and
  *    AurumAudioEngine hands off Player-facing calls to it instead of the
  *    local ExoPlayer, loading the current queue as Media3 MediaItems
@@ -168,6 +171,90 @@ class AurumCastManager(
 
     val isCasting: Boolean
         get() = castContext?.sessionManager?.currentCastSession?.isConnected == true
+
+    // ── Custom Cast device picker (route discovery + selection) ──────
+    // Fires whenever the available-route list changes while the picker
+    // sheet is open, so Dart can render a live-updating list instead of
+    // a one-time snapshot — this matters because Cast devices can take
+    // a moment to appear on the network after the sheet opens.
+    var onRoutesChanged: ((List<Map<String, Any?>>) -> Unit)? = null
+
+    private val router: MediaRouter? = try {
+        MediaRouter.getInstance(context)
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Dedicated callback ONLY active while the picker sheet is open —
+     *  separate from [discoveryCallback] above (which stays registered
+     *  permanently at a low intensity just to keep castState accurate
+     *  for the button icon). This one uses CALLBACK_FLAG_PERFORM_ACTIVE_SCAN,
+     *  which is more battery-intensive and per Android's own docs should
+     *  only be requested while the user is actively picking a device —
+     *  hence registering/unregistering it around startRouteDiscovery/
+     *  stopRouteDiscovery rather than leaving it on permanently. */
+    private val pickerScanCallback = object : MediaRouter.Callback() {
+        override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) = emitRoutes()
+        override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) = emitRoutes()
+        override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) = emitRoutes()
+    }
+
+    private fun emitRoutes() {
+        val r = router ?: return
+        val selector = castContext?.mergedSelector ?: return
+        val routes = r.routes.filter { route ->
+            !route.isDefault && route.matchesSelector(selector) && route.isEnabled
+        }
+        onRoutesChanged?.invoke(routes.map { route ->
+            mapOf(
+                "id" to route.id,
+                "name" to route.name,
+                "description" to route.description,
+                "selected" to route.isSelected,
+            )
+        })
+    }
+
+    /** Starts active scanning and immediately emits the current route
+     *  snapshot (don't make the picker sheet wait for a change event to
+     *  show anything — if devices are already known, show them right
+     *  away, then keep updating live as more appear). Call when the
+     *  picker sheet opens. */
+    fun startRouteDiscovery() {
+        val selector = castContext?.mergedSelector ?: run {
+            onRoutesChanged?.invoke(emptyList())
+            return
+        }
+        router?.addCallback(
+            selector,
+            pickerScanCallback,
+            MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN or MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
+        )
+        emitRoutes()
+    }
+
+    /** Stops active scanning — call when the picker sheet closes, so the
+     *  battery-intensive active scan doesn't run indefinitely in the
+     *  background after the user is done picking. */
+    fun stopRouteDiscovery() {
+        router?.removeCallback(pickerScanCallback)
+    }
+
+    /** Connects to the route with the given [routeId], starting a Cast
+     *  session — this is the manual equivalent of what tapping a device
+     *  in MediaRouteChooserDialog does internally, per Google's own docs
+     *  on building a custom route picker (SessionManager listens to
+     *  MediaRouter's route-selection state, so simply selecting the
+     *  route here is enough to kick off the same session lifecycle
+     *  [sessionManagerListener] above already handles). Returns false if
+     *  the route can no longer be found (e.g. it went away between the
+     *  picker showing it and the user tapping it). */
+    fun selectRoute(routeId: String): Boolean {
+        val r = router ?: return false
+        val route = r.routes.firstOrNull { it.id == routeId } ?: return false
+        r.selectRoute(route)
+        return true
+    }
 
     fun describeState(): Map<String, Any?> {
         val state = when (castContext?.castState) {
@@ -293,11 +380,14 @@ class AurumCastManager(
         castContext?.sessionManager?.removeSessionManagerListener(
             sessionManagerListener, CastSession::class.java,
         )
+        router?.removeCallback(pickerScanCallback)
+        router?.removeCallback(discoveryCallback)
         castPlayer?.setSessionAvailabilityListener(null)
         castPlayer?.release()
         relayServer.stop()
         onStateChanged = null
         onSessionStarted = null
         onSessionEnded = null
+        onRoutesChanged = null
     }
 }

@@ -19,6 +19,7 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
         private const val ERROR_CHANNEL = "com.aurum.music/audio_engine_errors"
         private const val OUTPUT_DEVICES_EVENT_CHANNEL = "com.aurum.music/audio_output_devices"
         private const val CAST_STATE_EVENT_CHANNEL = "com.aurum.music/cast_state"
+        private const val CAST_ROUTES_EVENT_CHANNEL = "com.aurum.music/cast_routes"
     }
 
     private val resolver = HybridStreamResolver(messenger)
@@ -136,6 +137,24 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
             }
             override fun onCancel(args: Any?) {
                 engine.castManager.onStateChanged = null
+            }
+        })
+
+        // Custom Cast device picker's live route list — onListen/onCancel
+        // double as "picker sheet opened/closed" signals, starting and
+        // stopping the battery-costlier active scan exactly while the
+        // sheet is actually visible (see AurumCastManager.startRouteDiscovery's
+        // doc for why active scan shouldn't run all the time).
+        EventChannel(messenger, CAST_ROUTES_EVENT_CHANNEL).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(args: Any?, sink: EventChannel.EventSink) {
+                engine.castManager.onRoutesChanged = { routes ->
+                    sink.success(routes)
+                }
+                engine.castManager.startRouteDiscovery()
+            }
+            override fun onCancel(args: Any?) {
+                engine.castManager.onRoutesChanged = null
+                engine.castManager.stopRouteDiscovery()
             }
         })
 
@@ -352,6 +371,14 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     val stopCasting = call.argument<Boolean>("stopCasting") ?: false
                     engine.castManager.endSession(stopCasting)
                     result.success(null)
+                }
+                "selectCastRoute" -> {
+                    val routeId = call.argument<String>("routeId")
+                    if (routeId == null) {
+                        result.success(false)
+                    } else {
+                        result.success(engine.castManager.selectRoute(routeId))
+                    }
                 }
                 "setPremiumSoundCompare" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: false

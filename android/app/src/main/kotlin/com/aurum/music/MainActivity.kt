@@ -13,8 +13,6 @@ import android.os.Build
 import android.os.IBinder
 import android.provider.MediaStore
 import android.util.Log
-import androidx.mediarouter.app.MediaRouteChooserDialog
-import com.google.android.gms.cast.framework.CastContext
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -129,55 +127,7 @@ class MainActivity : FlutterFragmentActivity() {
                             result.success(null)
                         }
                     }
-                    "showCastPicker" -> {
-                        // Launches Google's OWN system Cast device chooser —
-                        // the same dialog every Cast app (YouTube, Spotify,
-                        // etc.) shows, styled per-OEM/per-Android-version by
-                        // the Play Services Cast framework itself. We never
-                        // build a custom device list UI for this: reusing
-                        // the system dialog means new device categories,
-                        // OEM-specific styling, and any future Cast SDK
-                        // dialog changes are handled by Google's own code,
-                        // not something this app has to keep up with.
-                        try {
-                            val castContext = CastContext.getSharedInstance(this)
-                            val mergedSelector = castContext.mergedSelector
-                            if (mergedSelector != null) {
-                                // MediaRouteChooserDialog is an AndroidX
-                                // support-library dialog that requires an
-                                // AppCompat-derived theme to inflate its
-                                // internal views correctly. MainActivity's
-                                // own theme (LaunchTheme, in styles.xml)
-                                // extends the plain platform
-                                // Theme.Black.NoTitleBar, NOT any
-                                // Theme.AppCompat.* variant — so passing
-                                // `this` directly here caused the dialog to
-                                // fail to inflate/show with no visible error
-                                // (tap did nothing). Wrapping just this one
-                                // dialog's context in an AppCompat theme
-                                // fixes that without touching the app's
-                                // actual theme anywhere else.
-                                val dialogContext = androidx.appcompat.view.ContextThemeWrapper(
-                                    this,
-                                    androidx.appcompat.R.style.Theme_AppCompat_DayNight_Dialog,
-                                )
-                                MediaRouteChooserDialog(dialogContext).apply {
-                                    routeSelector = mergedSelector
-                                }.show()
-                                result.success(true)
-                            } else {
-                                result.success(false)
-                            }
-                        } catch (e: Exception) {
-                            // Cast SDK unavailable (broken/missing Google
-                            // Play Services on this device) — surface as
-                            // "not supported" rather than crashing, same
-                            // fallback shape AurumCastManager already uses.
-                            Log.w(TAG, "showCastPicker unavailable: ${e.message}")
-                            result.success(false)
-                        }
-                    }
-                    "setStopOnTaskRemoved" -> {
+                "setStopOnTaskRemoved" -> {
                         // Mirrors AudioPrefs.stopOnSwipeNotifier so the native
                         // onTaskRemoved callback (a pure-Kotlin lifecycle hook
                         // with no Dart running when it actually fires) can
