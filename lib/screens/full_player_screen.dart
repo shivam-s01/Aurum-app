@@ -980,7 +980,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               },
             ),
             SizedBox(height: vGapSm),
-            ),
             // Seek bar — delay ~150ms
             FadeTransition(
               opacity: _seekStagger,
