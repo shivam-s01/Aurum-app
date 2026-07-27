@@ -1013,7 +1013,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               ),
             ),
             SizedBox(height: isCompact ? 8.0 : 12.0),
-            _QualityPills(song: song, hPad: hPad),
+            SizedBox(
+              height: 28,
+              child: Center(child: _QualityPills(song: song, hPad: hPad)),
+            ),
             const Spacer(),
             _BottomPill(hPad: hPad, onTap: _openPanel),
             SizedBox(height: isCompact ? 8.0 : 12.0),
@@ -1166,36 +1169,6 @@ class _TopBar extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
             ]),
-          ),
-        ),
-        // Cast + output-device controls grouped into one quiet pill —
-        // same background/border treatment as the "Now Playing" pill
-        // above, so it reads as one deliberate, cohesive control cluster
-        // rather than two loose icons floating next to "more options".
-        // Spacing-only grouping (no divider line): CastIconButton can
-        // collapse to zero width when no Cast device is on the network,
-        // and a divider would look broken sitting next to nothing in
-        // that case — clean spacing holds up either way.
-        Container(
-          margin: const EdgeInsets.only(right: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          decoration: BoxDecoration(
-            color: pillBg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: pillBorder, width: 0.5),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CastIconButton(size: 18, color: iconColor),
-              _IconBtn(
-                icon: Icons.speaker_group_rounded,
-                size: 19,
-                color: iconColor,
-                onTap: () => showAudioOutputSheet(context),
-                semanticLabel: l10n.audioOutputPickerTitle,
-              ),
-            ],
           ),
         ),
         _IconBtn(
@@ -1434,6 +1407,7 @@ class _SongInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
     final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(128);
@@ -1500,7 +1474,39 @@ class _SongInfo extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 20),
-          _FavButton(isFav: isFav, onTap: onFavTap),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _FavButton(isFav: isFav, onTap: onFavTap),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isLight
+                      ? AurumTheme.lightBgSurface.withAlpha(180)
+                      : Colors.white.withAlpha(10),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14),
+                    width: 0.5,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CastIconButton(size: 17, color: textSecondary),
+                    _IconBtn(
+                      icon: Icons.speaker_group_rounded,
+                      size: 18,
+                      color: textSecondary,
+                      onTap: () => showAudioOutputSheet(context),
+                      semanticLabel: l10n.audioOutputPickerTitle,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
