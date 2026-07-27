@@ -1479,12 +1479,13 @@ class _SongInfo extends StatelessWidget {
               _FavButton(isFav: isFav, onTap: onFavTap),
               const SizedBox(height: 4),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                height: 38,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
                 decoration: BoxDecoration(
                   color: isLight
                       ? AurumTheme.lightBgSurface.withAlpha(180)
                       : Colors.white.withAlpha(10),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(19),
                   border: Border.all(
                     color: isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14),
                     width: 0.5,
@@ -1493,19 +1494,14 @@ class _SongInfo extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: CastIconButton(size: 15, color: textSecondary),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: GestureDetector(
-                        onTap: () => showAudioOutputSheet(context),
-                        child: Semantics(
-                          label: l10n.audioOutputPickerTitle,
-                          button: true,
-                          child: Icon(Icons.speaker_group_rounded, size: 16, color: textSecondary),
-                        ),
+                    CastIconButton(size: 19, color: textSecondary),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => showAudioOutputSheet(context),
+                      child: Semantics(
+                        label: l10n.audioOutputPickerTitle,
+                        button: true,
+                        child: Icon(Icons.speaker_group_rounded, size: 20, color: textSecondary),
                       ),
                     ),
                   ],
