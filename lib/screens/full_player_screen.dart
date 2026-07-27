@@ -966,7 +966,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 ),
               ),
             ),
-            SizedBox(height: vGapSm),
+            SizedBox(height: vGapSm * 0.3),
             // sitting between title/artist and the seek bar. Tapping it
             // opens straight to the full Lyrics tab.
             ValueListenableBuilder<bool>(
@@ -979,7 +979,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 );
               },
             ),
-            SizedBox(height: vGapSm),
+            SizedBox(height: vGapSm * 0.3),
             // Seek bar — delay ~150ms
             FadeTransition(
               opacity: _seekStagger,
