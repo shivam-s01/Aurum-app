@@ -967,7 +967,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               ),
             ),
             SizedBox(height: vGapSm),
-            // Inline synced lyrics — Spotify-style single active line,
             // sitting between title/artist and the seek bar. Tapping it
             // opens straight to the full Lyrics tab.
             ValueListenableBuilder<bool>(
@@ -1474,39 +1473,34 @@ class _SongInfo extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 20),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _FavButton(isFav: isFav, onTap: onFavTap),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isLight
-                      ? AurumTheme.lightBgSurface.withAlpha(180)
-                      : Colors.white.withAlpha(10),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14),
-                    width: 0.5,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CastIconButton(size: 17, color: textSecondary),
-                    _IconBtn(
-                      icon: Icons.speaker_group_rounded,
-                      size: 18,
-                      color: textSecondary,
-                      onTap: () => showAudioOutputSheet(context),
-                      semanticLabel: l10n.audioOutputPickerTitle,
-                    ),
-                  ],
-                ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+            decoration: BoxDecoration(
+              color: isLight
+                  ? AurumTheme.lightBgSurface.withAlpha(180)
+                  : Colors.white.withAlpha(10),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14),
+                width: 0.5,
               ),
-            ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CastIconButton(size: 17, color: textSecondary),
+                _IconBtn(
+                  icon: Icons.speaker_group_rounded,
+                  size: 18,
+                  color: textSecondary,
+                  onTap: () => showAudioOutputSheet(context),
+                  semanticLabel: l10n.audioOutputPickerTitle,
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 4),
+          _FavButton(isFav: isFav, onTap: onFavTap),
         ],
       ),
     );
