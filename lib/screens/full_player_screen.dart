@@ -1590,20 +1590,40 @@ class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
         ? AurumTheme.lightTextSecondary
         : Colors.white.withAlpha(150);
 
-    return SizedBox(
-      height: _stripHeight,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: widget.hPad),
-          child: result.hasSynced
-              ? _SyncedLineTicker(
-                  result: result,
-                  activeColor: activeColor,
-                  mutedColor: mutedColor,
-                )
-              : _PlainLineTeaser(plain: result.plain!, mutedColor: mutedColor),
+    // Plain (unsynced) lyrics have no timeline — always show the static
+    // teaser at the fixed strip height.
+    if (!result.hasSynced) {
+      return SizedBox(
+        height: _stripHeight,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: widget.hPad),
+            child: _PlainLineTeaser(plain: result.plain!, mutedColor: mutedColor),
+          ),
+        ),
+      );
+    }
+
+    // Synced lyrics: the active line can be empty during a gap between
+    // timestamps (intro, interlude, outro). Rather than always reserving
+    // _stripHeight for the whole song just because it HAS lyrics data,
+    // animate the strip's own height down to zero for exactly those empty
+    // stretches — so an instrumental gap collapses to the same size as
+    // "lyrics off", and only expands back to _stripHeight while an actual
+    // line is on screen.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onTap,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: widget.hPad),
+        child: _SyncedLineTicker(
+          result: result,
+          activeColor: activeColor,
+          mutedColor: mutedColor,
+          collapsedHeight: 0.0,
+          expandedHeight: _stripHeight,
         ),
       ),
     );
@@ -1640,11 +1660,19 @@ class _SyncedLineTicker extends StatelessWidget {
   final LyricsResult result;
   final Color activeColor;
   final Color mutedColor;
+  // Height when there's no active line (instrumental gap) vs. when a line
+  // is on screen. Owning both here — rather than a parent SizedBox fixing
+  // one height for the whole song — lets the strip itself collapse for
+  // each individual gap and expand for each individual line.
+  final double collapsedHeight;
+  final double expandedHeight;
 
   const _SyncedLineTicker({
     required this.result,
     required this.activeColor,
     required this.mutedColor,
+    required this.collapsedHeight,
+    required this.expandedHeight,
   });
 
   @override
@@ -1655,58 +1683,68 @@ class _SyncedLineTicker extends StatelessWidget {
         (idx >= 0 && idx < result.synced!.length) ? result.synced![idx].text : '';
 
     // Empty line (gap between lyric sections, or before the first
-    // timestamp) — render an invisible zero-opacity placeholder of the
-    // SAME row shape rather than nothing, so AnimatedSwitcher's exit/enter
-    // transition still has consistent geometry to animate between and the
-    // chevron icon doesn't visibly shift.
+    // timestamp) — no row to show, and the strip collapses to zero height
+    // for this stretch via the AnimatedSize wrapper below.
     final showText = lineText.trim().isNotEmpty;
 
-    return ClipRect(
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 280),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        transitionBuilder: (child, anim) => FadeTransition(
-          opacity: anim,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.35),
-              end: Offset.zero,
-            ).animate(anim),
-            child: child,
-          ),
-        ),
-        // AnimatedSwitcher stacks outgoing+incoming children on top of each
-        // other during the crossfade; without a shared alignment they can
-        // sit at different vertical anchors mid-transition and look like a
-        // tiny jump. Pin both to centerLeft explicitly.
-        layoutBuilder: (currentChild, previousChildren) => Stack(
-          alignment: Alignment.centerLeft,
-          children: [...previousChildren, if (currentChild != null) currentChild],
-        ),
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: SizedBox(
+        height: showText ? expandedHeight : collapsedHeight,
         child: showText
-            ? Row(
-                key: ValueKey(lineText),
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      lineText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: activeColor,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.1,
-                      ),
+            ? ClipRect(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 280),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.35),
+                        end: Offset.zero,
+                      ).animate(anim),
+                      child: child,
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  Icon(Icons.chevron_right_rounded, size: 18, color: mutedColor),
-                ],
+                  // AnimatedSwitcher stacks outgoing+incoming children on
+                  // top of each other during the crossfade; without a
+                  // shared alignment they can sit at different vertical
+                  // anchors mid-transition and look like a tiny jump. Pin
+                  // both to centerLeft explicitly.
+                  layoutBuilder: (currentChild, previousChildren) => Stack(
+                    alignment: Alignment.centerLeft,
+                    children: [
+                      ...previousChildren,
+                      if (currentChild != null) currentChild,
+                    ],
+                  ),
+                  child: Row(
+                    key: ValueKey(lineText),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          lineText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: activeColor,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.1,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.chevron_right_rounded, size: 18, color: mutedColor),
+                    ],
+                  ),
+                ),
               )
-            : const SizedBox.shrink(key: ValueKey('empty-line')),
+            : const SizedBox.shrink(),
       ),
     );
   }
