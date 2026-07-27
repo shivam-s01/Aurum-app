@@ -59,6 +59,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       _appLock         = p.getBool('app_lock_enabled')    ?? false;
       _biometricLock   = p.getBool('biometric_lock')      ?? false;

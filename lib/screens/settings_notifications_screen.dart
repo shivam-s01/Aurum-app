@@ -70,6 +70,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       _showMediaNotif     = p.getBool('show_media_notif')    ?? true;
       _showArtworkInNotif = p.getBool('show_artwork_notif')  ?? true;

@@ -50,6 +50,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
       if (await imgCache.exists()) imageCacheSize = await _dirSize(imgCache);
     } catch (_) {}
 
+    if (!mounted) return;
     setState(() {
       _maxSongCache        = p.getDouble('max_song_cache')   ?? 500.0;
       _maxImageCache       = p.getDouble('max_image_cache')  ?? 100.0;

@@ -28,6 +28,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
 
   Future<void> _loadVersion() async {
     final info = await PackageInfo.fromPlatform();
+    if (!mounted) return;
     setState(() {
       _version = info.version;
       _buildNumber = info.buildNumber;

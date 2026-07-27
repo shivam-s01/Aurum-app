@@ -82,6 +82,7 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
     final delay         = p.getInt('lock_delay_mins')        ?? 10;
     final dontLockPlay  = p.getBool('dont_lock_while_playing') ?? false;
 
+    if (!mounted) return;
     if (!lockOn || pin.isEmpty) {
       setState(() { _locked = false; _checking = false; });
       return;
@@ -133,6 +134,7 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
 
   Future<void> _checkPin() async {
     await Future.delayed(const Duration(milliseconds: 100));
+    if (!mounted) return;
     if (_enteredPin == _savedPin) {
       setState(() => _locked = false);
     } else {

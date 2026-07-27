@@ -140,6 +140,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
     final savedQuality = p.getString('stream_quality') ?? 'Auto';
+    if (!mounted) return;
     setState(() {
       // Defensive: if this was saved as 'High' before the payment gate
       // existed (or the account's premium lapsed), don't show a locked
@@ -1049,6 +1050,7 @@ class EqualizerScreenState extends State<EqualizerScreen> {
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       _selectedPreset = p.getString('eq_preset') ?? 'Flat';
       _values = List.generate(10, (i) => p.getDouble('eq_band_$i') ?? 0.0);

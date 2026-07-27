@@ -306,13 +306,21 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
           responseType: ResponseType.bytes,
         ),
         onReceiveProgress: (received, total) {
+          // FIX (crash): the dialog can be dismissed (back button / tap
+          // outside) while a multi-second download is still streaming in.
+          // Dio keeps calling this progress callback after that — without
+          // this guard, setState on the now-disposed State throws and
+          // crashes the app instead of just silently stopping updates.
+          if (!mounted) return;
           if (total > 0) setState(() => _progress = received / total);
         },
       );
+      if (!mounted) return;
 
       final file = File(path);
       final size = await file.length();
       if (size < 1024 * 1024) {
+        if (!mounted) return;
         setState(() {
           _downloading = false;
           _status = 'Download failed — please try again';
@@ -330,6 +338,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
       await UpdateService.installApk(path);
       if (mounted) Navigator.pop(context);
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _downloading = false;
         _installing = false;

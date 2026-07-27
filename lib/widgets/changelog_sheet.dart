@@ -39,6 +39,7 @@ class _ChangelogSheetState extends State<ChangelogSheet> {
         headers: {'Accept': 'application/vnd.github.v3+json'},
       ).timeout(const Duration(seconds: 10));
 
+      if (!mounted) return;
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as List;
         setState(() {
@@ -55,6 +56,7 @@ class _ChangelogSheetState extends State<ChangelogSheet> {
         setState(() { _error = 'Could not load changelog.'; _loading = false; });
       }
     } catch (_) {
+      if (!mounted) return;
       setState(() { _error = 'No internet connection.'; _loading = false; });
     }
   }
