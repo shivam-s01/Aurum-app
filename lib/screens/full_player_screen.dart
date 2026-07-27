@@ -899,9 +899,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       final vGapSm = isCompact ? 8.0 : 16.0;
       final vGapMd = isCompact ? 12.0 : 20.0;
       final hPad = isTablet ? w * 0.16 : 28.0;
-      final l10n = AppLocalizations.of(context)!;
-      final isLight = Theme.of(context).brightness == Brightness.light;
-      final castRowIconColor = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(128);
 
       return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -969,7 +966,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 ),
               ),
             ),
-            SizedBox(height: (vGapSm * 0.45).clamp(0.0, vGapSm)),
+            SizedBox(height: vGapSm),
             // sitting between title/artist and the seek bar. Tapping it
             // opens straight to the full Lyrics tab.
             ValueListenableBuilder<bool>(
@@ -983,52 +980,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               },
             ),
             SizedBox(height: vGapSm),
-            // Cast + output-device row — sits directly above the seek
-            // bar per design direction, so it reads as part of the
-            // playback-control cluster rather than attached to the
-            // title/artist row above. Centered to feel like a
-            // deliberate, self-contained control strip.
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: hPad),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    height: 46,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: isLight
-                          ? AurumTheme.lightBgSurface.withAlpha(180)
-                          : Colors.white.withAlpha(10),
-                      borderRadius: BorderRadius.circular(23),
-                      border: Border.all(
-                        color: isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14),
-                        width: 0.5,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CastIconButton(size: 24, color: castRowIconColor),
-                        const SizedBox(width: 16),
-                        GestureDetector(
-                          onTap: () => showAudioOutputSheet(context),
-                          child: Semantics(
-                            label: l10n.audioOutputPickerTitle,
-                            button: true,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Icon(Icons.speaker_group_rounded, size: 25, color: castRowIconColor),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: (vGapSm * 0.45).clamp(0.0, vGapSm)),
             // Seek bar — delay ~150ms
             FadeTransition(
               opacity: _seekStagger,
@@ -1041,7 +992,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 child: _SeekBar(player: player, hPad: hPad),
               ),
             ),
-            SizedBox(height: (vGapSm * 0.45).clamp(0.0, vGapSm)),
+            SizedBox(height: vGapSm),
             // Controls — delay ~220ms
             FadeTransition(
               opacity: _ctrlStagger,
@@ -1522,7 +1473,42 @@ class _SongInfo extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 20),
-          _FavButton(isFav: isFav, onTap: onFavTap),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _FavButton(isFav: isFav, onTap: onFavTap),
+              const SizedBox(height: 4),
+              Container(
+                height: 38,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: isLight
+                      ? AurumTheme.lightBgSurface.withAlpha(180)
+                      : Colors.white.withAlpha(10),
+                  borderRadius: BorderRadius.circular(19),
+                  border: Border.all(
+                    color: isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14),
+                    width: 0.5,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CastIconButton(size: 19, color: textSecondary),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => showAudioOutputSheet(context),
+                      child: Semantics(
+                        label: l10n.audioOutputPickerTitle,
+                        button: true,
+                        child: Icon(Icons.speaker_group_rounded, size: 20, color: textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
