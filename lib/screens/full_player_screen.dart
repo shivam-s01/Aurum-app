@@ -1546,6 +1546,13 @@ class _InlineLyricsStrip extends StatefulWidget {
 }
 
 class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
+  // Deliberately NOT a standalone fixed height. When there's no line to
+  // show, this widget collapses to zero (SizedBox.shrink()) — exactly like
+  // the toggle-off case in the parent, where the two surrounding vGapSm
+  // gaps merge into one. That merged vGapSm gap IS the "reserved" gap; we
+  // never add a second, larger fixed height on top of it. This keeps the
+  // "lyrics off" gap and the "lyrics on but nothing to show right now" gap
+  // pixel-identical, by construction, instead of by matching two numbers.
   static const double _stripHeight = 34.0;
 
   LyricsResult? _result;
@@ -1571,10 +1578,10 @@ class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
 
     final result = _result;
     if (result == null || !result.hasAny) {
-      // Reserve the height either way — SizedBox.shrink() here would let
-      // the layout collapse/expand as lyrics resolve, jumping the seek
-      // bar. An invisible fixed-height box keeps everything else pinned.
-      return SizedBox(height: _stripHeight);
+      // No lyrics at all for this track (or still resolving) — collapse to
+      // zero. The parent's own vGapSm-vGapSm gap around this widget then
+      // merges into a single gap, identical to the "lyrics off" state.
+      return const SizedBox.shrink();
     }
 
     final isLight = Theme.of(context).brightness == Brightness.light;
