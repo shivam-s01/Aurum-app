@@ -176,6 +176,44 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     player.addListener(_feedbackListener!);
   }
 
+  // FIX: PlayerProvider.playbackError was set whenever a song genuinely
+  // failed to play (native call hung/threw — see playSong()'s try/catch),
+  // with a doc comment saying "screens can watch this to show a retry
+  // snackbar/toast" — but nothing anywhere in the app actually read it.
+  // A failed song silently went from "loading" to nothing, with no
+  // explanation and no way to retry short of tapping the song again and
+  // hoping. Wiring it here means it's shown regardless of which screen
+  // the user is on when playback fails, exactly like the feedback
+  // listener above.
+  VoidCallback? _playbackErrorListener;
+
+  void _startPlaybackErrorTracking() {
+    final player = _trackedPlayer ?? context.read<PlayerProvider>();
+    _playbackErrorListener = () {
+      final err = player.playbackError;
+      if (err == null || !mounted) return;
+      final failedSong = player.lastFailedSong;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(err),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+          action: failedSong == null
+              ? null
+              : SnackBarAction(
+                  label: 'RETRY',
+                  onPressed: () => player.playSong(failedSong),
+                ),
+        ));
+      // One-shot: clear it immediately after showing, so backgrounding/
+      // resuming the app or a provider rebuild can't re-show the same
+      // stale error a second time.
+      player.clearPlaybackError();
+    };
+    player.addListener(_playbackErrorListener!);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -188,6 +226,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _startFeedbackTracking();
+      _startPlaybackErrorTracking();
 
       // Cold-launch sync: didChangeAppLifecycleState's resumed branch
       // only fires on a paused→resumed transition, which a fresh app
@@ -304,6 +343,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     _accelSub?.cancel();
     if (_feedbackListener != null) {
       _trackedPlayer?.removeListener(_feedbackListener!);
+    }
+    if (_playbackErrorListener != null) {
+      _trackedPlayer?.removeListener(_playbackErrorListener!);
     }
     super.dispose();
   }

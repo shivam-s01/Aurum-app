@@ -50,6 +50,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
     try {
       String? id = widget.artistId;
       id ??= await ApiService.searchArtistByName(widget.artistName);
+      if (!mounted) return;
       if (id == null || id.isEmpty) {
         setState(() {
           _loading = false;

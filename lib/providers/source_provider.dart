@@ -31,6 +31,15 @@ class SourceProvider extends ChangeNotifier {
   /// flips, so the currently playing song can be stopped immediately.
   void Function()? onSourceChanged;
 
+  /// Optional check wired in from main.dart once PlayerProvider exists:
+  /// returns true if the song currently loaded in the engine is a local
+  /// file. When true, a connectivity drop does NOT stop playback — a
+  /// local file doesn't need internet to keep playing, exactly like
+  /// Spotify keeps an already-downloaded/offline track going. Only an
+  /// online stream gets interrupted, since it genuinely can't continue
+  /// without network.
+  bool Function()? isCurrentSongLocal;
+
   MusicSource get source => _source;
   bool get isOnline => _source == MusicSource.online;
 
@@ -77,9 +86,15 @@ class SourceProvider extends ChangeNotifier {
     if (next == _source) return; // no actual change, skip
     _source = next;
     if (notify) {
-      // Stop whatever's currently playing immediately, since its source
-      // (stream URL or local file) is no longer valid for the new mode.
-      onSourceChanged?.call();
+      // A local file keeps playing fine with no network — only stop
+      // playback when the current song actually depends on the network
+      // (an online stream). Falls back to the old "always stop" behavior
+      // if the check hasn't been wired up yet, so this never regresses
+      // into "nothing was stopped and the mini player looks stuck".
+      final currentIsLocal = isCurrentSongLocal?.call() ?? false;
+      if (!currentIsLocal) {
+        onSourceChanged?.call();
+      }
       notifyListeners();
     }
   }

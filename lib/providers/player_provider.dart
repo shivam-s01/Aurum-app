@@ -172,8 +172,14 @@ class PlayerProvider extends ChangeNotifier {
   // Screens can watch this to show a retry snackbar/toast.
   String? _playbackError;
   String? get playbackError => _playbackError;
+  // The song that failed, captured alongside _playbackError, so a retry
+  // action (SnackBar button) has something concrete to replay — without
+  // this there was no way to actually act on "Tap to retry" wording.
+  Song? _lastFailedSong;
+  Song? get lastFailedSong => _lastFailedSong;
   void clearPlaybackError() {
     _playbackError = null;
+    _lastFailedSong = null;
     notifyListeners();
   }
 
@@ -906,6 +912,7 @@ class PlayerProvider extends ChangeNotifier {
         // actually started.
         _isLoading = false;
         _expectedSongId = null;
+        _lastFailedSong = song;
         _playbackError = 'Couldn\'t play "${song.title}". Tap to retry.';
         notifyListeners();
         return;
@@ -928,6 +935,7 @@ class PlayerProvider extends ChangeNotifier {
         if (mySession != _uiPlaySession) return; // superseded — ignore stale failure
         _isLoading = false;
         _expectedSongId = null;
+        _lastFailedSong = song;
         _playbackError = 'Couldn\'t play "${song.title}". Tap to retry.';
         notifyListeners();
         return;

@@ -81,7 +81,20 @@ class DownloadProvider extends ChangeNotifier {
       }
     }
 
-    await NotificationService.instance.init();
+    // NOTE: NotificationService.instance.init() is intentionally NOT
+    // called here. This init() runs synchronously during MultiProvider's
+    // very first build (main.dart's DownloadProvider(engine)..init()) —
+    // i.e. BEFORE runApp()'s first frame has painted. NotificationService
+    // .init() does real platform-channel work (plugin init, notification
+    // channel creation, and a requestNotificationsPermission() system
+    // dialog request) that main.dart deliberately defers to AFTER
+    // runApp() for exactly this reason — see the PERF FIX comment there.
+    // Calling it again here would silently undo that fix and reintroduce
+    // the cold-start stutter/hang it was written to prevent. Any download
+    // action that needs NotificationService can rely on main.dart having
+    // already triggered its init (it's idempotent — see `_initialized`
+    // guard in notification_service.dart), so nothing here needs to
+    // re-trigger it.
     _initialized = true;
     notifyListeners();
   }

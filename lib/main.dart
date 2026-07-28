@@ -56,51 +56,6 @@ final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
 final RouteObserver<ModalRoute<void>> aurumRouteObserver =
     RouteObserver<ModalRoute<void>>();
 
-// DEBUG (diagnosing "back navigation still feels stuck for ~1s even
-// after durations were unified to 350ms everywhere"): durations/curves
-// being correct doesn't rule out something blocking the UI thread for a
-// beat right as the pop happens — that would look identical ("stuck,
-// then snap") regardless of what duration/curve is configured, because
-// no frames can render while the thread is blocked. This times every
-// route pop app-wide, from the moment Navigator.didPop fires to the
-// next frame actually drawn after it, and shows the result directly ON
-// SCREEN as a SnackBar — no adb/logcat/computer needed, just watch the
-// phone after backing out of any screen.
-// A number close to 350 = the animation really is just running at its
-// configured speed (nothing further to fix). A number noticeably LARGER
-// (600, 1000+) = something is blocking the thread on top of the
-// transition — the actual thing to hunt down next, now with a concrete
-// size instead of a guess.
-class _PopTimingObserver extends NavigatorObserver {
-  DateTime? _popAt;
-
-  @override
-  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    _popAt = DateTime.now();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final at = _popAt;
-      if (at == null) return;
-      final gap = DateTime.now().difference(at).inMilliseconds;
-      // A second post-frame hop so this SnackBar shows on the SCREEN
-      // THAT'S NOW VISIBLE after the pop (previousRoute's context),
-      // rather than trying to show on a context that's mid-transition.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final messenger = scaffoldMessengerKey.currentState;
-        if (messenger == null) return;
-        messenger.hideCurrentSnackBar();
-        messenger.showSnackBar(SnackBar(
-          content: Text('[BackNav] first frame after pop: +${gap}ms'),
-          duration: const Duration(seconds: 4),
-          backgroundColor: gap > 500 ? Colors.red : Colors.green,
-        ));
-      });
-    });
-    super.didPop(route, previousRoute);
-  }
-}
-
-final _PopTimingObserver _popTimingObserver = _PopTimingObserver();
-
 Future<void> main() async {
   runZonedGuarded(() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -283,6 +238,16 @@ class AurumApp extends StatelessWidget {
               engine.stop().catchError((e, st) {
                 debugPrint('[Aurum] stop() on source change failed: $e');
               });
+              // Only an online stream gets cut (see isCurrentSongLocal
+              // below) — so if we're here, the user needs to know why
+              // their music just stopped, rather than it looking like a
+              // random freeze/crash.
+              scaffoldMessengerKey.currentState?.showSnackBar(
+                const SnackBar(
+                  content: Text("You're offline — playback paused"),
+                  duration: Duration(seconds: 3),
+                ),
+              );
             };
             sp.init();
             return sp;
@@ -345,7 +310,15 @@ class AurumApp extends StatelessWidget {
           },
         ),
         ChangeNotifierProxyProvider2<RecentlyPlayedProvider, FavoritesProvider, PlayerProvider>(
-          create: (_) => PlayerProvider(engine),
+          create: (context) {
+            final p = PlayerProvider(engine);
+            // See SourceProvider.isCurrentSongLocal: lets a connectivity
+            // drop skip stopping playback when the current song is a
+            // local file, since it doesn't need network to keep playing.
+            context.read<SourceProvider>().isCurrentSongLocal =
+                () => p.currentSong?.isLocal ?? false;
+            return p;
+          },
           update: (_, recentlyPlayed, favorites, player) {
             final p = player ?? PlayerProvider(engine, recentlyPlayedProvider: recentlyPlayed);
             p.updateRecentlyPlayed(recentlyPlayed);
@@ -429,7 +402,7 @@ class AurumApp extends StatelessWidget {
             themeMode: themeProvider.themeMode,
             theme: lightTheme,
             darkTheme: darkTheme,
-            navigatorObservers: [aurumRouteObserver, _popTimingObserver],
+            navigatorObservers: [aurumRouteObserver],
             locale: localeProvider.locale,
             supportedLocales: kSupportedLocales,
             localizationsDelegates: const [
@@ -463,6 +436,25 @@ class AurumApp extends StatelessWidget {
             // splash hands off to the real app, defeating the point.
             // Wrapping it out here instead means the warmup paints
             // immediately, hidden behind/alongside the splash itself.
+            // Cross-fades dark/light/AMOLED + accent color changes instead
+            // of the previous instant one-frame swap. MaterialApp already
+            // builds the correct Theme internally (theme/darkTheme/
+            // themeMode above); `child` here is that already-resolved
+            // subtree. Re-reading Theme.of(context) and animating it with
+            // AnimatedTheme smoothly interpolates every color that reads
+            // through Theme.of(context) — which is virtually all of
+            // aurum_theme.dart's *Of(context) helpers (scaffoldBackground
+            // Color, colorScheme.surface/onSurface, dividerColor, etc,
+            // used in 600+ places across the app) — with no changes needed
+            // at any of those call sites.
+            builder: (context, child) {
+              return AnimatedTheme(
+                data: Theme.of(context),
+                duration: const Duration(milliseconds: 320),
+                curve: Curves.easeOutCubic,
+                child: child ?? const SizedBox.shrink(),
+              );
+            },
             home: _BlurShaderWarmup(
               child: AppLockScreen(
                 child: _SplashOnEveryEntry(child: const MainShell()),

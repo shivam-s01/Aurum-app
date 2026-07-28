@@ -6,8 +6,36 @@ import '../providers/locale_provider.dart';
 import '../widgets/aurum_pressable.dart';
 import '../l10n/generated/app_localizations.dart';
 
-class SettingsLanguageScreen extends StatelessWidget {
+class SettingsLanguageScreen extends StatefulWidget {
   const SettingsLanguageScreen({super.key});
+
+  @override
+  State<SettingsLanguageScreen> createState() => _SettingsLanguageScreenState();
+}
+
+class _SettingsLanguageScreenState extends State<SettingsLanguageScreen> {
+  // Which row is mid-switch, so its own tile can show a small spinner
+  // instead of its checkmark/circle — and every row gets briefly disabled
+  // — while the locale change propagates through MaterialApp's rebuild.
+  // That rebuild reflows every localized string in the whole app in one
+  // frame, which is real work on a low-end device; a spinner here means
+  // the tap always reads as "doing something" rather than looking frozen
+  // or, worse, inviting a second tap mid-rebuild that queues up a second
+  // full-app rebuild right behind the first.
+  String? _switchingTo;
+
+  Future<void> _select(Locale? locale) async {
+    if (_switchingTo != null) return; // already mid-switch, ignore
+    HapticFeedback.selectionClick();
+    setState(() => _switchingTo = locale?.languageCode ?? 'system');
+    // One frame gap so the spinner actually paints before the heavier
+    // locale rebuild starts on the same thread right after it.
+    await Future.delayed(const Duration(milliseconds: 16));
+    if (!mounted) return;
+    await context.read<LocaleProvider>().setLocale(locale);
+    if (!mounted) return;
+    setState(() => _switchingTo = null);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,10 +84,9 @@ class SettingsLanguageScreen extends StatelessWidget {
                 _LanguageRow(
                   label: l10n.settingsLanguageSystemDefault,
                   selected: currentCode == null,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    context.read<LocaleProvider>().setLocale(null);
-                  },
+                  loading: _switchingTo == 'system',
+                  enabled: _switchingTo == null,
+                  onTap: () => _select(null),
                 ),
                 Divider(color: AurumTheme.dividerOf(context), height: 0.5, indent: 14, endIndent: 14),
                 ...List.generate(kSupportedLocales.length, (i) {
@@ -70,10 +97,9 @@ class SettingsLanguageScreen extends StatelessWidget {
                       _LanguageRow(
                         label: kLocaleDisplayNames[locale.languageCode] ?? locale.languageCode,
                         selected: currentCode == locale.languageCode,
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          context.read<LocaleProvider>().setLocale(locale);
-                        },
+                        loading: _switchingTo == locale.languageCode,
+                        enabled: _switchingTo == null,
+                        onTap: () => _select(locale),
                       ),
                       if (!isLast)
                         Divider(color: AurumTheme.dividerOf(context), height: 0.5, indent: 14, endIndent: 14),
@@ -94,16 +120,20 @@ class _LanguageRow extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.loading = false,
+    this.enabled = true,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool loading;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     return AurumPressable(
-      onTap: onTap,
+      onTap: enabled ? onTap : () {},
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
@@ -112,13 +142,24 @@ class _LanguageRow extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
+                  color: enabled
+                      ? AurumTheme.textPrimaryOf(context)
+                      : AurumTheme.textMutedOf(context),
                   fontSize: 15,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 ),
               ),
             ),
-            if (selected)
+            if (loading)
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation(AurumTheme.gold),
+                ),
+              )
+            else if (selected)
               Icon(Icons.check_circle_rounded, color: AurumTheme.gold, size: 22)
             else
               Icon(Icons.circle_outlined,

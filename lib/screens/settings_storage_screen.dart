@@ -88,17 +88,23 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
   }
 
   Future<void> _clearDir(String subPath) async {
+    if (!mounted) return;
+    setState(() => _loading = true);
     final cacheDir = await getTemporaryDirectory();
     final dir = Directory('${cacheDir.path}/$subPath');
     if (await dir.exists()) await dir.delete(recursive: true);
-    _load();
+    if (!mounted) return;
+    await _load();
   }
 
   Future<void> _clearDownloads() async {
+    if (!mounted) return;
+    setState(() => _loading = true);
     final appDir = await getApplicationDocumentsDirectory();
     final dir = Directory('${appDir.path}/downloads');
     if (await dir.exists()) await dir.delete(recursive: true);
-    _load();
+    if (!mounted) return;
+    await _load();
   }
 
   void _confirmClear(BuildContext context, String title, VoidCallback onConfirm) {

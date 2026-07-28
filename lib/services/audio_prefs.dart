@@ -235,7 +235,17 @@ class AudioPrefs {
         p.getBool(_kShowLyricsOnPlayer) ?? showLyricsOnPlayerNotifier.value;
     shakeToSkipNotifier.value = p.getBool(_kShakeToSkip) ?? shakeToSkipNotifier.value;
     stopOnSwipeNotifier.value = p.getBool(_kStopOnSwipe) ?? stopOnSwipeNotifier.value;
-    await pushStopOnSwipeToNative(stopOnSwipeNotifier.value);
+    // PERF FIX (cold-start): this was `await`-ed here, inside a call chain
+    // that main.dart itself awaits before runApp() — meaning a real
+    // MethodChannel round-trip was sitting in the pre-first-frame blocking
+    // path, the same class of issue fixed in DownloadProvider.init() (see
+    // that file's NOTE). The native side only needs this value to have
+    // arrived before Android could plausibly fire onTaskRemoved, which
+    // requires the user to have already opened the app and put it in
+    // Recents — there's no correctness reason this needs to finish before
+    // the first frame paints. Fire-and-forget instead; still try-caught
+    // inside pushStopOnSwipeToNative itself.
+    unawaited(pushStopOnSwipeToNative(stopOnSwipeNotifier.value));
     swipeSensitivity = p.getDouble(_kSwipeSens) ?? swipeSensitivity;
     dynamicPlayerColorNotifier.value = p.getBool(_kDynamicColor) ?? dynamicPlayerColorNotifier.value;
     showBlurredBgNotifier.value = p.getBool(_kShowBlurBg) ?? showBlurredBgNotifier.value;

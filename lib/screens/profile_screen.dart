@@ -441,6 +441,7 @@ class _AccountCardState extends State<_AccountCard> {
     if (ok) {
       // Refresh premium status after sign-in
       await context.read<PremiumProvider>().refresh();
+      if (!mounted) return;
       final isPremium = context.read<PremiumProvider>().isPremium;
 
       if (isPremium) {

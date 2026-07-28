@@ -342,6 +342,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // again" message instead — same distinction Spotify/Netflix make
         // between "you're offline" and "something went wrong on our end".
         final connectivity = await Connectivity().checkConnectivity();
+        if (!mounted) return;
         final isOffline = connectivity.every((r) => r == ConnectivityResult.none);
         setState(() {
           _onlineLoading = false;
