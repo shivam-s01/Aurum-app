@@ -1,6 +1,7 @@
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../main.dart' show aurumRouteObserver;
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
@@ -373,10 +374,88 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   // ── RouteAware — pause ambient anims when a route is pushed on top ──
   // (lyrics screen, queue screen, options sheet, etc.)
+  bool _didSeedInitialPalette = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     aurumRouteObserver.subscribe(this, ModalRoute.of(context)!);
+
+    // FIX (black/neutral flash before color loads on first open) — this
+    // screen used to always paint its very first frame with the hardcoded
+    // near-black defaults on _currentBg1..4 / _targetBg1..4, because color
+    // extraction only ever kicked off inside build()'s
+    // addPostFrameCallback — a whole frame after first paint, PLUS
+    // whatever the async palette decode took on top. On a cache miss
+    // that's a very visible "opens black/flat, then the real color pops
+    // in a beat later" — the opposite of Spotify/Echo, which open already
+    // tinted because the artwork was pre-warmed while the mini-player was
+    // still showing.
+    //
+    // Real fix: check the palette cache synchronously right here, before
+    // this screen's first build() ever runs. _warmNextInQueue means the
+    // song being opened has very often already had its palette extracted
+    // and cached while the previous track was playing, so
+    // ArtworkPaletteCache.peek() resolves instantly in the common case —
+    // both _currentBg* and _targetBg* get seeded with the true color
+    // before frame one, no morph animation needed for it at all. Only a
+    // genuine cold cache falls through to the existing async path.
+    if (!_didSeedInitialPalette) {
+      _didSeedInitialPalette = true;
+      final url = widget.song.artworkUrl;
+      if (url.isNotEmpty) {
+        final cached = ArtworkPaletteCache.peek(url);
+        if (cached != null) {
+          final isLight = Theme.of(context).brightness == Brightness.light;
+          final c1 = cached.vibrant;
+          final c2 = cached.dominant;
+          final c3 = cached.darkMuted;
+          final c4 = cached.lightVibrant;
+          final seeded1 = isLight
+              ? ensureContrastSafe(Color.lerp(c1, Colors.white, 0.16)!, isLight: true)
+              : ensureContrastSafe(Color.lerp(c1, Colors.black, 0.22)!, isLight: false);
+          final seeded2 = isLight
+              ? ensureContrastSafe(Color.lerp(c2, Colors.white, 0.10)!, isLight: true)
+              : ensureContrastSafe(Color.lerp(c2, Colors.black, 0.48)!, isLight: false);
+          final seeded3 = isLight
+              ? ensureContrastSafe(Color.lerp(c3, Colors.white, 0.04)!, isLight: true)
+              : ensureContrastSafe(Color.lerp(c3, Colors.black, 0.70)!, isLight: false);
+          final seeded4 = isLight
+              ? ensureContrastSafe(Color.lerp(c4, Colors.white, 0.20)!, isLight: true)
+              : ensureContrastSafe(Color.lerp(c4, Colors.black, 0.30)!, isLight: false);
+          // Seed BOTH current and target to the same value — this is what
+          // skips the morph entirely for the opening frame, since
+          // _BgLayer lerps start→target by _bgColorCtrl.value (0.0 here).
+          // Setting only target would still flash the old near-black
+          // _currentBg on frame one, then visibly morph — same bug,
+          // just relocated.
+          _currentBg1 = seeded1;
+          _currentBg2 = seeded2;
+          _currentBg3 = seeded3;
+          _currentBg4 = seeded4;
+          _targetBg1 = seeded1;
+          _targetBg2 = seeded2;
+          _targetBg3 = seeded3;
+          _targetBg4 = seeded4;
+          // Keep the rest of the pipeline in sync so build()'s own
+          // song-change detection doesn't immediately re-trigger a
+          // redundant extraction+morph for the song that's already
+          // correctly seeded.
+          _lastSongId = widget.song.id;
+          _lastIsLight = isLight;
+          _lastArtUrl = url;
+          // This seed path makes song.id == _lastSongId true for the
+          // upcoming first build(), so that method's own song-changed
+          // branch — which normally fires _warmNextInQueue() — never runs
+          // for this open. Queue pre-warming still needs to happen on a
+          // genuine first open, so trigger it here instead.
+          _isFirstBuild = false;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _warmNextInQueue();
+          });
+        }
+      }
+    }
   }
 
   @override
@@ -429,6 +508,30 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       return;
     }
 
+    // FIX (cold-start black flash): a true cache miss — this exact
+    // artwork has never been seen before, e.g. app freshly opened
+    // straight into an unwarmed song — used to leave the background on
+    // its hardcoded near-black default for the entire ~1.2s the accurate
+    // PaletteGenerator extraction (below) could take, only then snapping
+    // to real color. getFast() samples a coarse average color the moment
+    // the artwork's own image stream first decodes — no separate slow
+    // quantization pass — so the background gets its first real tint as
+    // soon as pixels exist, not after a full extraction cycle. It's fired
+    // WITHOUT awaiting the accurate path first, so both race
+    // concurrently; whichever the accurate one wins (it always
+    // eventually applies, since gen still matches), it simply overwrites
+    // this fast approximate color, same as any other song-change morph.
+    unawaited(ArtworkPaletteCache.getFast(url).then((fast) {
+      if (fast == null || gen != _artGen || !mounted) return;
+      // Only apply if the accurate result hasn't already landed and
+      // moved _artGen/_lastArtUrl on — checked implicitly via gen above,
+      // but also skip if a real cached palette has shown up in the
+      // meantime (e.g. the accurate path was faster this time), so the
+      // flat average never overwrites a better result already on screen.
+      if (ArtworkPaletteCache.peek(url) != null) return;
+      _applyPalette(fast, gen: gen, isLight: isLight, instant: true);
+    }));
+
     try {
       final palette = await ArtworkPaletteCache.get(url);
       if (gen != _artGen || !mounted) return;
@@ -459,7 +562,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     } catch (_) {}
   }
 
-  void _applyPalette(ArtworkPalette p, {required int gen, required bool isLight}) {
+  void _applyPalette(ArtworkPalette p, {required int gen, required bool isLight, bool instant = false}) {
     if (gen != _artGen || !mounted) return;
     final c1 = p.vibrant;
     final c2 = p.dominant;
@@ -483,6 +586,30 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       _targetBg2 = ensureContrastSafe(Color.lerp(c2, Colors.black, 0.48)!, isLight: false);
       _targetBg3 = ensureContrastSafe(Color.lerp(c3, Colors.black, 0.70)!, isLight: false);
       _targetBg4 = ensureContrastSafe(Color.lerp(c4, Colors.black, 0.30)!, isLight: false);
+    }
+
+    // FIX (cold-start black flash, final piece): the fast average-color
+    // result (see getFast() in _extractColor) is only useful if it shows
+    // up on screen INSTANTLY — if it still had to ride the normal 700–
+    // 900ms _bgColorCtrl morph starting from the hardcoded near-black
+    // default, the user would watch the exact same "black fading to
+    // color" gap this whole fix exists to remove, just with the fast
+    // color as the destination instead of the accurate one. `instant:
+    // true` (passed only from that one call site) snaps _currentBg
+    // straight to the new target and marks _bgColorCtrl as already
+    // complete, so this specific application paints immediately with no
+    // fade. The accurate PaletteGenerator result that follows moments
+    // later still morphs in normally via the standard forward(from: 0.0)
+    // path below — only this first rough-and-instant color skips the
+    // animation.
+    if (instant) {
+      _currentBg1 = _targetBg1;
+      _currentBg2 = _targetBg2;
+      _currentBg3 = _targetBg3;
+      _currentBg4 = _targetBg4;
+      _bgColorCtrl.value = 1.0;
+      if (mounted) setState(() {});
+      return;
     }
 
     _bgColorCtrl.forward(from: 0.0);

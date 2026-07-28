@@ -640,9 +640,16 @@ class ApiService {
     // sequentially, so this adds zero latency vs the old gap-fill design)
     // and interleaved round-robin so a section is a genuine 50/50 mix
     // instead of "Saavn primary, YT only fills leftover gaps."
+    // FIX (sections landing under 80): raw pool bumped up on both sides.
+    // Saavn's own variant/junk filters were already trimming a chunk of
+    // any batch, and _searchYt's limit only became meaningfully honorable
+    // once _searchYtPaged (see below) started walking multiple result
+    // pages instead of being silently capped at one ~20-video page — so
+    // asking for more here now actually pays off downstream instead of
+    // being a no-op.
     final results = await Future.wait([
-      _searchSaavnDeep(query, limit: 50),
-      _searchYt(query, limit: 60),
+      _searchSaavnDeep(query, limit: 70),
+      _searchYt(query, limit: 70),
     ]);
     final rawSaavn = results[0];
     final rawYt    = results[1];
@@ -1608,11 +1615,10 @@ class ApiService {
 
   static Future<List<Song>> _searchYt(String query, {int limit = 15}) async {
     try {
-      final results = await Future.any<List<dynamic>>([
-        _yt.search.search(query).then((list) => list.toList()),
-        Future.delayed(const Duration(seconds: 6), () => <dynamic>[]),
+      final videos = await Future.any<List<Video>>([
+        _searchYtPaged(query, limit),
+        Future.delayed(const Duration(seconds: 8), () => <Video>[]),
       ]);
-      final videos = results.whereType<Video>().toList();
       // Official-channel uploads first — same list, just reordered, so
       // when we later `.take(limit)` or dedup by title, the cleanest/most
       // premium (official) version of a song wins over a random reupload.
@@ -1632,17 +1638,61 @@ class ApiService {
     return [];
   }
 
+  static Future<List<Video>> _searchYtPaged(String query, int limit) async {
+    final seen = <String>{};
+    final videos = <Video>[];
+    try {
+      var page = await _yt.search.search(query);
+      for (final v in page) {
+        if (seen.add(v.id.value)) videos.add(v);
+      }
+      var pagesFetched = 1;
+      while (videos.length < limit * 2 && pagesFetched < 4) {
+        final next = await page.nextPage();
+        if (next == null || next.isEmpty) break;
+        page = next;
+        for (final v in page) {
+          if (seen.add(v.id.value)) videos.add(v);
+        }
+        pagesFetched++;
+      }
+    } catch (e) {
+      _log('[_searchYtPaged] Error: $e');
+    }
+    return videos;
+  }
+
   /// Builds a home-feed section straight from YouTube search — used for
   /// English/international content where JioSaavn's catalog is weak.
-  /// Deliberately simple: one search call, same dedup/variant-filter as the
-  /// Saavn section path, no secondary API or per-song lookup.
+  ///
+  /// FIX (sections landing well under 80 songs): fans the query out across
+  /// a few phrasing variants (plain/audio/official) in parallel, each now
+  /// pulling multiple search-result pages via _searchYtPaged, so there's
+  /// real headroom for variant/junk/premium-quality filtering to still
+  /// leave a full 80-song section instead of collapsing to whatever a
+  /// single ~20-video search page contained.
   static Future<SongSection?> _ytSectionV1(String query, String label) async {
-    final ytSongs = await _searchYt(query, limit: 25);
+    final variants = <String>{
+      query,
+      '$query audio',
+      '$query official',
+    };
+    final results = await Future.wait(
+      variants.map((q) => _searchYt(q, limit: 60)),
+    );
+    final seenIdsRaw = <String>{};
+    final ytSongs = <Song>[];
+    for (final list in results) {
+      for (final s in list) {
+        if (seenIdsRaw.add(s.id)) ytSongs.add(s);
+      }
+    }
     if (ytSongs.isEmpty) return null;
     final seenIds = <String>{};
     final seenTitles = <String>{};
     final merged = <Song>[];
     for (final s in ytSongs) {
+      if (merged.length >= 80) break;
       if (!seenIds.add(s.id)) continue;
       if (RecommendationEngine.isInherentVariant(s.title)) continue;
       if (RecommendationEngine.isLowQualityUpload(s.title)) continue;

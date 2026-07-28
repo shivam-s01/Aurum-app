@@ -21,6 +21,7 @@ import '../providers/download_provider.dart';
 import '../services/audio_prefs.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/faded_horizontal_list.dart';
 import '../widgets/song_tile.dart';
 import '../main.dart' show aurumRouteObserver;
 import '../widgets/aurum_loader.dart';
@@ -1443,7 +1444,7 @@ class _OnlineContent extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          SizedBox(
+          FadedHorizontalList(
             height: 214,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
@@ -2159,8 +2160,13 @@ class _ArtistStrip extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          SizedBox(
+          FadedHorizontalList(
             height: 100,
+            // Narrower than the default 20px — these are 64px circular
+            // avatars, not full square artwork; a full-width fade would
+            // visibly eat into the circle itself rather than just softening
+            // the trailing edge of empty margin around it.
+            fadeWidth: 12,
             child: loading
                 ? _buildShimmer(context)
                 : artists.isEmpty
@@ -2307,7 +2313,7 @@ class _CuratedPlaylistsSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          SizedBox(
+          FadedHorizontalList(
             height: 130,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,

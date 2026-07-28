@@ -12,6 +12,7 @@ import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/faded_horizontal_list.dart';
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_empty_state.dart';
@@ -80,57 +81,10 @@ class _StaggeredItemState extends State<_StaggeredItem>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Faded horizontal list edges — same lightweight ShaderMask trick as
-// home_screen.dart, so horizontal rows feel consistent across the app.
-// ─────────────────────────────────────────────────────────────────────────────
-class _FadedHorizontalList extends StatelessWidget {
-  final Widget child;
-  final double height;
-  const _FadedHorizontalList({required this.child, required this.height});
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = AurumTheme.bgOf(context);
-    return SizedBox(
-      height: height,
-      child: Stack(
-        children: [
-          Positioned.fill(child: child),
-          Positioned(
-            left: 0, top: 0, bottom: 0,
-            width: 20,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [bg, bg.withOpacity(0.0)],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 0, top: 0, bottom: 0,
-            width: 20,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerRight,
-                    end: Alignment.centerLeft,
-                    colors: [bg, bg.withOpacity(0.0)],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// _FadedHorizontalList moved to lib/widgets/faded_horizontal_list.dart
+// (FadedHorizontalList, public) so Home screen's carousels can share the
+// exact same edge-fade treatment instead of each screen keeping its own
+// private copy.
 
 class SearchScreen extends StatefulWidget {
   final bool isActive;
@@ -155,6 +109,29 @@ class _SearchScreenState extends State<SearchScreen>
   List<String> _history     = [];
   bool _loading     = false;
   bool _liveLoading = false;
+  // FIX (search screen "goes blank/covers with a loader" on live typing):
+  // _liveLoading used to drive _buildLiveLoadingState's full-cover
+  // Expanded(Center(AurumMorphLoader)) directly and IMMEDIATELY — it
+  // flips true synchronously in _onChanged on every single keystroke of
+  // a query that has no suggestions/results yet (which is every fresh
+  // query, and often several keystrokes into one, since results only
+  // exist once the 280ms debounce + network round-trip finishes). In
+  // practice that meant a big spinner regularly flashing over the whole
+  // content area for a brief instant while typing normally — reading as
+  // "the screen keeps going blank", exactly what was reported.
+  //
+  // Real fix: don't show that heavy full-cover loader until it's been
+  // needed for a genuine beat — gate it behind a short grace timer
+  // (_liveLoaderGraceTimer below) that only flips _showLiveLoader true
+  // if _liveLoading is STILL true (nothing arrived yet) after 350ms. Any
+  // response fast enough to land before that (the common case now that
+  // quickSearch fires Saavn+YT concurrently — see api_service.dart) never
+  // triggers the loader at all; the panel just goes straight from
+  // "typing" to "results", no flash in between. Only a genuinely slow
+  // network gets the loader, and only after giving the fast path a fair
+  // chance first.
+  bool _showLiveLoader = false;
+  Timer? _liveLoaderGraceTimer;
   bool _showHistory = false;
 
   // Browse tab state
@@ -231,6 +208,7 @@ class _SearchScreenState extends State<SearchScreen>
     _tabController.dispose();
     _debounce?.cancel();
     _suggestDebounce?.cancel();
+    _liveLoaderGraceTimer?.cancel();
     super.dispose();
   }
 
@@ -270,6 +248,7 @@ class _SearchScreenState extends State<SearchScreen>
 
   void _onChanged(String q) {
     _suggestDebounce?.cancel();
+    _liveLoaderGraceTimer?.cancel();
     final query = q.trim();
 
     if (query.isEmpty) {
@@ -277,12 +256,24 @@ class _SearchScreenState extends State<SearchScreen>
         _suggestions  = [];
         _liveResults  = [];
         _liveLoading  = false;
+        _showLiveLoader = false;
         _showHistory  = _history.isNotEmpty && _focusNode.hasFocus;
       });
       return;
     }
 
-    setState(() { _showHistory = false; _liveLoading = true; });
+    setState(() { _showHistory = false; _liveLoading = true; _showLiveLoader = false; });
+
+    // Only start showing the full-cover loader if this exact query is
+    // STILL loading 350ms from now — i.e. genuinely slow, not just
+    // "hasn't had a chance to respond yet". Anything that resolves
+    // faster than that (the normal case) never triggers this at all, so
+    // the panel goes straight from "typing" to "results" with no flash.
+    _liveLoaderGraceTimer = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      if (_controller.text.trim() != query) return;
+      if (_liveLoading) setState(() => _showLiveLoader = true);
+    });
 
     _suggestDebounce = Timer(const Duration(milliseconds: 280), () async {
       // FIX (blank search screen): if the query changed by the time this
@@ -307,11 +298,12 @@ class _SearchScreenState extends State<SearchScreen>
         setState(() {
           _liveResults = songs;
           _liveLoading = false;
+          _showLiveLoader = false;
         });
       }).catchError((_) {
         if (!mounted) return;
         if (_controller.text.trim() != query) return;
-        setState(() => _liveLoading = false);
+        setState(() { _liveLoading = false; _showLiveLoader = false; });
       });
 
       ApiService.suggest(query).then((suggestions) {
@@ -329,9 +321,10 @@ class _SearchScreenState extends State<SearchScreen>
     if (query.isEmpty) return;
     _debounce?.cancel();
     _suggestDebounce?.cancel();
+    _liveLoaderGraceTimer?.cancel();
     HapticFeedback.lightImpact();
     _dismissKeyboard();
-    setState(() { _loading = true; _liveLoading = false; _showHistory = false; _results = []; });
+    setState(() { _loading = true; _liveLoading = false; _showLiveLoader = false; _showHistory = false; _results = []; });
     _saveToHistory(query);
     _debounce = Timer(const Duration(milliseconds: 150), () async {
       final results = await ApiService.search(query);
@@ -343,12 +336,13 @@ class _SearchScreenState extends State<SearchScreen>
     HapticFeedback.lightImpact();
     _suggestDebounce?.cancel();
     _debounce?.cancel();
+    _liveLoaderGraceTimer?.cancel();
     _controller.clear();
     // STRICT: do NOT requestFocus here — user cleared the text but that
     // doesn't mean they want the keyboard back. They can tap the bar again.
     setState(() {
       _results = []; _liveResults = []; _suggestions = [];
-      _liveLoading = false; _loading = false;
+      _liveLoading = false; _showLiveLoader = false; _loading = false;
       _showHistory = _history.isNotEmpty;
       
       _browseResult = BrowseSearchResult.empty();
@@ -770,7 +764,17 @@ class _SearchScreenState extends State<SearchScreen>
 
     Widget content;
     if (!hasSuggestions && !hasLive) {
-      content = _liveLoading ? _buildLiveLoadingState(context) : _buildNoLiveResults(context, query);
+      // FIX: was `_liveLoading ? _buildLiveLoadingState : _buildNoLiveResults`
+      // — _liveLoading flips true on literally every keystroke, so this
+      // branch showed the full-cover spinner constantly while typing
+      // normally, even when the real answer was about to arrive well
+      // under a second later. Gated on _showLiveLoader instead, which
+      // only ever becomes true after the 350ms grace timer in _onChanged
+      // confirms this specific query is still genuinely unresolved — a
+      // normal fast response never trips it, so typing reads as smooth
+      // "results just appear" rather than "screen keeps flashing a
+      // loader".
+      content = _showLiveLoader ? _buildLiveLoadingState(context) : _buildNoLiveResults(context, query);
     } else {
       content = ListView(
         padding: const EdgeInsets.only(bottom: 80),
@@ -1021,7 +1025,7 @@ class _BrowseTabState extends State<_BrowseTab> {
         // Artists
         if (widget.result.artists.isNotEmpty) ...[
           _sectionLabel(context, AppLocalizations.of(context)!.libraryArtists),
-          _FadedHorizontalList(
+          FadedHorizontalList(
             height: 100,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
@@ -1043,7 +1047,7 @@ class _BrowseTabState extends State<_BrowseTab> {
         // Albums
         if (widget.result.albums.isNotEmpty) ...[
           _sectionLabel(context, AppLocalizations.of(context)!.libraryAlbums),
-          _FadedHorizontalList(
+          FadedHorizontalList(
             height: 180,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
