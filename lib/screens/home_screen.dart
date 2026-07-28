@@ -1386,6 +1386,10 @@ class _OnlineContent extends StatelessWidget {
   // it. A "See all" link opens the full mix in MixScreen; tapping any
   // individual card plays that song with the rest of the section as queue.
   Widget _buildSection(BuildContext context, SongSection section) {
+    // Shared controller so FadedHorizontalList can observe this row's
+    // scroll position and only show each edge fade once there's actually
+    // more content to scroll toward — see faded_horizontal_list.dart.
+    final scrollController = ScrollController();
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
       child: Column(
@@ -1446,7 +1450,9 @@ class _OnlineContent extends StatelessWidget {
           const SizedBox(height: 14),
           FadedHorizontalList(
             height: 214,
+            controller: scrollController,
             child: ListView.builder(
+              controller: scrollController,
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               cacheExtent: 600,
@@ -2138,6 +2144,7 @@ class _ArtistStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scrollController = ScrollController();
     // FIX — inconsistent vertical rhythm between home-feed sections: this
     // was top:24 while every other section (Trending Playlists, each
     // SongSection like Afternoon Picks/Bollywood Mix) uses top:28. Small
@@ -2162,6 +2169,7 @@ class _ArtistStrip extends StatelessWidget {
           const SizedBox(height: 14),
           FadedHorizontalList(
             height: 100,
+            controller: scrollController,
             // Narrower than the default 20px — these are 64px circular
             // avatars, not full square artwork; a full-width fade would
             // visibly eat into the circle itself rather than just softening
@@ -2172,6 +2180,7 @@ class _ArtistStrip extends StatelessWidget {
                 : artists.isEmpty
                     ? const SizedBox.shrink()
                     : ListView.builder(
+                        controller: scrollController,
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
                         // PERF: see cacheExtent note on the song-card
@@ -2298,6 +2307,7 @@ class _CuratedPlaylistsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final curated = _kCuratedPlaylists(l10n);
+    final scrollController = ScrollController();
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
       child: Column(
@@ -2315,7 +2325,9 @@ class _CuratedPlaylistsSection extends StatelessWidget {
           const SizedBox(height: 14),
           FadedHorizontalList(
             height: 130,
+            controller: scrollController,
             child: ListView.builder(
+              controller: scrollController,
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               // PERF: see cacheExtent note on the earlier song-card
@@ -2499,7 +2511,11 @@ class _PlaylistCardState extends State<_PlaylistCard> {
         child: Container(
           width: 200,
           height: 130,
-          margin: const EdgeInsets.only(right: 12),
+          // FIX (premium feel — visible gap between cards): 12px of bare
+          // scaffold-background margin between two 130px-tall cards read
+          // as a wide dead strip rather than intentional spacing.
+          // Spotify's shelves run tighter, ~8px card-to-card.
+          margin: const EdgeInsets.only(right: 8),
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),

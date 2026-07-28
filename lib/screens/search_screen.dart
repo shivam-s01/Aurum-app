@@ -974,6 +974,19 @@ class _BrowseTabState extends State<_BrowseTab> {
   bool              _artistLoading = false;
   List<BrowseTrack> _artistTracks  = [];
 
+  // Scroll controllers so FadedHorizontalList can observe each row's
+  // position and only fade an edge once there's actually more content
+  // that way — see faded_horizontal_list.dart.
+  final _artistsScrollController = ScrollController();
+  final _albumsScrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _artistsScrollController.dispose();
+    _albumsScrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _openAlbum(BrowseAlbum album) async {
     setState(() { _openAlbumId = album.collectionId; _openAlbumName = album.name; _albumLoading = true; _albumTracks = []; _openArtistName = null; });
     final tracks = await BrowseService.albumTracks(album.collectionId, isFromYoutube: album.isFromYoutube);
@@ -1027,7 +1040,9 @@ class _BrowseTabState extends State<_BrowseTab> {
           _sectionLabel(context, AppLocalizations.of(context)!.libraryArtists),
           FadedHorizontalList(
             height: 100,
+            controller: _artistsScrollController,
             child: ListView.builder(
+              controller: _artistsScrollController,
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1049,7 +1064,9 @@ class _BrowseTabState extends State<_BrowseTab> {
           _sectionLabel(context, AppLocalizations.of(context)!.libraryAlbums),
           FadedHorizontalList(
             height: 180,
+            controller: _albumsScrollController,
             child: ListView.builder(
+              controller: _albumsScrollController,
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16),
