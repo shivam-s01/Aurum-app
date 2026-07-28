@@ -402,8 +402,14 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // genuine cold cache falls through to the existing async path.
     if (!_didSeedInitialPalette) {
       _didSeedInitialPalette = true;
-      final url = widget.song.artworkUrl;
-      if (url.isNotEmpty) {
+      // FIX (undefined_getter build error): FullPlayerScreen has no `song`
+      // field of its own — it's driven entirely by PlayerProvider's
+      // currentSong (see _buildBody / the Selector further down this
+      // file), so `widget.song` was never a valid getter here and failed
+      // to compile. The song being opened is PlayerProvider.currentSong.
+      final currentSong = context.read<PlayerProvider>().currentSong;
+      final url = currentSong?.artworkUrl ?? '';
+      if (url.isNotEmpty && currentSong != null) {
         final cached = ArtworkPaletteCache.peek(url);
         if (cached != null) {
           final isLight = Theme.of(context).brightness == Brightness.light;
@@ -441,7 +447,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           // song-change detection doesn't immediately re-trigger a
           // redundant extraction+morph for the song that's already
           // correctly seeded.
-          _lastSongId = widget.song.id;
+          _lastSongId = currentSong.id;
           _lastIsLight = isLight;
           _lastArtUrl = url;
           // This seed path makes song.id == _lastSongId true for the

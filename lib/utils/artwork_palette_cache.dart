@@ -81,6 +81,61 @@ class ArtworkPaletteCache {
 
   static ArtworkPalette? peek(String url) => _cache[url];
 
+  // Tracks in-flight fast (average-color) extractions separately from the
+  // accurate PaletteGenerator ones above, so the two paths never collide
+  // or dedupe against each other incorrectly.
+  static final Map<String, Future<ArtworkPalette?>> _fastInFlight = {};
+
+  /// Quick, coarse average-color approximation — NOT the accurate
+  /// PaletteGenerator extraction above. Used by full_player_screen.dart's
+  /// cold-cache path to give the background SOME real tint the moment
+  /// artwork pixels exist, rather than sitting on the hardcoded near-black
+  /// default for the ~1.2s the accurate extraction can take. Deliberately
+  /// does not write into the main `_cache`/`peek()` store — that store is
+  /// reserved for the accurate result, so a later `peek()` never returns
+  /// this rough approximation as if it were the real palette.
+  static Future<ArtworkPalette?> getFast(String url) {
+    if (url.isEmpty || !url.startsWith('http')) return Future.value(null);
+    final existing = _fastInFlight[url];
+    if (existing != null) return existing;
+
+    final future = _extractFast(url).whenComplete(() {
+      _fastInFlight.remove(url);
+    });
+    _fastInFlight[url] = future;
+    return future;
+  }
+
+  static Future<ArtworkPalette?> _extractFast(String url) async {
+    try {
+      // Small size + single color bucket (maximumColorCount: 1) is what
+      // makes this "fast" — PaletteGenerator still does a real decode, but
+      // skips the multi-swatch quantization pass the accurate call above
+      // relies on. Short timeout so a slow network still falls back to the
+      // pipeline's existing near-black default rather than hanging.
+      final pg = await PaletteGenerator.fromImageProvider(
+        CachedNetworkImageProvider(url),
+        size: const Size(16, 16),
+        maximumColorCount: 1,
+      ).timeout(const Duration(milliseconds: 600));
+      final avg = pg.dominantColor?.color ??
+          pg.vibrantColor?.color ??
+          pg.mutedColor?.color;
+      if (avg == null) return null;
+      // Single averaged color reused across all four palette slots — this
+      // is an approximation standing in for the real multi-swatch palette
+      // until the accurate extraction lands and overwrites it.
+      return ArtworkPalette(
+        vibrant: avg,
+        dominant: avg,
+        darkMuted: avg,
+        lightVibrant: avg,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Returns the cached palette instantly if present, otherwise decodes
   /// (deduped against any identical in-flight request) and caches it.
   static Future<ArtworkPalette> get(String url) {
