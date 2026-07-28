@@ -25,10 +25,39 @@ import 'full_player_screen.dart';
 // _StaggeredSection. Capped delay so long result lists don't take forever
 // to finish animating in; items beyond the cap appear immediately.
 // ─────────────────────────────────────────────────────────────────────────────
+// Tracks which staggered items have already animated in this session —
+// mirrors home_screen.dart's _seenSections. Without this, a ListView
+// scrolling an item off-screen and back on tears down and rebuilds
+// _StaggeredItemState (Flutter disposes off-screen list children), which
+// re-runs initState() and replays the slide/fade-in animation from
+// scratch. That's the actual mechanism behind "thumbnail jumps up and
+// down" — every scroll pass re-triggers a fresh 0.06-offset slide-in for
+// any item that had scrolled out of view, which reads as the artwork
+// snapping to a slightly-off position then sliding into place, repeatedly,
+// as the user scrolls.
+//
+// FIX (search-specific bug on top of the above): this used to be keyed by
+// plain list position (`int` index) alone. Search results change every
+// time the user runs a new query, but positions restart from 0 for each
+// new result list — so a fresh, never-before-seen result landing at
+// position 3 of a NEW query would be treated as "already seen" if
+// anything had ever occupied position 3 in an EARLIER query this
+// session, and would wrongly skip straight to its settled end state with
+// no entrance animation at all. Keying by a stable item identity (song
+// id, passed in as itemKey) when available, falling back to the index
+// only when no such identity exists, fixes that cross-query collision.
+final _seenStaggeredItems = <String>{};
+
 class _StaggeredItem extends StatefulWidget {
   final int index;
   final Widget child;
-  const _StaggeredItem({required this.index, required this.child});
+  // Optional stable identity for the underlying item (e.g. a song or
+  // track id). When provided, this — not the raw list position — is
+  // used to decide whether this item has already animated in, so a new
+  // search query's results don't collide with a previous query's items
+  // that happened to sit at the same position.
+  final String? itemKey;
+  const _StaggeredItem({required this.index, required this.child, this.itemKey});
 
   @override
   State<_StaggeredItem> createState() => _StaggeredItemState();
@@ -56,9 +85,21 @@ class _StaggeredItemState extends State<_StaggeredItem>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
 
-    Future.delayed(Duration(milliseconds: 20 + cappedIndex * 35), () {
-      if (mounted) _ctrl.forward();
-    });
+    // FIX (see _seenStaggeredItems doc comment above): only play the
+    // slide/fade-in the first time this item is ever seen. A re-mount
+    // from scrolling back on-screen jumps straight to the settled end
+    // state instead of replaying the entrance animation. Keyed by the
+    // stable itemKey when available so a new query's results at the same
+    // position as an old query's don't collide.
+    final seenKey = widget.itemKey ?? 'idx_${widget.index}';
+    if (_seenStaggeredItems.contains(seenKey)) {
+      _ctrl.value = 1.0;
+    } else {
+      _seenStaggeredItems.add(seenKey);
+      Future.delayed(Duration(milliseconds: 20 + cappedIndex * 35), () {
+        if (mounted) _ctrl.forward();
+      });
+    }
   }
 
   @override
@@ -788,6 +829,7 @@ class _SearchScreenState extends State<SearchScreen>
             _sectionLabel(context, AppLocalizations.of(context)!.librarySongs),
             ..._liveResults.asMap().entries.map((e) => _StaggeredItem(
               index: e.key,
+              itemKey: 'live_${e.value.id}',
               child: SongTile(
                 key: ValueKey('live_${e.value.id}_${e.key}'),
                 song: e.value, queue: _liveResults, index: e.key,
@@ -878,6 +920,7 @@ class _SearchScreenState extends State<SearchScreen>
           padding: const EdgeInsets.only(bottom: 80),
           itemBuilder: (_, i) => _StaggeredItem(
             index: i,
+            itemKey: 'result_${_results[i].id}',
             child: SongTile(
               key: ValueKey('result_${_results[i].id}_$i'),
               song: _results[i], queue: _results, index: i,
@@ -1051,6 +1094,7 @@ class _BrowseTabState extends State<_BrowseTab> {
               itemCount: widget.result.artists.length,
               itemBuilder: (_, i) => _StaggeredItem(
                 index: i,
+                itemKey: 'artist_${widget.result.artists[i].artistId}',
                 child: _ArtistChip(
                   artist: widget.result.artists[i],
                   onTap: () => _openArtist(widget.result.artists[i]),
@@ -1075,6 +1119,7 @@ class _BrowseTabState extends State<_BrowseTab> {
               itemCount: widget.result.albums.length,
               itemBuilder: (_, i) => _StaggeredItem(
                 index: i,
+                itemKey: 'album_${widget.result.albums[i].collectionId}',
                 child: _AlbumCard(
                   album: widget.result.albums[i],
                   onTap: () => _openAlbum(widget.result.albums[i]),
@@ -1088,6 +1133,7 @@ class _BrowseTabState extends State<_BrowseTab> {
           _sectionLabel(context, AppLocalizations.of(context)!.librarySongs),
           ...widget.result.tracks.asMap().entries.map((e) => _StaggeredItem(
             index: e.key,
+            itemKey: 'track_${e.value.trackId}',
             child: _BrowseTrackTile(track: e.value, onPlay: () => widget.onPlay(e.value)),
           )),
         ],
@@ -1119,6 +1165,7 @@ class _BrowseTabState extends State<_BrowseTab> {
               itemCount: tracks.length,
               itemBuilder: (_, i) => _StaggeredItem(
                 index: i,
+                itemKey: 'browsetrack_${tracks[i].trackId}',
                 child: _BrowseTrackTile(track: tracks[i], onPlay: () => widget.onPlay(tracks[i])),
               ),
             ),

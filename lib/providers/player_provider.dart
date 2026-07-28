@@ -886,6 +886,14 @@ class PlayerProvider extends ChangeNotifier {
       _currentIndex = index;
       _currentSong = song;
       _expectedSongId = song.id;
+      // FIX (progress bar briefly shows old song's scale on tap): see the
+      // matching fix in skipNext()/skipPrev()/skipToIndex() — same issue,
+      // just for the direct-tap path. Without this, tapping a new song
+      // while a longer one was playing could show a stale, too-small
+      // progress fraction for the loading window before the real state
+      // event corrects it.
+      _position = Duration.zero;
+      _duration = Duration.zero;
       // BUG: _isLoading was never set true here — it's only ever driven
       // by the native engine's state stream, which doesn't fire until
       // sometime after this await starts. On a slow network that left a
@@ -903,7 +911,14 @@ class PlayerProvider extends ChangeNotifier {
       _prewarmUpcoming(_currentIndex);
 
       try {
-        await _engine.playQueue(queue, index);
+        // FIX: comment below already described this as handling a "hung"
+        // native call, but nothing here actually enforced a timeout —
+        // _engine.playQueue() could hang indefinitely on a stuck
+        // MethodChannel round-trip and this await would simply never
+        // return, leaving _isLoading/_expectedSongId stuck and the UI
+        // frozen on "loading" with no error surfaced. The catch block only
+        // ever fires on a genuine exception, not a silent hang.
+        await _engine.playQueue(queue, index).timeout(const Duration(seconds: 8));
       } catch (e) {
         if (mySession != _uiPlaySession) return; // superseded — ignore stale failure
         // Native call hung/timed out or threw a PlatformException. Clear
@@ -926,11 +941,17 @@ class PlayerProvider extends ChangeNotifier {
       _currentIndex = 0;
       _currentSong = song;
       _expectedSongId = song.id;
+      // See matching comment in the queue-based branch above.
+      _position = Duration.zero;
+      _duration = Duration.zero;
       _isLoading = true;
       notifyListeners();
 
       try {
-        await _engine.playSong(song);
+        // FIX — same real hang risk as playQueue() above: no timeout
+        // previously enforced here despite the sibling catch block already
+        // being written to handle "the call hung" as if it would surface.
+        await _engine.playSong(song).timeout(const Duration(seconds: 8));
       } catch (e) {
         if (mySession != _uiPlaySession) return; // superseded — ignore stale failure
         _isLoading = false;
@@ -1093,6 +1114,19 @@ class PlayerProvider extends ChangeNotifier {
       _currentSong = _queue[_currentIndex];
       _lastHandledIndex = _currentIndex;
       _expectedSongId = _currentSong!.id;
+      // FIX (progress bar briefly shows wrong scale after skip): title/
+      // artwork/background all update optimistically in this block, but
+      // _position/_duration were left untouched — still the OLD song's
+      // values until the native state event round-trips back. A 5:30
+      // song's progress fraction (position/duration) computed against a
+      // freshly-tapped 3:00 song's actual playback position reads as a
+      // visibly wrong progress-bar fill for that gap, right as everything
+      // else has already (correctly) snapped to the new song. Resetting
+      // both to zero here matches every other piece of optimistic state
+      // in this block — the real event corrects it a beat later exactly
+      // like it does for _currentSong itself.
+      _position = Duration.zero;
+      _duration = Duration.zero;
       // Warm palette right here, same tick as the optimistic title/artwork
       // update — not left to wait for the native engine's state event to
       // round-trip back through _onSongChanged. Previously title/artwork
@@ -1105,26 +1139,32 @@ class PlayerProvider extends ChangeNotifier {
       }
       notifyListeners();
     }
+    // Snapshot exactly what THIS call set the gate to (null if shuffled/
+    // at queue end, where the optimistic block above didn't run) — used
+    // below to check the gate is still "ours" before clearing it.
+    final myExpectedId = _expectedSongId;
 
-    // FIX — this used to be a bare `await` with nothing to clear
-    // _expectedSongId if the native call threw or simply never landed on
-    // the expected song (e.g. queue-edge recovery resolves to a different
-    // index than guessed). _expectedSongId is a hard gate in
-    // _onEngineState: while it's set, EVERY incoming state event whose
-    // currentSongId doesn't match is treated as stale and dropped —
-    // including position ticks, song-change detection, and auto-extend.
-    // If the engine's genuine follow-up event was ever going to report a
-    // different id than what we guessed here, that gate would never
-    // clear on its own, and the UI (progress bar, title, queue
-    // auto-extension) would silently freeze until some unrelated
-    // playSong()/skipToQueueItem() call happened to reset it. Clearing it
-    // on any failure here means a bad guess degrades to "wait for the
-    // next real event" instead of "stay stuck forever".
+    // FIX (real desync bug under rapid/spam skip): the catch block below
+    // used to unconditionally set `_expectedSongId = null` on any failure
+    // or timeout. Under rapid repeated taps that's wrong — by the time an
+    // EARLIER tap's native call finally times out or throws, a LATER tap
+    // may have already overwritten _expectedSongId with its own (still
+    // valid, still pending) guess. Nulling it here would rip out that
+    // newer tap's protection, re-opening the stale-event gate right as
+    // older in-flight native responses (describing an even earlier song)
+    // could still be arriving — letting one slip through and get accepted
+    // as current, corrupting _currentSong out from under the UI's
+    // optimistic (correct) display. This is the actual mechanism behind
+    // "UI shows one song, audio plays another" under fast repeated
+    // skipping. Fix: only clear the gate if it still equals what THIS
+    // call itself set — i.e. no newer tap has claimed it since.
     try {
-      await _engine.skipToNext();
+      await _engine.skipToNext().timeout(const Duration(seconds: 4));
     } catch (e) {
-      _expectedSongId = null;
-      notifyListeners();
+      if (_expectedSongId == myExpectedId) {
+        _expectedSongId = null;
+        notifyListeners();
+      }
     }
     return true;
   }
@@ -1137,19 +1177,27 @@ class PlayerProvider extends ChangeNotifier {
       _currentSong = _queue[_currentIndex];
       _lastHandledIndex = _currentIndex;
       _expectedSongId = _currentSong!.id;
+      // See matching comment in skipNext() — keeps the progress bar from
+      // briefly showing the old song's duration scale after a skip.
+      _position = Duration.zero;
+      _duration = Duration.zero;
       if (_currentSong!.artworkUrl.isNotEmpty) {
         ArtworkPaletteCache.warm(_currentSong!.artworkUrl);
       }
       notifyListeners();
     }
-    // FIX — see skipNext() above for why this guard is required: without
-    // it, a failed/mismatched native skip call could leave _expectedSongId
-    // stuck, silently freezing position/song-change/auto-extend tracking.
+    // Snapshot what THIS call set the gate to — see the matching comment
+    // in skipNext() for why unconditionally nulling _expectedSongId in
+    // the catch block below is a real desync bug under rapid taps, not
+    // just a cleanup nicety.
+    final myExpectedId = _expectedSongId;
     try {
-      await _engine.skipToPrevious();
+      await _engine.skipToPrevious().timeout(const Duration(seconds: 4));
     } catch (e) {
-      _expectedSongId = null;
-      notifyListeners();
+      if (_expectedSongId == myExpectedId) {
+        _expectedSongId = null;
+        notifyListeners();
+      }
     }
   }
 
@@ -1239,6 +1287,11 @@ class PlayerProvider extends ChangeNotifier {
       _currentSong = _queue[index];
       _lastHandledIndex = index;
       _expectedSongId = _currentSong!.id;
+      // See matching comment in skipNext() — keeps the progress bar from
+      // briefly showing the old song's duration scale after a direct
+      // queue-item tap.
+      _position = Duration.zero;
+      _duration = Duration.zero;
       if (_currentSong!.artworkUrl.isNotEmpty) {
         ArtworkPaletteCache.warm(_currentSong!.artworkUrl);
       }
@@ -1246,10 +1299,21 @@ class PlayerProvider extends ChangeNotifier {
     }
     // FIX — same _expectedSongId stuck-gate risk as skipNext()/skipPrev();
     // see the comment there for the full reasoning.
+    // FIX — same hang risk as skipNext()/skipPrev(): a MethodChannel call
+    // that never resolves would otherwise leave _expectedSongId stuck
+    // forever, silently freezing state tracking for the rest of the
+    // session.
+    // Snapshot what THIS call set the gate to — see the matching comment
+    // in skipNext() for why unconditionally nulling _expectedSongId in
+    // the catch block below is a real desync bug under rapid taps
+    // (tapping multiple queue items fast), not just a cleanup nicety.
+    final myExpectedId = _expectedSongId;
     try {
-      await _engine.skipToQueueItem(index);
+      await _engine.skipToQueueItem(index).timeout(const Duration(seconds: 4));
     } catch (e) {
-      _expectedSongId = null;
+      if (_expectedSongId == myExpectedId) {
+        _expectedSongId = null;
+      }
     }
     notifyListeners();
   }
@@ -1341,7 +1405,7 @@ class PlayerProvider extends ChangeNotifier {
     String? capturedError;
     final sub = _engine.errorStream.listen((e) => capturedError = e.message);
     try {
-      await _engine.playSong(song);
+      await _engine.playSong(song).timeout(const Duration(seconds: 8));
       await Future.delayed(const Duration(seconds: 3));
       final ok = capturedError == null && _isPlaying;
       return RealPlaybackResult(

@@ -1972,6 +1972,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
 
                       return _AnimatedHistoryItem(
                         index: i,
+                        itemKey: song.id,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -2011,10 +2012,31 @@ class _HistoryScreenState extends State<_HistoryScreen>
 }
 
 // ── Animated history list item ─────────────────────────────────────────────────
+// FIX (thumbnail appears to jump/re-enter while scrolling): see the
+// matching _seenStaggeredItems fix in search_screen.dart — identical
+// root cause here. A ListView scrolling a history row off-screen and
+// back tears down and rebuilds this State (Flutter disposes off-screen
+// list children), re-running initState() and replaying the 0.06-offset
+// slide-in from scratch every time. Tracking which items have already
+// animated once per session fixes it.
+//
+// FIX (on top of the above): keyed by song id (itemKey) rather than raw
+// list position. History reorders whenever a song is replayed — it jumps
+// back to the top of the list, shifting every other item's index down by
+// one. With a position-only key, that shift could make an already-seen
+// song look "new" at its shifted index (replaying its entrance animation
+// for no reason) while a genuinely new item lands on an index some other
+// song had already claimed as seen (wrongly skipping its animation).
+// Keying by the song's own id avoids both.
+final _seenHistoryItems = <String>{};
+
 class _AnimatedHistoryItem extends StatefulWidget {
   final int index;
   final Widget child;
-  const _AnimatedHistoryItem({required this.index, required this.child});
+  // Stable identity for the underlying history entry (its song id).
+  // Falls back to the raw index if not provided.
+  final String? itemKey;
+  const _AnimatedHistoryItem({required this.index, required this.child, this.itemKey});
 
   @override
   State<_AnimatedHistoryItem> createState() => _AnimatedHistoryItemState();
@@ -2040,9 +2062,15 @@ class _AnimatedHistoryItemState extends State<_AnimatedHistoryItem>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
 
-    Future.delayed(Duration(milliseconds: 30 + cappedIndex * 40), () {
-      if (mounted) _ctrl.forward();
-    });
+    final seenKey = widget.itemKey ?? 'idx_${widget.index}';
+    if (_seenHistoryItems.contains(seenKey)) {
+      _ctrl.value = 1.0;
+    } else {
+      _seenHistoryItems.add(seenKey);
+      Future.delayed(Duration(milliseconds: 30 + cappedIndex * 40), () {
+        if (mounted) _ctrl.forward();
+      });
+    }
   }
 
   @override

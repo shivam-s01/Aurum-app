@@ -47,6 +47,47 @@ import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Shared FullPlayerScreen navigation — every song-tap entry point on this
+// screen (Recently Played tiles, genre/mood grid cards, mini player, etc.)
+// pushes through this single function instead of each hand-rolling its own
+// Navigator.push. Two reasons this needs to be shared and not duplicated
+// per-widget:
+//   1. Consistency — one transition curve/duration definition, so a future
+//      tweak (like the reverseTransitionDuration fix below) automatically
+//      applies everywhere instead of silently missing whichever call site
+//      was copy-pasted before the tweak was made.
+//   2. The double-tap guard — a StatelessWidget (like a song grid card)
+//      can't hold its own `bool _openingX` field the way a State class can,
+//      so without a shared module-level guard, any Stateless tap site is
+//      unprotected against a fast double-tap pushing FullPlayerScreen twice
+//      onto the nav stack.
+bool _openingFullPlayer = false; // guards against double-push on rapid tap
+
+void pushFullPlayer(BuildContext context) {
+  if (_openingFullPlayer) return;
+  _openingFullPlayer = true;
+  HapticFeedback.lightImpact();
+  Navigator.of(context).push(
+    PageRouteBuilder(
+      opaque: true,
+      pageBuilder: (_, __, ___) => const FullPlayerScreen(),
+      transitionsBuilder: (_, anim, __, child) => SlideTransition(
+        position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+            .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+        child: child,
+      ),
+      transitionDuration: const Duration(milliseconds: 380),
+      // FIX ("back feels stuck/not smooth"): matched to the forward
+      // duration above — was 300ms, a different/faster close speed than
+      // the 380ms open.
+      reverseTransitionDuration: const Duration(milliseconds: 380),
+    ),
+  ).then((_) {
+    _openingFullPlayer = false;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HomeScreen
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -789,30 +830,8 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   }
 
 
-  bool _openingFullPlayer = false; // guards against double-push on rapid tap
-
   void _openFullPlayer() {
-    if (_openingFullPlayer) return;
-    _openingFullPlayer = true;
-    HapticFeedback.lightImpact();
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        opaque: true,
-        pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-        transitionsBuilder: (_, anim, __, child) => SlideTransition(
-          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-              .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-          child: child,
-        ),
-        transitionDuration: const Duration(milliseconds: 380),
-        // FIX ("back feels stuck/not smooth"): matched to the forward
-        // duration above — was 300ms, a different/faster close speed than
-        // the 380ms open.
-        reverseTransitionDuration: const Duration(milliseconds: 380),
-      ),
-    ).then((_) {
-      _openingFullPlayer = false;
-    });
+    pushFullPlayer(context);
   }
 
   @override
@@ -1503,6 +1522,27 @@ class _SongGridCard extends StatelessWidget {
       onTap: () {
         HapticFeedback.selectionClick();
         context.read<PlayerProvider>().playSong(song, queue: queue, index: index);
+        // FIX ("first tap feels stuck/does nothing for 2-3s"): this used
+        // to only call playSong() — no navigation at all. Every other
+        // song-tap entry point in the app (SongTile, mini player,
+        // Trending Playlists' _openFullPlayer) pushes FullPlayerScreen
+        // immediately alongside the fire-and-forget playSong() call, so
+        // the screen opens instantly and its own isLoading-driven spinner
+        // covers the real network wait. Without that push here, tapping a
+        // Home-feed song card did nothing visible at all until the mini
+        // player happened to animate in once playback actually started —
+        // which, on a cold JioSaavn/YouTube resolve, genuinely can take a
+        // couple of seconds. That gap is real network latency either way;
+        // the missing navigation was what made it read as the app being
+        // stuck rather than a screen that opened instantly and is
+        // visibly loading.
+        //
+        // Routed through the shared pushFullPlayer() helper (see top of
+        // file) rather than a hand-rolled Navigator.push here: this is a
+        // StatelessWidget, so it has no field of its own to guard against
+        // a fast double-tap pushing FullPlayerScreen twice onto the nav
+        // stack — the shared helper's module-level guard covers it.
+        pushFullPlayer(context);
       },
       child: Padding(
         padding: const EdgeInsets.only(right: 12),
@@ -2089,7 +2129,19 @@ class _RecentlyPlayedSection extends StatelessWidget {
               padding: const EdgeInsets.only(right: 16),
               itemBuilder: (_, i) => AurumPressable(
                 scaleAmount: 0.96,
-                onTap: () => player.playSong(songs[i], queue: songs, index: i),
+                onTap: () {
+                  player.playSong(songs[i], queue: songs, index: i);
+                  // FIX ("first tap feels stuck/does nothing for 2-3s"):
+                  // same bug as _SongGridCard above — this only called
+                  // playSong() with no navigation, so tapping a Recently
+                  // Played tile did nothing visible until the mini player
+                  // happened to animate in once playback actually started.
+                  // Routed through the shared pushFullPlayer() helper so
+                  // it stays consistent with every other song-tap entry
+                  // point on this screen and picks up the same double-tap
+                  // guard.
+                  pushFullPlayer(context);
+                },
                 child: Container(
                   width: 130,
                   margin: const EdgeInsets.only(right: 12),
