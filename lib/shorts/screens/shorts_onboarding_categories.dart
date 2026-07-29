@@ -49,8 +49,10 @@ class _ShortsCategoryScreenState extends State<ShortsCategoryScreen> {
     Navigator.of(context).pushAndRemoveUntil(
       PageRouteBuilder(
         pageBuilder: (_, anim, __) => const ShortsFeedScreen(),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
+        transitionsBuilder: (_, anim, __, child) => ColoredBox(
+          color: Colors.black,
+          child: FadeTransition(opacity: anim, child: child),
+        ),
         transitionDuration: const Duration(milliseconds: 300),
       ),
       (route) => route.isFirst,

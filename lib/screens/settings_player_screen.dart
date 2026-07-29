@@ -1332,10 +1332,13 @@ Widget _navTile(BuildContext context,
 
 PageRouteBuilder _slideRoute(Widget screen) => PageRouteBuilder(
       pageBuilder: (_, animation, __) => screen,
-      transitionsBuilder: (_, animation, __, child) {
+      transitionsBuilder: (context, animation, __, child) {
         final tween = Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
             .chain(CurveTween(curve: Curves.easeOutCubic));
-        return SlideTransition(position: animation.drive(tween), child: child);
+        return ColoredBox(
+          color: AurumTheme.bgOf(context),
+          child: SlideTransition(position: animation.drive(tween), child: child),
+        );
       },
       transitionDuration: const Duration(milliseconds: 280),
       // FIX ("back feels stuck/not smooth"): matched to the forward

@@ -742,11 +742,22 @@ class PlayerProvider extends ChangeNotifier {
         existingQueueIds: existingIds,
       );
 
-      // Final dedup safety check
+      // Final dedup safety check — FIX: was ID-only, so the same song
+      // re-released under a different Saavn ID (movie OST vs "Best of"
+      // compilation vs singer's greatest-hits) could still slip past this
+      // and get added again later in the queue. Title-based check added
+      // alongside the ID check so genuine repeats of the same song are
+      // blocked even when their catalog IDs differ.
       final currentQueueIds = _queue.map((s) => s.id).toSet();
-      final toAdd = nextSongs
-          .where((s) => !currentQueueIds.contains(s.id))
-          .toList();
+      final currentQueueTitles = _queue.map((s) => _normTitleForDedup(s.title)).toSet();
+      final toAdd = <Song>[];
+      for (final s in nextSongs) {
+        if (currentQueueIds.contains(s.id)) continue;
+        final tk = _normTitleForDedup(s.title);
+        if (currentQueueTitles.contains(tk)) continue;
+        currentQueueTitles.add(tk);
+        toAdd.add(s);
+      }
 
       for (final song in toAdd) {
         await _engine.addToQueue(song);
@@ -983,12 +994,32 @@ class PlayerProvider extends ChangeNotifier {
     try {
       await RecommendationEngine.load();
       if (sessionId != _uiPlaySession) return;
+      // FIX ("same song repeats 5-7x in Up Next from different albums"):
+      // getAutoQueue dedups by Saavn track ID and by title, but only
+      // *within* a single call's own pool. The same song re-released
+      // across a movie OST, a "Best of" compilation, and a singer's
+      // greatest-hits album has a different Saavn ID in each, so Phase 1
+      // and Phase 2 — two separate getAutoQueue calls — could each pick a
+      // different-ID copy of the same title and both pass their own
+      // internal dedup untouched. Tracking normalized titles here, across
+      // both phases and the song currently playing, closes that gap.
+      final queuedTitles = <String>{
+        _normTitleForDedup(song.title),
+        for (final s in _queue) _normTitleForDedup(s.title),
+      };
       // Phase 1: 20 songs fast
       final phase1 = await ApiService.getAutoQueue(song, limit: 20, existingQueueIds: alreadyInQueue);
       if (sessionId != _uiPlaySession) return;
       if (phase1.isNotEmpty) {
         final currentIds = _queue.map((s) => s.id).toSet();
-        final toAdd = phase1.where((s) => !currentIds.contains(s.id)).toList();
+        final toAdd = <Song>[];
+        for (final s in phase1) {
+          if (currentIds.contains(s.id)) continue;
+          final tk = _normTitleForDedup(s.title);
+          if (queuedTitles.contains(tk)) continue;
+          queuedTitles.add(tk);
+          toAdd.add(s);
+        }
         for (final s in toAdd) {
           if (sessionId != _uiPlaySession) return;
           await _engine.addToQueue(s);
@@ -1005,7 +1036,14 @@ class PlayerProvider extends ChangeNotifier {
       if (sessionId != _uiPlaySession) return;
       if (phase2.isNotEmpty) {
         final currentIds = _queue.map((s) => s.id).toSet();
-        final toAdd = phase2.where((s) => !currentIds.contains(s.id)).toList();
+        final toAdd = <Song>[];
+        for (final s in phase2) {
+          if (currentIds.contains(s.id)) continue;
+          final tk = _normTitleForDedup(s.title);
+          if (queuedTitles.contains(tk)) continue;
+          queuedTitles.add(tk);
+          toAdd.add(s);
+        }
         for (final s in toAdd) {
           if (sessionId != _uiPlaySession) return;
           await _engine.addToQueue(s);
@@ -1017,6 +1055,23 @@ class PlayerProvider extends ChangeNotifier {
     } finally {
       _isBuildingInitialQueue = false;
     }
+  }
+
+  // FIX (duplicate-titles-in-queue root cause): mirrors api_service's own
+  // private _normTitle so two Saavn entries of the same song from
+  // different albums/compilations normalize to the same key here too,
+  // even though that private helper isn't accessible across files.
+  static String _normTitleForDedup(String title) {
+    final clean = title
+        .toLowerCase()
+        .replaceAll(RegExp(r'\b(remix|lofi|lo[- ]?fi|slowed|reverb|nightcore|cover|'
+                           r'karaoke|instrumental|bass[ -]?boost(?:ed)?|8d|sped[- ]?up|'
+                           r'reprise|mashup|acoustic|unplugged|official|audio|video|'
+                           r'lyric(?:s)?|full song|hd|4k)\b', caseSensitive: false), '')
+        .replaceAll(RegExp(r'[\(\[\{][^\)\]\}]*[\)\]\}]'), '')
+        .replaceAll(RegExp(r'[^a-z0-9]'), '')
+        .trim();
+    return clean.substring(0, clean.length.clamp(0, 30));
   }
 
   // Restores the last queue into the UI/notification on app reopen WITHOUT

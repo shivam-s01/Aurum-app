@@ -8,6 +8,7 @@
 // =============================================================================
 
 import 'dart:async';
+import '../utils/aurum_transitions.dart';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -659,7 +660,7 @@ class _AlbumOptionsSheetState extends State<_AlbumOptionsSheet> {
                         Navigator.pop(context);
                         Navigator.push(
                           widget.rootContext,
-                          MaterialPageRoute(
+                          AurumPageRoute(
                             builder: (_) => ArtistScreen(artistName: name),
                           ),
                         );

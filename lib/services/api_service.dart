@@ -1241,9 +1241,18 @@ class ApiService {
     final ytScored    = <_ScoredSong>[];
     final saavnNorms  = <String>{};
 
-    // ALL Saavn results go in — no aggressive dedup on Saavn side
+    // ALL Saavn results go in — no aggressive dedup on Saavn side, but
+    // FIX ("random unrelated songs in search"): results scoring below a
+    // relevance floor are dropped entirely. Without this, misremembered
+    // or garbled queries (e.g. "manma emotional jaage re" for "Manma
+    // Emotion Jaage") returned whatever Saavn's own loose backend search
+    // matched on stray fragments — completely unrelated songs like
+    // "Emitemitemo" — because every result was kept and shown regardless
+    // of how weak its match score was.
+    const minRelevanceScore = 15.0;
     for (final song in saavnResults) {
       final score = _scoreSearchResult(song, q, wantsVariant);
+      if (score < minRelevanceScore) continue;
       final norm  = _normTitle(song.title);
       saavnNorms.add(norm);
       saavnScored.add(_ScoredSong(song, score));
@@ -1254,6 +1263,7 @@ class ApiService {
       final norm = _normTitle(song.title);
       if (!saavnNorms.contains(norm)) {
         final score = _scoreSearchResult(song, q, wantsVariant);
+        if (score < minRelevanceScore) continue;
         ytScored.add(_ScoredSong(song, score));
       }
     }

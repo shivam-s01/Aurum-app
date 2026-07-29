@@ -436,10 +436,13 @@ class _SearchScreenState extends State<SearchScreen>
           // no visual effect and fixes the freeze.
           opaque: true,
           pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-          transitionsBuilder: (_, anim, __, child) => SlideTransition(
-            position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-                .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-            child: child,
+          transitionsBuilder: (context, anim, __, child) => ColoredBox(
+            color: AurumTheme.bgOf(context),
+            child: SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+                  .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+              child: child,
+            ),
           ),
           transitionDuration: const Duration(milliseconds: 380),
           // FIX ("back feels stuck/not smooth"): matched to the forward

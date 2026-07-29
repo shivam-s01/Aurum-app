@@ -118,7 +118,10 @@ class _ShortsLanguageScreenState extends State<ShortsLanguageScreen> {
                                 selectedLanguages: _selected.toList(),
                               ),
                               transitionsBuilder: (_, anim, __, child) =>
-                                  FadeTransition(opacity: anim, child: child),
+                                  ColoredBox(
+                                color: Colors.black,
+                                child: FadeTransition(opacity: anim, child: child),
+                              ),
                               transitionDuration:
                                   const Duration(milliseconds: 260),
                             ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../utils/aurum_transitions.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
@@ -72,7 +73,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     if (barIndex == _AurumBottomNavBar.shortsTabIndex) {
       HapticFeedback.selectionClick();
       Navigator.of(context).push(
-        MaterialPageRoute(
+        AurumPageRoute(
           builder: (_) => const ShortsEntry(),
           fullscreenDialog: true,
         ),

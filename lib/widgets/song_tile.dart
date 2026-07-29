@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../utils/aurum_transitions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -71,10 +72,13 @@ class _SongTileState extends State<SongTile> {
             // visually and fully fixes the freeze.
             opaque: true,
             pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-            transitionsBuilder: (_, anim, __, child) => SlideTransition(
-              position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-                  .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-              child: child,
+            transitionsBuilder: (context, anim, __, child) => ColoredBox(
+              color: AurumTheme.bgOf(context),
+              child: SlideTransition(
+                position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+                    .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+                child: child,
+              ),
             ),
             transitionDuration: const Duration(milliseconds: 380),
             // FIX ("back feels stuck/not smooth"): matched to the forward
@@ -440,7 +444,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                           Navigator.pop(context);
                           Navigator.push(
                             widget.rootContext,
-                            MaterialPageRoute(
+                            AurumPageRoute(
                               builder: (_) =>
                                   ArtistScreen(artistName: a.trim()),
                             ),
@@ -545,7 +549,7 @@ class _AlbumChipState extends State<_AlbumChip> {
       Navigator.pop(context);
       Navigator.push(
         widget.rootContext,
-        MaterialPageRoute(
+        AurumPageRoute(
           builder: (_) => AlbumScreen(
             albumId: albumId,
             albumName: widget.albumName,

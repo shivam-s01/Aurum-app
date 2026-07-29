@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/artwork_palette_cache.dart';
+import '../utils/aurum_transitions.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
 import 'package:share_plus/share_plus.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -1542,7 +1543,14 @@ class _SongInfo extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
-    final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(128);
+    // FIX ("artist name goes white-on-white / invisible over bright
+    // artwork"): this was Colors.white.withAlpha(128) — only 50% opacity.
+    // Over a light/bright section of the blurred artwork background
+    // (_BgLayer), that alpha plus the thin shadow below wasn't enough
+    // contrast, so the artist line visually disappeared. Raised to a much
+    // higher, near-solid alpha so it reads clearly no matter what artwork
+    // is behind it — matching the title's own full-opacity treatment.
+    final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(215);
     final titleSize = isTablet ? 26.0 : 22.0;
     // Text sits on top of dynamic, artwork-derived background (_BgLayer),
     // whose color varies per song. A single static text color can't
@@ -1560,14 +1568,18 @@ class _SongInfo extends StatelessWidget {
     // alpha (70/255) and a tighter blur (8px), which is enough to keep
     // the title readable over any artwork color without ever becoming
     // visible as its own shape.
+    // FIX: shadow alpha/blur bumped up slightly (was tuned only against
+    // dark artwork) so title+artist stay readable over light/bright
+    // sections of the blurred background too, without the shadow itself
+    // becoming a visible smudge.
     final shadowColor = isLight
         ? Colors.white.withAlpha(70)
-        : Colors.black.withAlpha(160);
+        : Colors.black.withAlpha(190);
     final textShadows = isLight
         ? [Shadow(color: shadowColor, blurRadius: 8)]
         : [
-            Shadow(color: shadowColor, blurRadius: 16),
-            Shadow(color: shadowColor, blurRadius: 6),
+            Shadow(color: shadowColor, blurRadius: 18),
+            Shadow(color: shadowColor, blurRadius: 8),
           ];
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad),
@@ -2237,6 +2249,14 @@ class _Controls extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final isLoopOne = player.loopMode == LoopMode.one;
     final isLoopAll = player.loopMode == LoopMode.all;
+    // FIX ("prev/next buttons invisible in light mode"): these were
+    // hardcoded Colors.white with no light-mode branch at all — nearly
+    // invisible against the light theme's own pale background/artwork
+    // treatment. Now theme-aware like every other control on this screen.
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final prevNextColor = isLight
+        ? AurumTheme.lightTextPrimary
+        : Colors.white.withAlpha(220);
 
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad - 8),
@@ -2257,7 +2277,7 @@ class _Controls extends StatelessWidget {
           _CtrlBtn(
             icon: Icons.skip_previous_rounded,
             size: 38,
-            color: Colors.white.withAlpha(210),
+            color: prevNextColor,
             semanticLabel: l10n.fpPrevious,
             onTap: () {
               HapticFeedback.mediumImpact();
@@ -2276,7 +2296,7 @@ class _Controls extends StatelessWidget {
           _CtrlBtn(
             icon: Icons.skip_next_rounded,
             size: 38,
-            color: Colors.white.withAlpha(210),
+            color: prevNextColor,
             semanticLabel: l10n.fpNext,
             onTap: () {
               HapticFeedback.mediumImpact();
@@ -2507,17 +2527,36 @@ class _QualityPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // FIX ("year/language chip below play button washes out"): this
+    // previously hardcoded Colors.white with no isLight branch at all —
+    // broken outright in light mode, and even in dark mode the fill
+    // (12/255), border (20/255), and text (88/255 ≈ 35%) alphas were so
+    // low the pill had almost no boundary or legible text over bright
+    // artwork. Mirrors the same solid-chip treatment used elsewhere in
+    // this screen (e.g. _BottomPill) instead of relying on near-zero
+    // alpha white to "just work" against any artwork color.
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final fill = isLight
+        ? AurumTheme.lightBgSurface.withAlpha(210)
+        : Colors.white.withAlpha(24);
+    final border = isLight
+        ? AurumTheme.lightDivider
+        : Colors.white.withAlpha(45);
+    final textColor = isLight
+        ? AurumTheme.lightTextSecondary
+        : Colors.white.withAlpha(220);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha(12),
+        color: fill,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.white.withAlpha(20), width: 0.5),
+        border: Border.all(color: border, width: 0.5),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: Colors.white.withAlpha(88),
+          color: textColor,
           fontSize: 10,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.8,
@@ -2815,7 +2854,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       }),
       _SheetAction(Icons.equalizer_rounded, l10n.fpAudioEffects, Colors.orangeAccent, () {
         Navigator.pop(context);
-        Navigator.of(widget.rootContext).push(MaterialPageRoute(
+        Navigator.of(widget.rootContext).push(AurumPageRoute(
           builder: (_) => EqualizerScreen(audioEngine: widget.player.handler),
         ));
       }),
@@ -3552,7 +3591,9 @@ class _NowPlayingHeader extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
-    final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(110);
+    // FIX: same white-on-white visibility issue as the main title block —
+    // low alpha white washed out over bright artwork sections.
+    final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(200);
     final cardBg = isLight
         ? AurumTheme.gold.withAlpha(22)
         : AurumTheme.gold.withAlpha(18);
@@ -5417,9 +5458,15 @@ class _CtrlBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
+    // FIX ("buttons wash out over bright artwork"): inactive shuffle/repeat
+    // was Colors.white.withAlpha(100) — ~40% opacity, same washed-out
+    // pattern as the artist text and year/language pill bugs. Raised so
+    // the icon stays clearly visible no matter what artwork color sits
+    // behind it, while still reading as visually "inactive" relative to
+    // the solid gold active state.
     final inactiveColor = isLight
         ? AurumTheme.lightTextMuted
-        : Colors.white.withAlpha(100);
+        : Colors.white.withAlpha(190);
     final c = color ?? (active ? AurumTheme.gold : inactiveColor);
 
     // PREMIUM POLISH PASS: keeps the same restrained language as before

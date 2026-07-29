@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart' as prov;
 import '../../models/song.dart' as aurum;
+import '../../utils/aurum_transitions.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../services/api_service.dart';
@@ -401,10 +402,9 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                                 ctrl.togglePlayPause(); // pause while editing prefs
                                 final changed = await Navigator.of(context)
                                     .push<bool>(
-                                  MaterialPageRoute(
+                                  AurumModalRoute(
                                     builder: (_) =>
                                         const ShortsPreferencesScreen(),
-                                    fullscreenDialog: true,
                                   ),
                                 );
                                 if (changed == true && mounted) {

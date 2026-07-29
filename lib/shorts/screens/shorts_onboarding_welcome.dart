@@ -65,7 +65,10 @@ class ShortsWelcomeScreen extends StatelessWidget {
                         pageBuilder: (_, anim, __) =>
                             const ShortsLanguageScreen(),
                         transitionsBuilder: (_, anim, __, child) =>
-                            FadeTransition(opacity: anim, child: child),
+                            ColoredBox(
+                          color: Colors.black,
+                          child: FadeTransition(opacity: anim, child: child),
+                        ),
                         transitionDuration:
                             const Duration(milliseconds: 260),
                       ),

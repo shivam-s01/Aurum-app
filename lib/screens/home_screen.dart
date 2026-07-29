@@ -71,16 +71,14 @@ void pushFullPlayer(BuildContext context) {
     PageRouteBuilder(
       opaque: true,
       pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-      transitionsBuilder: (_, anim, __, child) => SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-            .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-        child: child,
+      transitionsBuilder: (context, anim, __, child) => ColoredBox(
+        color: AurumTheme.bgOf(context),
+        child: SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+              .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+          child: child,
+        ),
       ),
-      transitionDuration: const Duration(milliseconds: 380),
-      // FIX ("back feels stuck/not smooth"): matched to the forward
-      // duration above — was 300ms, a different/faster close speed than
-      // the 380ms open.
-      reverseTransitionDuration: const Duration(milliseconds: 380),
     ),
   ).then((_) {
     _openingFullPlayer = false;
@@ -524,15 +522,18 @@ class _HomeScreenState extends State<HomeScreen> {
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 380),
             pageBuilder: (_, __, ___) => const PremiumScreen(),
-            transitionsBuilder: (_, animation, __, child) {
+            transitionsBuilder: (context, animation, __, child) {
               final fade = CurvedAnimation(parent: animation, curve: Curves.easeOut);
               final slide = Tween<Offset>(
                 begin: const Offset(0, 0.04),
                 end: Offset.zero,
               ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
-              return FadeTransition(
-                opacity: fade,
-                child: SlideTransition(position: slide, child: child),
+              return ColoredBox(
+                color: AurumTheme.bgOf(context),
+                child: FadeTransition(
+                  opacity: fade,
+                  child: SlideTransition(position: slide, child: child),
+                ),
               );
             },
           ),
@@ -1773,15 +1774,18 @@ class _ProfileAvatarButton extends StatelessWidget {
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 320),
           pageBuilder: (_, __, ___) => const LoginScreen(),
-          transitionsBuilder: (_, animation, __, child) => FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.05),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(
-                  parent: animation, curve: Curves.easeOutCubic)),
-              child: child,
+          transitionsBuilder: (context, animation, __, child) => ColoredBox(
+            color: AurumTheme.bgOf(context),
+            child: FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.05),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(
+                    parent: animation, curve: Curves.easeOutCubic)),
+                child: child,
+              ),
             ),
           ),
         ),
@@ -1795,15 +1799,18 @@ class _ProfileAvatarButton extends StatelessWidget {
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 320),
         pageBuilder: (_, __, ___) => const ProfileScreen(),
-        transitionsBuilder: (_, animation, __, child) => FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.05),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(
-                parent: animation, curve: Curves.easeOutCubic)),
-            child: child,
+        transitionsBuilder: (context, animation, __, child) => ColoredBox(
+          color: AurumTheme.bgOf(context),
+          child: FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.05),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                  parent: animation, curve: Curves.easeOutCubic)),
+              child: child,
+            ),
           ),
         ),
       ),

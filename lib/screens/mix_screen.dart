@@ -17,6 +17,7 @@
 // =============================================================================
 
 import 'dart:async';
+import '../utils/aurum_transitions.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -693,7 +694,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                         Navigator.pop(context);
                         Navigator.push(
                           widget.rootContext,
-                          MaterialPageRoute(
+                          AurumPageRoute(
                             builder: (_) => ArtistScreen(artistName: name),
                           ),
                         );
