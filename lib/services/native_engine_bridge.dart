@@ -242,6 +242,24 @@ class NativeAudioEngine {
           if (_inFlight.containsKey(requestId)) completer.complete(null);
         } finally {
           _inFlight.remove(requestId);
+          // FIX (permanent hang on cancelled resolve): if a `cancelResolve`
+          // arrived for this requestId while the await above was still
+          // running, both completion branches above are skipped by their
+          // `_inFlight.containsKey(requestId)` guard on purpose (a
+          // cancelled request's result should be discarded) — but that
+          // guard also meant `completer` was simply never completed at
+          // all. `return completer.future` below still hands that
+          // never-completing Future straight back to
+          // MethodChannel/Kotlin's `invokeMethod` call, which then hangs
+          // indefinitely waiting on a response that will never arrive —
+          // exactly the kind of permanent stuck-state bug this file
+          // otherwise guards against everywhere else (see every timeout/
+          // stale-guard fix in player_provider.dart). A genuinely
+          // cancelled request must still resolve its Future — with null,
+          // same as any other "no stream available" outcome — so the
+          // native side's await always gets an answer instead of hanging
+          // forever on a fast song-switch/cancel.
+          if (!completer.isCompleted) completer.complete(null);
         }
         return completer.future;
 

@@ -200,6 +200,23 @@ class PaymentService {
   /// We verify the real status server-side via the Worker before granting
   /// anything, since client-side "it closed" is not proof of payment.
   void _handleVerify(String orderId) async {
+    // FIX (wrong plan could be granted on overlapping/late callbacks):
+    // this used to only check `_pendingPlan != null`, never that
+    // `orderId` actually matches the order THIS pending plan belongs to.
+    // PaymentService is a singleton (PremiumScreen calls `init()` on
+    // every mount/dispose), so if a user backed out of one checkout and
+    // started a different one — or a previous PremiumScreen's Cashfree
+    // callback simply arrived late, after a newer checkout had already
+    // overwritten `_pendingPlan`/`_pendingOrderId` — this callback's
+    // `orderId` would belong to the OLD attempt while `_pendingPlan` had
+    // already moved on to describe the NEW one. Granting `_pendingPlan`
+    // in that situation would silently credit the wrong plan (e.g. a
+    // ₹19 monthly attempt's stale callback landing after the user
+    // switched to and paid for Lifetime, or vice versa) — a real money
+    // bug, not just a UI glitch. Requiring the callback's orderId to
+    // match _pendingOrderId exactly means a callback can only ever grant
+    // the plan it actually belongs to.
+    if (orderId != _pendingOrderId) return;
     final plan = _pendingPlan;
     if (plan == null) return;
 
@@ -207,6 +224,10 @@ class PaymentService {
       final resp = await http.get(
         Uri.parse('$_workerBaseUrl/api/verify-cf-order?orderId=$orderId'),
       );
+      // A newer checkout could have started (and overwritten
+      // _pendingOrderId) while this http.get was in flight — re-check
+      // before acting on the result, same reasoning as above.
+      if (orderId != _pendingOrderId) return;
       if (resp.statusCode != 200) {
         onPaymentError?.call('Could not verify payment. Please contact support if you were charged.');
         return;
@@ -241,6 +262,17 @@ class PaymentService {
     } catch (e) {
       if (kDebugMode) debugPrint('[PaymentService] verify error: $e');
       onPaymentError?.call('Could not verify payment. Please contact support if you were charged.');
+    } finally {
+      // FIX: this attempt has now been fully handled one way or another
+      // (granted, failed, or cancelled) — clear the pending state so a
+      // stray/duplicate callback for this same orderId can't re-run any
+      // of the branches above a second time, and so the singleton starts
+      // the next checkout attempt from a clean slate rather than
+      // carrying this attempt's plan/orderId forward indefinitely.
+      if (_pendingOrderId == orderId) {
+        _pendingPlan = null;
+        _pendingOrderId = null;
+      }
     }
   }
 

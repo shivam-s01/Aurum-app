@@ -2440,13 +2440,19 @@ class _DownloadTile extends StatelessWidget {
             PageRouteBuilder(
               opaque: true,
               pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-              transitionsBuilder: (context, anim, __, child) => ColoredBox(
-                color: AurumTheme.bgOf(context),
-                child: SlideTransition(
-                  position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-                      .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-                  child: child,
-                ),
+              // FIX (flat theme-colored screen for 1-2s on open/swipe-down-
+              // close instead of instant artwork): see the matching fix in
+              // home_screen.dart's pushFullPlayer(), mini_player.dart's
+              // _openFullPlayer(), and song_tile.dart's _handleTap() —
+              // FullPlayerScreen already paints its own opaque, theme-
+              // correct background on its first frame, so this extra flat
+              // ColoredBox was redundant and is what showed through as an
+              // untinted flat color during the whole transition, both
+              // directions.
+              transitionsBuilder: (context, anim, __, child) => SlideTransition(
+                position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+                    .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+                child: child,
               ),
               transitionDuration: const Duration(milliseconds: 380),
               // FIX ("back feels stuck/not smooth"): was 300ms while the

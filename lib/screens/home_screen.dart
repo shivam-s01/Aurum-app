@@ -71,13 +71,28 @@ void pushFullPlayer(BuildContext context) {
     PageRouteBuilder(
       opaque: true,
       pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-      transitionsBuilder: (context, anim, __, child) => ColoredBox(
-        color: AurumTheme.bgOf(context),
-        child: SlideTransition(
-          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-              .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-          child: child,
-        ),
+      // FIX ("full player looks like a flat theme-colored screen for 1-2s
+      // on open AND on swipe-down-close, instead of Spotify-style instant
+      // artwork/content"): this used to wrap the sliding FullPlayerScreen
+      // in `ColoredBox(color: AurumTheme.bgOf(context))`. FullPlayerScreen
+      // already paints its own opaque, theme-correct Scaffold background
+      // (Colors.black / #F5F0EA, see the Scaffold backgroundColor comment
+      // in full_player_screen.dart) on its very first frame — so that
+      // ColoredBox was pure redundant plumbing that happened to sit ON
+      // TOP of the real background during the entire 380ms slide, in
+      // every direction (reverseTransitionDuration reuses this exact
+      // same transitionsBuilder for the swipe-down dismiss). A flat,
+      // untinted color painted for the whole transition duration is
+      // exactly what read as "the theme covers the whole screen for a
+      // couple seconds before the real content/artwork shows up" — both
+      // opening AND closing. Removing the wrapper lets the
+      // SlideTransition reveal FullPlayerScreen's real (already correct)
+      // background and content directly, with nothing extra painted over
+      // or under it.
+      transitionsBuilder: (context, anim, __, child) => SlideTransition(
+        position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+            .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+        child: child,
       ),
     ),
   ).then((_) {

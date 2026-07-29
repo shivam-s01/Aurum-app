@@ -184,13 +184,20 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
       PageRouteBuilder(
         opaque: true,
         pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-        transitionsBuilder: (context, anim, __, child) => ColoredBox(
-          color: AurumTheme.bgOf(context),
-          child: SlideTransition(
-            position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-                .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-            child: child,
-          ),
+        // FIX ("full player looks like a flat theme-colored screen for
+        // 1-2s on open AND on swipe-down-close"): see the matching fix
+        // (and full reasoning) in home_screen.dart's pushFullPlayer() —
+        // FullPlayerScreen already paints its own opaque, theme-correct
+        // background on its first frame, so wrapping it in a separate
+        // flat ColoredBox here was redundant and is exactly what showed
+        // through as an untinted flat color covering the whole screen
+        // during the entire transition, both directions (this route's
+        // reverseTransitionDuration below reuses this same builder for
+        // the swipe-down dismiss).
+        transitionsBuilder: (context, anim, __, child) => SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+              .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+          child: child,
         ),
         transitionDuration: const Duration(milliseconds: 380),
         // FIX ("back feels stuck/not smooth"): matched to the forward

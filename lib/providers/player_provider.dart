@@ -444,7 +444,32 @@ class PlayerProvider extends ChangeNotifier {
             : SongSource.saavn,
       );
     }
-    resolvedSong ??= (_queue.isNotEmpty && newIndex >= 0 && newIndex < _queue.length)
+    // FIX (permanent artwork/title/background mismatch after auto-advance):
+    // when the engine is mid-transition between tracks it can emit a state
+    // event with currentSongId == null (nothing attached yet). This isn't
+    // only a manual-skip thing — it also happens on plain auto-advance
+    // (current song ends, engine moves to the next one on its own), where
+    // _expectedSongId is NOT set, so the isConfirmedSwitch guard further
+    // below never even engages to protect us here.
+    //
+    // Before this fix, a null currentSongId fell through to
+    // `_queue[newIndex]` — but newIndex can *also* still be stale in this
+    // exact same window (state.currentIndex is frequently null too, so
+    // newIndex silently reused the OLD _currentIndex). That combination
+    // could resolve to the wrong song and get accepted as authoritative
+    // with nothing left to catch it, since no expectation was pending to
+    // reject it — this is the "title/artwork/background frozen on the
+    // previous song, permanently, not just for a beat" bug reported after
+    // next/auto-advance.
+    //
+    // Fix: a genuinely null currentSongId from the engine is never treated
+    // as "use the index instead" — it just means "no new information this
+    // tick", so we keep showing whatever _currentSong already was and wait
+    // for a later event that actually reports a real id.
+    resolvedSong ??= (state.currentSongId != null &&
+            _queue.isNotEmpty &&
+            newIndex >= 0 &&
+            newIndex < _queue.length)
         ? _queue[newIndex]
         : _currentSong;
 
@@ -987,9 +1012,35 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Holds the most recent _buildInitialSmartQueue request that arrived
+  // while a previous one was still in flight, so it can be replayed once
+  // the in-flight build finishes instead of being silently dropped. Only
+  // ever holds at most one — the latest request always wins over any
+  // earlier one that was also waiting.
+  ({Song song, Set<String> alreadyInQueue, int sessionId})? _pendingQueueBuild;
+
   Future<void> _buildInitialSmartQueue(Song song, {required Set<String> alreadyInQueue, required int sessionId}) async {
-    if (_isBuildingInitialQueue) return;
+    // FIX (permanent missing Up Next queue on rapid song switching): this
+    // used to check `_isBuildingInitialQueue` BEFORE checking whether this
+    // call's own sessionId had already been superseded. If song A's build
+    // was still in flight when the user tapped song B, B's call landed
+    // here, saw `_isBuildingInitialQueue == true` (still true from A), and
+    // returned immediately — song B then had NO Up Next queue built for it
+    // at all, permanently, since nothing else ever retries this. The user
+    // would see an empty/short queue after fast switching until the
+    // separate ≤8-remaining auto-extend path eventually kicked in much
+    // later. Checking staleness first means a superseded call (song A's,
+    // once B has taken over) exits for the *correct* reason — it's simply
+    // stale — while a genuinely current call (song B's) is never blocked
+    // just because an old one happened to still be unwinding.
     if (sessionId != _uiPlaySession) return;
+    if (_isBuildingInitialQueue) {
+      // Still the current session, just arrived while an older song's
+      // build hasn't wound down yet — remember it so it gets its own
+      // build pass the moment that finishes, instead of never getting one.
+      _pendingQueueBuild = (song: song, alreadyInQueue: alreadyInQueue, sessionId: sessionId);
+      return;
+    }
     _isBuildingInitialQueue = true;
     try {
       await RecommendationEngine.load();
@@ -1054,6 +1105,20 @@ class PlayerProvider extends ChangeNotifier {
     } catch (_) {
     } finally {
       _isBuildingInitialQueue = false;
+      // A newer song's build request arrived while this one was running
+      // and got parked above — replay it now, but only if it's still the
+      // current session (the user may have moved on yet again while THIS
+      // build was finishing, in which case it's stale and simply dropped,
+      // same as every other sessionId check in this file).
+      final pending = _pendingQueueBuild;
+      _pendingQueueBuild = null;
+      if (pending != null && pending.sessionId == _uiPlaySession) {
+        unawaited(_buildInitialSmartQueue(
+          pending.song,
+          alreadyInQueue: pending.alreadyInQueue,
+          sessionId: pending.sessionId,
+        ));
+      }
     }
   }
 
@@ -1413,6 +1478,28 @@ class PlayerProvider extends ChangeNotifier {
     _queue = [];
     _currentSong = null;
     _currentIndex = 0;
+    // FIX (next song after Stop can get silently blocked/misrouted): this
+    // used to leave _expectedSongId, _lastHandledIndex, and the behavior-
+    // tracking fields (_lastTrackedSong/_completionFired/_earlySkipArmed/
+    // _replayArmed) exactly as they were before the stop. If the next
+    // playSong() call happened to reuse or race against a state event
+    // still referencing the old (pre-stop) expected id/index, the stale
+    // guard could reject or misapply that genuinely new state — the same
+    // class of bug as the auto-advance mismatch above, just triggered via
+    // Stop instead of a track transition. Clearing every piece of
+    // per-song tracking state here means Stop always returns the provider
+    // to a truly clean slate, with nothing left over to misfire against
+    // whatever plays next.
+    _expectedSongId = null;
+    _lastHandledIndex = null;
+    _lastTrackedSong = null;
+    _completionFired = false;
+    _earlySkipArmed = false;
+    _replayArmed = false;
+    _position = Duration.zero;
+    _duration = Duration.zero;
+    _isLoading = false;
+    _isPlaying = false;
     notifyListeners();
   }
 

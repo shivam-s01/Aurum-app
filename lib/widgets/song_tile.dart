@@ -72,13 +72,25 @@ class _SongTileState extends State<SongTile> {
             // visually and fully fixes the freeze.
             opaque: true,
             pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-            transitionsBuilder: (context, anim, __, child) => ColoredBox(
-              color: AurumTheme.bgOf(context),
-              child: SlideTransition(
-                position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-                    .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-                child: child,
-              ),
+            // FIX ("tap a song → the PREVIOUS screen stays visible for a
+            // beat, THEN artwork/full player appears" / same flat-color
+            // issue on swipe-down-close): this used to wrap the sliding
+            // FullPlayerScreen in `ColoredBox(color: AurumTheme.bgOf(
+            // context))`. FullPlayerScreen already paints its own opaque,
+            // theme-correct Scaffold background on its very first frame
+            // (see the Scaffold backgroundColor comment in
+            // full_player_screen.dart) — this extra ColoredBox was
+            // redundant, and being a FLAT untinted color with no artwork/
+            // gradient of its own, it's exactly what read as "nothing has
+            // changed yet" during the slide, both opening and — since
+            // reverseTransitionDuration reuses this same builder — on the
+            // swipe-down dismiss too. Same root cause and same fix as
+            // home_screen.dart's pushFullPlayer() and mini_player.dart's
+            // _openFullPlayer().
+            transitionsBuilder: (context, anim, __, child) => SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+                  .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+              child: child,
             ),
             transitionDuration: const Duration(milliseconds: 380),
             // FIX ("back feels stuck/not smooth"): matched to the forward

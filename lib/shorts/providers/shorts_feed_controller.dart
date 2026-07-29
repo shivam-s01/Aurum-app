@@ -46,6 +46,23 @@ class ShortsFeedController extends ChangeNotifier {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
 
+  // FIX (same class of bug as PlayerProvider._uiPlaySession): _playCurrent()
+  // is async — it awaits ShortsPrefs.isLiked/isSaved before calling
+  // _native.playSong(). Fast repeated swipes (next()/previous()/jumpTo(),
+  // or an auto-advance firing while a previous _playCurrent() is still
+  // resolving) can leave more than one _playCurrent() call in flight at
+  // once. Without a guard, an OLDER call finishing after a NEWER one had
+  // already moved _currentIndex on could still overwrite _liked/_saved
+  // with its own (now stale) item's state, and fire _native.playSong()
+  // for the wrong (previous) card — the native engine would then briefly
+  // or permanently play/display a card that isn't the one the UI has
+  // already swiped to, the exact same "state shows one thing, playback is
+  // another" bug class fixed elsewhere in player_provider.dart and
+  // native_engine_bridge.dart. Bumped on every _playCurrent() call; any
+  // call whose session has been superseded by the time its awaits
+  // resolve simply stops touching shared state instead of clobbering it.
+  int _playSession = 0;
+
   ShortsVideoStatus _videoStatus = ShortsVideoStatus.none;
   bool _isPlaying = false;
   StreamSubscription<ShortsNativeState>? _stateSub;
@@ -170,10 +187,21 @@ class ShortsFeedController extends ChangeNotifier {
     final item = currentItem;
     if (item == null) return;
 
-    _liked = await ShortsPrefs.isLiked(item.trackId);
-    _saved = await ShortsPrefs.isSaved(item.trackId);
+    final mySession = ++_playSession;
+
+    final liked = await ShortsPrefs.isLiked(item.trackId);
+    final saved = await ShortsPrefs.isSaved(item.trackId);
+    // A newer _playCurrent() call (from another fast swipe) may have
+    // started and even finished while these awaits were resolving — if
+    // so, this call is stale and must not touch any shared state or tell
+    // the native engine to play its (now-previous) card.
+    if (mySession != _playSession) return;
+
+    _liked = liked;
+    _saved = saved;
     _downloadState = DownloadTrackState.idle;
     await ShortsPrefs.bumpArtist(item.artist);
+    if (mySession != _playSession) return;
     notifyListeners();
 
     await _native.playSong(
@@ -182,6 +210,7 @@ class ShortsFeedController extends ChangeNotifier {
       artist: item.artist,
       previewUrl: item.previewUrl,
     );
+    if (mySession != _playSession) return;
     unawaited(_preloadNext());
   }
 

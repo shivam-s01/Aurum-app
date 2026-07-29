@@ -460,6 +460,59 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) _warmNextInQueue();
           });
+        } else {
+          // FIX ("full player opens on a near-black/flat background and
+          // stays that way until the song finishes loading" — a genuinely
+          // brand-new song, e.g. tapped for the very first time ever, has
+          // no cached palette here for peek() to seed from at all). The
+          // block above only handles the warm-cache case; on a true cold
+          // cache this used to fall straight through to build()'s own
+          // song-change branch, which only starts _extractColor() from an
+          // addPostFrameCallback — a full frame after this screen's very
+          // first paint — and _extractColor's own accurate-palette path
+          // is a real quantization pass that can take the better part of
+          // a second. Nothing filled that entire gap; the hardcoded
+          // near-black _currentBg1..4 defaults sat on screen for all of
+          // it, reading as "opens to black, then color pops in once the
+          // song loads" — while the artwork image itself (which has its
+          // own independent shimmer-then-fade-in) often finishes well
+          // before that, making the mismatch even more obvious.
+          //
+          // Fix: fire the same fast average-color extraction
+          // (ArtworkPaletteCache.getFast — a coarse sample, not a full
+          // quantization pass) synchronously here, before first build(),
+          // instead of waiting on build()'s post-frame callback. This
+          // races the fast decode against the route's own 380ms slide-up
+          // transition rather than starting it a frame+ late — by the
+          // time the screen is fully visible there's very often already
+          // a real (if approximate) tint on screen instead of the flat
+          // default, with the accurate palette morphing in on top of it
+          // moments later exactly as _applyPalette's `instant` path
+          // already does elsewhere in this file.
+          final isLight = Theme.of(context).brightness == Brightness.light;
+          final gen = ++_artGen;
+          _lastArtUrl = url;
+          _lastSongId = currentSong.id;
+          _lastIsLight = isLight;
+          _isFirstBuild = false;
+          unawaited(ArtworkPaletteCache.getFast(url).then((fast) {
+            if (fast == null || gen != _artGen || !mounted) return;
+            if (ArtworkPaletteCache.peek(url) != null) return;
+            _applyPalette(fast, gen: gen, isLight: isLight, instant: true);
+          }));
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            // NOTE: _extractColorForce (not _extractColor) — _lastArtUrl was
+            // already set to `url` just above, so _extractColor's own
+            // same-URL dedup guard would skip this call entirely and the
+            // accurate palette would never actually be extracted.
+            // _extractColorForce bypasses that guard by design (it exists
+            // for exactly this situation elsewhere in this file — see its
+            // doc comment) and always resolves from
+            // ArtworkPaletteCache.get(), so it's the correct call here.
+            _extractColorForce(url, isLight: isLight);
+            _warmNextInQueue();
+          });
         }
       }
     }

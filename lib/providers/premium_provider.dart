@@ -105,7 +105,25 @@ class PremiumProvider extends ChangeNotifier {
   // -- Refresh -------------------------------------------------------------
   // Checks (in priority order): Supabase admin flag -> local Cashfree grant.
 
+  // FIX (premium status could flicker back to stale/wrong value): _refresh()
+  // is called from multiple independent triggers — init(), auth state
+  // changes, connectivity changes, markPremiumGranted() — any of which can
+  // fire in quick succession (e.g. a sign-in event immediately followed by
+  // a token-refresh auth event, or connectivity flapping on/off). Each
+  // call awaits a real network round-trip (getUser(), up to the 6s
+  // timeout) before writing _isPremium/_activePlanId. Without a guard, an
+  // OLDER call that happened to be slow (e.g. it hit the timeout and fell
+  // back to a stale cached user) could finish AFTER a newer, faster call
+  // that already fetched the correct current status — and silently
+  // overwrite the correct value with its own stale result. For a paying
+  // user this could mean seeing premium features disappear/reappear
+  // incorrectly, or the reverse. Bumped on every _refresh() call; a call
+  // whose session has been superseded by the time its awaits resolve
+  // simply stops applying its result instead of clobbering a newer one.
+  int _refreshSession = 0;
+
   Future<void> _refresh() async {
+    final mySession = ++_refreshSession;
     _isChecking = true;
     notifyListeners();
 
@@ -145,6 +163,11 @@ class PremiumProvider extends ChangeNotifier {
         user = Supabase.instance.client.auth.currentUser;
       }
 
+      // A newer _refresh() call may have started (and even finished)
+      // while the network round-trip above was in flight — if so, this
+      // call's result is stale and must not be applied.
+      if (mySession != _refreshSession) return;
+
       bool fromAdmin = false;
       if (user != null) {
         final meta = user.userMetadata ?? {};
@@ -169,12 +192,14 @@ class PremiumProvider extends ChangeNotifier {
       // wrongly shown as free. Now both sources are always checked and
       // combined, matching the priority order documented above the class.
       final hasValidPayment = await PaymentService.hasValidLocalGrant();
+      if (mySession != _refreshSession) return;
 
       final isPremiumNow = fromAdmin || hasValidPayment;
 
       String? planId;
       if (hasValidPayment) {
         planId = await PaymentService.currentPlanId();
+        if (mySession != _refreshSession) return;
       } else if (fromAdmin) {
         planId = null; // admin-granted, no specific plan
       }
@@ -185,8 +210,10 @@ class PremiumProvider extends ChangeNotifier {
       if (kDebugMode) debugPrint('[PremiumProvider] _refresh error: $e');
       // Keep cached value on network error - don't downgrade silently
     } finally {
-      _isChecking = false;
-      notifyListeners();
+      if (mySession == _refreshSession) {
+        _isChecking = false;
+        notifyListeners();
+      }
     }
   }
 
