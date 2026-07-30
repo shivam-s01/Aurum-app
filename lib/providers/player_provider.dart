@@ -122,6 +122,30 @@ class PlayerProvider extends ChangeNotifier {
   Timer? _indexDebounce;
   int?   _lastHandledIndex;
 
+  // FIX (100-song rapid-fire skip stability): skipNext()/skipPrev() used to
+  // fire a brand-new _engine.skipToNext()/skipToPrevious() MethodChannel
+  // call — each with its own independent 4s timeout — on EVERY single tap,
+  // with no coalescing. The _uiPlaySession/_expectedSongId machinery already
+  // keeps the UI/state CORRECT under that load (that's what actually fixed
+  // the "audio changes, UI frozen" bug), but correctness isn't the same as
+  // stability at volume: spamming the skip button 100 times in a few
+  // seconds queues up 100 stacked native round-trips, each independently
+  // racing/timing out, hammering the platform channel and (on a phone) the
+  // battery/CPU for zero user-visible benefit — the user only ever cares
+  // about where they land after they stop tapping, not that every
+  // intermediate tap round-tripped to native individually.
+  //
+  // Fix: the optimistic index math + _expectedSongId/_expectedSongIdSetAt
+  // guess still updates INSTANTLY on every tap (UI feels exactly as
+  // responsive as before — title/artwork/progress bar snap immediately).
+  // Only the actual native call is debounced: rapid taps reset a short
+  // timer, and just ONE _engine.skipToQueueItem() call actually fires once
+  // taps settle, jumping straight to the final resolved index in one shot
+  // instead of one native call per intermediate tap.
+  Timer? _skipDebounce;
+  int? _skipDebounceTargetIndex; // resolved queue index once taps settle
+  static const Duration _skipDebounceWindow = Duration(milliseconds: 180);
+
   // Local mirror of the native queue. The native side only reports back
   // `queueIds` (List<String>) + `currentSongId` in its state stream, not
   // full Song objects, so we keep the actual Song list here — pushed to
@@ -164,6 +188,24 @@ class PlayerProvider extends ChangeNotifier {
   // up and reports the same id, at which point the expectation clears and
   // normal reconciliation resumes.
   String? _expectedSongId;
+  // FIX (permanent UI freeze after rapid/spam skip — "audio changes in
+  // background, UI stuck on old song, only a manual tap fixes it"):
+  // _expectedSongId had no expiry. Under rapid repeated skip taps, each
+  // tap overwrites _expectedSongId with its own guess (see skipNext/
+  // skipPrev), but the native engine commonly coalesces/drops rapid
+  // successive skip calls — so the engine can settle on an EARLIER song
+  // than the LAST tap guessed. When that happens, the real state event
+  // reports an id that will never equal the last-set _expectedSongId, so
+  // isConfirmedSwitch in _onEngineState stays false forever: every future
+  // event — including ones correctly describing what's actually
+  // playing — gets treated as "stale" and dropped, freezing the UI on
+  // the last optimistic guess permanently while audio keeps changing
+  // underneath it. Recording when the current expectation was SET lets
+  // _onEngineState give up on an unconfirmed guess after a short window
+  // and fall back to trusting the engine's real reported state, instead
+  // of waiting forever for a confirmation that will never come.
+  DateTime? _expectedSongIdSetAt;
+  static const Duration _expectedSongIdTimeout = Duration(seconds: 3);
 
   // FIX (see playQueue/playSong timeout doc comment in native_engine_bridge.
   // dart): surfaces to the UI when a play attempt genuinely failed or timed
@@ -361,6 +403,23 @@ class PlayerProvider extends ChangeNotifier {
   // currentIndex from the old AurumAudioHandler-backed provider.
   // ---------------------------------------------------------------------------
   void _onEngineState(NativeEngineState state) {
+    // FIX (permanent UI freeze after rapid/spam skip): see the
+    // _expectedSongIdSetAt doc comment on the field declaration above for
+    // the full mechanism. If the current optimistic guess has gone
+    // unconfirmed for longer than _expectedSongIdTimeout, give up on it
+    // here — BEFORE any of the staleness guards below run — so a guess
+    // that will never be confirmed (engine coalesced/dropped the tap it
+    // belonged to and settled on a different song instead) can't keep
+    // rejecting every subsequent real state event forever. This is a
+    // last-resort safety net: the normal id-match path in isConfirmedSwitch
+    // below still wins whenever the engine genuinely does confirm the
+    // expected song, so this only ever fires for the actually-stuck case.
+    if (_expectedSongId != null &&
+        _expectedSongIdSetAt != null &&
+        DateTime.now().difference(_expectedSongIdSetAt!) > _expectedSongIdTimeout) {
+      _expectedSongId = null;
+      _expectedSongIdSetAt = null;
+    }
     _isPlaying = state.playing;
     // BUG: _isLoading was assigned here unconditionally, BEFORE the
     // isConfirmedSwitch guard further down that protects _currentSong from
@@ -510,6 +569,7 @@ class PlayerProvider extends ChangeNotifier {
     }
     if (_expectedSongId != null && state.currentSongId == _expectedSongId) {
       _expectedSongId = null; // engine has caught up — resume normal tracking
+      _expectedSongIdSetAt = null;
     }
 
     final _prevSongIdForPaletteWarm = _currentSong?.id;
@@ -938,6 +998,7 @@ class PlayerProvider extends ChangeNotifier {
       _currentIndex = index;
       _currentSong = song;
       _expectedSongId = song.id;
+      _expectedSongIdSetAt = DateTime.now();
       // FIX (progress bar briefly shows old song's scale on tap): see the
       // matching fix in skipNext()/skipPrev()/skipToIndex() — same issue,
       // just for the direct-tap path. Without this, tapping a new song
@@ -979,6 +1040,7 @@ class PlayerProvider extends ChangeNotifier {
         // actually started.
         _isLoading = false;
         _expectedSongId = null;
+        _expectedSongIdSetAt = null;
         _lastFailedSong = song;
         _playbackError = 'Couldn\'t play "${song.title}". Tap to retry.';
         notifyListeners();
@@ -993,6 +1055,7 @@ class PlayerProvider extends ChangeNotifier {
       _currentIndex = 0;
       _currentSong = song;
       _expectedSongId = song.id;
+      _expectedSongIdSetAt = DateTime.now();
       // See matching comment in the queue-based branch above.
       _position = Duration.zero;
       _duration = Duration.zero;
@@ -1008,6 +1071,7 @@ class PlayerProvider extends ChangeNotifier {
         if (mySession != _uiPlaySession) return; // superseded — ignore stale failure
         _isLoading = false;
         _expectedSongId = null;
+        _expectedSongIdSetAt = null;
         _lastFailedSong = song;
         _playbackError = 'Couldn\'t play "${song.title}". Tap to retry.';
         notifyListeners();
@@ -1279,6 +1343,7 @@ class PlayerProvider extends ChangeNotifier {
       _currentSong = _queue[_currentIndex];
       _lastHandledIndex = _currentIndex;
       _expectedSongId = _currentSong!.id;
+      _expectedSongIdSetAt = DateTime.now();
       // FIX (progress bar briefly shows wrong scale after skip): title/
       // artwork/background all update optimistically in this block, but
       // _position/_duration were left untouched — still the OLD song's
@@ -1303,32 +1368,31 @@ class PlayerProvider extends ChangeNotifier {
         ArtworkPaletteCache.warm(_currentSong!.artworkUrl);
       }
       notifyListeners();
-    }
-    // Snapshot exactly what THIS call set the gate to (null if shuffled/
-    // at queue end, where the optimistic block above didn't run) — used
-    // below to check the gate is still "ours" before clearing it.
-    final myExpectedId = _expectedSongId;
-
-    // FIX (real desync bug under rapid/spam skip): the catch block below
-    // used to unconditionally set `_expectedSongId = null` on any failure
-    // or timeout. Under rapid repeated taps that's wrong — by the time an
-    // EARLIER tap's native call finally times out or throws, a LATER tap
-    // may have already overwritten _expectedSongId with its own (still
-    // valid, still pending) guess. Nulling it here would rip out that
-    // newer tap's protection, re-opening the stale-event gate right as
-    // older in-flight native responses (describing an even earlier song)
-    // could still be arriving — letting one slip through and get accepted
-    // as current, corrupting _currentSong out from under the UI's
-    // optimistic (correct) display. This is the actual mechanism behind
-    // "UI shows one song, audio plays another" under fast repeated
-    // skipping. Fix: only clear the gate if it still equals what THIS
-    // call itself set — i.e. no newer tap has claimed it since.
-    try {
-      await _engine.skipToNext().timeout(const Duration(seconds: 4));
-    } catch (e) {
-      if (_expectedSongId == myExpectedId) {
-        _expectedSongId = null;
-        notifyListeners();
+      // FIX (100-song rapid-fire stability): don't fire the native call
+      // for THIS tap yet — schedule/reset a short debounce instead. If
+      // more taps land within the window, this same call keeps getting
+      // rescheduled and only the LAST tap's target index is kept. Only
+      // once taps actually stop for _skipDebounceWindow does one single
+      // native skipToQueueItem() fire, jumping straight to wherever the
+      // user actually landed. See the field doc comment above for why.
+      _scheduleSkipFlush(_currentIndex);
+    } else {
+      // Shuffled or already at the end of the queue — no safe optimistic
+      // guess to make (see the doc comment on the optimistic block above).
+      // Flush any already-pending debounced skip immediately so this tap
+      // isn't silently swallowed, then fall through to a direct call.
+      _skipDebounce?.cancel();
+      _skipDebounce = null;
+      _skipDebounceTargetIndex = null;
+      final myExpectedId = _expectedSongId;
+      try {
+        await _engine.skipToNext().timeout(const Duration(seconds: 4));
+      } catch (e) {
+        if (_expectedSongId == myExpectedId) {
+          _expectedSongId = null;
+          _expectedSongIdSetAt = null;
+          notifyListeners();
+        }
       }
     }
     return true;
@@ -1342,6 +1406,7 @@ class PlayerProvider extends ChangeNotifier {
       _currentSong = _queue[_currentIndex];
       _lastHandledIndex = _currentIndex;
       _expectedSongId = _currentSong!.id;
+      _expectedSongIdSetAt = DateTime.now();
       // See matching comment in skipNext() — keeps the progress bar from
       // briefly showing the old song's duration scale after a skip.
       _position = Duration.zero;
@@ -1350,17 +1415,52 @@ class PlayerProvider extends ChangeNotifier {
         ArtworkPaletteCache.warm(_currentSong!.artworkUrl);
       }
       notifyListeners();
+      // See matching comment in skipNext() — coalesce rapid taps into one
+      // native call instead of one round-trip per tap.
+      _scheduleSkipFlush(_currentIndex);
+    } else {
+      _skipDebounce?.cancel();
+      _skipDebounce = null;
+      _skipDebounceTargetIndex = null;
+      final myExpectedId = _expectedSongId;
+      try {
+        await _engine.skipToPrevious().timeout(const Duration(seconds: 4));
+      } catch (e) {
+        if (_expectedSongId == myExpectedId) {
+          _expectedSongId = null;
+          _expectedSongIdSetAt = null;
+          notifyListeners();
+        }
+      }
     }
-    // Snapshot what THIS call set the gate to — see the matching comment
-    // in skipNext() for why unconditionally nulling _expectedSongId in
-    // the catch block below is a real desync bug under rapid taps, not
-    // just a cleanup nicety.
+  }
+
+  // Shared debounce scheduler for skipNext()/skipPrev(). Resets the timer
+  // on every call (i.e. every rapid tap) and remembers only the LATEST
+  // target index — when taps finally settle for _skipDebounceWindow, one
+  // single _engine.skipToQueueItem() call fires for that final index.
+  void _scheduleSkipFlush(int targetIndex) {
+    _skipDebounceTargetIndex = targetIndex;
+    _skipDebounce?.cancel();
+    _skipDebounce = Timer(_skipDebounceWindow, () => _flushSkip());
+  }
+
+  Future<void> _flushSkip() async {
+    final targetIndex = _skipDebounceTargetIndex;
+    _skipDebounceTargetIndex = null;
+    if (targetIndex == null) return;
+    // Snapshot exactly what THIS flush is chasing — used below to check
+    // the gate is still "ours" before clearing it. Same reasoning as the
+    // original per-tap guard: only clear _expectedSongId if a NEWER
+    // request (a skip that happened after this flush was scheduled, e.g.
+    // a direct queue-item tap) hasn't already claimed the gate.
     final myExpectedId = _expectedSongId;
     try {
-      await _engine.skipToPrevious().timeout(const Duration(seconds: 4));
+      await _engine.skipToQueueItem(targetIndex).timeout(const Duration(seconds: 4));
     } catch (e) {
       if (_expectedSongId == myExpectedId) {
         _expectedSongId = null;
+        _expectedSongIdSetAt = null;
         notifyListeners();
       }
     }
@@ -1452,6 +1552,7 @@ class PlayerProvider extends ChangeNotifier {
       _currentSong = _queue[index];
       _lastHandledIndex = index;
       _expectedSongId = _currentSong!.id;
+      _expectedSongIdSetAt = DateTime.now();
       // See matching comment in skipNext() — keeps the progress bar from
       // briefly showing the old song's duration scale after a direct
       // queue-item tap.
@@ -1461,7 +1562,26 @@ class PlayerProvider extends ChangeNotifier {
         ArtworkPaletteCache.warm(_currentSong!.artworkUrl);
       }
       notifyListeners();
+      // FIX (same 100-song rapid-fire stability gap as skipNext/skipPrev):
+      // this used to fire its own independent _engine.skipToQueueItem()
+      // call on every single invocation, with no debounce at all — tapping
+      // rapidly through several queue items (Up Next screen) queued up one
+      // stacked native round-trip per tap, exactly the spam problem
+      // skipNext()/skipPrev() were already fixed for via _scheduleSkipFlush.
+      // Routing through the same shared debounce means rapid taps on
+      // different queue rows coalesce into a single native call for
+      // wherever the user actually lands, instead of one per intermediate
+      // tap.
+      _scheduleSkipFlush(index);
+      return;
     }
+    // Shuffled, or an out-of-range index — no safe optimistic guess to
+    // make (see the doc comment on the optimistic block above). Flush any
+    // already-pending debounced skip immediately so it isn't silently
+    // swallowed, then fall through to a direct call.
+    _skipDebounce?.cancel();
+    _skipDebounce = null;
+    _skipDebounceTargetIndex = null;
     // FIX — same _expectedSongId stuck-gate risk as skipNext()/skipPrev();
     // see the comment there for the full reasoning.
     // FIX — same hang risk as skipNext()/skipPrev(): a MethodChannel call
@@ -1478,6 +1598,7 @@ class PlayerProvider extends ChangeNotifier {
     } catch (e) {
       if (_expectedSongId == myExpectedId) {
         _expectedSongId = null;
+        _expectedSongIdSetAt = null;
       }
     }
     notifyListeners();
@@ -1518,6 +1639,13 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> stop() => _engine.stop();
 
   Future<void> stopAndClear() async {
+    // FIX: a pending debounced skip (see _scheduleSkipFlush) firing AFTER
+    // Stop would call _engine.skipToQueueItem() on a queue that's about to
+    // be cleared — cancel it here so Stop always genuinely stops, with
+    // nothing left in flight to contradict it a beat later.
+    _skipDebounce?.cancel();
+    _skipDebounce = null;
+    _skipDebounceTargetIndex = null;
     await _engine.stop();
     await _engine.clearQueue();
     _queue = [];
@@ -1536,6 +1664,7 @@ class PlayerProvider extends ChangeNotifier {
     // to a truly clean slate, with nothing left over to misfire against
     // whatever plays next.
     _expectedSongId = null;
+    _expectedSongIdSetAt = null;
     _lastHandledIndex = null;
     _lastTrackedSong = null;
     _completionFired = false;
@@ -1619,6 +1748,7 @@ class PlayerProvider extends ChangeNotifier {
   @override
   void dispose() {
     _indexDebounce?.cancel();
+    _skipDebounce?.cancel();
     for (final sub in _subs) sub.cancel();
     _favoritesSub?.cancel();
     _engine.onLikeToggleRequested = null;

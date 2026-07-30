@@ -18,8 +18,93 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
+import 'recommendation_engine.dart';
 
 // ─── Top-level helpers ───────────────────────────────────────────────────────
+
+// View counts below this are treated as unproven/low-quality uploads and
+// excluded from Browse's YouTube-sourced album/artist fallback rows — same
+// threshold and reasoning RecommendationEngine.isPremiumQuality already
+// applies elsewhere in the app (search, up-next, home feed). Browse's YT
+// fallback previously had NO quality gate at all: it took whatever YouTube's
+// search returned in raw order, so a handful of low-view junk uploads (or,
+// worse, several re-uploads of the exact same song) could easily fill an
+// entire "Albums"/"Artists" row — a visibly un-premium result for a feature
+// meant to feel like a real catalog browse, not a raw video search.
+const int _kMinViewsForBrowse = 100000;
+
+// Safe view-count accessor — youtube_explode_dart's Video.engagement can
+// throw/come back empty for videos with hidden or unavailable engagement
+// stats; never let that crash a whole fallback fetch over one bad video.
+int? _safeViewCount(yt.Video v) {
+  try {
+    return v.engagement.viewCount;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// True if a raw YouTube search result is worth surfacing in a premium
+/// Browse row: has a real, sane view count AND doesn't look like a
+/// low-quality/junk upload by title. Mirrors the same bar the rest of the
+/// app already holds search/up-next/home-feed YouTube content to.
+bool _isBrowseQuality(yt.Video v) {
+  final views = _safeViewCount(v);
+  if (views == null || views < _kMinViewsForBrowse) return false;
+  if (RecommendationEngine.isLowQualityUpload(v.title)) return false;
+  return true;
+}
+
+/// True if a Browse Saavn result actually relates to what was typed —
+/// same word-overlap + typo-tolerance idea as api_service.dart's search
+/// scoring, kept local/simple since Browse doesn't need full relevance
+/// scoring, just a "not obviously unrelated" floor.
+bool _looksRelevant(String title, String query) {
+  if (title.isEmpty || query.isEmpty) return false;
+  String norm(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), '');
+  final t = norm(title);
+  final q = norm(query);
+  if (t == q || t.contains(q) || q.contains(t)) return true;
+
+  final qWords = q.split(RegExp(r'\s+')).where((w) => w.length > 2).toList();
+  if (qWords.isEmpty) return true; // too short a query to filter safely
+  var matched = 0;
+  for (final w in qWords) {
+    if (t.contains(w)) {
+      matched++;
+      continue;
+    }
+    // Bounded edit-distance typo tolerance — same reasoning as
+    // ApiService._fuzzyWordMatch: a genuine misspelling ("saayar" for
+    // "saiyaara") shouldn't make an otherwise-correct result look
+    // unrelated just because it doesn't substring-match exactly.
+    final tTokens = t.split(' ');
+    for (final tok in tTokens) {
+      if (tok.length < 3) continue;
+      final maxEdits = w.length <= 4 ? 1 : (w.length <= 7 ? 2 : 3);
+      if ((w.length - tok.length).abs() > maxEdits) continue;
+      if (_editDistanceAtMost(w, tok, maxEdits)) { matched++; break; }
+    }
+  }
+  return (matched / qWords.length) >= 0.5;
+}
+
+bool _editDistanceAtMost(String a, String b, int maxDistance) {
+  if (a == b) return true;
+  final la = a.length, lb = b.length;
+  if ((la - lb).abs() > maxDistance) return false;
+  var prev = List<int>.generate(lb + 1, (j) => j);
+  for (var i = 1; i <= la; i++) {
+    final cur = List<int>.filled(lb + 1, 0);
+    cur[0] = i;
+    for (var j = 1; j <= lb; j++) {
+      final cost = a[i - 1] == b[j - 1] ? 0 : 1;
+      cur[j] = [cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost].reduce((v, e) => v < e ? v : e);
+    }
+    prev = cur;
+  }
+  return prev[lb] <= maxDistance;
+}
 
 String _clean(String s) => s
     .replaceAll('&amp;', '&')
@@ -203,15 +288,36 @@ class BrowseService {
     final body = await _fetch('$_base/result/?query=$encoded&limit=30');
     final rawTracks = _parseList(body);
 
+    // FIX (Browse tab showing unrelated tracks for loose/typo'd queries):
+    // Browse's track list previously took every Saavn result verbatim with
+    // no relevance check at all — the Search tab already learned this
+    // lesson (a backend's own loose full-text match can return genuinely
+    // unrelated songs for a misspelled or partial query) and applies a
+    // lightweight relevance floor; Browse had no equivalent, so the same
+    // "typo query returns random songs" symptom could show up here too.
+    // This mirrors that same word/phrase-overlap floor, just without
+    // needing ApiService's private scorer — kept local and simple since
+    // Browse doesn't need the full mood/session-aware scoring, only "is
+    // this actually related to what was typed".
+    final relevantRawTracks = rawTracks.where((j) {
+      final title = (j['song'] ?? j['name'] ?? j['title'] ?? '').toString();
+      return _looksRelevant(title, query.trim());
+    }).toList();
+    // If the relevance filter left nothing (very short/ambiguous query,
+    // or every result happened to score low), fall back to the unfiltered
+    // list rather than showing an empty Browse tab.
+    final effectiveRawTracks = relevantRawTracks.isNotEmpty ? relevantRawTracks : rawTracks;
+
     final tracks  = <BrowseTrack>[];
-    for (final j in rawTracks) {
+    for (final j in effectiveRawTracks) {
       try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
     }
 
-    // Derive a lightweight "Albums" and "Artists" view from the track
-    // results so Browse still feels rich without needing extra endpoints.
-    var albums  = _deriveAlbums(rawTracks);
-    var artists = _deriveArtists(rawTracks);
+    // Derive a lightweight "Albums" and "Artists" view from the (already
+    // relevance-filtered) track results so Browse still feels rich without
+    // needing extra endpoints.
+    var albums  = _deriveAlbums(effectiveRawTracks);
+    var artists = _deriveArtists(effectiveRawTracks);
 
     // PATCH: real artist photos. Saavn's dedicated artist-search endpoint
     // returns a proper display picture — swap that in for each derived
@@ -274,12 +380,18 @@ class BrowseService {
   // instead of scraping raw search-page HTML, which is far more fragile
   // and prone to silently returning nothing if YouTube tweaks its markup.
   static Future<List<BrowseArtist>> _ytArtistFallback(String query) async {
+    // FIX (YoutubeExplode client leak): close() previously only ran on the
+    // success path, right after search() returned. If search() itself threw
+    // (network error, backend hiccup, timeout at the http layer under the
+    // youtube_explode_dart timeout) execution jumped straight to `catch`
+    // and ytClient.close() was skipped — leaking the underlying http client
+    // every time a fallback search failed. try/finally guarantees close()
+    // runs regardless of how the try block exits.
+    final ytClient = yt.YoutubeExplode();
     try {
-      final ytClient = yt.YoutubeExplode();
       final results = await ytClient.search.search('$query song')
           .then((list) => list.toList())
           .timeout(const Duration(seconds: 8), onTimeout: () => <yt.Video>[]);
-      ytClient.close();
       final seen = <String>{};
       final out = <BrowseArtist>[];
       for (final v in results) {
@@ -293,20 +405,43 @@ class BrowseService {
       return out;
     } catch (_) {
       return [];
+    } finally {
+      ytClient.close();
     }
   }
 
   // Full YouTube-sourced fallback for albums when Saavn has none — groups
   // top video results loosely so the row still shows something playable.
-  static Future<List<BrowseAlbum>> _ytAlbumFallback(String query) async {
+  //
+  // FIX ("Albums" row showing junk/duplicate results): this used to take
+  // YouTube's raw top-6 results with zero filtering — no view-count/quality
+  // gate (unlike every other YouTube-sourced surface in the app: search,
+  // up-next, home feed all apply RecommendationEngine.isPremiumQuality /
+  // isLowQualityUpload) and no duplicate detection, so 2-3 re-uploads of
+  // the exact same song could easily eat multiple slots in a 6-card row,
+  // and low-view junk uploads (status videos, wedding uploads, etc.) could
+  // fill the rest. Fetching a wider pool and filtering/deduping down to the
+  // requested count brings this row up to the same premium bar the rest of
+  // the app already holds YouTube content to.
+  static Future<List<BrowseAlbum>> _ytAlbumFallback(String query, {int count = 6}) async {
+    final ytClient = yt.YoutubeExplode();
     try {
-      final ytClient = yt.YoutubeExplode();
       final results = await ytClient.search.search('$query song')
           .then((list) => list.toList())
           .timeout(const Duration(seconds: 8), onTimeout: () => <yt.Video>[]);
-      ytClient.close();
+
       final out = <BrowseAlbum>[];
-      for (final v in results.take(6)) {
+      final acceptedTitles = <String>[];
+      for (final v in results) {
+        if (out.length >= count) break;
+        if (!_isBrowseQuality(v)) continue;
+        if (RecommendationEngine.isInherentVariant(v.title)) continue;
+        var isDup = false;
+        for (final seen in acceptedTitles) {
+          if (RecommendationEngine.isSameSongSmart(v.title, seen)) { isDup = true; break; }
+        }
+        if (isDup) continue;
+        acceptedTitles.add(v.title);
         final thumb = _bestYtThumbnail(v.thumbnails);
         out.add(BrowseAlbum(
           collectionId: v.id.value, // real YT video id — used directly for playback
@@ -316,9 +451,36 @@ class BrowseService {
           isFromYoutube: true,
         ));
       }
+
+      // Quality/dedup filtering left the row short (thin catalog for a
+      // niche query) — backfill from the same pool ignoring the view-count
+      // floor (but still respecting dedup) rather than showing fewer cards
+      // than the user would expect from a normal Browse row.
+      if (out.isEmpty) {
+        final acceptedFallback = <String>[];
+        for (final v in results) {
+          if (out.length >= count) break;
+          var isDup = false;
+          for (final seen in acceptedFallback) {
+            if (RecommendationEngine.isSameSongSmart(v.title, seen)) { isDup = true; break; }
+          }
+          if (isDup) continue;
+          acceptedFallback.add(v.title);
+          final thumb = _bestYtThumbnail(v.thumbnails);
+          out.add(BrowseAlbum(
+            collectionId: v.id.value,
+            name: _clean(v.title),
+            artist: _clean(v.author),
+            artworkUrl: thumb,
+            isFromYoutube: true,
+          ));
+        }
+      }
       return out;
     } catch (_) {
       return [];
+    } finally {
+      ytClient.close();
     }
   }
 
@@ -328,13 +490,48 @@ class BrowseService {
   // existing YouTube resolve path instead of round-tripping through a
   // Saavn text search that may match nothing for a channel/video name.
   static Future<List<BrowseTrack>> _ytTracksFor(String query) async {
+    final ytClient = yt.YoutubeExplode();
     try {
-      final ytClient = yt.YoutubeExplode();
       final results = await ytClient.search.search(query)
           .then((list) => list.toList())
           .timeout(const Duration(seconds: 8), onTimeout: () => <yt.Video>[]);
-      ytClient.close();
-      return results.take(25).map((v) {
+
+      // FIX (junk/duplicate tracks inside an opened album or artist page):
+      // same gap as _ytAlbumFallback — raw YT search order, no view-count
+      // quality gate, no duplicate detection. Applying the same filter here
+      // means tapping into a YT-sourced album/artist shows a clean, deduped
+      // track list instead of several copies of the same reupload plus
+      // whatever low-view junk happened to rank in the raw search.
+      final accepted = <yt.Video>[];
+      final acceptedTitles = <String>[];
+      for (final v in results) {
+        if (accepted.length >= 25) break;
+        if (!_isBrowseQuality(v)) continue;
+        var isDup = false;
+        for (final seen in acceptedTitles) {
+          if (RecommendationEngine.isSameSongSmart(v.title, seen)) { isDup = true; break; }
+        }
+        if (isDup) continue;
+        acceptedTitles.add(v.title);
+        accepted.add(v);
+      }
+      // Thin/niche query — quality floor left nothing. Backfill ignoring
+      // the view-count gate (still deduped) rather than an empty list.
+      if (accepted.isEmpty) {
+        final acceptedFallback = <String>[];
+        for (final v in results) {
+          if (accepted.length >= 25) break;
+          var isDup = false;
+          for (final seen in acceptedFallback) {
+            if (RecommendationEngine.isSameSongSmart(v.title, seen)) { isDup = true; break; }
+          }
+          if (isDup) continue;
+          acceptedFallback.add(v.title);
+          accepted.add(v);
+        }
+      }
+
+      return accepted.map((v) {
         final thumb = _bestYtThumbnail(v.thumbnails);
         return BrowseTrack(
           trackId: v.id.value,
@@ -348,6 +545,8 @@ class BrowseService {
       }).toList();
     } catch (_) {
       return [];
+    } finally {
+      ytClient.close();
     }
   }
 
@@ -375,14 +574,26 @@ class BrowseService {
   }
 
   // Group track results by album name to fake an "Albums" row.
+  //
+  // FIX (Albums row showing duplicate cards / missing genuine variety):
+  // dedup was keyed on the raw albumName string, case-sensitively. The
+  // same backend often returns the same album with inconsistent casing
+  // across different track entries (e.g. "Saajan" on one song, "SAAJAN"
+  // on another from the same OST) — those produced two separate cards
+  // for the same album, eating a slot that could have gone to a genuinely
+  // different album, and made the row look broken/repetitive. Dedup key
+  // is now case-normalized while the original casing is still used for
+  // display.
   static List<BrowseAlbum> _deriveAlbums(List<Map<String, dynamic>> raw) {
     final seen = <String, BrowseAlbum>{};
     for (final j in raw) {
       final albumName = (j['album'] ?? '').toString().trim();
-      if (albumName.isEmpty || seen.containsKey(albumName)) continue;
+      if (albumName.isEmpty) continue;
+      final key = albumName.toLowerCase();
+      if (seen.containsKey(key)) continue;
       try {
         final artwork = _hqArtwork((j['image'] ?? '').toString());
-        seen[albumName] = BrowseAlbum(
+        seen[key] = BrowseAlbum(
           collectionId: albumName, // used as a search key, not a real ID
           name: _clean(albumName),
           artist: _clean((j['primary_artists'] ?? j['singers'] ?? 'Unknown').toString()),

@@ -366,11 +366,37 @@ class _SearchScreenState extends State<SearchScreen>
     _liveLoaderGraceTimer?.cancel();
     AurumHaptics.light();
     _dismissKeyboard();
-    setState(() { _loading = true; _liveLoading = false; _showLiveLoader = false; _showHistory = false; _results = []; });
+    // FIX ("live suggestions/results flash and vanish 2s after typing,
+    // then songs appear"): _search() previously left _suggestions and
+    // _liveResults completely untouched — only _results was cleared. Since
+    // _computeBodyKey()/_buildBody fall back to the 'live' panel (built
+    // from _suggestions/_liveResults) whenever _results is empty, the
+    // OLD suggestion dropdown and live results kept sitting on screen,
+    // fully interactive-looking, for the entire 150ms debounce + full
+    // network round-trip of ApiService.search() — then vanished all at
+    // once the instant _results finally populated. That abrupt swap is
+    // exactly the "gayab ho jata hai" symptom reported. Explicitly
+    // clearing _suggestions/_liveResults here means the panel falls
+    // through to the (already-existing) loading state immediately, so
+    // there's one clean transition — typing → loading → results — instead
+    // of stale suggestions lingering and then snapping away.
+    setState(() {
+      _loading = true;
+      _liveLoading = false;
+      _showLiveLoader = false;
+      _showHistory = false;
+      _results = [];
+      _suggestions = [];
+      _liveResults = [];
+    });
     _saveToHistory(query);
     _debounce = Timer(const Duration(milliseconds: 150), () async {
       final results = await ApiService.search(query);
-      if (mounted) setState(() { _results = results; _loading = false; });
+      if (!mounted) return;
+      // Stale-guard: if the user kept typing/searched something else while
+      // this was in flight, don't stomp on the newer query's results.
+      if (_controller.text.trim() != query) return;
+      setState(() { _results = results; _loading = false; });
     });
   }
 
@@ -1263,7 +1289,13 @@ class _BrowseTrackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isPlaying = context.select<PlayerProvider, bool>((p) => p.currentSong?.title == track.title && p.currentSong?.artist == track.artist);
+    // FIX: was comparing on title+artist strings. Two different tracks that
+    // share the same title/artist (a reupload, a cover, the same song from
+    // a different album/source) would both light up as "now playing" at
+    // once — every SongTile elsewhere in the app already compares by the
+    // actual song id (see song_tile.dart), so Browse's own tile should
+    // hold the same identity bar instead of a string-based approximation.
+    final isPlaying = context.select<PlayerProvider, bool>((p) => p.currentSong?.id == track.trackId);
     final isActuallyPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
     return ListTile(
       leading: ClipRRect(

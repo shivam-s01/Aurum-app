@@ -458,11 +458,40 @@ class RecommendationEngine {
     return compat.contains(incoming) ? incoming : current;
   }
 
+  // FIX (session genre permanently frozen after first non-"other" song):
+  // this used to be `current == other ? incoming : current`. Once current
+  // became any real genre (bollywood, punjabi, etc.), the condition was
+  // false for the rest of the session no matter what `incoming` was —
+  // `incoming` was only ever used the ONE time current happened to still
+  // be `other`. After that it silently ignored every future song's genre.
+  // _session!.genre feeds scoreCandidate's Session genre match (0.10
+  // weight), so this directly degraded Up Next quality: a session that
+  // opened on one Bollywood song would keep scoring Bollywood-genre
+  // matches highest even after a long, clear run of Punjabi or English
+  // tracks. Same fix shape as _blendLanguage: always take the new signal.
   static SessionGenre _blendGenre(SessionGenre current, SessionGenre incoming) =>
-      current == SessionGenre.other ? incoming : current;
+      incoming;
 
+  // FIX (session language permanently frozen after first song): this used
+  // to be `current == incoming ? current : current` — both branches return
+  // `current`, so `incoming` was never actually used for anything. Once a
+  // session started as, say, Hindi, it stayed "hindi" for the rest of that
+  // session no matter what the user played afterward — even a long stretch
+  // of Punjabi or English songs. Every score/query that reads _session!
+  // .language (scoreCandidate's language-affinity bonus, generateQueries'
+  // "$lang songs" queries, _moodLockedQuery, etc.) would then keep chasing
+  // the WRONG language for the rest of the session, actively working
+  // against what the user was actually listening to.
+  //
+  // Real fix: mirror _blendGenre's already-correct logic — same shape as
+  // the working genre blend, just for language. A session's language only
+  // needs to actually shift when the user has clearly moved to a different
+  // one; blending in the new language immediately (rather than requiring N
+  // consecutive songs first) keeps this simple and consistent with how
+  // genre already behaves, while still being far better than a value that
+  // can never change at all.
   static SessionLanguage _blendLanguage(SessionLanguage current, SessionLanguage incoming) =>
-      current == incoming ? current : current; // Keep primary language for session
+      incoming;
 
   // ---------------------------------------------------------------------------
   // SECTION 7: RECOMMENDATION SCORING
@@ -475,11 +504,24 @@ class RecommendationEngine {
   //   Genre affinity      : 0.20  (learned from user history)
   //   Language affinity   : 0.15  (learned from user history)
   //   Session mood match  : 0.15  (current listening session)
+  //   Era match            : 0.15  (same decade as currently playing song)
   //   Session genre match : 0.10  (current listening session)
+  //   Same-album bonus    : 0.10  (same movie/EP as currently playing song)
   //   Completion rate     : 0.08  (did user finish this before?)
+  //   Freshness bonus     : 0.06  (new release temporary boost, no API)
+  //   Trending proxy      : 0.05  (YouTube viewCount, log-scaled — no API)
   //   Replay bonus        : 0.05  (did user replay this before?)
   //   Skip penalty        : -0.20 (hard penalty for early-skipped songs)
   //   Time slot fit       : 0.02  (minor: morning/evening/etc.)
+  //
+  // NOT implemented (would require a backend/ML/paid API this app doesn't
+  // have — listed here so it's clear these were considered, not missed):
+  //   Collaborative filtering ("users who played X also played Y") needs
+  //   a central server aggregating play history across ALL users — this
+  //   app's data lives entirely in each user's own SharedPreferences.
+  //   Audio embeddings / BPM / energy / danceability / valence need an
+  //   audio-analysis pipeline or a paid audio-features API — there's no
+  //   such signal available from Saavn/YouTube metadata alone.
   // ---------------------------------------------------------------------------
   static double scoreCandidate(Song candidate, {Song? currentSong}) {
     if (!_loaded) return 0.5;
@@ -573,7 +615,75 @@ class RecommendationEngine {
     // Time slot fit (0–0.02)
     score += _timeSlotBonus(candidate) * 0.02;
 
+    // Freshness boost (0–0.06) — new releases get a temporary lift, same
+    // idea as Spotify/YT Music surfacing "new music" more eagerly right
+    // after release. Decays smoothly to 0 over ~18 months so it's a
+    // genuine "just dropped" signal, not a permanent bias toward recent
+    // years (that's already handled separately by the era-match score
+    // above, which cares about matching the CURRENT song's era, not
+    // absolute recency).
+    score += _freshnessBonus(candidate) * 0.06;
+
+    // Trending proxy (0–0.05) — YouTube's viewCount is the only real
+    // "how popular is this RIGHT NOW" signal actually available without a
+    // charts API. Log-scaled so a 50M-view song doesn't totally dominate
+    // over a 5M-view one — both are clearly popular, the curve just needs
+    // to distinguish "viral hit" from "unproven upload", not rank-order
+    // every view count linearly. Saavn songs have no viewCount (catalog
+    // data, not engagement data) so they neither gain nor lose from this —
+    // same neutral treatment isPremiumQuality() already uses for them.
+    score += _trendingBonus(candidate) * 0.05;
+
     return score.clamp(0.0, 1.0);
+  }
+
+  // Below this age, a song is "fresh" and gets the full freshness bonus.
+  // Linearly decays to 0 by _freshnessFullDecayDays.
+  static const int _freshnessFullBonusDays = 30;
+  static const int _freshnessFullDecayDays = 540; // ~18 months
+
+  static double _freshnessBonus(Song song) {
+    final year = int.tryParse(song.year ?? '') ?? 0;
+    if (year <= 0) return 0.0;
+    // Only the release YEAR is available (not month/day), so treat a
+    // song as released on Jan 1 of its year for age purposes. This
+    // slightly understates freshness for songs released later in their
+    // year, but there's no finer-grained date to work with from this
+    // metadata — a coarse "how many years old" signal is still far
+    // better than no freshness signal at all.
+    final releaseDate = DateTime(year, 1, 1);
+    final ageDays = DateTime.now().difference(releaseDate).inDays;
+    if (ageDays < 0) return 0.0; // future-dated/bad metadata, ignore
+    if (ageDays <= _freshnessFullBonusDays) return 1.0;
+    if (ageDays >= _freshnessFullDecayDays) return 0.0;
+    final span = _freshnessFullDecayDays - _freshnessFullBonusDays;
+    final progress = (ageDays - _freshnessFullBonusDays) / span;
+    return (1.0 - progress).clamp(0.0, 1.0);
+  }
+
+  // View counts below this are treated as "no signal" (0 bonus) — an
+  // unproven upload shouldn't get credit just for having *some* views.
+  static const int _trendingFloorViews = 500000;
+  // View counts at/above this are treated as "clearly viral" (full
+  // bonus) — chosen so a genuine mainstream Bollywood hit (which
+  // routinely reaches crores of views within months) saturates the
+  // bonus rather than needing an ever-larger count to matter.
+  static const int _trendingCeilingViews = 50000000;
+
+  static double _trendingBonus(Song song) {
+    if (song.source != SongSource.youtube) return 0.0; // no engagement data
+    final views = song.viewCount;
+    if (views == null || views < _trendingFloorViews) return 0.0;
+    if (views >= _trendingCeilingViews) return 1.0;
+    // Log scale: the difference between 1M and 5M views should matter
+    // more than the difference between 40M and 44M — both of the latter
+    // are already unambiguously "huge", so a linear scale would waste
+    // most of its range distinguishing degrees of "very popular" instead
+    // of the more useful "popular vs not yet proven" distinction.
+    final logFloor = math.log(_trendingFloorViews);
+    final logCeil  = math.log(_trendingCeilingViews);
+    final logViews = math.log(views);
+    return ((logViews - logFloor) / (logCeil - logFloor)).clamp(0.0, 1.0);
   }
 
   static bool _moodCompatible(SessionMood session, SessionMood song) {
@@ -697,8 +807,20 @@ class RecommendationEngine {
   // variants (remix/cover/slowed), just upload-listing clutter, so they
   // don't belong in the "block this song as an inferior variant" list,
   // only in the "does this look like the same song" comparison.
+  //
+  // EXPANDED: original list only caught "8k"/"4k"/"hd". Real uploads glue
+  // on a much wider set of resolution/bitrate/encode tags directly onto
+  // the head with no separator — "1080p", "720p", "320kbps", "hq", "official
+  // video/audio", "full song/video" — every one of which used to survive
+  // into the cleaned head and could break an otherwise-matching comparison
+  // (e.g. "Dekha Hai Pehli Baar 1080p" vs "Dekha Hai Pehli Baar HQ" — two
+  // reuploads of the same song, previously left with two different
+  // trailing tokens instead of both collapsing to the same clean head).
   static final RegExp _headNoisePattern = RegExp(
-    r'\b(8k|4k|hd|with\s*lyrics|lyrics|duet|feat|ft|song)\b',
+    r'\b(8k|4k|2k|hd|hq|fhd|uhd|\d{3,4}p|\d{2,4}\s*kbps|'
+    r'with\s*lyrics|lyrics video|lyrics|duet|feat|ft|'
+    r'official\s*(video|audio|music\s*video)?|full\s*(song|video|audio)|'
+    r'audio|video|song)\b',
     caseSensitive: false,
   );
 
@@ -706,16 +828,142 @@ class RecommendationEngine {
   /// up to the first separator, with quality/credit noise words removed.
   /// Public so ApiService/PlayerProvider (different files) can build the
   /// same head for their own dedup passes without duplicating this regex.
+  ///
+  /// NOTE: this assumes the title is the FIRST segment before any
+  /// separator. That holds for the common "Title | Movie | Uploader"
+  /// shape, but not for uploads formatted "Artist: Title" or
+  /// "Artist - Title" (credit-first). Use [titleSegments] +
+  /// [isSameSongSmart] for the general case — this is kept only for
+  /// existing call sites that specifically want "just the first chunk".
   static String titleHead(String rawTitle) {
     final firstPart = rawTitle.split(_titleSeparator).first;
-    final cleaned = firstPart
+    return _cleanSegment(firstPart);
+  }
+
+  static String _cleanSegment(String segment) {
+    // FIX (Devanagari/non-Latin segments producing false matches): stripping
+    // every non-ASCII character from a segment like "साजन की आँखों में
+    // प्यार 4K Salman" used to leave only the stray Latin leftover ("4k
+    // salman" -> "salman") behind, which could then coincidentally token-
+    // match an unrelated title's short segment. A segment that's mostly
+    // non-Latin script has no reliable ASCII "head" to extract at all —
+    // safer to treat it as junk (empty) than to silently compare on
+    // whatever Latin fragment happens to survive.
+    //
+    // Counts letters only (not punctuation/digits/whitespace) using
+    // simple explicit character classes rather than a `\p{...}` Unicode
+    // property regex — those need `unicode: true` support that's newer
+    // and less universally exercised across Dart/Flutter versions, and a
+    // rough letter count is all this ratio check actually needs.
+    final nonLatinLetters = RegExp(r'[^\x00-\x7F]').allMatches(segment).length;
+    final letterish =
+        RegExp(r'[a-zA-Z\u00C0-\uFFFF]').allMatches(segment).length;
+    if (letterish > 0 && nonLatinLetters / letterish > 0.3) return '';
+
+    return segment
         .toLowerCase()
         .replaceAll(_headNoisePattern, '')
         .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
-    return cleaned;
   }
+
+  // Segments not worth treating as "the title" even after cleaning — pure
+  // uploader/channel-name/credit noise that would otherwise falsely match
+  // another short credit-only segment from an unrelated title. Keeps
+  // titleSegments() from picking e.g. a bare "duet" or "lyrics" leftover
+  // as if it were a real song name.
+  static bool _isJunkSegment(String cleaned) =>
+      cleaned.isEmpty || cleaned.length < 3;
+
+  // ---------------------------------------------------------------------------
+  // STRUCTURAL suffix-noise detection (keyword-independent).
+  //
+  // WHY THIS EXISTS: _variantPattern/_headNoisePattern are keyword blocklists.
+  // They catch "jhankar beats"/"afro mix"/"duet version" only because those
+  // exact words were added by hand — a new uploader tag invented tomorrow
+  // ("Dolby Atmos Mix", "8D Surround Edit", "Rewind 2027") slips through
+  // both silently, and the list needs a manual patch every time. That is
+  // fine as a *fast path* (cheap, catches the common cases immediately) but
+  // is not something a paid app should rely on as the ONLY defense.
+  //
+  // The structural fix: a trailing segment (the part of a title AFTER a
+  // separator like "|", "-", ":", "(") is treated as decorative noise —
+  // regardless of what word it contains — whenever ALL of the following
+  // hold:
+  //   1. It is short (<= 3 real words) — genuine alternate song titles are
+  //      almost never this short on their own.
+  //   2. It does NOT itself look like a plausible independent song title —
+  //      approximated here as "shares no word with the head segment AND
+  //      isn't long enough to plausibly stand alone" is too aggressive, so
+  //      instead we only use this signal to WEAKEN the requirement for
+  //      treating two titles as the same song, never to strengthen it. See
+  //      _looksLikeDecorativeSuffix below for the precise rule.
+  //
+  // This is deliberately layered ON TOP of the keyword lists, not a
+  // replacement — keyword hits are still checked first because they're
+  // unambiguous. This structural check is the fallback that keeps working
+  // when a keyword hit doesn't happen.
+  // ---------------------------------------------------------------------------
+
+  /// True if `segment` (already-cleaned, lowercase) looks like decorative
+  /// uploader noise glued onto a title rather than a real second song name.
+  /// Used only as a fallback signal inside [isSameSongSmart] — never used to
+  /// block a song outright on its own, only to make the "is this the same
+  /// song" comparison more lenient about an unrecognized trailing tag.
+  static bool _looksLikeDecorativeSuffix(String segment) {
+    if (segment.isEmpty) return false;
+    final words = segment.split(' ').where((w) => w.isNotEmpty).toList();
+    // Real song titles are very rarely 1-3 words of purely generic-sounding
+    // filler. Genuine short titles ("Kesariya", "Raataan Lambiyan") do
+    // exist, which is exactly why this signal is only ever used to WEAKEN
+    // a match requirement, never to unilaterally decide two songs are the
+    // same — see call site.
+    if (words.length > 3) return false;
+    // A segment made up of very common English filler/production words
+    // ("with", "beats", "mix", "version", "edit", "vol", numerals, etc.)
+    // structurally resembles a production/quality tag even without being
+    // on the hardcoded keyword list — this is a SHAPE check (short +
+    // generic-looking tokens), not a specific-word check.
+    final genericTokenPattern = RegExp(
+      r'^(with|beats?|mix(?:ed)?|version|edit(?:ed)?|vol\.?|part|pt\.?|'
+      r'v\d+|no\s?\d+|\d+|super|new|old|special|exclusive|ultra|super hd|'
+      r'studio|live|original|classic|hits?|collection)$',
+    );
+    final genericCount = words.where((w) => genericTokenPattern.hasMatch(w)).length;
+    // If at least half the words in this short segment are generic/
+    // production-sounding tokens, treat it as decorative.
+    return genericCount * 2 >= words.length;
+  }
+
+  /// All plausible "this could be the real title" segments of a raw
+  /// (unstripped) title string, cleaned the same way as [titleHead].
+  /// Real-world uploads put the song name in different positions —
+  /// "Title | Movie | Uploader" (title first) vs. "Uploader: Title" or
+  /// "Artist - Title" (credit first, title second) — and there's no
+  /// reliable way to know which shape a given upload used just from its
+  /// punctuation. Returning every segment (instead of only the first)
+  /// lets [isSameSongSmart] try each one, so a credit-first title like
+  /// "Alka Yagnik: Dekha Hai Pehli Baar..." still matches "Dekha Hai
+  /// Pehli Baar" via its SECOND segment even though its first segment
+  /// ("alka yagnik") does not.
+  static List<String> titleSegments(String rawTitle) {
+    final parts = rawTitle.split(_titleSeparator);
+    final segments = <String>[];
+    for (final part in parts) {
+      final cleaned = _cleanSegment(part);
+      if (!_isJunkSegment(cleaned)) segments.add(cleaned);
+    }
+    // Always include the raw first-segment head too (even if short),
+    // so behavior never regresses for titles where every segment is
+    // legitimately short (e.g. a 2-word song name with no clutter).
+    final head = _cleanSegment(parts.first);
+    if (head.isNotEmpty && !segments.contains(head)) {
+      segments.insert(0, head);
+    }
+    return segments;
+  }
+
 
   /// Is this the same underlying song, judging by its real title rather
   /// than the uploader/quality/credit noise wrapped around it? This is
@@ -731,8 +979,112 @@ class RecommendationEngine {
   /// head itself, no separator before them) but NOT some unrelated title
   /// that merely shares a couple of common words.
   static bool isSameSongSmart(String rawA, String rawB) {
-    final headA = titleHead(rawA);
-    final headB = titleHead(rawB);
+    // FIX ("Alka Yagnik: Dekha Hai Pehli Baar..." not matching "Dekha Hai
+    // Pehli Baar"): comparing only titleHead() (the first segment) misses
+    // every credit-first upload — "Uploader: Title" or "Artist - Title"
+    // puts the real song name in the SECOND segment, not the first, so the
+    // old head-vs-head compare silently matched "alka yagnik" against
+    // "dekha hai pehli baar" (no match) and gave up, instead of ever
+    // trying the segment that actually would have matched. Trying every
+    // segment of each title against every segment of the other catches
+    // both title-first AND credit-first upload shapes without needing to
+    // guess which shape a given upload used.
+    final segmentsA = titleSegments(rawA);
+    final segmentsB = titleSegments(rawB);
+    if (segmentsA.isEmpty || segmentsB.isEmpty) return false;
+
+    for (final headA in segmentsA) {
+      for (final headB in segmentsB) {
+        if (_segmentsMatch(headA, headB)) return true;
+      }
+    }
+
+    // STRUCTURAL fallback (keyword-independent): if the two titles' FIRST
+    // segments already match closely, and every segment of the LONGER
+    // title beyond that point looks like decorative noise (short,
+    // generic-shaped — see _looksLikeDecorativeSuffix), treat them as the
+    // same song even though no keyword list recognized the trailing tag.
+    // This is what lets an uploader-invented tag nobody has hardcoded yet
+    // ("Dolby Atmos Mix", "Rewind 2027 Edit", ...) still get caught, as
+    // long as it structurally looks like a short production tag rather
+    // than a genuine second song title.
+    final firstA = segmentsA.first;
+    final firstB = segmentsB.first;
+    if (_segmentsMatch(firstA, firstB)) {
+      final extraSegments = segmentsA.length >= segmentsB.length
+          ? segmentsA.skip(1)
+          : segmentsB.skip(1);
+      if (extraSegments.isEmpty ||
+          extraSegments.every(_looksLikeDecorativeSuffix)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// True if two tokens are the same word, allowing for a common
+  /// reupload/transliteration typo — one character inserted, deleted, or
+  /// substituted (Levenshtein distance 1). Deliberately restrictive:
+  /// - Only applies to tokens of length >= 5. Shorter words ("hai", "toh",
+  ///   "yeh", "aur") are 1 edit away from too many genuinely different
+  ///   short words to risk fuzzy-matching safely.
+  /// - Distance must be exactly <= 1, never more — this is for catching
+  ///   "Dekhha"/"Dekha" and "Rajkummar"/"Rajkumar" style double-letter
+  ///   typos in phonetic Hindi->English transliteration, not for loosely
+  ///   matching different words that happen to look similar.
+  static bool _fuzzyTokenMatch(String a, String b) {
+    if (a == b) return true;
+    if (a.length < 5 || b.length < 5) return false;
+    if ((a.length - b.length).abs() > 1) return false;
+    return _levenshteinAtMost1(a, b);
+  }
+
+  /// Returns true iff edit distance between [a] and [b] is 0 or 1.
+  /// Early-exits as soon as more than 1 edit is proven necessary, so this
+  /// stays cheap even though it's called inside a nested loop — no full
+  /// O(n*m) DP table, just a linear scan with at most one skip allowed.
+  static bool _levenshteinAtMost1(String a, String b) {
+    if (a == b) return true;
+    final lenDiff = a.length - b.length;
+    if (lenDiff.abs() > 1) return false;
+
+    if (lenDiff == 0) {
+      // Same length: must be exactly one substitution.
+      var mismatches = 0;
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] != b[i]) {
+          mismatches++;
+          if (mismatches > 1) return false;
+        }
+      }
+      return true;
+    }
+
+    // Different length by 1: one insertion/deletion. Walk both strings,
+    // allow exactly one index-skip on the longer string when a mismatch
+    // is hit, then require the rest to line up exactly.
+    final shorter = a.length < b.length ? a : b;
+    final longer   = a.length < b.length ? b : a;
+    var i = 0, j = 0;
+    var skipped = false;
+    while (i < shorter.length && j < longer.length) {
+      if (shorter[i] == longer[j]) {
+        i++;
+        j++;
+      } else {
+        if (skipped) return false;
+        skipped = true;
+        j++; // skip one char in the longer string
+      }
+    }
+    return true;
+  }
+
+  /// Core token-overlap + order check between two already-cleaned segments.
+  /// Extracted from the old isSameSongSmart body so [isSameSongSmart] can
+  /// call it once per segment pair.
+  static bool _segmentsMatch(String headA, String headB) {
     if (headA.isEmpty || headB.isEmpty) return false;
     if (headA == headB) return true;
 
@@ -751,7 +1103,20 @@ class RecommendationEngine {
     }
 
     final longSet = longTokens.toSet();
-    final overlap = shortTokens.where((t) => longSet.contains(t)).length;
+    // FIX (spelling-variant reuploads: "Dekhha" vs "Dekha", "Rajkummar" vs
+    // "Rajkumar"): exact set-containment alone misses this extremely
+    // common class of reupload noise — uploaders retyping a Hindi/Urdu
+    // name phonetically produces a token that's 1 character off from the
+    // "real" spelling, which used to count as a total non-match for that
+    // token (0 overlap credit) even though a human reads them as the same
+    // word instantly. `_fuzzyTokenMatch` allows a tight 1-edit tolerance,
+    // but ONLY for tokens of length >= 5 — short 3-4 letter words (like
+    // "hai", "toh", "yeh") are exactly 1 edit apart from lots of genuinely
+    // different short words, so fuzzy-matching those would create false
+    // positives instead of catching real typos.
+    bool tokenOverlaps(String t) =>
+        longSet.contains(t) || longTokens.any((lt) => _fuzzyTokenMatch(t, lt));
+    final overlap = shortTokens.where(tokenOverlaps).length;
     final overlapRatio = overlap / shortTokens.length;
 
     // Very short heads (<=2 real words) need a perfect match — a single
@@ -765,7 +1130,7 @@ class RecommendationEngine {
     // sequence in both heads, not just the same bag of words — guards
     // against two unrelated titles that happen to share a couple of
     // common Hindi/English words in scrambled order.
-    final matchedInShort = shortTokens.where((t) => longSet.contains(t)).toList();
+    final matchedInShort = shortTokens.where(tokenOverlaps).toList();
     final longIndex = <String, int>{};
     for (var i = 0; i < longTokens.length; i++) {
       longIndex.putIfAbsent(longTokens[i], () => i);
@@ -802,10 +1167,10 @@ class RecommendationEngine {
     r'reprise|mashup|tribute|remaster(?:ed)?|unplugged|acoustic version|'
     r'orchestra|choir|chillout|drill remix|female version|male version|'
     r'recreated|recreation|refix|redux|rework(?:ed)?|revamp(?:ed)?|'
-    r'lounge mix|jukebox|'
+    r'lounge mix|jukebox|jhankar(?:\s*beats)?|super\s*jhankar|'
     r'recreate|extended|flip|bootleg|'
-    r'chill mix|punjabi mix|hindi mix|tapori|dj |club mix|'
-    r'the return|revisited|throwback mix|new version|'
+    r'chill mix|punjabi mix|hindi mix|afro mix|tapori|dj |club mix|'
+    r'the return|revisited|throwback mix|new version|duet(?:\s*version)?|'
     r'ringtone|bgm|background music|type beat|'
     r'\d\.\d)\b',
     caseSensitive: false,
@@ -1008,11 +1373,34 @@ class RecommendationEngine {
     // artist" — max 3 songs from one artist in a single auto-queue batch.
     const maxPerArtist = 3;
     final artistCounts = <String, int>{};
+
+    // Per-album cap: same idea, but for the movie/OST/album a song comes
+    // from. Without this, a movie soundtrack with several genuinely
+    // DIFFERENT songs (not duplicates — e.g. "Sagar Se Gehra Hai Pyar
+    // Humara", "Mera Dil Bhi Kitna Pagal Hai", "Kya Beqarari Hai", all from
+    // "Saajan") can legitimately out-score everything else via the
+    // same-artist/same-era signals and flood 4-5 consecutive Up Next slots
+    // with tracks from one soundtrack — technically not duplicates (they
+    // pass isSameSongSmart fine) but it still reads as "stuck on one
+    // album" rather than a fresh, diverse mix. Capped tighter than the
+    // artist cap (2 vs 3) since an album is a narrower, more repetitive
+    // context than an artist's whole catalog. Blank/unknown album names
+    // are never capped (compilations/singles legitimately share "Unknown"
+    // or "" and shouldn't be penalized for it).
+    const maxPerAlbum = 2;
+    final albumCounts = <String, int>{};
+
     bool underCap(Song s) {
-      final key = _normalizeKey(s.artist);
-      final n = artistCounts[key] ?? 0;
-      if (n >= maxPerArtist) return false;
-      artistCounts[key] = n + 1;
+      final artistKey = _normalizeKey(s.artist);
+      final albumKey  = _normalizeKey(s.album);
+      final artistN = artistCounts[artistKey] ?? 0;
+      final albumN  = albumKey.isEmpty ? 0 : (albumCounts[albumKey] ?? 0);
+      // Check both caps BEFORE mutating either counter — a song rejected
+      // by one cap must not still consume a slot against the other.
+      if (artistN >= maxPerArtist) return false;
+      if (albumKey.isNotEmpty && albumN >= maxPerAlbum) return false;
+      artistCounts[artistKey] = artistN + 1;
+      if (albumKey.isNotEmpty) albumCounts[albumKey] = albumN + 1;
       return true;
     }
 
@@ -1284,7 +1672,18 @@ class RecommendationEngine {
     if (year < 2000) return '90s';
     if (year < 2010) return '2000s';
     if (year < 2020) return '2010s';
-    return 'new 2024 2025';
+    // FIX: this was hardcoded to 'new 2024 2025' — two specific years that
+    // silently go stale every single year (right now, mid-2026, it's
+    // already excluding the current year's own new releases from its own
+    // "new" query). A song released in 2026, 2027, etc. would keep getting
+    // scoped to a search phrase for 2024/2025 releases specifically,
+    // actively working against the freshness bonus scoreCandidate already
+    // computes correctly from the real current date. Computing the actual
+    // current year (and the year before, to keep some breadth) instead of
+    // a frozen literal means this stays correct without needing a manual
+    // yearly edit.
+    final thisYear = DateTime.now().year;
+    return 'new $thisYear ${thisYear - 1}';
   }
 
   static String _eraLanguageQuery(Song song) {

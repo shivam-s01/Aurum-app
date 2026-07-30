@@ -1118,6 +1118,18 @@ class ApiService {
     bool addToPool(Song song) {
       if (mergedIds.contains(song.id)) return false;
       if (RecommendationEngine.isInherentVariant(song.title)) return false;
+      // FIX ("Up Next shows random junk/wedding/status uploads" — premium
+      // feel broken): isLowQualityUpload/isPremiumQuality were already
+      // applied on the home feed and in search results, but never here in
+      // getAutoQueue's own pool builder. That meant Up Next — the single
+      // most-seen recommendation surface in the app — was the ONE place
+      // low-quality reuploads (wedding/status/freestyle junk, unproven
+      // near-zero-view YouTube uploads) could still slip through, even
+      // though the exact same signal already screens them out everywhere
+      // else. Applying both gates here closes that gap so Up Next holds
+      // the app to the same quality bar as Home/Search.
+      if (RecommendationEngine.isLowQualityUpload(song.title)) return false;
+      if (!RecommendationEngine.isPremiumQuality(song)) return false;
       final tk = _normTitle(song.title);
       if (mergedTitles.contains(tk)) return false;
       for (final seenRaw in mergedRawTitles) {
@@ -1170,16 +1182,29 @@ class ApiService {
 
     // ── Signal 4: YouTube supplementary fill ─────────────────────────────
     // Only reached when Saavn's own catalog genuinely couldn't fill the
-    // pool — common for niche/regional artists or very new releases with
-    // a thin Saavn presence. Reuses the same mood/genre/era queries from
-    // Signal 3 (so the vibe-matching logic is identical, just pointed at
-    // a different catalog) rather than a separate, looser query — a YT
-    // result has to match the same "sounds like this" intent as every
-    // other signal, not just be "something on YouTube".
-    if (pool.length < limit) {
+    // pool — common for niche/regional artists, older/deep-catalog songs,
+    // or very new releases with a thin Saavn presence. Reuses the same
+    // mood/genre/era queries from Signal 3 (so the vibe-matching logic is
+    // identical, just pointed at a different catalog) rather than a
+    // separate, looser query — a YT result has to match the same "sounds
+    // like this" intent as every other signal, not just be "something on
+    // YouTube".
+    //
+    // FIX (thin queue on niche/older songs — e.g. only 7-8 candidates
+    // reaching rankAndFilter instead of the ~40-60 it needs): this used to
+    // stop filling once pool.length reached `limit` (e.g. 20 for Phase 1).
+    // But rankAndFilter needs close to `poolTarget` (limit*3) candidates to
+    // have real choices for scoring, era-matching, and the 70/20/10
+    // discovery mix — with only `limit` candidates in the pool, aggressive
+    // variant/dedup filtering inside rankAndFilter could easily strip the
+    // pool down to a handful of songs with nothing left to backfill from.
+    // Filling toward poolTarget instead means a niche song with a thin
+    // Saavn presence still gets enough raw candidates for rankAndFilter to
+    // actually produce a full, varied queue.
+    if (pool.length < poolTarget) {
       final queries = RecommendationEngine.generateQueries(currentSong);
       for (final q in queries) {
-        if (pool.length >= limit) break;
+        if (pool.length >= poolTarget) break;
         try {
           final ytSongs = await _searchYt(q.query, limit: limit)
               .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
@@ -1388,9 +1413,20 @@ class ApiService {
 
   static double _scoreSearchResult(Song song, String query, bool wantsVariant) {
     double score = 0;
+    // FIX (dead multi-word phrase-matching): _normalise() strips ALL
+    // non-alphanumeric chars including spaces, collapsing every query into
+    // one blob. qNorm.split(' ') therefore always returned a single element,
+    // so queryWords.length > 1 was never true and the whole lyric-line/
+    // phrase-order/coverage-penalty block below never ran. Word-splitting
+    // now uses _normalizeForMatch (space-preserving) instead. The exact/
+    // startsWith/contains tier below still uses the space-stripped forms —
+    // fine as a loose signal for those checks.
     final qNorm      = _normalise(query);
     final titleNorm  = _normalise(song.title);
     final artistNorm = _normalise(song.artist);
+    final qNormSp      = _normalizeForMatch(query);
+    final titleNormSp  = _normalizeForMatch(song.title);
+    final artistNormSp = _normalizeForMatch(song.artist);
 
     if (titleNorm == qNorm)                score += 100;
     else if (artistNorm == qNorm)          score += 80;
@@ -1399,7 +1435,7 @@ class ApiService {
     else if (titleNorm.contains(qNorm))    score += 20;
     else if (artistNorm.contains(qNorm))   score += 10;
 
-    final queryWords = qNorm.split(' ').where((w) => w.length > 2).toList();
+    final queryWords = qNormSp.split(' ').where((w) => w.length > 2).toList();
     final queryWordSet = queryWords.toSet();
 
     // FIX (single-word queries under-scored vs. multi-word ones): the
@@ -1410,9 +1446,22 @@ class ApiService {
     // same — both just "contains". A whole-word-token match (the query is
     // its own separated word in the title, not a substring of a longer one)
     // is a much stronger signal and now scores above a bare substring hit.
-    if (queryWords.length == 1 && qNorm.length > 2 && titleNorm != qNorm) {
-      final titleTokens = titleNorm.split(' ');
-      if (titleTokens.contains(qNorm)) score += 35;
+    if (queryWords.length == 1 && qNormSp.length > 2 && titleNormSp != qNormSp) {
+      final titleTokens = titleNormSp.split(' ');
+      if (titleTokens.contains(qNormSp)) {
+        score += 35;
+      } else {
+        // FIX: same typo-tolerance gap as the multi-word block below —
+        // a single mistyped word ("saayar") should still find its real
+        // song ("saiyaara") instead of scoring 0 on this path and falling
+        // through to whatever the backend's loose search returns.
+        for (final token in titleTokens) {
+          if (token.length > 2 && _fuzzyWordMatch(qNormSp, token)) {
+            score += 30;
+            break;
+          }
+        }
+      }
     }
 
     // FIX ("Raja Raja kareja mein sama jaa" / lyric-line queries returning
@@ -1429,15 +1478,28 @@ class ApiService {
     // low coverage instead of letting them scrape past the floor.
     if (queryWords.length > 1) {
       int wordMatches = 0;
+      // FIX ("Tu saayar hai" → totally unrelated songs): originally this
+      // only counted a word as matched via exact `contains()`. A single
+      // typo'd word ("saayar" instead of "saiyaara") never contained/was
+      // contained by the real title, so wordMatches stayed low for the
+      // actually-correct song, while the loose backend search result for
+      // some unrelated title could still accidentally clear the old flat
+      // per-word bonus. Falling back to _fuzzyWordMatch (bounded edit
+      // distance) when the exact check misses gives genuine typos a real
+      // chance to match the song they were actually meant for.
       for (final word in queryWordSet) {
-        if (titleNorm.contains(word) || artistNorm.contains(word)) wordMatches++;
+        if (titleNormSp.contains(word) || artistNormSp.contains(word)) {
+          wordMatches++;
+        } else if (_fuzzyWordMatch(word, titleNormSp) || _fuzzyWordMatch(word, artistNormSp)) {
+          wordMatches++;
+        }
       }
       final coverage = wordMatches / queryWordSet.length;
 
       // Longest run of consecutive query words that also appear consecutively
       // (same order) in the title — does the actual phrase show up, not just
       // its words in any scattered order.
-      final titleWords = titleNorm.split(' ');
+      final titleWords = titleNormSp.split(' ');
       int bestRun = 0;
       for (var i = 0; i < queryWords.length; i++) {
         var run = 0;
@@ -1522,37 +1584,119 @@ class ApiService {
     final q = query.trim();
     if (q.isEmpty) return [];
 
+    // FIX ("Tu saayar hai" → unrelated songs shown while live-typing"):
+    // this used to return _searchSaavn's raw backend results completely
+    // unranked and unfiltered — no relevance floor, no typo tolerance, none
+    // of the scoring _search() applies. That's exactly why misspelled or
+    // loosely-matching live-typing queries showed whatever the backend's
+    // own loose full-text match happened to surface, including songs with
+    // no real relation to the query. Live search now goes through the same
+    // _scoreSearchResult ranking (with fuzzy typo tolerance) and the same
+    // relevance floor as full search — just against a smaller pool and
+    // with a tighter timeout, since this path exists for speed while
+    // typing, not for it to skip quality entirely.
+    final wantsVariant = _wantsVariantQuery(q);
+    const minLiveRelevanceScore = 12.0; // slightly more permissive than full
+                                         // search's 15.0 — live typing is
+                                         // often a partial/incomplete query.
+
     // Saavn first — show results fast without waiting for slow YT
     final saavnResults = await _searchSaavn(q, limit: limit + 15)
         .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
 
+    final saavnScored = <_ScoredSong>[];
+    final saavnRawTitlesAccepted = <String>[];
+    for (final song in saavnResults) {
+      final score = _scoreSearchResult(song, q, wantsVariant);
+      if (score < minLiveRelevanceScore) continue;
+      var isDup = false;
+      for (final seenRaw in saavnRawTitlesAccepted) {
+        if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) { isDup = true; break; }
+      }
+      if (isDup) continue;
+      saavnRawTitlesAccepted.add(song.title);
+      saavnScored.add(_ScoredSong(song, score));
+    }
+    saavnScored.sort((a, b) => b.score.compareTo(a.score));
+    final rankedSaavn = saavnScored.map((s) => s.song).toList();
+
     // Saavn gave most of what's needed — return immediately, skip YT entirely.
     // FIX: threshold lowered from "limit" to "limit * 0.6" so YT is only used
     // as a true last resort gap-filler, not a co-equal source.
-    if (saavnResults.length >= (limit * 0.6).ceil()) {
-      return saavnResults.take(limit).toList();
+    if (rankedSaavn.length >= (limit * 0.6).ceil()) {
+      return rankedSaavn.take(limit).toList();
     }
 
     // Saavn short — fill remaining slots with YT quickly
-    final remaining = limit - saavnResults.length;
-    final ytResults = await _searchYt(q, limit: remaining)
+    final remaining = limit - rankedSaavn.length;
+    final ytResults = await _searchYt(q, limit: remaining * 2)
         .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
 
-    final saavnNorms = saavnResults.map((s) => _normTitle(s.title)).toSet();
-    final ytUnique = ytResults
-        .where((s) => !saavnNorms.contains(_normTitle(s.title)))
-        .take(remaining)
-        .toList();
+    final saavnNorms = rankedSaavn.map((s) => _normTitle(s.title)).toSet();
+    final ytScored = <_ScoredSong>[];
+    for (final song in ytResults) {
+      final norm = _normTitle(song.title);
+      if (saavnNorms.contains(norm)) continue;
+      var isDup = false;
+      for (final seenRaw in saavnRawTitlesAccepted) {
+        if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) { isDup = true; break; }
+      }
+      if (isDup) continue;
+      final score = _scoreSearchResult(song, q, wantsVariant);
+      if (score < minLiveRelevanceScore) continue;
+      ytScored.add(_ScoredSong(song, score));
+    }
+    ytScored.sort((a, b) => b.score.compareTo(a.score));
+    final ytUnique = ytScored.map((s) => s.song).take(remaining).toList();
 
-    return [...saavnResults, ...ytUnique];
+    return [...rankedSaavn, ...ytUnique];
   }
 
   // ===========================================================================
   // SUGGEST
   // ===========================================================================
   static Future<List<String>> suggest(String query) async {
-    final results = await _suggestSaavn(query);
-    return results.take(8).toList();
+    final q = query.trim();
+    final results = await _suggestSaavn(q);
+    if (results.isEmpty || q.isEmpty) return results.take(8).toList();
+
+    // FIX (live-search dropdown showing suggestions unrelated to what was
+    // typed, e.g. typo'd queries): _suggestSaavn returns the backend's own
+    // suggestion order verbatim, with no regard for how closely each
+    // suggestion actually matches what the user typed — including typos.
+    // Re-ranking here with the same fuzzy word-match used elsewhere means
+    // a misspelled query still surfaces its real closest matches first,
+    // instead of whatever order the backend happened to return.
+    final qNorm = _normalise(q);
+    final qNormSp = _normalizeForMatch(q);
+    final scored = results.map((s) {
+      final sNorm = _normalise(s);
+      final sNormSp = _normalizeForMatch(s);
+      double score = 0;
+      if (sNorm == qNorm) {
+        score = 100;
+      } else if (sNorm.startsWith(qNorm)) {
+        score = 60;
+      } else if (sNorm.contains(qNorm)) {
+        score = 30;
+      } else {
+        // FIX: was splitting the space-stripped qNorm (always a single
+        // blob), so this multi-word fallback never actually ran for
+        // genuine multi-word queries. Split the space-preserving form.
+        final words = qNormSp.split(' ').where((w) => w.length > 2);
+        var matched = 0;
+        var total = 0;
+        for (final w in words) {
+          total++;
+          if (sNormSp.contains(w) || _fuzzyWordMatch(w, sNormSp)) matched++;
+        }
+        score = total == 0 ? 0 : (matched / total) * 25;
+      }
+      return MapEntry(s, score);
+    }).where((e) => e.value > 0).toList();
+
+    scored.sort((a, b) => b.value.compareTo(a.value));
+    return scored.map((e) => e.key).take(8).toList();
   }
 
   static Future<List<String>> _suggestSaavn(String query) async {
@@ -3580,6 +3724,71 @@ class ApiService {
   static String _normalise(String s) {
     final clean = s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
     return clean.substring(0, clean.length.clamp(0, 25));
+  }
+
+  // FIX ("Tu saayar hai" typed for "Tu Saiyaara Hai" returns totally
+  // unrelated songs"): every search path before this only ever did exact/
+  // substring/word-token comparison (_scoreSearchResult, _normalise). A
+  // single-letter typo, transposed letters, or a phonetic misspelling
+  // (extremely common typing Hindi/Hinglish titles on a phone keyboard —
+  // "saayar" for "saiyaara", "arigit" for "arijit") never matches any of
+  // those checks at all, so the query effectively falls through to
+  // whatever the backend's own loose full-text search happens to return —
+  // which is exactly the unrelated-songs symptom reported. This is a
+  // classic bounded edit-distance check: two words are considered a typo
+  // match if changing at most a couple of characters turns one into the
+  // other, scaled by word length so short words need near-exact matches
+  // (avoids "no"/"go" false-positiving) while longer words tolerate more.
+  static int _editDistance(String a, String b, {int maxDistance = 3}) {
+    if (a == b) return 0;
+    final la = a.length, lb = b.length;
+    if ((la - lb).abs() > maxDistance) return maxDistance + 1; // early exit
+    if (la == 0) return lb;
+    if (lb == 0) return la;
+    var prev = List<int>.generate(lb + 1, (j) => j);
+    for (var i = 1; i <= la; i++) {
+      final cur = List<int>.filled(lb + 1, 0);
+      cur[0] = i;
+      for (var j = 1; j <= lb; j++) {
+        final cost = a[i - 1] == b[j - 1] ? 0 : 1;
+        cur[j] = [
+          cur[j - 1] + 1,      // insertion
+          prev[j] + 1,         // deletion
+          prev[j - 1] + cost,  // substitution
+        ].reduce((v, e) => v < e ? v : e);
+      }
+      prev = cur;
+    }
+    return prev[lb];
+  }
+
+  // How many edits a word tolerates before it's no longer considered "the
+  // same word, just mistyped" — scales with word length so "hai"/"hain"
+  // (short, common Hinglish words) don't fuzzy-match each other by
+  // accident, while a longer word like "saiyaara" can absorb 1-2 typos.
+  static int _maxEditsFor(int wordLength) {
+    if (wordLength <= 4) return 1;
+    if (wordLength <= 7) return 2;
+    return 3;
+  }
+
+  /// True if [word] is either an exact substring/match of [target], or a
+  /// bounded-edit-distance typo of it. Used to give queries with genuine
+  /// typos ("saayar" → "saiyaara") a real shot at matching instead of
+  /// silently falling through to whatever loose backend search returns.
+  static bool _fuzzyWordMatch(String word, String target) {
+    if (word.length < 3) return word == target; // too short to fuzzy-match safely
+    if (target.contains(word)) return true;
+    final maxEdits = _maxEditsFor(word.length);
+    // Compare against the target itself and, for multi-word targets,
+    // each individual token — catches "saayar" matching just the "saiyaara"
+    // token inside a longer title like "Tu Saiyaara Hai".
+    if (_editDistance(word, target, maxDistance: maxEdits) <= maxEdits) return true;
+    for (final token in target.split(RegExp(r'\s+'))) {
+      if (token.length < 3) continue;
+      if (_editDistance(word, token, maxDistance: maxEdits) <= maxEdits) return true;
+    }
+    return false;
   }
 
   // ===========================================================================
