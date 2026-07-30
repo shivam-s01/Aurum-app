@@ -1021,15 +1021,34 @@ class RecommendationEngine {
     result.addAll(discovery.where(underCap).take(discoveryCount));
 
     // If the cap left us short of `limit` (small pool, few artists),
-    // backfill from whatever's left over, ignoring the cap, rather than
-    // returning a short queue.
+    // backfill from whatever's left over.
+    // FIX: this loop used to skip `underCap` entirely ("ignoring the cap"),
+    // which meant a short pool could let one high-scoring artist flood
+    // straight back in during backfill — silently undoing the maxPerArtist
+    // enforcement literally just applied above. Backfill now respects the
+    // same cap first; only once *every* remaining candidate has been
+    // considered under the cap and the queue is STILL short does it fall
+    // back to ignoring the cap (better than returning a short queue).
     if (result.length < limit) {
       final used = result.map((s) => s.id).toSet();
-      for (final s in [...core, ...related, ...discovery]) {
+      final leftover = [...core, ...related, ...discovery]
+          .where((s) => !used.contains(s.id))
+          .toList();
+      for (final s in leftover) {
         if (result.length >= limit) break;
-        if (used.contains(s.id)) continue;
+        if (!underCap(s)) continue;
         result.add(s);
         used.add(s.id);
+      }
+      // Still short after respecting the cap (genuinely thin pool) — only
+      // now ignore the cap, so a small catalog still returns a full queue.
+      if (result.length < limit) {
+        for (final s in leftover) {
+          if (result.length >= limit) break;
+          if (used.contains(s.id)) continue;
+          result.add(s);
+          used.add(s.id);
+        }
       }
     }
 

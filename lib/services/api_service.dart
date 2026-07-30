@@ -1267,7 +1267,16 @@ class ApiService {
     final ytScored    = <_ScoredSong>[];
     final saavnNorms  = <String>{};
 
-    // ALL Saavn results go in — no aggressive dedup on Saavn side, but
+    // FIX ("same song 5-8x in search results, e.g. 'Dekha Hai Pehli Baar'
+    // from 5+ different album reuploads burying real variety"): Saavn
+    // results previously went in with NO dedup at all beyond an exact-
+    // string check on the normalized title, which — same gap as Up Next
+    // before that fix — misses reuploads whose junk suffix/album differs.
+    // Smart title-head comparison against every raw title already accepted
+    // collapses those duplicates down to one entry (the first/highest-
+    // relevance one Saavn returned) so distinct songs get the result slots
+    // instead of five copies of the same song.
+    final saavnRawTitlesAccepted = <String>[];
     // FIX ("random unrelated songs in search"): results scoring below a
     // relevance floor are dropped entirely. Without this, misremembered
     // or garbled queries (e.g. "manma emotional jaage re" for "Manma
@@ -1279,19 +1288,37 @@ class ApiService {
     for (final song in saavnResults) {
       final score = _scoreSearchResult(song, q, wantsVariant);
       if (score < minRelevanceScore) continue;
+      var isDupOfAccepted = false;
+      for (final seenRaw in saavnRawTitlesAccepted) {
+        if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) {
+          isDupOfAccepted = true;
+          break;
+        }
+      }
+      if (isDupOfAccepted) continue;
       final norm  = _normTitle(song.title);
       saavnNorms.add(norm);
+      saavnRawTitlesAccepted.add(song.title);
       saavnScored.add(_ScoredSong(song, score));
     }
 
-    // YT: only skip if title is near-identical to a Saavn result
+    // YT: skip if title is near-identical to a Saavn result, OR is a smart
+    // duplicate of one (a YT re-upload of a song already returned by
+    // Saavn shouldn't get its own slot either).
     for (final song in ytResults) {
       final norm = _normTitle(song.title);
-      if (!saavnNorms.contains(norm)) {
-        final score = _scoreSearchResult(song, q, wantsVariant);
-        if (score < minRelevanceScore) continue;
-        ytScored.add(_ScoredSong(song, score));
+      if (saavnNorms.contains(norm)) continue;
+      var isDupOfSaavn = false;
+      for (final seenRaw in saavnRawTitlesAccepted) {
+        if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) {
+          isDupOfSaavn = true;
+          break;
+        }
       }
+      if (isDupOfSaavn) continue;
+      final score = _scoreSearchResult(song, q, wantsVariant);
+      if (score < minRelevanceScore) continue;
+      ytScored.add(_ScoredSong(song, score));
     }
 
     // Saavn songs are ranked strictly above every YT song — YT only ever
@@ -1372,13 +1399,75 @@ class ApiService {
     else if (titleNorm.contains(qNorm))    score += 20;
     else if (artistNorm.contains(qNorm))   score += 10;
 
-    final queryWords = qNorm.split(' ').where((w) => w.length > 2).toSet();
+    final queryWords = qNorm.split(' ').where((w) => w.length > 2).toList();
+    final queryWordSet = queryWords.toSet();
+
+    // FIX (single-word queries under-scored vs. multi-word ones): the
+    // bag-of-words/phrase-order block below only runs when queryWords.length
+    // > 1, so a genuine one-word search (e.g. just "Zaalima") never got past
+    // the plain contains() check above. That check treats "Tere" matching
+    // inside "Tere" and "Tere" matching inside "Tereकunj-style-mashup" the
+    // same — both just "contains". A whole-word-token match (the query is
+    // its own separated word in the title, not a substring of a longer one)
+    // is a much stronger signal and now scores above a bare substring hit.
+    if (queryWords.length == 1 && qNorm.length > 2 && titleNorm != qNorm) {
+      final titleTokens = titleNorm.split(' ');
+      if (titleTokens.contains(qNorm)) score += 35;
+    }
+
+    // FIX ("Raja Raja kareja mein sama jaa" / lyric-line queries returning
+    // unrelated songs): the old bag-of-words pass counted a match if ANY
+    // query word appeared ANYWHERE in the title/artist, with zero regard
+    // for order, adjacency, or how much of the query actually matched. A
+    // 6-word lyric line where only 1-2 stray words happened to also appear
+    // in some totally unrelated title was enough to clear the old 15.0
+    // floor. Fix has three parts: (1) reward query words that appear
+    // TOGETHER in the same order as a real phrase, far more than scattered
+    // hits; (2) scale the word-overlap contribution by what FRACTION of the
+    // query matched, so partial overlap on a long query can't out-score a
+    // short but fully-matching title; (3) hard-penalize long queries with
+    // low coverage instead of letting them scrape past the floor.
     if (queryWords.length > 1) {
       int wordMatches = 0;
-      for (final word in queryWords) {
+      for (final word in queryWordSet) {
         if (titleNorm.contains(word) || artistNorm.contains(word)) wordMatches++;
       }
-      score += wordMatches * 8.0;
+      final coverage = wordMatches / queryWordSet.length;
+
+      // Longest run of consecutive query words that also appear consecutively
+      // (same order) in the title — does the actual phrase show up, not just
+      // its words in any scattered order.
+      final titleWords = titleNorm.split(' ');
+      int bestRun = 0;
+      for (var i = 0; i < queryWords.length; i++) {
+        var run = 0;
+        var searchFrom = 0;
+        for (var j = i; j < queryWords.length; j++) {
+          final idx = titleWords.indexOf(queryWords[j], searchFrom);
+          if (idx == -1) break;
+          run++;
+          searchFrom = idx + 1;
+        }
+        if (run > bestRun) bestRun = run;
+      }
+      final phraseRatio = bestRun / queryWords.length;
+
+      // Coverage-scaled bag-of-words score (was a flat 8.0/word regardless
+      // of total query length — that's what let 1-2 stray hits on a 6-word
+      // query still add up to a competitive score).
+      score += wordMatches * 8.0 * coverage;
+      // Phrase-order bonus dominates when a real chunk of the query appears
+      // as an actual phrase in the title — separates the correct song from
+      // lookalikes that only share scattered individual words.
+      score += phraseRatio * 60.0;
+
+      // A long query (4+ meaningful words — typically a lyric line or full
+      // phrase search) where less than half the words matched at all is
+      // almost certainly not the song being searched for, regardless of raw
+      // score accumulated above.
+      if (queryWords.length >= 4 && coverage < 0.5) {
+        score -= 40;
+      }
     }
 
     if (_isOfficialAudio(song)) score += 30;
