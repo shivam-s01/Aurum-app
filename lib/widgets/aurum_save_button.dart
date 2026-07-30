@@ -15,6 +15,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/aurum_theme.dart';
+import '../utils/aurum_haptics.dart';
 
 class AurumSaveButton extends StatefulWidget {
   final bool saved;
@@ -80,7 +81,7 @@ class _AurumSaveButtonState extends State<AurumSaveButton>
 
   void _handleTap() {
     final willSave = !widget.saved;
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     _bounceCtrl.forward(from: 0);
     if (willSave) {
       _glowCtrl.forward(from: 0);

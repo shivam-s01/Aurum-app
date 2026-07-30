@@ -336,6 +336,13 @@ class NativeAudioEngine {
       _method.invokeMethod('setCrossfadeSeconds', {'seconds': secs});
   Future<void> sleepAfterCurrentSong() => _method.invokeMethod('sleepAfterCurrentSong');
 
+  /// Fades volume smoothly to 0 over [fadeMs] then pauses — used by the
+  /// sleep timer so playback winds down instead of cutting out abruptly.
+  /// Native side restores volume to full right after pausing, so the next
+  /// manual play() isn't silently stuck at 0.
+  Future<void> sleepFadeOutAndPause({int fadeMs = 8000}) =>
+      _method.invokeMethod('sleepFadeOutAndPause', {'fadeMs': fadeMs});
+
   // FIX (2026-07-07) — "downloads fail / stuck resolving": DownloadProvider
   // was calling ApiService.resolveStreamUrl() directly for every download,
   // which is the OLD, Worker-only resolve chain — it never benefited from

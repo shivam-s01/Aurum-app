@@ -56,6 +56,7 @@ import 'artist_screen.dart';
 import 'album_screen.dart';
 import 'mix_screen.dart';
 import '../widgets/aurum_focus_field.dart';
+import '../utils/aurum_haptics.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Library Root
@@ -529,6 +530,39 @@ class PlaylistDetailScreen extends StatefulWidget {
 }
 
 class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
+  // ── Multi-select state ─────────────────────────────────────────────────
+  bool _selecting = false;
+  final Set<String> _selectedIds = {};
+
+  void _enterSelectMode(String firstSongId) {
+    AurumHaptics.medium();
+    setState(() {
+      _selecting = true;
+      _selectedIds
+        ..clear()
+        ..add(firstSongId);
+    });
+  }
+
+  void _exitSelectMode() {
+    setState(() {
+      _selecting = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelected(String songId) {
+    AurumHaptics.selection();
+    setState(() {
+      if (!_selectedIds.remove(songId)) {
+        _selectedIds.add(songId);
+      }
+      // Nothing left selected -> fall back out of select mode gracefully,
+      // same as most stock "select" UIs (Photos, Gmail, etc.).
+      if (_selectedIds.isEmpty) _selecting = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -545,111 +579,211 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       );
     }
 
-    return Scaffold(
-      backgroundColor: AurumTheme.bgOf(context),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          // ── Header ──────────────────────────────────────────────────────
-          SliverAppBar(
-            expandedHeight: 300,
-            pinned: true,
-            backgroundColor: AurumTheme.bgOf(context),
-            leading: IconButton(
-              icon: Icon(Icons.arrow_back_ios_rounded,
-                  color: AurumTheme.textSecondaryOf(context), size: 20),
-              onPressed: () => Navigator.pop(context),
-            ),
-            actions: [
-              IconButton(
-                icon: Icon(Icons.more_vert_rounded,
-                    color: AurumTheme.textSecondaryOf(context)),
-                onPressed: () => _showPlaylistOptions(context, pl),
-              ),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              background: _PlaylistHeader(playlist: pl),
-              collapseMode: CollapseMode.pin,
-            ),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(0),
-              child: Container(
-                height: 1,
-                color: AurumTheme.textMutedOf(context).withOpacity(0.1),
-              ),
-            ),
-          ),
+    // Guard: if songs were removed elsewhere (e.g. another device sync)
+    // while a selection was active, drop ids that no longer exist so the
+    // count/app-bar never shows a stale number.
+    if (_selecting) {
+      final validIds = pl.songs.map((s) => s.id).toSet();
+      _selectedIds.removeWhere((id) => !validIds.contains(id));
+      if (_selectedIds.isEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _selecting = false);
+        });
+      }
+    }
 
-          // ── Action Row ──────────────────────────────────────────────────
-          SliverToBoxAdapter(
-            child: _PlaylistActionRow(playlist: pl),
-          ),
-
-          // ── Songs ────────────────────────────────────────────────────────
-          if (pl.songs.isEmpty)
-            SliverFillRemaining(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(40),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          color: Colors.purpleAccent.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                              color: Colors.purpleAccent.withOpacity(0.3)),
-                        ),
-                        child: const Icon(Icons.music_note_rounded,
-                            color: Colors.purpleAccent, size: 36),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(l10n.libraryNoSongsYetInPlaylist,
-                          style: TextStyle(
-                              color: AurumTheme.textPrimaryOf(context),
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 8),
-                      Text(l10n.librarySearchAndAddSongsHere,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: AurumTheme.textMutedOf(context),
-                              fontSize: 13,
-                              height: 1.5)),
-                    ],
+    return PopScope(
+      canPop: !_selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _selecting) _exitSelectMode();
+      },
+      child: Scaffold(
+        backgroundColor: AurumTheme.bgOf(context),
+        body: CustomScrollView(
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            // ── Header / Select-mode app bar ──────────────────────────────
+            if (_selecting)
+              _SelectModeAppBar(
+                selectedCount: _selectedIds.length,
+                totalCount: pl.songs.length,
+                allSelected: _selectedIds.length == pl.songs.length,
+                onClose: _exitSelectMode,
+                onToggleSelectAll: () {
+                  AurumHaptics.light();
+                  setState(() {
+                    if (_selectedIds.length == pl.songs.length) {
+                      _selectedIds.clear();
+                    } else {
+                      _selectedIds
+                        ..clear()
+                        ..addAll(pl.songs.map((s) => s.id));
+                    }
+                  });
+                },
+                onRemove: () => _confirmRemoveSelected(context, pl),
+              )
+            else
+              SliverAppBar(
+                expandedHeight: 300,
+                pinned: true,
+                backgroundColor: AurumTheme.bgOf(context),
+                leading: IconButton(
+                  icon: Icon(Icons.arrow_back_ios_rounded,
+                      color: AurumTheme.textSecondaryOf(context), size: 20),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                actions: [
+                  IconButton(
+                    icon: Icon(Icons.more_vert_rounded,
+                        color: AurumTheme.textSecondaryOf(context)),
+                    onPressed: () => _showPlaylistOptions(context, pl),
+                  ),
+                ],
+                flexibleSpace: FlexibleSpaceBar(
+                  background: _PlaylistHeader(playlist: pl),
+                  collapseMode: CollapseMode.pin,
+                ),
+                bottom: PreferredSize(
+                  preferredSize: const Size.fromHeight(0),
+                  child: Container(
+                    height: 1,
+                    color: AurumTheme.textMutedOf(context).withOpacity(0.1),
                   ),
                 ),
               ),
-            )
-          else
-            SliverReorderableList(
-              itemCount: pl.songs.length,
-              onReorder: (oldIdx, newIdx) {
-                context
-                    .read<PlaylistProvider>()
-                    .reorderSong(pl.id, oldIdx, newIdx);
-              },
-              itemBuilder: (context, i) {
-                final song = pl.songs[i];
-                return ReorderableDelayedDragStartListener(
-                  key: ValueKey('${pl.id}_${song.id}_$i'),
-                  index: i,
-                  child: _PlaylistSongTile(
+
+            // ── Action Row ──────────────────────────────────────────────────
+            if (!_selecting)
+              SliverToBoxAdapter(
+                child: _PlaylistActionRow(playlist: pl),
+              ),
+
+            // ── Songs ────────────────────────────────────────────────────────
+            if (pl.songs.isEmpty)
+              SliverFillRemaining(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(40),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: Colors.purpleAccent.withOpacity(0.1),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                                color: Colors.purpleAccent.withOpacity(0.3)),
+                          ),
+                          child: const Icon(Icons.music_note_rounded,
+                              color: Colors.purpleAccent, size: 36),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(l10n.libraryNoSongsYetInPlaylist,
+                            style: TextStyle(
+                                color: AurumTheme.textPrimaryOf(context),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 8),
+                        Text(l10n.librarySearchAndAddSongsHere,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: AurumTheme.textMutedOf(context),
+                                fontSize: 13,
+                                height: 1.5)),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+            else
+              SliverReorderableList(
+                itemCount: pl.songs.length,
+                onReorder: (oldIdx, newIdx) {
+                  if (_selecting) return; // reorder disabled while selecting
+                  context
+                      .read<PlaylistProvider>()
+                      .reorderSong(pl.id, oldIdx, newIdx);
+                },
+                itemBuilder: (context, i) {
+                  final song = pl.songs[i];
+                  final tile = _PlaylistSongTile(
                     song: song,
                     playlist: pl,
                     index: i,
-                  ),
-                );
-              },
-            ),
+                    selecting: _selecting,
+                    selected: _selectedIds.contains(song.id),
+                    onEnterSelectMode: () => _enterSelectMode(song.id),
+                    onToggleSelected: () => _toggleSelected(song.id),
+                  );
+                  // Drag handle only makes sense outside select mode —
+                  // reordering while multi-selecting is an awkward,
+                  // ambiguous gesture combo most apps avoid entirely.
+                  if (_selecting) {
+                    return KeyedSubtree(
+                      key: ValueKey('${pl.id}_${song.id}_$i'),
+                      child: tile,
+                    );
+                  }
+                  return ReorderableDelayedDragStartListener(
+                    key: ValueKey('${pl.id}_${song.id}_$i'),
+                    index: i,
+                    child: tile,
+                  );
+                },
+              ),
 
-          const SliverToBoxAdapter(child: SizedBox(height: 100)),
+            const SliverToBoxAdapter(child: SizedBox(height: 100)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmRemoveSelected(
+      BuildContext context, AurumPlaylist pl) async {
+    final l10n = AppLocalizations.of(context)!;
+    final count = _selectedIds.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AurumTheme.bgElevatedOf(context),
+        title: Text(l10n.libraryRemoveSelectedFromPlaylist,
+            style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
+        content: Text(l10n.libraryRemoveSelectedConfirm(count),
+            style: TextStyle(color: AurumTheme.textMutedOf(context))),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(l10n.commonCancel,
+                  style:
+                      TextStyle(color: AurumTheme.textMutedOf(context)))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(l10n.libraryRemoveSelectedFromPlaylist,
+                  style: const TextStyle(color: Colors.redAccent))),
         ],
       ),
     );
+    if (confirmed == true && mounted) {
+      final ids = Set<String>.from(_selectedIds);
+      await context.read<PlaylistProvider>().removeSongs(pl.id, ids);
+      if (mounted) {
+        setState(() {
+          _selecting = false;
+          _selectedIds.clear();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.libraryRemovedSongsFromPlaylist(ids.length)),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AurumTheme.bgElevatedOf(context),
+          ),
+        );
+      }
+    }
   }
 
   void _showPlaylistOptions(BuildContext context, AurumPlaylist pl) {
@@ -738,6 +872,79 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
           .deletePlaylist(pl.id);
       if (context.mounted) Navigator.pop(context);
     }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Select-mode app bar — replaces the artwork header while multi-selecting
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _SelectModeAppBar extends StatelessWidget {
+  final int selectedCount;
+  final int totalCount;
+  final bool allSelected;
+  final VoidCallback onClose;
+  final VoidCallback onToggleSelectAll;
+  final VoidCallback onRemove;
+
+  const _SelectModeAppBar({
+    required this.selectedCount,
+    required this.totalCount,
+    required this.allSelected,
+    required this.onClose,
+    required this.onToggleSelectAll,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return SliverAppBar(
+      pinned: true,
+      backgroundColor: AurumTheme.bgOf(context),
+      elevation: 0,
+      leading: IconButton(
+        icon: Icon(Icons.close_rounded,
+            color: AurumTheme.textSecondaryOf(context), size: 22),
+        onPressed: onClose,
+      ),
+      title: Text(
+        l10n.librarySelectedCount(selectedCount),
+        style: TextStyle(
+          color: AurumTheme.textPrimaryOf(context),
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: onToggleSelectAll,
+          child: Text(
+            allSelected ? l10n.libraryDeselectAll : l10n.librarySelectAll,
+            style: TextStyle(
+              color: AurumTheme.gold,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        IconButton(
+          icon: Icon(Icons.delete_outline_rounded,
+              color: selectedCount == 0
+                  ? AurumTheme.textMutedOf(context).withOpacity(0.4)
+                  : Colors.redAccent),
+          onPressed: selectedCount == 0 ? null : onRemove,
+        ),
+        const SizedBox(width: 4),
+      ],
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Container(
+          height: 1,
+          color: AurumTheme.textMutedOf(context).withOpacity(0.1),
+        ),
+      ),
+    );
   }
 }
 
@@ -954,11 +1161,19 @@ class _PlaylistSongTile extends StatelessWidget {
   final Song song;
   final AurumPlaylist playlist;
   final int index;
+  final bool selecting;
+  final bool selected;
+  final VoidCallback? onEnterSelectMode;
+  final VoidCallback? onToggleSelected;
 
   const _PlaylistSongTile({
     required this.song,
     required this.playlist,
     required this.index,
+    this.selecting = false,
+    this.selected = false,
+    this.onEnterSelectMode,
+    this.onToggleSelected,
   });
 
   @override
@@ -969,79 +1184,147 @@ class _PlaylistSongTile extends StatelessWidget {
     );
     final isLight = Theme.of(context).brightness == Brightness.light;
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: AurumArtwork(url: song.artworkUrl, size: 48, borderRadius: 8),
-      ),
-      title: Text(
-        song.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: isCurrentSong
-              ? AurumTheme.gold
-              : AurumTheme.textPrimaryOf(context),
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      subtitle: Text(
-        song.artist,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-            color: AurumTheme.textMutedOf(context), fontSize: 12),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Options menu
-          PopupMenuButton<String>(
-            icon: Icon(Icons.more_vert_rounded,
-                color: AurumTheme.textMutedOf(context), size: 20),
-            color: isLight
-                ? AurumTheme.lightBgCard
-                : AurumTheme.darkBgElevated,
-            onSelected: (value) {
-              if (value == 'remove') {
-                context
-                    .read<PlaylistProvider>()
-                    .removeSong(playlist.id, song.id);
-              }
-            },
-            itemBuilder: (_) => [
-              PopupMenuItem(
-                value: 'remove',
-                child: Row(
-                  children: [
-                    const Icon(Icons.remove_circle_outline_rounded,
-                        color: Colors.redAccent, size: 18),
-                    const SizedBox(width: 8),
-                    Text(l10n.libraryRemoveFromPlaylist,
-                        style: TextStyle(
-                            color: AurumTheme.textPrimaryOf(context),
-                            fontSize: 14)),
-                  ],
+    return Container(
+      color: selected ? AurumTheme.gold.withOpacity(0.08) : null,
+      child: ListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          transitionBuilder: (child, anim) =>
+              ScaleTransition(scale: anim, child: child),
+          child: selecting
+              ? SizedBox(
+                  key: const ValueKey('checkbox'),
+                  width: 48,
+                  height: 48,
+                  child: Center(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: selected ? AurumTheme.goldGradient : null,
+                        color: selected
+                            ? null
+                            : AurumTheme.bgCardOf(context),
+                        border: Border.all(
+                          color: selected
+                              ? Colors.transparent
+                              : AurumTheme.textMutedOf(context)
+                                  .withOpacity(0.4),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: selected
+                          ? Icon(Icons.check_rounded,
+                              size: 16, color: AurumTheme.bgOf(context))
+                          : null,
+                    ),
+                  ),
+                )
+              : ClipRRect(
+                  key: const ValueKey('artwork'),
+                  borderRadius: BorderRadius.circular(8),
+                  child: AurumArtwork(
+                      url: song.artworkUrl, size: 48, borderRadius: 8),
                 ),
-              ),
-            ],
+        ),
+        title: Text(
+          song.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: isCurrentSong
+                ? AurumTheme.gold
+                : AurumTheme.textPrimaryOf(context),
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
           ),
-          // Drag handle
-          Icon(Icons.drag_handle_rounded,
-              color: AurumTheme.textMutedOf(context).withOpacity(0.5),
-              size: 20),
-        ],
+        ),
+        subtitle: Text(
+          song.artist,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+              color: AurumTheme.textMutedOf(context), fontSize: 12),
+        ),
+        trailing: selecting
+            ? null
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Options menu
+                  PopupMenuButton<String>(
+                    icon: Icon(Icons.more_vert_rounded,
+                        color: AurumTheme.textMutedOf(context), size: 20),
+                    color: isLight
+                        ? AurumTheme.lightBgCard
+                        : AurumTheme.darkBgElevated,
+                    onSelected: (value) {
+                      if (value == 'remove') {
+                        context
+                            .read<PlaylistProvider>()
+                            .removeSong(playlist.id, song.id);
+                      } else if (value == 'select') {
+                        onEnterSelectMode?.call();
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'select',
+                        child: Row(
+                          children: [
+                            Icon(Icons.check_circle_outline_rounded,
+                                color: AurumTheme.gold, size: 18),
+                            const SizedBox(width: 8),
+                            Text(l10n.libraryEnterSelectMode,
+                                style: TextStyle(
+                                    color: AurumTheme.textPrimaryOf(context),
+                                    fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'remove',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.remove_circle_outline_rounded,
+                                color: Colors.redAccent, size: 18),
+                            const SizedBox(width: 8),
+                            Text(l10n.libraryRemoveFromPlaylist,
+                                style: TextStyle(
+                                    color: AurumTheme.textPrimaryOf(context),
+                                    fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Drag handle
+                  Icon(Icons.drag_handle_rounded,
+                      color:
+                          AurumTheme.textMutedOf(context).withOpacity(0.5),
+                      size: 20),
+                ],
+              ),
+        onTap: () {
+          if (selecting) {
+            onToggleSelected?.call();
+            return;
+          }
+          AurumHaptics.light();
+          context.read<PlayerProvider>().playSong(
+                song,
+                queue: playlist.songs,
+                index: index,
+              );
+        },
+        onLongPress: selecting ? null : onEnterSelectMode,
       ),
-      onTap: () {
-        HapticFeedback.lightImpact();
-        context.read<PlayerProvider>().playSong(
-              song,
-              queue: playlist.songs,
-              index: index,
-            );
-      },
     );
   }
 }
@@ -1767,7 +2050,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
                               color: AurumTheme.gold, size: 22),
                           tooltip: l10n.commonShuffle,
                           onPressed: () {
-                            HapticFeedback.selectionClick();
+                            AurumHaptics.selection();
                             final shuffled = [...history]..shuffle();
                             context.read<PlayerProvider>().playSong(
                                 shuffled[0],
@@ -2615,7 +2898,7 @@ class _FollowedAlbumTile extends StatelessWidget {
         }
       },
       onLongPress: () {
-        HapticFeedback.mediumImpact();
+        AurumHaptics.medium();
         _showUnsaveSheet(context, id, name, artworkUrl);
       },
       scaleAmount: 0.95,
@@ -2844,14 +3127,14 @@ class _FollowedArtistTile extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
           onTap: () {
-            HapticFeedback.selectionClick();
+            AurumHaptics.selection();
             AurumPageRoute.to(
               context,
               ArtistScreen(artistId: id, artistName: name),
             );
           },
           onLongPress: () {
-            HapticFeedback.mediumImpact();
+            AurumHaptics.medium();
             _showUnfollowSheet(context, id, name, imageUrl);
           },
           child: Padding(
@@ -3208,7 +3491,7 @@ class _CollectionRowState extends State<_CollectionRow>
       // lifts and comes right back down mid-gesture) can never fire a
       // second navigation while the first is still in flight.
       _navigating = true;
-      HapticFeedback.mediumImpact();
+      AurumHaptics.medium();
       _animateSnapBack();
       widget.item.onTap?.call();
       // Defensive reset: if for any reason no navigation actually

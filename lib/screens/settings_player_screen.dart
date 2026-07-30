@@ -11,6 +11,7 @@ import '../providers/premium_provider.dart';
 import '../widgets/premium_gate.dart';
 import '../widgets/aurum_pressable.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 // =============================================================================
 // Sleep Timer Service — singleton so it survives screen navigation
@@ -22,6 +23,7 @@ class SleepTimerService {
   Timer? _timer;
   DateTime? _endsAt;
   bool _finishSong = false;
+  bool _fadeOut = true;
   NativeAudioEngine? _engine;
 
   // Listeners so UI can rebuild when timer ticks/ends
@@ -33,13 +35,20 @@ class SleepTimerService {
   bool get isActive => _timer != null && _timer!.isActive;
   Duration get remaining => isActive ? _endsAt!.difference(DateTime.now()) : Duration.zero;
 
+  /// Last fade-out preference used (defaults true) — lets any sheet that
+  /// opens the timer show the same choice the user last made in Settings,
+  /// without each call site needing its own SharedPreferences read.
+  bool get lastFadeOutChoice => _fadeOut;
+
   void start({
     required int minutes,
     required bool finishSong,
     required NativeAudioEngine? engine,
+    bool fadeOut = true,
   }) {
     cancel();
     _finishSong = finishSong;
+    _fadeOut = fadeOut;
     _engine = engine;
     _endsAt = DateTime.now().add(Duration(minutes: minutes));
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -65,6 +74,9 @@ class SleepTimerService {
     if (_finishSong) {
       // Let current song finish, then pause at next song start
       _engine?.sleepAfterCurrentSong();
+    } else if (_fadeOut) {
+      // Apple-style smooth wind-down instead of an abrupt cut.
+      _engine?.sleepFadeOutAndPause(fadeMs: 8000);
     } else {
       _engine?.pause();
     }
@@ -105,6 +117,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
   // Sleep timer UI state
   bool _sleepTimerFinishSong = false;
+  bool _sleepTimerFadeOut = true;
+  String _hapticIntensity = 'light';
 
   // FIX (toggle flash — see settings_appearance_screen.dart for the full
   // root-cause writeup): every field above defaults to a hardcoded value
@@ -165,6 +179,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
       _bassBoost           = p.getBool('bass_boost') ?? false;
       _premiumSound        = p.getBool('premium_sound') ?? false;
       _sleepTimerFinishSong = p.getBool('sleep_timer_finish_song') ?? false;
+      _sleepTimerFadeOut = p.getBool('sleep_timer_fade_out') ?? true;
+      _hapticIntensity = AurumHaptics.intensity;
       _loaded = true;
     });
   }
@@ -248,7 +264,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               haptic: false,
               onTap: () {
                 if (isLocked) {
-                  HapticFeedback.mediumImpact();
+                  AurumHaptics.medium();
                   // Strictly payment-gated — no requiresLoginOnly here.
                   // This is the one feature in the app a Google account
                   // alone does not unlock.
@@ -259,7 +275,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                   );
                   return;
                 }
-                HapticFeedback.selectionClick();
+                AurumHaptics.selection();
                 setState(() => _streamQuality = key);
                 _save('stream_quality', key);
                 AudioPrefs.setStreamQuality(key);
@@ -419,15 +435,21 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: AurumTheme.bgCardOf(context),
+      isScrollControlled: true, // needed so the custom-duration keyboard doesn't cover the sheet
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => SleepTimerSheet(
         engine: widget.audioEngine,
         finishSong: _sleepTimerFinishSong,
+        fadeOut: _sleepTimerFadeOut,
         onFinishSongChanged: (v) {
           setState(() => _sleepTimerFinishSong = v);
           _save('sleep_timer_finish_song', v);
+        },
+        onFadeOutChanged: (v) {
+          setState(() => _sleepTimerFadeOut = v);
+          _save('sleep_timer_fade_out', v);
         },
       ),
     );
@@ -489,7 +511,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               onChanged: (label) {
                 if (label == null) return;
                 final key = _castIconVisibilityKeyFromLabel(l10n, label);
-                HapticFeedback.selectionClick();
+                AurumHaptics.selection();
                 setState(() => _castIconVisibility = key);
                 _save('cast_icon_visibility', key);
                 AudioPrefs.setCastIconVisibility(key);
@@ -608,6 +630,26 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                 setState(() => _swipeToChange = v);
                 _save('swipe_to_change', v);
                 AudioPrefs.setSwipeToChange(v);
+              }),
+          _dropdownTile(context,
+              icon: Icons.vibration_rounded,
+              title: l10n.spHapticIntensity,
+              subtitle: l10n.spHapticIntensitySubtitle,
+              value: _hapticIntensityLabel(l10n, _hapticIntensity),
+              options: [
+                _hapticIntensityLabel(l10n, 'off'),
+                _hapticIntensityLabel(l10n, 'light'),
+                _hapticIntensityLabel(l10n, 'strong'),
+              ],
+              onChanged: (label) {
+                if (label == null) return;
+                final key = _hapticIntensityKeyFromLabel(l10n, label);
+                setState(() => _hapticIntensity = key);
+                AurumHaptics.setIntensity(key);
+                // Immediate preview so picking "Strong" is felt right away
+                // instead of the user having to leave Settings to notice
+                // anything changed.
+                AurumHaptics.medium();
               }),
 
           // History Duration
@@ -852,12 +894,16 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 class SleepTimerSheet extends StatefulWidget {
   final NativeAudioEngine? engine;
   final bool finishSong;
+  final bool fadeOut;
   final ValueChanged<bool> onFinishSongChanged;
+  final ValueChanged<bool> onFadeOutChanged;
 
   const SleepTimerSheet({
     required this.engine,
     required this.finishSong,
+    this.fadeOut = true,
     required this.onFinishSongChanged,
+    required this.onFadeOutChanged,
   });
 
   @override
@@ -867,151 +913,417 @@ class SleepTimerSheet extends StatefulWidget {
 class SleepTimerSheetState extends State<SleepTimerSheet> {
   int _selectedMinutes = 30;
   late bool _finishSong;
+  late bool _fadeOut;
+
+  // Custom-duration text field state
+  bool _customMode = false;
+  final TextEditingController _customController = TextEditingController();
+  final FocusNode _customFocusNode = FocusNode();
+  String? _customError;
 
   static const _presets = [5, 10, 15, 20, 30, 45, 60, 90];
+  static const int _maxCustomMinutes = 600; // 10h — generous ceiling, guards against fat-finger overflow
 
   @override
   void initState() {
     super.initState();
     _finishSong = widget.finishSong;
+    _fadeOut = widget.fadeOut;
+  }
+
+  @override
+  void dispose() {
+    _customController.dispose();
+    _customFocusNode.dispose();
+    super.dispose();
+  }
+
+  /// Formats a minute count the way a premium app would — no duplicate
+  /// labels for different durations (the old `min ~/ 60` truncation made
+  /// both 60 and 90 minutes display as "1h"). Shows minutes for anything
+  /// under an hour, and "Xh" / "Xh Ym" above it.
+  String _formatMinutes(int min) {
+    if (min < 60) return '${min}m';
+    final h = min ~/ 60;
+    final m = min % 60;
+    return m == 0 ? '${h}h' : '${h}h ${m}m';
+  }
+
+  void _enterCustomMode() {
+    AurumHaptics.selection();
+    setState(() {
+      _customMode = true;
+      _customError = null;
+      _customController.text = _selectedMinutes.toString();
+      _customController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _customController.text.length,
+      );
+    });
+    // Open the keyboard right away — this is the whole point of custom mode.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _customFocusNode.requestFocus();
+    });
+  }
+
+  void _confirmCustomMinutes() {
+    final l10n = AppLocalizations.of(context)!;
+    final raw = _customController.text.trim();
+    final parsed = int.tryParse(raw);
+    if (parsed == null || parsed <= 0) {
+      setState(() => _customError = l10n.spSleepTimerInvalidDuration);
+      return;
+    }
+    if (parsed > _maxCustomMinutes) {
+      setState(() => _customError =
+          l10n.spSleepTimerMaxDuration(_maxCustomMinutes));
+      return;
+    }
+    AurumHaptics.light();
+    setState(() {
+      _selectedMinutes = parsed;
+      _customMode = false;
+      _customError = null;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final isCustomPreset = !_presets.contains(_selectedMinutes);
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Handle
-          Center(
-            child: Container(
-              width: 36, height: 4,
-              decoration: BoxDecoration(
-                color: AurumTheme.dividerOf(context),
-                borderRadius: BorderRadius.circular(2),
+      // Lifts the whole sheet above the keyboard when the custom-duration
+      // field is focused, instead of the keyboard just covering it.
+      padding: EdgeInsets.fromLTRB(
+        20, 20, 20, 36 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                  color: AurumTheme.dividerOf(context),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 20),
-          Text(l10n.spSleepTimerSheetTitle,
-              style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 18, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          Text(l10n.spSleepTimerSheetSubtitle,
-              style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
-          const SizedBox(height: 20),
+            const SizedBox(height: 20),
+            Text(l10n.spSleepTimerSheetTitle,
+                style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(l10n.spSleepTimerSheetSubtitle,
+                style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
+            const SizedBox(height: 20),
 
-          // Preset chips
-          Wrap(
-            spacing: 8, runSpacing: 8,
-            children: _presets.map((min) {
-              final sel = _selectedMinutes == min;
-              return GestureDetector(
-                onTap: () => setState(() => _selectedMinutes = min),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: sel ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
-                      width: sel ? 1 : 0.5,
-                    ),
+            if (!_customMode) ...[
+              // Preset chips + Custom chip
+              Wrap(
+                spacing: 8, runSpacing: 8,
+                children: [
+                  ..._presets.map((min) {
+                    final sel = !isCustomPreset && _selectedMinutes == min;
+                    return _DurationChip(
+                      label: _formatMinutes(min),
+                      selected: sel,
+                      onTap: () {
+                        AurumHaptics.selection();
+                        setState(() => _selectedMinutes = min);
+                      },
+                    );
+                  }),
+                  // Custom chip — shows the current custom value once set,
+                  // otherwise an edit-pencil affordance so it reads as
+                  // "type your own" rather than a mystery button.
+                  _DurationChip(
+                    label: isCustomPreset
+                        ? _formatMinutes(_selectedMinutes)
+                        : l10n.spSleepTimerCustom,
+                    selected: isCustomPreset,
+                    icon: Icons.edit_rounded,
+                    onTap: _enterCustomMode,
                   ),
-                  child: Text(
-                    min < 60 ? '${min}m' : '${min ~/ 60}h',
-                    style: TextStyle(
-                      color: sel ? AurumTheme.gold : AurumTheme.textSecondaryOf(context),
-                      fontSize: 14, fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
-                    ),
+                ],
+              ),
+            ] else ...[
+              // Custom duration entry — keyboard-driven, Apple-Clock-style.
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: AurumTheme.bgOf(context),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: _customError != null
+                        ? Colors.redAccent.withOpacity(0.6)
+                        : AurumTheme.gold.withOpacity(0.4),
+                    width: 1,
                   ),
                 ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 20),
-
-          // Finish song toggle
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            decoration: BoxDecoration(
-              color: AurumTheme.bgOf(context),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(l10n.spFinishCurrentSong,
-                        style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-                    Text(l10n.spFinishCurrentSongSubtitle,
-                        style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-                  ]),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _customController,
+                        focusNode: _customFocusNode,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.done,
+                        maxLength: 3,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          isDense: true,
+                          counterText: '',
+                          hintText: '30',
+                          hintStyle: TextStyle(
+                            color: AurumTheme.textMutedOf(context).withOpacity(0.4),
+                          ),
+                        ),
+                        onChanged: (_) {
+                          if (_customError != null) {
+                            setState(() => _customError = null);
+                          }
+                        },
+                        onSubmitted: (_) => _confirmCustomMinutes(),
+                      ),
+                    ),
+                    Text(l10n.spSleepTimerMinutesUnit,
+                        style: TextStyle(
+                          color: AurumTheme.textMutedOf(context),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        )),
+                  ],
                 ),
-                Switch(
-                  value: _finishSong,
-                  onChanged: (v) {
-                    setState(() => _finishSong = v);
-                    widget.onFinishSongChanged(v);
-                  },
-                  activeColor: AurumTheme.gold,
-                ),
+              ),
+              if (_customError != null) ...[
+                const SizedBox(height: 6),
+                Text(_customError!,
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
               ],
-            ),
-          ),
-          const SizedBox(height: 20),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () {
+                        _customFocusNode.unfocus();
+                        setState(() {
+                          _customMode = false;
+                          _customError = null;
+                        });
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: AurumTheme.textMutedOf(context),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(l10n.commonCancel,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _confirmCustomMinutes,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AurumTheme.gold,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                      ),
+                      child: Text(l10n.spSleepTimerSetDuration,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 20),
 
-          // Start button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {
-                SleepTimerService.instance.start(
-                  minutes: _selectedMinutes,
-                  finishSong: _finishSong,
-                  engine: widget.engine,
-                );
-                Navigator.pop(context);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AurumTheme.gold,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 0,
+            // Fade-out toggle
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              decoration: BoxDecoration(
+                color: AurumTheme.bgOf(context),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
               ),
-              child: Text(
-                l10n.spStartTimer(_selectedMinutes < 60 ? "${_selectedMinutes}m" : "${_selectedMinutes ~/ 60}h"),
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(l10n.spSleepTimerFadeOut,
+                          style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
+                      Text(l10n.spSleepTimerFadeOutSubtitle,
+                          style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+                    ]),
+                  ),
+                  Switch(
+                    value: _fadeOut,
+                    onChanged: (v) {
+                      AurumHaptics.selection();
+                      setState(() => _fadeOut = v);
+                      widget.onFadeOutChanged(v);
+                    },
+                    activeColor: AurumTheme.gold,
+                  ),
+                ],
               ),
             ),
-          ),
-          if (SleepTimerService.instance.isActive) ...[
             const SizedBox(height: 10),
+
+            // Finish song toggle
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              decoration: BoxDecoration(
+                color: AurumTheme.bgOf(context),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(l10n.spFinishCurrentSong,
+                          style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
+                      Text(l10n.spFinishCurrentSongSubtitle,
+                          style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+                    ]),
+                  ),
+                  Switch(
+                    value: _finishSong,
+                    onChanged: (v) {
+                      AurumHaptics.selection();
+                      setState(() => _finishSong = v);
+                      widget.onFinishSongChanged(v);
+                    },
+                    activeColor: AurumTheme.gold,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Start button
             SizedBox(
               width: double.infinity,
-              child: TextButton(
-                onPressed: () {
-                  SleepTimerService.instance.cancel();
-                  Navigator.pop(context);
-                },
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.redAccent,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+              child: ElevatedButton(
+                onPressed: _customMode
+                    ? null // must confirm or cancel custom entry first
+                    : () {
+                        AurumHaptics.medium();
+                        SleepTimerService.instance.start(
+                          minutes: _selectedMinutes,
+                          finishSong: _finishSong,
+                          fadeOut: _fadeOut,
+                          engine: widget.engine,
+                        );
+                        Navigator.pop(context);
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AurumTheme.gold,
+                  disabledBackgroundColor: AurumTheme.gold.withOpacity(0.3),
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
                 ),
                 child: Text(
-                  l10n.spCancelActiveTimer,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  l10n.spStartTimer(_formatMinutes(_selectedMinutes)),
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                 ),
+              ),
+            ),
+            if (SleepTimerService.instance.isActive) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () {
+                    AurumHaptics.medium();
+                    SleepTimerService.instance.cancel();
+                    Navigator.pop(context);
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: Text(
+                    l10n.spCancelActiveTimer,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Duration selection chip — shared by presets and the "Custom" entry point
+// ─────────────────────────────────────────────────────────────────────────────
+class _DurationChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final IconData? icon;
+  final VoidCallback onTap;
+
+  const _DurationChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
+            width: selected ? 1 : 0.5,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 13,
+                  color: selected ? AurumTheme.gold : AurumTheme.textSecondaryOf(context)),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? AurumTheme.gold : AurumTheme.textSecondaryOf(context),
+                fontSize: 14, fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
               ),
             ),
           ],
-        ],
+        ),
       ),
     );
   }
@@ -1254,6 +1566,26 @@ String _castIconVisibilityKeyFromLabel(AppLocalizations l10n, String label) {
   if (label == l10n.spCastIconAlways) return 'always';
   if (label == l10n.spCastIconHidden) return 'hidden';
   return 'auto';
+}
+
+/// Same stable-key / localized-label split as _castIconVisibilityLabel
+/// above — 'off'/'light'/'strong' are stored, the dropdown shows the
+/// localized text.
+String _hapticIntensityLabel(AppLocalizations l10n, String key) {
+  switch (key) {
+    case 'off':
+      return l10n.spHapticOff;
+    case 'strong':
+      return l10n.spHapticStrong;
+    default:
+      return l10n.spHapticLight;
+  }
+}
+
+String _hapticIntensityKeyFromLabel(AppLocalizations l10n, String label) {
+  if (label == l10n.spHapticOff) return 'off';
+  if (label == l10n.spHapticStrong) return 'strong';
+  return 'light';
 }
 
 Widget _dropdownTile(BuildContext context,

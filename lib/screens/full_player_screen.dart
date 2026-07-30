@@ -33,6 +33,7 @@ import 'library_screen.dart' show showAddToPlaylistSheet;
 import '../widgets/audio_output_sheet.dart';
 import '../widgets/cast_button.dart';
 import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
+import '../utils/aurum_haptics.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FullPlayerScreen v5.0 — Echo Nightly Premium
@@ -755,7 +756,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   void _close() {
     if (!mounted) return;
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     // Notifier setter already triggers the thin _DragTransform rebuild —
     // no need to also setState() the whole screen right before it pops.
     if (_dragY != 0) _dragY = 0;
@@ -786,7 +787,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // reads as one continuous motion instead of two.
   void _completeDismissDrag() {
     if (!mounted) return;
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     final screenH = MediaQuery.of(context).size.height;
     final start = _dragY;
     _springBackCtrl.reset();
@@ -819,7 +820,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   }
 
   Future<void> _onPlayTap(PlayerProvider player) async {
-    HapticFeedback.heavyImpact();
+    AurumHaptics.heavy();
     await _playBtnCtrl.forward();
     await _playBtnCtrl.reverse();
     player.togglePlay();
@@ -827,7 +828,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   }
 
   void _openPanel({int initialTab = 0}) {
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     _panelOpen = true;
     _pauseAmbientAnims();
     showModalBottomSheet(
@@ -856,7 +857,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     final player = context.read<PlayerProvider>();
     final song = player.currentSong;
     if (song == null) return;
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1143,7 +1144,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                           description: AppLocalizations.of(context)!.fpLikeSongsSignIn,
                           requiresLoginOnly: true,
                           onAllowed: () {
-                            HapticFeedback.lightImpact();
+                            AurumHaptics.light();
                             context.read<FavoritesProvider>().toggleFavorite(song);
                           },
                         );
@@ -1427,7 +1428,7 @@ class _ArtworkState extends State<_Artwork> {
     final sensitivity = AudioPrefs.swipeSensitivity;
     final threshold = _thresholdFor(sensitivity);
     if (_dragDx <= -threshold) {
-      HapticFeedback.mediumImpact();
+      AurumHaptics.medium();
       widget.player.skipNext().then((allowed) {
         if (!allowed && mounted) {
           PremiumGate.show(
@@ -1439,7 +1440,7 @@ class _ArtworkState extends State<_Artwork> {
         }
       });
     } else if (_dragDx >= threshold) {
-      HapticFeedback.mediumImpact();
+      AurumHaptics.medium();
       widget.player.skipPrev();
     }
     setState(() {
@@ -2062,12 +2063,12 @@ class _SeekBarState extends State<_SeekBar> {
         dragging: _dragging,
         dragValue: _dragValue,
         onDragStart: () {
-          HapticFeedback.selectionClick();
+          AurumHaptics.selection();
           setState(() => _dragging = true);
         },
         onDrag: (v) => setState(() => _dragValue = v),
         onDragEnd: (v) {
-          HapticFeedback.selectionClick();
+          AurumHaptics.selection();
           widget.player.seek(v);
           setState(() { _dragging = false; _dragValue = null; });
         },
@@ -2101,12 +2102,12 @@ class _SeekBarState extends State<_SeekBar> {
                       .clamp(0.0, 1.0)
                   : 0.0,
               onChangeStart: (_) {
-                HapticFeedback.selectionClick();
+                AurumHaptics.selection();
                 setState(() => _dragging = true);
               },
               onChanged: widget.player.seek,
               onChangeEnd: (_) {
-                HapticFeedback.selectionClick();
+                AurumHaptics.selection();
                 setState(() => _dragging = false);
               },
             ),
@@ -2323,7 +2324,7 @@ class _Controls extends StatelessWidget {
             active: player.shuffle,
             semanticLabel: l10n.fpShuffle,
             onTap: () {
-              HapticFeedback.selectionClick();
+              AurumHaptics.selection();
               player.toggleShuffle();
             },
           ),
@@ -2333,7 +2334,7 @@ class _Controls extends StatelessWidget {
             color: prevNextColor,
             semanticLabel: l10n.fpPrevious,
             onTap: () {
-              HapticFeedback.mediumImpact();
+              AurumHaptics.medium();
               player.skipPrev();
             },
           ),
@@ -2352,7 +2353,7 @@ class _Controls extends StatelessWidget {
             color: prevNextColor,
             semanticLabel: l10n.fpNext,
             onTap: () {
-              HapticFeedback.mediumImpact();
+              AurumHaptics.medium();
               player.skipNext().then((allowed) {
                 if (!allowed && context.mounted) {
                   PremiumGate.show(
@@ -2373,7 +2374,7 @@ class _Controls extends StatelessWidget {
             active: isLoopAll || isLoopOne,
             semanticLabel: l10n.fpRepeat,
             onTap: () {
-              HapticFeedback.selectionClick();
+              AurumHaptics.selection();
               player.toggleLoop();
             },
           ),
@@ -2636,7 +2637,8 @@ void shareSong(BuildContext context, Song song) {
 void showSleepTimerForSong(BuildContext context, PlayerProvider player) {
   final handler = player.handler;
   bool finishSong = false;
-  HapticFeedback.lightImpact();
+  bool fadeOut = SleepTimerService.instance.lastFadeOutChoice;
+  AurumHaptics.light();
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
@@ -2645,7 +2647,9 @@ void showSleepTimerForSong(BuildContext context, PlayerProvider player) {
     builder: (_) => SleepTimerSheet(
       engine: handler,
       finishSong: finishSong,
+      fadeOut: fadeOut,
       onFinishSongChanged: (v) => finishSong = v,
+      onFadeOutChanged: (v) => fadeOut = v,
     ),
   );
 }
@@ -2671,7 +2675,7 @@ void showSongInfoDialog(BuildContext context, Song song) {
     // in user-facing UI.
   ];
 
-  HapticFeedback.lightImpact();
+  AurumHaptics.light();
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
@@ -3093,7 +3097,7 @@ class _SheetActionTileState extends State<_SheetActionTile> {
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) {
         setState(() => _pressed = false);
-        HapticFeedback.selectionClick();
+        AurumHaptics.selection();
         widget.action.onTap();
       },
       onTapCancel: () => setState(() => _pressed = false),
@@ -3201,7 +3205,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
 
   void _switchTab(int idx) {
     if (idx == _activeTab) return;
-    HapticFeedback.selectionClick();
+    AurumHaptics.selection();
     _tabCtrl.reverse().then((_) {
       if (!mounted) return;
       setState(() => _activeTab = idx);
@@ -3221,7 +3225,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   void _dismiss() {
     if (_isDismissing) return;
     _isDismissing = true;
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     _exitCtrl.forward().then((_) {
       if (mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
@@ -3578,7 +3582,7 @@ class _QueuePage extends StatelessWidget {
               sliver: SliverReorderableList(
                 itemCount: upNext.length,
                 onReorder: (oldListIdx, newListIdx) {
-                  HapticFeedback.mediumImpact();
+                  AurumHaptics.medium();
                   final fromQueueIdx = upNext[oldListIdx];
                   // ReorderableList gives newIndex assuming the item has
                   // already been removed from oldIndex — adjust the same
@@ -3600,22 +3604,22 @@ class _QueuePage extends StatelessWidget {
                       isNextUp: isNextUp,
                       index: listIdx + 1,
                       onTap: () {
-                        HapticFeedback.selectionClick();
+                        AurumHaptics.selection();
                         context.read<PlayerProvider>().skipToIndex(queueIdx);
                       },
                       onRemove: () {
-                        HapticFeedback.mediumImpact();
+                        AurumHaptics.medium();
                         context.read<PlayerProvider>().removeFromQueue(queueIdx);
                       },
                       onPlayNext: () async {
-                        HapticFeedback.selectionClick();
+                        AurumHaptics.selection();
                         final song = queue[queueIdx];
                         final p = context.read<PlayerProvider>();
                         await p.removeFromQueue(queueIdx);
                         await p.playNext(song);
                       },
                       onMoveToTop: () {
-                        HapticFeedback.selectionClick();
+                        AurumHaptics.selection();
                         final p = context.read<PlayerProvider>();
                         final target = (p.currentIndex ?? 0) + 1;
                         p.moveQueueItem(queueIdx, target);
@@ -3834,7 +3838,7 @@ class _QueueTileState extends State<_QueueTile>
   void _handleSwipeEnd() {
     // Past the full delete-reveal width + a firm flick → remove outright.
     if (_dragOffset.abs() > _deleteRevealWidth + 30) {
-      HapticFeedback.heavyImpact();
+      AurumHaptics.heavy();
       _swiped = true;
       _swipeCtrl.forward().then((_) {
         if (mounted) widget.onRemove();
@@ -3844,7 +3848,7 @@ class _QueueTileState extends State<_QueueTile>
     // Past the open threshold → snap fully open to reveal the delete
     // button (Spotify/YT Music style), rather than springing back.
     if (_dragOffset.abs() > _swipeOpenThreshold) {
-      HapticFeedback.lightImpact();
+      AurumHaptics.light();
       final fromOffset = _dragOffset;
       _settleAnim = Tween<double>(begin: fromOffset, end: -_deleteRevealWidth)
           .animate(CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic));
@@ -3878,13 +3882,13 @@ class _QueueTileState extends State<_QueueTile>
   }
 
   void _confirmDelete() {
-    HapticFeedback.heavyImpact();
+    AurumHaptics.heavy();
     setState(() => _swiped = true);
     widget.onRemove();
   }
 
   void _showQuickActions() {
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     final isLight = Theme.of(context).brightness == Brightness.light;
     showModalBottomSheet(
       context: context,

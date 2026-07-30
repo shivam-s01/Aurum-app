@@ -15,6 +15,7 @@ import '../services/api_service.dart';
 import 'aurum_artwork.dart';
 import 'aurum_like_button.dart';
 import 'aurum_equalizer_bars.dart';
+import '../utils/aurum_haptics.dart';
 
 class SongTile extends StatefulWidget {
   final Song song;
@@ -43,7 +44,7 @@ class _SongTileState extends State<SongTile> {
   Future<void> _handleTap(BuildContext context) async {
     if (_isTapping) return;
     _isTapping = true;
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     try {
       // History save moved to PlayerProvider._onSongChanged — fires only
       // once the native engine confirms this song actually started

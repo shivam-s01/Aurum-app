@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../theme/aurum_theme.dart';
+import '../utils/aurum_haptics.dart';
 
 class ChangelogSheet extends StatefulWidget {
   const ChangelogSheet({super.key});
@@ -172,7 +173,7 @@ class _ReleaseCardState extends State<_ReleaseCard> {
   Widget build(BuildContext context) {
     final r = widget.release;
     return GestureDetector(
-      onTap: () { HapticFeedback.selectionClick(); setState(() => _expanded = !_expanded); },
+      onTap: () { AurumHaptics.selection(); setState(() => _expanded = !_expanded); },
       child: Container(
         decoration: BoxDecoration(
           color: AurumTheme.bgOf(context),

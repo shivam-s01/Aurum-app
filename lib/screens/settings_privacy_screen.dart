@@ -8,6 +8,7 @@ import '../services/recommendation_engine.dart';
 import '../providers/recently_played_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../widgets/aurum_focus_field.dart';
+import '../utils/aurum_haptics.dart';
 
 class SettingsPrivacyScreen extends StatefulWidget {
   const SettingsPrivacyScreen({super.key});
@@ -157,7 +158,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
               subtitle: _appLockPin.isEmpty
                   ? l10n.sprSetPinSubtitle
                   : l10n.sprChangePinSubtitle,
-              onTap: () { HapticFeedback.lightImpact(); _showPinSheet(context); },
+              onTap: () { AurumHaptics.light(); _showPinSheet(context); },
             ),
             _switchTile(context,
               icon: Icons.fingerprint_rounded,
@@ -236,7 +237,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
             icon: Icons.history_rounded,
             title: l10n.sprClearHistory,
             subtitle: l10n.sprClearHistorySubtitle,
-            onTap: () { HapticFeedback.mediumImpact(); _confirmClear(context, l10n, l10n.sprHistoryTitle, () async {
+            onTap: () { AurumHaptics.medium(); _confirmClear(context, l10n, l10n.sprHistoryTitle, () async {
               await context.read<RecentlyPlayedProvider>().clearHistory();
             }); },
           ),
@@ -244,7 +245,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
             icon: Icons.recommend_rounded,
             title: l10n.sprResetRecommendations,
             subtitle: l10n.sprResetRecommendationsSubtitle,
-            onTap: () { HapticFeedback.mediumImpact(); _confirmClear(context, l10n, l10n.sprRecommendationsTitle, () async {
+            onTap: () { AurumHaptics.medium(); _confirmClear(context, l10n, l10n.sprRecommendationsTitle, () async {
               await RecommendationEngine.resetAll();
             }); },
           ),
@@ -252,7 +253,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
             icon: Icons.delete_sweep_rounded,
             title: l10n.sprClearAllData,
             subtitle: l10n.sprClearAllDataSubtitle,
-            onTap: () { HapticFeedback.heavyImpact(); _confirmClear(context, l10n, l10n.sprAllAppDataTitle, () async {
+            onTap: () { AurumHaptics.heavy(); _confirmClear(context, l10n, l10n.sprAllAppDataTitle, () async {
               final p = await SharedPreferences.getInstance();
               await p.clear();
             }); },

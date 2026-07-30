@@ -7,6 +7,7 @@ import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_empty_state.dart';
 import '../widgets/aurum_pressable.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class QueueScreen extends StatelessWidget {
   const QueueScreen({super.key});
@@ -33,7 +34,7 @@ class QueueScreen extends StatelessWidget {
           icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 28),
           color: AurumTheme.textSecondary,
           onPressed: () {
-            HapticFeedback.selectionClick();
+            AurumHaptics.selection();
             Navigator.pop(context);
           },
         ),
@@ -68,7 +69,7 @@ class QueueScreen extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 80),
             itemCount: queue.length,
             onReorder: (from, to) {
-              HapticFeedback.mediumImpact();
+              AurumHaptics.medium();
               final adjustedTo = to > from ? to - 1 : to;
               player.moveQueueItem(from, adjustedTo);
             },
@@ -80,7 +81,7 @@ class QueueScreen extends StatelessWidget {
                 scaleAmount: 0.985,
                 haptic: false, // onTap below fires its own selectionClick
                 onTap: () {
-                  HapticFeedback.selectionClick();
+                  AurumHaptics.selection();
                   player.skipToIndex(i);
                 },
                 child: ListTile(
@@ -122,7 +123,7 @@ class QueueScreen extends StatelessWidget {
                     if (!isCurrent)
                       GestureDetector(
                         onTap: () {
-                          HapticFeedback.lightImpact();
+                          AurumHaptics.light();
                           player.removeFromQueue(i);
                         },
                         child: const Padding(

@@ -4,6 +4,7 @@ import '../../theme/aurum_theme.dart';
 import '../models/shorts_catalog.dart';
 import '../widgets/shorts_chip.dart';
 import 'shorts_onboarding_categories.dart';
+import '../../utils/aurum_haptics.dart';
 
 /// Screen 2 of Shorts onboarding: pick up to 3 languages.
 class ShortsLanguageScreen extends StatefulWidget {
@@ -22,7 +23,7 @@ class _ShortsLanguageScreenState extends State<ShortsLanguageScreen> {
         _selected.remove(lang);
       } else {
         if (_selected.length >= ShortsCatalog.maxLanguageSelection) {
-          HapticFeedback.heavyImpact();
+          AurumHaptics.heavy();
           return;
         }
         _selected.add(lang);
@@ -110,7 +111,7 @@ class _ShortsLanguageScreenState extends State<ShortsLanguageScreen> {
                   ),
                   onPressed: canContinue
                       ? () {
-                          HapticFeedback.lightImpact();
+                          AurumHaptics.light();
                           Navigator.of(context).push(
                             PageRouteBuilder(
                               pageBuilder: (_, anim, __) =>

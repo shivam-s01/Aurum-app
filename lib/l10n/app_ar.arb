@@ -172,6 +172,26 @@
   "spShakeToSkipSubtitle": "هز الهاتف للانتقال إلى المقطع التالي",
   "spSwipeToChange": "اسحب لتغيير الأغنية",
   "spSwipeToChangeSubtitle": "اسحب على غلاف المشغل للتخطي",
+  "spHapticIntensity": "شدة الاهتزاز اللمسي",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "مدى قوة النقرات والاهتزازات في التطبيق",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "إيقاف",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "خفيف",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "قوي",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "مدة السجل",
   "spHistorySongsCount": "{count} أغنية",
   "spSleepTimerSheetTitle": "مؤقت النوم",
@@ -180,6 +200,39 @@
   "spFinishCurrentSongSubtitle": "السماح بانتهاء الأغنية الحالية قبل التوقف",
   "spStartTimer": "بدء المؤقت · {duration}",
   "spCancelActiveTimer": "إلغاء المؤقت النشط",
+  "spSleepTimerCustom": "مخصص",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "تعيين",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "دقيقة",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "أدخل مدة بالدقائق",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "الحد الأقصى {max} دقيقة",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "تلاشي تدريجي",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "تنخفض الموسيقى تدريجيًا بدلاً من التوقف المفاجئ",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "معدل بت عالٍ (320kbps)",
   "spPremiumHighBitrateDesc": "افتح البث بجودة استوديو 320kbps مع Aurum Plus.",
   "spEqReset": "إعادة تعيين",
@@ -602,5 +655,77 @@
   "fpSourceLabel": "المصدر",
   "fpLocalLibrary": "المكتبة المحلية",
   "fpOnlineStream": "البث عبر الإنترنت",
-  "fpDownloadFailed": "تعذر تنزيل \"{title}\" — البث غير متوفر"
+  "fpDownloadFailed": "تعذر تنزيل \"{title}\" — البث غير متوفر",
+  "audioOutputAutoRoutingNotice": "على إصدار Android هذا، ينتقل الصوت تلقائيًا إلى آخر جهاز تم توصيله.",
+  "audioOutputPickerTitle": "تشغيل على",
+  "audioOutputSwitchFailed": "تعذّر تبديل جهاز الإخراج. حاول مرة أخرى.",
+  "castDeviceFallbackName": "جهاز",
+  "castDeviceFallbackTitle": "جهاز البث",
+  "castPickerConnectFailed": "تعذّر الاتصال. حاول مرة أخرى.",
+  "castPickerNoDevices": "لم يتم العثور على أجهزة. تأكد من أن جهاز Chromecast أو التلفاز على نفس شبكة Wi-Fi.",
+  "castPickerScanning": "جارٍ البحث عن أجهزة…",
+  "castPickerTitle": "البث إلى",
+  "castSessionDisconnect": "قطع الاتصال",
+  "castSessionStopCasting": "إيقاف البث",
+  "castToDeviceLabel": "البث إلى جهاز",
+  "castingToDevice": "يتم البث إلى {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, zero{لم تتم إضافة أي أغنية إلى \"{name}\"} one{تمت إضافة أغنية واحدة إلى \"{name}\"} two{تمت إضافة أغنيتين إلى \"{name}\"} few{تمت إضافة {count} أغانٍ إلى \"{name}\"} many{تمت إضافة {count} أغنية إلى \"{name}\"} other{تمت إضافة {count} أغنية إلى \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDeselectAll": "إلغاء تحديد الكل",
+  "libraryEnterSelectMode": "تحديد",
+  "libraryRemoveSelectedConfirm": "{count, plural, one{هل تريد إزالة هذه الأغنية من القائمة؟} two{هل تريد إزالة هاتين الأغنيتين من القائمة؟} few{هل تريد إزالة هذه الـ {count} أغانٍ من القائمة؟} many{هل تريد إزالة هذه الـ {count} أغنية من القائمة؟} other{هل تريد إزالة هذه الـ {count} أغنية من القائمة؟}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemoveSelectedFromPlaylist": "إزالة من القائمة",
+  "libraryRemovedSongsFromPlaylist": "{count, plural, one{تمت إزالة أغنية واحدة} two{تمت إزالة أغنيتين} few{تمت إزالة {count} أغانٍ} many{تمت إزالة {count} أغنية} other{تمت إزالة {count} أغنية}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySelectAll": "تحديد الكل",
+  "librarySelectedCount": "{count, plural, zero{لم يتم تحديد شيء} one{تم تحديد 1} two{تم تحديد 2} few{تم تحديد {count}} many{تم تحديد {count}} other{تم تحديد {count}}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spCastIconAlways": "إظهار دائمًا",
+  "spCastIconAuto": "تلقائي",
+  "spCastIconHidden": "مخفي",
+  "spPremiumSound": "صوت متميز",
+  "spPremiumSoundPartialSupport": "بعض المؤثرات غير مدعومة على هذا الجهاز — الوضوح والباس ما زالا نشطين",
+  "spPremiumSoundSubtitle": "افتح صوتًا نقيًا تمامًا وباسًا أعمق وصوتًا غامرًا متميزًا",
+  "spShowCastIcon": "إظهار أيقونة Chromecast",
+  "spShowCastIconSubtitle": "تحكم في وقت ظهور أيقونة البث في المشغل الكامل"
 }

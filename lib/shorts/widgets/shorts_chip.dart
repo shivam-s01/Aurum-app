@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme/aurum_theme.dart';
+import '../../utils/aurum_haptics.dart';
 
 /// Premium pill-shaped selectable chip used across onboarding screens.
 /// Subtle scale + color morph on select — no flashy motion.
@@ -20,7 +21,7 @@ class ShortsChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        HapticFeedback.selectionClick();
+        AurumHaptics.selection();
         onTap();
       },
       child: AnimatedContainer(

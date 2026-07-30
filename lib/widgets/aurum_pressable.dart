@@ -23,6 +23,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../utils/aurum_haptics.dart';
 
 class AurumPressable extends StatefulWidget {
   const AurumPressable({
@@ -85,7 +86,7 @@ class _AurumPressableState extends State<AurumPressable>
 
   void _handleTap() {
     if (widget.onTap == null) return;
-    if (widget.haptic) HapticFeedback.selectionClick();
+    if (widget.haptic) AurumHaptics.selection();
     widget.onTap!();
   }
 

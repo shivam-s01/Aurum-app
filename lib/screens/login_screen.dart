@@ -21,6 +21,7 @@ import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../services/sync_service.dart';
+import '../utils/aurum_haptics.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -62,7 +63,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   Future<void> _continueWithGoogle() async {
     if (_busy) return;
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     setState(() { _busy = true; _error = null; });
 
     final auth = context.read<AuthProvider>();
@@ -80,7 +81,7 @@ class _LoginScreenState extends State<LoginScreen>
         );
       } catch (_) {}
       if (!mounted) return;
-      HapticFeedback.lightImpact();
+      AurumHaptics.light();
       Navigator.of(context).pop(true);
       return;
     }

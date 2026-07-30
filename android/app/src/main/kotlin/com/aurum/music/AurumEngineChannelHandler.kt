@@ -307,6 +307,11 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     result.success(null)
                 }
                 "sleepAfterCurrentSong" -> { engine.sleepAfterCurrentSong(); result.success(null) }
+                "sleepFadeOutAndPause" -> {
+                    val fadeMs = (call.argument<Number>("fadeMs") ?: 8000).toLong()
+                    engine.sleepFadeOutAndPause(fadeMs)
+                    result.success(null)
+                }
                 "applyAudioEffects" -> {
                     val bassBoost = call.argument<Boolean>("bassBoost") ?: false
                     val volNorm = call.argument<Boolean>("volumeNormalization") ?: false

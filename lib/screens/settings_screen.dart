@@ -14,6 +14,7 @@ import 'settings_about_screen.dart';
 import 'settings_privacy_screen.dart';
 import 'settings_language_screen.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -64,7 +65,7 @@ class SettingsScreen extends StatelessWidget {
                   title: l10n.settingsPlayerAudio,
                   subtitle: l10n.settingsPlayerAudioSubtitle,
                   onTap: () {
-                    HapticFeedback.lightImpact();
+                    AurumHaptics.light();
                     AurumPageRoute.to(context, SettingsPlayerScreen(audioEngine: engine));
                   },
                 ),
@@ -74,7 +75,7 @@ class SettingsScreen extends StatelessWidget {
                   title: l10n.settingsAppearance,
                   subtitle: l10n.settingsAppearanceSubtitle,
                   onTap: () {
-                    HapticFeedback.lightImpact();
+                    AurumHaptics.light();
                     AurumPageRoute.to(context, const SettingsAppearanceScreen());
                   },
                 ),
@@ -84,7 +85,7 @@ class SettingsScreen extends StatelessWidget {
                   title: l10n.settingsLanguage,
                   subtitle: l10n.settingsLanguageSubtitle,
                   onTap: () {
-                    HapticFeedback.lightImpact();
+                    AurumHaptics.light();
                     AurumPageRoute.to(context, const SettingsLanguageScreen());
                   },
                 ),
@@ -94,7 +95,7 @@ class SettingsScreen extends StatelessWidget {
                   title: l10n.settingsStorage,
                   subtitle: l10n.settingsStorageSubtitle,
                   onTap: () {
-                    HapticFeedback.lightImpact();
+                    AurumHaptics.light();
                     AurumPageRoute.to(context, const SettingsStorageScreen());
                   },
                 ),
@@ -104,7 +105,7 @@ class SettingsScreen extends StatelessWidget {
                   title: l10n.settingsNotifications,
                   subtitle: l10n.settingsNotificationsSubtitle,
                   onTap: () {
-                    HapticFeedback.lightImpact();
+                    AurumHaptics.light();
                     AurumPageRoute.to(context, const SettingsNotificationsScreen());
                   },
                 ),
@@ -114,7 +115,7 @@ class SettingsScreen extends StatelessWidget {
                   title: l10n.settingsPrivacy,
                   subtitle: l10n.settingsPrivacySubtitle,
                   onTap: () {
-                    HapticFeedback.lightImpact();
+                    AurumHaptics.light();
                     AurumPageRoute.to(context, const SettingsPrivacyScreen());
                   },
                 ),
@@ -124,7 +125,7 @@ class SettingsScreen extends StatelessWidget {
                   title: l10n.settingsAbout,
                   subtitle: l10n.settingsAboutSubtitle,
                   onTap: () {
-                    HapticFeedback.lightImpact();
+                    AurumHaptics.light();
                     AurumPageRoute.to(context, const SettingsAboutScreen());
                   },
                 ),
@@ -422,7 +423,7 @@ class _PremiumSettingsTile extends StatelessWidget {
               ),
               child: ElevatedButton(
                 onPressed: () {
-                  HapticFeedback.mediumImpact();
+                  AurumHaptics.medium();
                   AurumPageRoute.to(context, const PremiumScreen());
                 },
                 style: ElevatedButton.styleFrom(

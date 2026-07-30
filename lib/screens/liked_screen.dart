@@ -8,6 +8,7 @@ import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_empty_state.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class LikedScreen extends StatelessWidget {
   const LikedScreen({super.key});
@@ -27,7 +28,7 @@ class LikedScreen extends StatelessWidget {
             backgroundColor: AurumTheme.bgOf(context),
             leading: IconButton(
               icon: Icon(Icons.arrow_back_ios_rounded, color: AurumTheme.textSecondaryOf(context), size: 20),
-              onPressed: () { HapticFeedback.lightImpact(); Navigator.pop(context); },
+              onPressed: () { AurumHaptics.light(); Navigator.pop(context); },
             ),
             flexibleSpace: FlexibleSpaceBar(
               titlePadding: const EdgeInsets.fromLTRB(52, 0, 16, 16),
@@ -75,7 +76,7 @@ class LikedScreen extends StatelessWidget {
                         const Spacer(),
                         GestureDetector(
                           onTap: () {
-                            HapticFeedback.mediumImpact();
+                            AurumHaptics.medium();
                             final player = context.read<PlayerProvider>();
                             player.playSong(songs[0], queue: songs, index: 0);
                           },

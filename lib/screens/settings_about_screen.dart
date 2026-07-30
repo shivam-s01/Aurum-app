@@ -9,6 +9,7 @@ import '../services/update_service.dart';
 import '../widgets/changelog_sheet.dart';
 import '../widgets/feedback_dialog.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class SettingsAboutScreen extends StatefulWidget {
   const SettingsAboutScreen({super.key});
@@ -230,13 +231,13 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             icon: Icons.system_update_rounded,
             title: l10n.abCheckForUpdate,
             subtitle: l10n.abCheckForUpdateSubtitle,
-            onTap: () { HapticFeedback.lightImpact(); UpdateService.checkForUpdate(context); },
+            onTap: () { AurumHaptics.light(); UpdateService.checkForUpdate(context); },
           ),
           _actionTile(context,
             icon: Icons.history_rounded,
             title: l10n.abChangelog,
             subtitle: l10n.abChangelogSubtitle,
-            onTap: () { HapticFeedback.lightImpact(); ChangelogSheet.show(context); },
+            onTap: () { AurumHaptics.light(); ChangelogSheet.show(context); },
           ),
 
           _sectionLabel(l10n.abLegal),
@@ -244,13 +245,13 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             icon: Icons.privacy_tip_rounded,
             title: l10n.abPrivacyPolicy,
             subtitle: l10n.abPrivacyPolicySubtitle,
-            onTap: () { HapticFeedback.lightImpact(); _showPrivacyPolicy(); },
+            onTap: () { AurumHaptics.light(); _showPrivacyPolicy(); },
           ),
           _actionTile(context,
             icon: Icons.description_rounded,
             title: l10n.abTermsOfUse,
             subtitle: l10n.abTermsOfUseSubtitle,
-            onTap: () { HapticFeedback.lightImpact(); _launch(AppConstants.termsOfUse); },
+            onTap: () { AurumHaptics.light(); _launch(AppConstants.termsOfUse); },
           ),
 
           _sectionLabel(l10n.abCommunity),
@@ -258,13 +259,13 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             icon: Icons.chat_bubble_rounded,
             title: l10n.abSendFeedback,
             subtitle: l10n.abSendFeedbackSubtitle,
-            onTap: () { HapticFeedback.lightImpact(); showFeedbackDialog(context); },
+            onTap: () { AurumHaptics.light(); showFeedbackDialog(context); },
           ),
           _actionTile(context,
             icon: Icons.share_rounded,
             title: l10n.abShareApp,
             subtitle: l10n.abShareAppSubtitle,
-            onTap: () { HapticFeedback.lightImpact(); _shareApp(); },
+            onTap: () { AurumHaptics.light(); _shareApp(); },
           ),
 
           _sectionLabel(l10n.abDeveloper),
@@ -272,13 +273,13 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
             customIcon: _instagramIcon(),
             title: l10n.abInstagram,
             subtitle: '@shivam_shrma.01',
-            onTap: () { HapticFeedback.lightImpact(); _launch(AppConstants.instagram); },
+            onTap: () { AurumHaptics.light(); _launch(AppConstants.instagram); },
           ),
           _actionTile(context,
             customIcon: _telegramIcon(),
             title: l10n.abTelegram,
             subtitle: '@mr_s_s01',
-            onTap: () { HapticFeedback.lightImpact(); _launch(AppConstants.telegram); },
+            onTap: () { AurumHaptics.light(); _launch(AppConstants.telegram); },
           ),
         ],
       ),

@@ -5,6 +5,7 @@ import '../models/shorts_catalog.dart';
 import '../services/shorts_prefs.dart';
 import '../widgets/shorts_chip.dart';
 import 'shorts_feed_screen.dart';
+import '../../utils/aurum_haptics.dart';
 
 /// Screen 3 of Shorts onboarding: search + multi-select categories.
 /// Finish saves preferences and drops user straight into the feed.
@@ -39,7 +40,7 @@ class _ShortsCategoryScreenState extends State<ShortsCategoryScreen> {
   Future<void> _finish() async {
     if (_selected.isEmpty || _saving) return;
     setState(() => _saving = true);
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
 
     await ShortsPrefs.setLanguages(widget.selectedLanguages);
     await ShortsPrefs.setCategories(_selected.toList());

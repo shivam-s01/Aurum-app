@@ -5,6 +5,7 @@ import '../theme/aurum_theme.dart';
 import '../providers/locale_provider.dart';
 import '../widgets/aurum_pressable.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class SettingsLanguageScreen extends StatefulWidget {
   const SettingsLanguageScreen({super.key});
@@ -26,7 +27,7 @@ class _SettingsLanguageScreenState extends State<SettingsLanguageScreen> {
 
   Future<void> _select(Locale? locale) async {
     if (_switchingTo != null) return; // already mid-switch, ignore
-    HapticFeedback.selectionClick();
+    AurumHaptics.selection();
     setState(() => _switchingTo = locale?.languageCode ?? 'system');
     // One frame gap so the spinner actually paints before the heavier
     // locale rebuild starts on the same thread right after it.

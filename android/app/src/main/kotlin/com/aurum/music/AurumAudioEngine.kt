@@ -487,6 +487,7 @@ class AurumAudioEngine(
     private fun cancelAllVolumeFades() {
         fadeJob?.cancel()
         volumeFadeJob?.cancel()
+        sleepFadeJob?.cancel()
     }
     private var idleWatchdogJob: Job? = null
     // Safety net for the one gap the existing IDLE-recovery paths don't
@@ -502,6 +503,12 @@ class AurumAudioEngine(
     private var currentSongLiked = false
     private var crossfadeSecs = 0.0
     private var stopAfterCurrentSong = false
+    // Tracks the sleep-timer fade-out coroutine specifically (separate from
+    // fadeJob/volumeFadeJob above) so cancelAllVolumeFades() can kill it too
+    // if a duck/crossfade fade needs to take over mid-fade-out, and so a
+    // second sleepFadeOutAndPause() call (e.g. timer restarted) cancels any
+    // fade already in flight instead of running two at once.
+    private var sleepFadeJob: Job? = null
 
     companion object {
         // Prewarm window: how many songs ahead/behind the current one get
@@ -1757,6 +1764,47 @@ class AurumAudioEngine(
     fun isCurrentSongLiked(): Boolean = currentSongLiked
     fun setCrossfadeSeconds(secs: Double) { crossfadeSecs = secs }
     fun sleepAfterCurrentSong() { stopAfterCurrentSong = true }
+
+    /** Sleep-timer expiry with a smooth volume fade instead of an abrupt
+     *  cut — matches the fade-in/out feel already used for ducking/
+     *  crossfade above, rather than the jarring instant player.pause()
+     *  a plain timer-fires-pause() would give.
+     *
+     *  Goes through cancelAllVolumeFades() first (same choke point as
+     *  every other fade) so a duck or crossfade in flight can't fight
+     *  this one for control of player.volume.
+     *
+     *  Fades whichever player is actually driving playback right now.
+     *  Cast is resolved ONCE up front (not re-checked every step) — if
+     *  the target flipped mid-fade the fade would tear across two
+     *  different Player objects and neither would land at a clean 0,
+     *  so we commit to one target for the whole run. CastPlayer exposes
+     *  the same Media3 `volume` property as the local player (routed
+     *  through the Cast Remote Media Client), so the identical ramp
+     *  logic applies to both — previously this only ever faded the
+     *  local player and cast sessions got an abrupt cut with no fade.
+     *
+     *  Restores volume to 1f right after pausing — pause() does not
+     *  touch volume on its own, so without this the *next* time the
+     *  user presses play, playback would silently resume at 0 volume,
+     *  looking exactly like a playback-is-broken bug. */
+    fun sleepFadeOutAndPause(fadeMs: Long = 8000L) {
+        cancelAllVolumeFades()
+        val target: Player = activeCastPlayer ?: player
+        sleepFadeJob = scope.launch {
+            val start = target.volume
+            val steps = 40
+            val stepDelay = (fadeMs / steps).coerceAtLeast(1L)
+            for (i in 1..steps) {
+                val t = i / steps.toFloat()
+                target.volume = start * (1f - t)
+                delay(stepDelay)
+            }
+            target.volume = 0f
+            target.pause()
+            target.volume = 1f
+        }
+    }
 
     fun currentQueue(): List<NativeSong> = queueSongs
     fun currentSongIndex(): Int = currentIndex

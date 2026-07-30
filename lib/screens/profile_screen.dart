@@ -15,6 +15,7 @@ import '../providers/recently_played_provider.dart';
 import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -525,7 +526,7 @@ class _AccountCardState extends State<_AccountCard> {
   // the account.
   Future<void> _signOutAndWipe(AuthProvider auth) async {
     final l10n = AppLocalizations.of(context)!;
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
 
     // Premium, top-level feel: a brief centered loader overlay while the
     // wipe runs (this is all local Hive box clears, so it's fast — but a
@@ -556,7 +557,7 @@ class _AccountCardState extends State<_AccountCard> {
     }
 
     if (mounted) {
-      HapticFeedback.lightImpact();
+      AurumHaptics.light();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(l10n.prSignedOutCleared),
         behavior: SnackBarBehavior.floating,

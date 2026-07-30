@@ -176,6 +176,26 @@
   "spShakeToSkipSubtitle": "Agita el teléfono para ir a la siguiente pista",
   "spSwipeToChange": "Deslizar para cambiar canción",
   "spSwipeToChangeSubtitle": "Desliza en la portada del reproductor para saltar",
+  "spHapticIntensity": "Intensidad háptica",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Qué tan fuertes se sienten los toques y vibraciones en la app",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Desactivado",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Suave",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Fuerte",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "Duración del historial",
   "spHistorySongsCount": "{count} canciones",
   "spSleepTimerSheetTitle": "Temporizador de apagado",
@@ -184,6 +204,39 @@
   "spFinishCurrentSongSubtitle": "Deja que la canción actual termine antes de detenerse",
   "spStartTimer": "Iniciar temporizador · {duration}",
   "spCancelActiveTimer": "Cancelar temporizador activo",
+  "spSleepTimerCustom": "Personalizado",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Fijar",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "min",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Ingresa una duración en minutos",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Máximo {max} minutos",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Desvanecer",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "La música baja suavemente en vez de detenerse de golpe",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "Alta tasa de bits (320kbps)",
   "spPremiumHighBitrateDesc": "Desbloquea streaming de calidad de estudio 320kbps con Aurum Plus.",
   "spEqReset": "Restablecer",
@@ -606,5 +659,77 @@
   "fpSourceLabel": "Fuente",
   "fpLocalLibrary": "Biblioteca local",
   "fpOnlineStream": "Transmisión en línea",
-  "fpDownloadFailed": "No se pudo descargar \"{title}\" — transmisión no disponible"
+  "fpDownloadFailed": "No se pudo descargar \"{title}\" — transmisión no disponible",
+  "audioOutputAutoRoutingNotice": "En esta versión de Android, la salida cambia automáticamente al dispositivo conectado más recientemente.",
+  "audioOutputPickerTitle": "Reproducir en",
+  "audioOutputSwitchFailed": "No se pudo cambiar el dispositivo de salida. Inténtalo de nuevo.",
+  "castDeviceFallbackName": "dispositivo",
+  "castDeviceFallbackTitle": "Dispositivo de transmisión",
+  "castPickerConnectFailed": "No se pudo conectar. Inténtalo de nuevo.",
+  "castPickerNoDevices": "No se encontraron dispositivos. Asegúrate de que tu Chromecast o TV esté en la misma red Wi-Fi.",
+  "castPickerScanning": "Buscando dispositivos…",
+  "castPickerTitle": "Transmitir a",
+  "castSessionDisconnect": "Desconectar",
+  "castSessionStopCasting": "Detener transmisión",
+  "castToDeviceLabel": "Transmitir a dispositivo",
+  "castingToDevice": "Transmitiendo a {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{1 canción añadida a \"{name}\"} other{{count} canciones añadidas a \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDeselectAll": "Deseleccionar todo",
+  "libraryEnterSelectMode": "Seleccionar",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{¿Quitar esta canción de la playlist?} other{¿Quitar estas {count} canciones de la playlist?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemoveSelectedFromPlaylist": "Quitar de la playlist",
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{1 canción eliminada} other{{count} canciones eliminadas}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySelectAll": "Seleccionar todo",
+  "librarySelectedCount": "{count, plural, =1{1 seleccionada} other{{count} seleccionadas}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spCastIconAlways": "Mostrar siempre",
+  "spCastIconAuto": "Automático",
+  "spCastIconHidden": "Oculto",
+  "spPremiumSound": "Sonido Premium",
+  "spPremiumSoundPartialSupport": "Algunos efectos no son compatibles con este dispositivo — la claridad y los graves siguen activos",
+  "spPremiumSoundSubtitle": "Desbloquea voces cristalinas, graves más profundos y audio premium envolvente",
+  "spShowCastIcon": "Mostrar ícono de Chromecast",
+  "spShowCastIconSubtitle": "Controla cuándo aparece el ícono de transmisión en el reproductor completo"
 }

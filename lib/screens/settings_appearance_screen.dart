@@ -9,6 +9,7 @@ import '../widgets/premium_gate.dart';
 import '../widgets/aurum_pressable.dart';
 import '../services/audio_prefs.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class SettingsAppearanceScreen extends StatefulWidget {
   const SettingsAppearanceScreen({super.key});
@@ -18,7 +19,6 @@ class SettingsAppearanceScreen extends StatefulWidget {
 
 class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   // Theme
-  bool _dynamicThemeColor = true;
   bool _highRefreshRate = true;
   Color _accentColor = AurumTheme.gold;
   // Player
@@ -78,7 +78,6 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
     // standard fix: if the widget's gone, there's nothing to update.
     if (!mounted) return;
     setState(() {
-      _dynamicThemeColor = p.getBool('dynamic_theme_color') ?? true;
       _highRefreshRate = p.getBool('high_refresh_rate') ?? true;
       _accentColor = Color(p.getInt('accent_color') ?? AurumTheme.gold.value);
       _playerBgStyle = p.getString('player_bg_style') ?? 'Blur';
@@ -154,16 +153,14 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           ])),
           const SizedBox(height: 8),
           _inlineSwitch(context,
-            title: l10n.saDynamicThemeColor,
-            subtitle: l10n.saDynamicThemeColorSubtitle,
-            value: _dynamicThemeColor,
-            onChanged: (v) { setState(() => _dynamicThemeColor = v); _save('dynamic_theme_color', v); },
-          ),
-          _inlineSwitch(context,
             title: l10n.saHighRefreshRate,
             subtitle: l10n.saHighRefreshRateSubtitle,
             value: _highRefreshRate,
-            onChanged: (v) { setState(() => _highRefreshRate = v); _save('high_refresh_rate', v); },
+            onChanged: (v) {
+              setState(() => _highRefreshRate = v);
+              _save('high_refresh_rate', v);
+              AudioPrefs.pushHighRefreshRateToNative(v);
+            },
           ),
           // Accent color
           _card(context, child: Padding(
@@ -495,7 +492,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           return Column(children: [
             ListTile(
               onTap: () {
-                HapticFeedback.selectionClick();
+                AurumHaptics.selection();
                 if (locked) {
                   PremiumGate.show(context,
                     feature: l10n.saPlayerStyleUnlockFeature(e.key),
@@ -625,7 +622,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   Widget _themeTile(BuildContext context, ThemeProvider tp, IconData icon, String label, String sub, AurumThemeMode mode, {bool disabled = false}) {
     final selected = tp.mode == mode && !disabled;
     return ListTile(
-      onTap: disabled ? null : () { HapticFeedback.selectionClick(); tp.setMode(mode); },
+      onTap: disabled ? null : () { AurumHaptics.selection(); tp.setMode(mode); },
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
       leading: Container(
         width: 38, height: 38,

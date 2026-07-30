@@ -28,6 +28,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../utils/aurum_haptics.dart';
 
 class AurumLikeButton extends StatefulWidget {
   const AurumLikeButton({
@@ -97,8 +98,8 @@ class _AurumLikeButtonState extends State<AurumLikeButton>
       // Slightly heavier tick for "like" (adding something) than
       // "unlike" (removing) — small detail, reads as more intentional.
       widget.isLiked
-          ? HapticFeedback.selectionClick()
-          : HapticFeedback.mediumImpact();
+          ? AurumHaptics.selection()
+          : AurumHaptics.medium();
     }
     widget.onTap();
   }

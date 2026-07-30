@@ -45,6 +45,7 @@ import '../providers/followed_artists_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
+import '../utils/aurum_haptics.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared FullPlayerScreen navigation — every song-tap entry point on this
@@ -66,7 +67,7 @@ bool _openingFullPlayer = false; // guards against double-push on rapid tap
 void pushFullPlayer(BuildContext context) {
   if (_openingFullPlayer) return;
   _openingFullPlayer = true;
-  HapticFeedback.lightImpact();
+  AurumHaptics.light();
   Navigator.of(context).push(
     PageRouteBuilder(
       opaque: true,
@@ -638,7 +639,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showSourceSheet(BuildContext context, SourceProvider src) {
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -805,10 +806,10 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
         _dragX > _swipeThreshold || velocity > _swipeVelocityThreshold;
 
     if (commitNext) {
-      HapticFeedback.mediumImpact();
+      AurumHaptics.medium();
       _commitSwipe(next: true);
     } else if (commitPrev) {
-      HapticFeedback.mediumImpact();
+      AurumHaptics.medium();
       _commitSwipe(next: false);
     } else {
       _springBackX();
@@ -1447,7 +1448,7 @@ class _OnlineContent extends StatelessWidget {
               ),
               GestureDetector(
                 onTap: () {
-                  HapticFeedback.selectionClick();
+                  AurumHaptics.selection();
                   final art = section.songs
                       .where((s) => s.artworkUrl.isNotEmpty)
                       .map((s) => s.artworkUrl)
@@ -1536,7 +1537,7 @@ class _SongGridCard extends StatelessWidget {
     return RepaintBoundary(
       child: GestureDetector(
       onTap: () {
-        HapticFeedback.selectionClick();
+        AurumHaptics.selection();
         context.read<PlayerProvider>().playSong(song, queue: queue, index: index);
         // FIX ("first tap feels stuck/does nothing for 2-3s"): this used
         // to only call playSong() — no navigation at all. Every other
@@ -1779,7 +1780,7 @@ class _ProfileAvatarButton extends StatelessWidget {
   const _ProfileAvatarButton();
 
   Future<void> _openProfile(BuildContext context) async {
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     final auth = context.read<AuthProvider>();
 
     if (!auth.isSignedIn) {
@@ -2498,7 +2499,7 @@ class _PlaylistCardState extends State<_PlaylistCard> {
   }
 
   Future<void> _openPlaylist() async {
-    HapticFeedback.selectionClick();
+    AurumHaptics.selection();
     // Show loading snackbar then fetch songs
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

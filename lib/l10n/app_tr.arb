@@ -172,6 +172,26 @@
   "spShakeToSkipSubtitle": "Sonraki parçaya geçmek için telefonu salla",
   "spSwipeToChange": "Şarkı Değiştirmek İçin Kaydır",
   "spSwipeToChangeSubtitle": "Atlamak için oynatıcı kapağını kaydır",
+  "spHapticIntensity": "Titreşim Yoğunluğu",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Uygulamadaki dokunuş ve titreşimlerin ne kadar güçlü hissettirdiği",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Kapalı",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Hafif",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Güçlü",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "Geçmiş Süresi",
   "spHistorySongsCount": "{count} şarkı",
   "spSleepTimerSheetTitle": "Uyku Zamanlayıcısı",
@@ -180,6 +200,39 @@
   "spFinishCurrentSongSubtitle": "Durmadan önce mevcut şarkının bitmesine izin ver",
   "spStartTimer": "Zamanlayıcıyı Başlat · {duration}",
   "spCancelActiveTimer": "Aktif Zamanlayıcıyı İptal Et",
+  "spSleepTimerCustom": "Özel",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Ayarla",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "dk",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Dakika cinsinden bir süre girin",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "En fazla {max} dakika",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Kısılarak kapanma",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Müzik aniden durmak yerine yavaşça kısılır",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "Yüksek Bit Hızı (320kbps)",
   "spPremiumHighBitrateDesc": "Aurum Plus ile stüdyo kalitesinde 320kbps yayının kilidini aç.",
   "spEqReset": "Sıfırla",
@@ -602,5 +655,77 @@
   "fpSourceLabel": "Kaynak",
   "fpLocalLibrary": "Yerel Kitaplık",
   "fpOnlineStream": "Çevrimiçi Yayın",
-  "fpDownloadFailed": "\"{title}\" indirilemedi — yayın kullanılamıyor"
+  "fpDownloadFailed": "\"{title}\" indirilemedi — yayın kullanılamıyor",
+  "audioOutputAutoRoutingNotice": "Bu Android sürümünde çıkış otomatik olarak en son bağlanan cihaza geçer.",
+  "audioOutputPickerTitle": "Şurada oynat",
+  "audioOutputSwitchFailed": "Çıkış cihazı değiştirilemedi. Tekrar deneyin.",
+  "castDeviceFallbackName": "cihaz",
+  "castDeviceFallbackTitle": "Yayın cihazı",
+  "castPickerConnectFailed": "Bağlanılamadı. Tekrar deneyin.",
+  "castPickerNoDevices": "Cihaz bulunamadı. Chromecast veya TV'nizin aynı Wi-Fi ağında olduğundan emin olun.",
+  "castPickerScanning": "Cihazlar aranıyor…",
+  "castPickerTitle": "Şuna yayınla",
+  "castSessionDisconnect": "Bağlantıyı kes",
+  "castSessionStopCasting": "Yayını durdur",
+  "castToDeviceLabel": "Cihaza yayınla",
+  "castingToDevice": "{name} cihazına yayınlanıyor",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{\"{name}\" listesine 1 şarkı eklendi} other{\"{name}\" listesine {count} şarkı eklendi}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDeselectAll": "Tüm seçimi kaldır",
+  "libraryEnterSelectMode": "Seç",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{Bu şarkı listeden kaldırılsın mı?} other{Bu {count} şarkı listeden kaldırılsın mı?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemoveSelectedFromPlaylist": "Listeden kaldır",
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{1 şarkı kaldırıldı} other{{count} şarkı kaldırıldı}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySelectAll": "Tümünü seç",
+  "librarySelectedCount": "{count, plural, =1{1 seçildi} other{{count} seçildi}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spCastIconAlways": "Her zaman göster",
+  "spCastIconAuto": "Otomatik",
+  "spCastIconHidden": "Gizli",
+  "spPremiumSound": "Premium Ses",
+  "spPremiumSoundPartialSupport": "Bazı efektler bu cihazda desteklenmiyor — netlik ve bas hâlâ etkin",
+  "spPremiumSoundSubtitle": "Kristal netliğinde vokaller, daha derin bas ve etkileyici premium ses kilidini açın",
+  "spShowCastIcon": "Chromecast simgesini göster",
+  "spShowCastIconSubtitle": "Yayın simgesinin tam ekran oynatıcıda ne zaman göründüğünü kontrol edin"
 }

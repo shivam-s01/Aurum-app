@@ -164,6 +164,26 @@
   "spShakeToSkipSubtitle": "अगले ट्रैक पर जाने के लिए फोन हिलाएं",
   "spSwipeToChange": "गाना बदलने के लिए स्वाइप करें",
   "spSwipeToChangeSubtitle": "स्किप के लिए प्लेयर आर्टवर्क पर स्वाइप करें",
+  "spHapticIntensity": "हैप्टिक तीव्रता",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "पूरे ऐप में टैप और वाइब्रेशन कितने तेज़ महसूस हों",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "बंद",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "हल्का",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "तेज़",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "इतिहास अवधि",
   "spHistorySongsCount": "{count} गाने",
   "spSleepTimerSheetTitle": "स्लीप टाइमर",
@@ -172,6 +192,39 @@
   "spFinishCurrentSongSubtitle": "रोकने से पहले मौजूदा गाना खत्म होने दें",
   "spStartTimer": "टाइमर शुरू करें · {duration}",
   "spCancelActiveTimer": "सक्रिय टाइमर रद्द करें",
+  "spSleepTimerCustom": "कस्टम",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "सेट करें",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "मिनट",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "मिनटों में समय दर्ज करें",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "अधिकतम {max} मिनट",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "फेड आउट",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "अचानक रुकने के बजाय संगीत धीरे-धीरे मद्धम होगा",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "हाई बिटरेट (320kbps)",
   "spPremiumHighBitrateDesc": "Aurum Plus के साथ स्टूडियो-क्वालिटी 320kbps स्ट्रीमिंग अनलॉक करें।",
   "spEqReset": "रीसेट",
@@ -594,5 +647,77 @@
   "fpSourceLabel": "स्रोत",
   "fpLocalLibrary": "लोकल लाइब्रेरी",
   "fpOnlineStream": "ऑनलाइन स्ट्रीम",
-  "fpDownloadFailed": "\"{title}\" डाउनलोड नहीं हो सका — स्ट्रीम उपलब्ध नहीं"
+  "fpDownloadFailed": "\"{title}\" डाउनलोड नहीं हो सका — स्ट्रीम उपलब्ध नहीं",
+  "audioOutputAutoRoutingNotice": "इस Android वर्शन पर, आउटपुट अपने आप सबसे हाल ही में जुड़े डिवाइस पर स्विच हो जाता है।",
+  "audioOutputPickerTitle": "यहाँ चलाएं",
+  "audioOutputSwitchFailed": "आउटपुट डिवाइस बदला नहीं जा सका। फिर से कोशिश करें।",
+  "castDeviceFallbackName": "डिवाइस",
+  "castDeviceFallbackTitle": "कास्ट डिवाइस",
+  "castPickerConnectFailed": "कनेक्ट नहीं हो सका। फिर से कोशिश करें।",
+  "castPickerNoDevices": "कोई डिवाइस नहीं मिला। सुनिश्चित करें कि आपका Chromecast या TV उसी Wi-Fi नेटवर्क पर है।",
+  "castPickerScanning": "डिवाइस खोजे जा रहे हैं…",
+  "castPickerTitle": "यहाँ कास्ट करें",
+  "castSessionDisconnect": "डिस्कनेक्ट करें",
+  "castSessionStopCasting": "कास्टिंग बंद करें",
+  "castToDeviceLabel": "डिवाइस पर कास्ट करें",
+  "castingToDevice": "{name} पर कास्ट हो रहा है",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{1 गाना \"{name}\" में जोड़ा गया} other{{count} गाने \"{name}\" में जोड़े गए}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDeselectAll": "सभी अचयनित करें",
+  "libraryEnterSelectMode": "चुनें",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{इस गाने को प्लेलिस्ट से हटाएं?} other{इन {count} गानों को प्लेलिस्ट से हटाएं?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemoveSelectedFromPlaylist": "प्लेलिस्ट से हटाएं",
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{1 गाना हटाया गया} other{{count} गाने हटाए गए}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySelectAll": "सभी चुनें",
+  "librarySelectedCount": "{count, plural, =1{1 चयनित} other{{count} चयनित}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spCastIconAlways": "हमेशा दिखाएं",
+  "spCastIconAuto": "ऑटो",
+  "spCastIconHidden": "छुपा हुआ",
+  "spPremiumSound": "प्रीमियम साउंड",
+  "spPremiumSoundPartialSupport": "इस डिवाइस पर कुछ इफ़ेक्ट सपोर्टेड नहीं हैं — क्लैरिटी और बास फिर भी सक्रिय हैं",
+  "spPremiumSoundSubtitle": "क्रिस्टल-क्लियर वोकल्स, गहरा बास और इमर्सिव प्रीमियम ऑडियो अनलॉक करें",
+  "spShowCastIcon": "Chromecast आइकन दिखाएं",
+  "spShowCastIconSubtitle": "फुल प्लेयर पर कास्ट आइकन कब दिखे, यह नियंत्रित करें"
 }

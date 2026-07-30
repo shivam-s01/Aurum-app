@@ -164,6 +164,26 @@
   "spShakeToSkipSubtitle": "スマホを振って次の曲へ",
   "spSwipeToChange": "スワイプで曲を変更",
   "spSwipeToChangeSubtitle": "プレイヤーのアートワークをスワイプしてスキップ",
+  "spHapticIntensity": "触覚の強さ",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "アプリ内のタップや振動の強さ",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "オフ",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "弱め",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "強め",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "履歴期間",
   "spHistorySongsCount": "{count}曲",
   "spSleepTimerSheetTitle": "スリープタイマー",
@@ -172,6 +192,39 @@
   "spFinishCurrentSongSubtitle": "停止前に現在の曲を終わらせる",
   "spStartTimer": "タイマー開始・{duration}",
   "spCancelActiveTimer": "作動中のタイマーをキャンセル",
+  "spSleepTimerCustom": "カスタム",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "設定",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "分",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "分単位で時間を入力してください",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "最大{max}分",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "フェードアウト",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "急に止まらず、音楽が滑らかに小さくなります",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "高ビットレート（320kbps）",
   "spPremiumHighBitrateDesc": "Aurum Plusでスタジオ品質の320kbpsストリーミングを解除。",
   "spEqReset": "リセット",
@@ -594,5 +647,77 @@
   "fpSourceLabel": "ソース",
   "fpLocalLibrary": "ローカルライブラリ",
   "fpOnlineStream": "オンラインストリーム",
-  "fpDownloadFailed": "「{title}」をダウンロードできませんでした — ストリームが利用できません"
+  "fpDownloadFailed": "「{title}」をダウンロードできませんでした — ストリームが利用できません",
+  "audioOutputAutoRoutingNotice": "このAndroidバージョンでは、出力は最近接続されたデバイスに自動的に切り替わります。",
+  "audioOutputPickerTitle": "再生先",
+  "audioOutputSwitchFailed": "出力デバイスを切り替えられませんでした。もう一度お試しください。",
+  "castDeviceFallbackName": "デバイス",
+  "castDeviceFallbackTitle": "キャストデバイス",
+  "castPickerConnectFailed": "接続できませんでした。もう一度お試しください。",
+  "castPickerNoDevices": "デバイスが見つかりません。ChromecastまたはTVが同じWi-Fiネットワークにあることを確認してください。",
+  "castPickerScanning": "デバイスを検索中…",
+  "castPickerTitle": "キャスト先",
+  "castSessionDisconnect": "切断",
+  "castSessionStopCasting": "キャストを停止",
+  "castToDeviceLabel": "デバイスにキャスト",
+  "castingToDevice": "{name}にキャスト中",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, other{{count}曲を「{name}」に追加しました}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDeselectAll": "すべて選択解除",
+  "libraryEnterSelectMode": "選択",
+  "libraryRemoveSelectedConfirm": "{count, plural, other{この{count}曲をプレイリストから削除しますか？}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemoveSelectedFromPlaylist": "プレイリストから削除",
+  "libraryRemovedSongsFromPlaylist": "{count, plural, other{{count}曲を削除しました}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySelectAll": "すべて選択",
+  "librarySelectedCount": "{count, plural, other{{count}件選択中}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spCastIconAlways": "常に表示",
+  "spCastIconAuto": "自動",
+  "spCastIconHidden": "非表示",
+  "spPremiumSound": "プレミアムサウンド",
+  "spPremiumSoundPartialSupport": "一部のエフェクトはこのデバイスでサポートされていません — クリアさとベースは引き続き有効です",
+  "spPremiumSoundSubtitle": "クリアなボーカル、深みのあるベース、没入感のあるプレミアムオーディオを解放",
+  "spShowCastIcon": "Chromecastアイコンを表示",
+  "spShowCastIconSubtitle": "フルプレイヤーでキャストアイコンが表示されるタイミングを管理"
 }

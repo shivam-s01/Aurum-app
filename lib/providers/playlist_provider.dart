@@ -185,6 +185,19 @@ class PlaylistProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Bulk remove — used by the playlist multi-select UI. Single persist +
+  /// single notifyListeners for the whole batch, instead of calling
+  /// removeSong() in a loop (which would persist/rebuild once per song).
+  Future<void> removeSongs(String playlistId, Set<String> songIds) async {
+    if (songIds.isEmpty) return;
+    final pl = _findById(playlistId);
+    if (pl == null) return;
+    pl.songs.removeWhere((s) => songIds.contains(s.id));
+    pl.updatedAt = DateTime.now();
+    await _persist(pl);
+    notifyListeners();
+  }
+
   // ── Reorder Songs ─────────────────────────────────────────────────────────
 
   Future<void> reorderSong(

@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../services/feedback_service.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_focus_field.dart';
+import '../utils/aurum_haptics.dart';
 
 /// Shows the feedback dialog. Call this from either the auto-prompt
 /// (after 1-2 songs) or from a manual "Send Feedback" entry in
@@ -197,7 +198,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
             final filled = i < _rating;
             return GestureDetector(
               onTap: () {
-                HapticFeedback.selectionClick();
+                AurumHaptics.selection();
                 setState(() => _rating = i + 1);
               },
               child: Padding(

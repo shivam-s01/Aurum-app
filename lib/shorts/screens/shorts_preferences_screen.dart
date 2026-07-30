@@ -4,6 +4,7 @@ import '../../theme/aurum_theme.dart';
 import '../models/shorts_catalog.dart';
 import '../services/shorts_prefs.dart';
 import '../widgets/shorts_chip.dart';
+import '../../utils/aurum_haptics.dart';
 
 /// Lets the user change their Shorts language/category preferences
 /// after onboarding — opened from the feed's "more" menu. Saving
@@ -52,7 +53,7 @@ class _ShortsPreferencesScreenState extends State<ShortsPreferencesScreen> {
   Future<void> _save() async {
     if (_languages.isEmpty || _categories.isEmpty || _saving) return;
     setState(() => _saving = true);
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     await ShortsPrefs.setLanguages(_languages.toList());
     await ShortsPrefs.setCategories(_categories.toList());
     if (!mounted) return;
@@ -136,7 +137,7 @@ class _ShortsPreferencesScreenState extends State<ShortsPreferencesScreen> {
                               } else {
                                 if (_languages.length >=
                                     ShortsCatalog.maxLanguageSelection) {
-                                  HapticFeedback.heavyImpact();
+                                  AurumHaptics.heavy();
                                   return;
                                 }
                                 _languages.add(lang);

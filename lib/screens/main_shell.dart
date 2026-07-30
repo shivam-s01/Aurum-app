@@ -33,6 +33,7 @@ import '../providers/followed_albums_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../shorts/screens/shorts_entry.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -71,7 +72,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
 
     if (barIndex == _AurumBottomNavBar.shortsTabIndex) {
-      HapticFeedback.selectionClick();
+      AurumHaptics.selection();
       Navigator.of(context).push(
         AurumPageRoute(
           builder: (_) => const ShortsEntry(),
@@ -141,7 +142,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       if (!mounted) return;
       final player = context.read<PlayerProvider>();
       if (!player.hasSong) return;
-      HapticFeedback.mediumImpact();
+      AurumHaptics.medium();
       player.skipNext();
     });
   }
@@ -652,7 +653,7 @@ class _AurumBottomNavBar extends StatelessWidget {
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () {
-                          if (!selected) HapticFeedback.selectionClick();
+                          if (!selected) AurumHaptics.selection();
                           onTap(i);
                         },
                         child: SizedBox.expand(

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../theme/aurum_theme.dart';
 import '../models/short_item.dart';
 import '../providers/shorts_feed_controller.dart' show DownloadTrackState;
+import '../../utils/aurum_haptics.dart';
 
 /// Vertical action rail on the right edge of each Shorts card —
 /// Reels-style: heart, save, download, share, more, listen-full-song.
@@ -57,7 +58,7 @@ class ShortsActionRail extends StatelessWidget {
         const SizedBox(height: 26),
         GestureDetector(
           onTap: () {
-            HapticFeedback.mediumImpact();
+            AurumHaptics.medium();
             onListenFull();
           },
           child: Container(
@@ -96,7 +97,7 @@ class _RailButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        HapticFeedback.selectionClick();
+        AurumHaptics.selection();
         onTap();
       },
       child: AnimatedScale(
@@ -161,7 +162,7 @@ class _LikeButtonState extends State<_LikeButton>
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        HapticFeedback.selectionClick();
+        AurumHaptics.selection();
         widget.onTap();
       },
       child: AnimatedBuilder(
@@ -231,7 +232,7 @@ class _SaveButtonState extends State<_SaveButton>
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        HapticFeedback.selectionClick();
+        AurumHaptics.selection();
         widget.onTap();
       },
       child: AnimatedBuilder(
@@ -273,7 +274,7 @@ class _DownloadButton extends StatelessWidget {
       onTap: state == DownloadTrackState.downloading
           ? null
           : () {
-              HapticFeedback.selectionClick();
+              AurumHaptics.selection();
               onTap();
             },
       child: SizedBox(

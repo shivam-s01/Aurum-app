@@ -172,6 +172,26 @@
   "spShakeToSkipSubtitle": "Lắc điện thoại để chuyển bài tiếp theo",
   "spSwipeToChange": "Vuốt để đổi bài hát",
   "spSwipeToChangeSubtitle": "Vuốt trên ảnh bìa trình phát để bỏ qua",
+  "spHapticIntensity": "Cường độ rung",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Độ mạnh của rung và phản hồi chạm trong ứng dụng",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Tắt",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Nhẹ",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Mạnh",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "Thời lượng lịch sử",
   "spHistorySongsCount": "{count} bài hát",
   "spSleepTimerSheetTitle": "Hẹn giờ ngủ",
@@ -180,6 +200,39 @@
   "spFinishCurrentSongSubtitle": "Cho phép bài hát hiện tại kết thúc trước khi dừng",
   "spStartTimer": "Bắt đầu hẹn giờ · {duration}",
   "spCancelActiveTimer": "Hủy hẹn giờ đang hoạt động",
+  "spSleepTimerCustom": "Tùy chỉnh",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Đặt",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "phút",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Nhập thời lượng theo phút",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Tối đa {max} phút",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Giảm dần âm lượng",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Nhạc giảm dần nhẹ nhàng thay vì dừng đột ngột",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "Bitrate cao (320kbps)",
   "spPremiumHighBitrateDesc": "Mở khóa phát trực tuyến chất lượng phòng thu 320kbps với Aurum Plus.",
   "spEqReset": "Đặt lại",
@@ -602,5 +655,77 @@
   "fpSourceLabel": "Nguồn",
   "fpLocalLibrary": "Thư viện cục bộ",
   "fpOnlineStream": "Phát trực tuyến",
-  "fpDownloadFailed": "Không thể tải \"{title}\" — luồng không khả dụng"
+  "fpDownloadFailed": "Không thể tải \"{title}\" — luồng không khả dụng",
+  "audioOutputAutoRoutingNotice": "Trên phiên bản Android này, đầu ra tự động chuyển sang thiết bị được kết nối gần đây nhất.",
+  "audioOutputPickerTitle": "Phát trên",
+  "audioOutputSwitchFailed": "Không thể chuyển thiết bị đầu ra. Vui lòng thử lại.",
+  "castDeviceFallbackName": "thiết bị",
+  "castDeviceFallbackTitle": "Thiết bị Cast",
+  "castPickerConnectFailed": "Không thể kết nối. Vui lòng thử lại.",
+  "castPickerNoDevices": "Không tìm thấy thiết bị nào. Đảm bảo Chromecast hoặc TV của bạn cùng mạng Wi-Fi.",
+  "castPickerScanning": "Đang tìm thiết bị…",
+  "castPickerTitle": "Truyền tới",
+  "castSessionDisconnect": "Ngắt kết nối",
+  "castSessionStopCasting": "Dừng truyền",
+  "castToDeviceLabel": "Truyền tới thiết bị",
+  "castingToDevice": "Đang truyền tới {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, other{Đã thêm {count} bài hát vào \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDeselectAll": "Bỏ chọn tất cả",
+  "libraryEnterSelectMode": "Chọn",
+  "libraryRemoveSelectedConfirm": "{count, plural, other{Xóa {count} bài hát này khỏi playlist?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemoveSelectedFromPlaylist": "Xóa khỏi playlist",
+  "libraryRemovedSongsFromPlaylist": "{count, plural, other{Đã xóa {count} bài hát}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySelectAll": "Chọn tất cả",
+  "librarySelectedCount": "{count, plural, other{Đã chọn {count}}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spCastIconAlways": "Luôn hiển thị",
+  "spCastIconAuto": "Tự động",
+  "spCastIconHidden": "Ẩn",
+  "spPremiumSound": "Âm thanh Premium",
+  "spPremiumSoundPartialSupport": "Một số hiệu ứng không được hỗ trợ trên thiết bị này — độ rõ và bass vẫn hoạt động",
+  "spPremiumSoundSubtitle": "Mở khóa giọng hát trong trẻo, bass sâu hơn và âm thanh premium sống động",
+  "spShowCastIcon": "Hiện biểu tượng Chromecast",
+  "spShowCastIconSubtitle": "Kiểm soát thời điểm biểu tượng cast xuất hiện trên trình phát toàn màn hình"
 }

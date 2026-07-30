@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class SettingsStorageScreen extends StatefulWidget {
   const SettingsStorageScreen({super.key});
@@ -149,7 +150,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                   title: l10n.ssDownloadedSongs,
                   used: _fmt(_downloadedSize),
                   clearLabel: l10n.ssClearAllDownloads,
-                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, l10n.ssAllDownloadsTitle, _clearDownloads); },
+                  onClear: () { AurumHaptics.medium(); _confirmClear(context, l10n.ssAllDownloadsTitle, _clearDownloads); },
                 ),
 
                 // Download Quality
@@ -194,7 +195,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                     setState(() => _maxSongCache = v);
                     await _save('max_song_cache', v);
                   },
-                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, l10n.ssSongCacheTitle, () => _clearDir('song_cache')); },
+                  onClear: () { AurumHaptics.medium(); _confirmClear(context, l10n.ssSongCacheTitle, () => _clearDir('song_cache')); },
                   clearLabel: l10n.ssClearSongCache,
                 ),
 
@@ -212,7 +213,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                     PaintingBinding.instance.imageCache.maximumSizeBytes =
                         (v * 1024 * 1024).toInt();
                   },
-                  onClear: () { HapticFeedback.mediumImpact(); _confirmClear(context, l10n.ssImageCacheTitle, () => _clearDir('image_cache')); },
+                  onClear: () { AurumHaptics.medium(); _confirmClear(context, l10n.ssImageCacheTitle, () => _clearDir('image_cache')); },
                   clearLabel: l10n.ssClearImageCache,
                 ),
               ],

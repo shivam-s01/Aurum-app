@@ -164,6 +164,26 @@
   "spShakeToSkipSubtitle": "அடுத்த டிராக்கிற்குச் செல்ல போனை அசைக்கவும்",
   "spSwipeToChange": "பாடலை மாற்ற ஸ்வைப் செய்யவும்",
   "spSwipeToChangeSubtitle": "தவிர்க்க பிளேயர் ஆர்ட்வொர்க் மீது ஸ்வைப் செய்யவும்",
+  "spHapticIntensity": "ஹாப்டிக் தீவிரம்",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "ஆப்பில் தட்டல்கள் மற்றும் அதிர்வுகள் எவ்வளவு வலுவாக உணரப்படும்",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "முடக்கு",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "லேசான",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "வலுவான",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "வரலாறு காலம்",
   "spHistorySongsCount": "{count} பாடல்கள்",
   "spSleepTimerSheetTitle": "உறக்க டைமர்",
@@ -172,6 +192,39 @@
   "spFinishCurrentSongSubtitle": "நிறுத்தும் முன் தற்போதைய பாடலை முடிக்க அனுமதி",
   "spStartTimer": "டைமரைத் தொடங்கு · {duration}",
   "spCancelActiveTimer": "செயலில் உள்ள டைமரை ரத்து செய்",
+  "spSleepTimerCustom": "தனிப்பயன்",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "அமை",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "நிமி",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "நிமிடங்களில் கால அளவை உள்ளிடவும்",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "அதிகபட்சம் {max} நிமிடங்கள்",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "மங்கலாக நிறுத்து",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "திடீரென நிற்காமல் இசை மெதுவாக மங்கும்",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "ஹை பிட்ரேட் (320kbps)",
   "spPremiumHighBitrateDesc": "Aurum Plus உடன் ஸ்டுடியோ தர 320kbps ஸ்ட்ரீமிங்கை திறக்கவும்.",
   "spEqReset": "மீட்டமை",
@@ -594,5 +647,77 @@
   "fpSourceLabel": "மூலம்",
   "fpLocalLibrary": "லோக்கல் நூலகம்",
   "fpOnlineStream": "ஆன்லைன் ஸ்ட்ரீம்",
-  "fpDownloadFailed": "\"{title}\" பதிவிறக்க முடியவில்லை — ஸ்ட்ரீம் கிடைக்கவில்லை"
+  "fpDownloadFailed": "\"{title}\" பதிவிறக்க முடியவில்லை — ஸ்ட்ரீம் கிடைக்கவில்லை",
+  "audioOutputAutoRoutingNotice": "இந்த Android பதிப்பில், சமீபத்தில் இணைக்கப்பட்ட சாதனத்திற்கு வெளியீடு தானாக மாறும்.",
+  "audioOutputPickerTitle": "இதில் இயக்கு",
+  "audioOutputSwitchFailed": "வெளியீட்டு சாதனத்தை மாற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  "castDeviceFallbackName": "சாதனம்",
+  "castDeviceFallbackTitle": "கேஸ்ட் சாதனம்",
+  "castPickerConnectFailed": "இணைக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  "castPickerNoDevices": "சாதனங்கள் எதுவும் கிடைக்கவில்லை. உங்கள் Chromecast அல்லது TV அதே Wi-Fi நெட்வொர்க்கில் இருப்பதை உறுதிப்படுத்தவும்.",
+  "castPickerScanning": "சாதனங்களைத் தேடுகிறது…",
+  "castPickerTitle": "இதற்கு அனுப்பு",
+  "castSessionDisconnect": "துண்டி",
+  "castSessionStopCasting": "கேஸ்டிங்கை நிறுத்து",
+  "castToDeviceLabel": "சாதனத்திற்கு அனுப்பு",
+  "castingToDevice": "{name} க்கு அனுப்பப்படுகிறது",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{\"{name}\" இல் 1 பாடல் சேர்க்கப்பட்டது} other{\"{name}\" இல் {count} பாடல்கள் சேர்க்கப்பட்டன}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDeselectAll": "அனைத்தையும் தேர்வு நீக்கு",
+  "libraryEnterSelectMode": "தேர்ந்தெடு",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{இந்தப் பாடலை பிளேலிஸ்டிலிருந்து அகற்றவா?} other{இந்த {count} பாடல்களை பிளேலிஸ்டிலிருந்து அகற்றவா?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemoveSelectedFromPlaylist": "பிளேலிஸ்டிலிருந்து அகற்று",
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{1 பாடல் அகற்றப்பட்டது} other{{count} பாடல்கள் அகற்றப்பட்டன}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySelectAll": "அனைத்தையும் தேர்ந்தெடு",
+  "librarySelectedCount": "{count, plural, =1{1 தேர்ந்தெடுக்கப்பட்டது} other{{count} தேர்ந்தெடுக்கப்பட்டன}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spCastIconAlways": "எப்போதும் காட்டு",
+  "spCastIconAuto": "தானியங்கி",
+  "spCastIconHidden": "மறைக்கப்பட்டது",
+  "spPremiumSound": "பிரீமியம் ஒலி",
+  "spPremiumSoundPartialSupport": "இந்தச் சாதனத்தில் சில எஃபெக்ட்கள் ஆதரிக்கப்படவில்லை — தெளிவும் பேஸும் இன்னும் செயலில் உள்ளன",
+  "spPremiumSoundSubtitle": "தெளிவான குரல்கள், ஆழமான பேஸ் மற்றும் இணைந்த பிரீமியம் ஆடியோவைத் திற",
+  "spShowCastIcon": "Chromecast ஐகானைக் காட்டு",
+  "spShowCastIconSubtitle": "முழு பிளேயரில் கேஸ்ட் ஐகான் எப்போது தோன்றும் எனக் கட்டுப்படுத்து"
 }

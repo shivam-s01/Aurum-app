@@ -36,6 +36,7 @@ import '../widgets/song_tile.dart';
 import 'artist_screen.dart';
 import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class MixScreen extends StatefulWidget {
   final String mixId;
@@ -331,7 +332,7 @@ class _MixScreenState extends State<MixScreen> {
                     onTap: songs.isEmpty
                         ? null
                         : () {
-                            HapticFeedback.mediumImpact();
+                            AurumHaptics.medium();
                             final queue = _shuffle
                                 ? (List<Song>.from(songs)..shuffle())
                                 : songs;
@@ -734,7 +735,7 @@ class _ActionIcon extends StatelessWidget {
       onTap: disabled
           ? null
           : () {
-              HapticFeedback.selectionClick();
+              AurumHaptics.selection();
               onTap!();
             },
       child: SizedBox(
@@ -772,7 +773,7 @@ class _GridOption extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        HapticFeedback.selectionClick();
+        AurumHaptics.selection();
         onTap();
       },
       child: Container(
@@ -823,7 +824,7 @@ class _ArtistChip extends StatelessWidget {
       onTap: onTap == null
           ? null
           : () {
-              HapticFeedback.selectionClick();
+              AurumHaptics.selection();
               onTap!();
             },
       child: Container(

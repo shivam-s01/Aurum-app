@@ -172,6 +172,26 @@
   "spShakeToSkipSubtitle": "Kocok ponsel untuk pindah ke lagu berikutnya",
   "spSwipeToChange": "Geser untuk Ganti Lagu",
   "spSwipeToChangeSubtitle": "Geser pada sampul pemutar untuk melewati",
+  "spHapticIntensity": "Intensitas Haptik",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Seberapa kuat getaran dan sentuhan terasa di aplikasi",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Nonaktif",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Ringan",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Kuat",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "Durasi Riwayat",
   "spHistorySongsCount": "{count} lagu",
   "spSleepTimerSheetTitle": "Timer Tidur",
@@ -180,6 +200,39 @@
   "spFinishCurrentSongSubtitle": "Biarkan lagu saat ini selesai sebelum berhenti",
   "spStartTimer": "Mulai Timer · {duration}",
   "spCancelActiveTimer": "Batalkan Timer Aktif",
+  "spSleepTimerCustom": "Kustom",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Atur",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "mnt",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Masukkan durasi dalam menit",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Maksimal {max} menit",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Meredup",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Musik meredup perlahan, bukan berhenti tiba-tiba",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "Bitrate Tinggi (320kbps)",
   "spPremiumHighBitrateDesc": "Buka streaming kualitas studio 320kbps dengan Aurum Plus.",
   "spEqReset": "Reset",
@@ -602,5 +655,77 @@
   "fpSourceLabel": "Sumber",
   "fpLocalLibrary": "Koleksi Lokal",
   "fpOnlineStream": "Streaming Online",
-  "fpDownloadFailed": "Tidak dapat mengunduh \"{title}\" — stream tidak tersedia"
+  "fpDownloadFailed": "Tidak dapat mengunduh \"{title}\" — stream tidak tersedia",
+  "audioOutputAutoRoutingNotice": "Pada versi Android ini, output otomatis berpindah ke perangkat yang terhubung paling baru.",
+  "audioOutputPickerTitle": "Putar di",
+  "audioOutputSwitchFailed": "Tidak dapat mengganti perangkat output. Coba lagi.",
+  "castDeviceFallbackName": "perangkat",
+  "castDeviceFallbackTitle": "Perangkat cast",
+  "castPickerConnectFailed": "Tidak dapat terhubung. Coba lagi.",
+  "castPickerNoDevices": "Tidak ada perangkat ditemukan. Pastikan Chromecast atau TV Anda ada di jaringan Wi-Fi yang sama.",
+  "castPickerScanning": "Mencari perangkat…",
+  "castPickerTitle": "Transmisikan ke",
+  "castSessionDisconnect": "Putuskan",
+  "castSessionStopCasting": "Hentikan transmisi",
+  "castToDeviceLabel": "Transmisikan ke perangkat",
+  "castingToDevice": "Mentransmisikan ke {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, other{{count} lagu ditambahkan ke \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDeselectAll": "Batalkan semua pilihan",
+  "libraryEnterSelectMode": "Pilih",
+  "libraryRemoveSelectedConfirm": "{count, plural, other{Hapus {count} lagu ini dari playlist?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemoveSelectedFromPlaylist": "Hapus dari playlist",
+  "libraryRemovedSongsFromPlaylist": "{count, plural, other{{count} lagu dihapus}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySelectAll": "Pilih semua",
+  "librarySelectedCount": "{count, plural, other{{count} dipilih}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spCastIconAlways": "Selalu tampilkan",
+  "spCastIconAuto": "Otomatis",
+  "spCastIconHidden": "Tersembunyi",
+  "spPremiumSound": "Suara Premium",
+  "spPremiumSoundPartialSupport": "Beberapa efek tidak didukung di perangkat ini — kejernihan dan bass tetap aktif",
+  "spPremiumSoundSubtitle": "Buka vokal yang jernih, bass lebih dalam, dan audio premium yang imersif",
+  "spShowCastIcon": "Tampilkan ikon Chromecast",
+  "spShowCastIconSubtitle": "Kontrol kapan ikon cast muncul di pemutar penuh"
 }

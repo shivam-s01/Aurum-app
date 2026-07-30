@@ -10,6 +10,7 @@ import 'aurum_artwork.dart';
 import 'aurum_pressable.dart';
 import '../screens/full_player_screen.dart';
 import '../main.dart' show aurumRouteObserver;
+import '../utils/aurum_haptics.dart';
 
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
@@ -134,7 +135,7 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
       return;
     }
     if (y > _dismissThreshold || velocity > 400) {
-      HapticFeedback.mediumImpact();
+      AurumHaptics.medium();
       final player = context.read<PlayerProvider>();
       player.pause();
       player.dismissMiniPlayer();
@@ -145,7 +146,7 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
   void _openFullPlayer() {
     if (_opening) return;
     _opening = true;
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
 
     // FIX ("artwork pops in after full player is already open"): the mini
     // player's own AurumArtwork decodes at a small size (44-108px
@@ -353,7 +354,7 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                 _ControlBtn(
                   icon: Icons.skip_previous_rounded,
                   onTap: () {
-                    HapticFeedback.selectionClick();
+                    AurumHaptics.selection();
                     player.skipPrev();
                   },
                   size: 22,
@@ -364,7 +365,7 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                 _ControlBtn(
                   icon: Icons.skip_next_rounded,
                   onTap: () {
-                    HapticFeedback.selectionClick();
+                    AurumHaptics.selection();
                     player.skipNext();
                   },
                   size: 22,
@@ -422,7 +423,7 @@ class _PlayBtn extends StatelessWidget {
       scaleAmount: 0.88,
       haptic: false,
       onTap: () {
-        HapticFeedback.heavyImpact();
+        AurumHaptics.heavy();
         player.togglePlay();
       },
       child: Container(

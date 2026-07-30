@@ -14,6 +14,7 @@ import '../services/payment_service.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/auth_provider.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class PremiumScreen extends StatefulWidget {
   const PremiumScreen({super.key});
@@ -163,7 +164,7 @@ class _PremiumScreenState extends State<PremiumScreen>
 
   void _handlePaymentSuccess(AurumPlan plan, String paymentId) {
     if (!mounted) return;
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     context.read<PremiumProvider>().markPremiumGranted(plan.id);
     setState(() {
       _isProcessing = false;
@@ -173,7 +174,7 @@ class _PremiumScreenState extends State<PremiumScreen>
 
   void _handlePaymentError(String message) {
     if (!mounted) return;
-    HapticFeedback.heavyImpact();
+    AurumHaptics.heavy();
     setState(() => _isProcessing = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(message),
@@ -190,12 +191,12 @@ class _PremiumScreenState extends State<PremiumScreen>
 
   void _selectPlan(AurumPlan plan) {
     if (plan == _selectedPlan) return;
-    HapticFeedback.selectionClick();
+    AurumHaptics.selection();
     setState(() => _selectedPlan = plan);
   }
 
   Future<void> _startCheckout() async {
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     final auth = context.read<AuthProvider>();
 
     if (!auth.isSignedIn) {
@@ -1041,7 +1042,7 @@ class _SuccessViewState extends State<_SuccessView>
     );
 
     _ctrl.forward();
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
   }
 
   @override

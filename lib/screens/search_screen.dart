@@ -19,6 +19,7 @@ import '../widgets/aurum_empty_state.dart';
 import '../widgets/aurum_equalizer_bars.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'full_player_screen.dart';
+import '../utils/aurum_haptics.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Staggered list item — fade + slide up, same system as home_screen.dart's
@@ -363,7 +364,7 @@ class _SearchScreenState extends State<SearchScreen>
     _debounce?.cancel();
     _suggestDebounce?.cancel();
     _liveLoaderGraceTimer?.cancel();
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     _dismissKeyboard();
     setState(() { _loading = true; _liveLoading = false; _showLiveLoader = false; _showHistory = false; _results = []; });
     _saveToHistory(query);
@@ -374,7 +375,7 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   void _clearSearch() {
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     _suggestDebounce?.cancel();
     _debounce?.cancel();
     _liveLoaderGraceTimer?.cancel();
@@ -404,7 +405,7 @@ class _SearchScreenState extends State<SearchScreen>
 
 
   Future<void> _playBrowseTrack(BrowseTrack track) async {
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     _dismissKeyboard();
     // FIX: tracks discovered via the YouTube fallback (Saavn had nothing for
     // that artist/album) carry a real YouTube video ID as trackId. Forcing
@@ -619,7 +620,7 @@ class _SearchScreenState extends State<SearchScreen>
             Tab(text: l10n.searchTabBrowse),
           ],
           onTap: (i) {
-            if (i != _tabController.index) HapticFeedback.selectionClick();
+            if (i != _tabController.index) AurumHaptics.selection();
             if (i == 1 && _controller.text.trim().isNotEmpty) {
               _fetchBrowse(_controller.text.trim());
             }
@@ -871,7 +872,7 @@ class _SearchScreenState extends State<SearchScreen>
       title: l10n.searchNoResultsFor(query),
       actionLabel: l10n.searchEverywhere,
       onAction: () {
-        HapticFeedback.lightImpact();
+        AurumHaptics.light();
         _search(query);
       },
     );
@@ -892,7 +893,7 @@ class _SearchScreenState extends State<SearchScreen>
       trailing: AurumPressable(
         scaleAmount: 0.80,
         haptic: false, // custom lightImpact below instead of default selectionClick
-        onTap: () { HapticFeedback.lightImpact(); _controller.text = s; _controller.selection = TextSelection.fromPosition(TextPosition(offset: s.length)); _onChanged(s); },
+        onTap: () { AurumHaptics.light(); _controller.text = s; _controller.selection = TextSelection.fromPosition(TextPosition(offset: s.length)); _onChanged(s); },
         child: Padding(padding: const EdgeInsets.all(8), child: Icon(Icons.north_west_rounded, color: AurumTheme.textMutedOf(context), size: 16)),
       ),
       dense: true,
@@ -1237,7 +1238,7 @@ class _PressScaleState extends State<_PressScale>
   }
 
   void _handleTap() {
-    HapticFeedback.selectionClick();
+    AurumHaptics.selection();
     _ctrl.forward().then((_) => _ctrl.reverse());
     widget.onTap();
   }

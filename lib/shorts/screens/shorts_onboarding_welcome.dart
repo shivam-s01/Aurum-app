@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme/aurum_theme.dart';
 import 'shorts_onboarding_languages.dart';
+import '../../utils/aurum_haptics.dart';
 
 /// Screen 1 of Shorts onboarding: minimal welcome, dark AMOLED, premium
 /// typography. Shown only once (gated by ShortsPrefs.isOnboarded).
@@ -59,7 +60,7 @@ class ShortsWelcomeScreen extends StatelessWidget {
                     elevation: 0,
                   ),
                   onPressed: () {
-                    HapticFeedback.lightImpact();
+                    AurumHaptics.light();
                     Navigator.of(context).push(
                       PageRouteBuilder(
                         pageBuilder: (_, anim, __) =>

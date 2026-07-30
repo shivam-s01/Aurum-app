@@ -172,6 +172,26 @@
   "spShakeToSkipSubtitle": "Telefon schütteln, um zum nächsten Titel zu wechseln",
   "spSwipeToChange": "Zum Songwechsel wischen",
   "spSwipeToChangeSubtitle": "Über das Player-Cover wischen, um zu überspringen",
+  "spHapticIntensity": "Haptik-Intensität",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Wie stark sich Taps und Vibrationen in der App anfühlen",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Aus",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Leicht",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Stark",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "Verlaufsdauer",
   "spHistorySongsCount": "{count} Songs",
   "spSleepTimerSheetTitle": "Schlaf-Timer",
@@ -180,6 +200,39 @@
   "spFinishCurrentSongSubtitle": "Aktuellen Song vor dem Stopp zu Ende spielen lassen",
   "spStartTimer": "Timer starten · {duration}",
   "spCancelActiveTimer": "Aktiven Timer abbrechen",
+  "spSleepTimerCustom": "Benutzerdefiniert",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Festlegen",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "Min.",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Dauer in Minuten eingeben",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Maximal {max} Minuten",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Ausblenden",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Musik klingt sanft aus, statt abrupt zu stoppen",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "Hohe Bitrate (320kbps)",
   "spPremiumHighBitrateDesc": "Schalte Studioqualität-Streaming mit 320kbps mit Aurum Plus frei.",
   "spEqReset": "Zurücksetzen",
@@ -602,5 +655,77 @@
   "fpSourceLabel": "Quelle",
   "fpLocalLibrary": "Lokale Bibliothek",
   "fpOnlineStream": "Online-Stream",
-  "fpDownloadFailed": "„{title}“ konnte nicht heruntergeladen werden — Stream nicht verfügbar"
+  "fpDownloadFailed": "„{title}“ konnte nicht heruntergeladen werden — Stream nicht verfügbar",
+  "audioOutputAutoRoutingNotice": "Auf dieser Android-Version wechselt die Ausgabe automatisch zum zuletzt verbundenen Gerät.",
+  "audioOutputPickerTitle": "Wiedergeben auf",
+  "audioOutputSwitchFailed": "Ausgabegerät konnte nicht gewechselt werden. Erneut versuchen.",
+  "castDeviceFallbackName": "Gerät",
+  "castDeviceFallbackTitle": "Cast-Gerät",
+  "castPickerConnectFailed": "Verbindung fehlgeschlagen. Erneut versuchen.",
+  "castPickerNoDevices": "Keine Geräte gefunden. Stelle sicher, dass dein Chromecast oder Fernseher im selben WLAN ist.",
+  "castPickerScanning": "Geräte werden gesucht…",
+  "castPickerTitle": "Streamen auf",
+  "castSessionDisconnect": "Trennen",
+  "castSessionStopCasting": "Streaming beenden",
+  "castToDeviceLabel": "Auf Gerät streamen",
+  "castingToDevice": "Streaming auf {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{1 Song zu \"{name}\" hinzugefügt} other{{count} Songs zu \"{name}\" hinzugefügt}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDeselectAll": "Alle abwählen",
+  "libraryEnterSelectMode": "Auswählen",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{Diesen Song aus der Playlist entfernen?} other{Diese {count} Songs aus der Playlist entfernen?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemoveSelectedFromPlaylist": "Aus Playlist entfernen",
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{1 Song entfernt} other{{count} Songs entfernt}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySelectAll": "Alle auswählen",
+  "librarySelectedCount": "{count, plural, =1{1 ausgewählt} other{{count} ausgewählt}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spCastIconAlways": "Immer anzeigen",
+  "spCastIconAuto": "Automatisch",
+  "spCastIconHidden": "Ausgeblendet",
+  "spPremiumSound": "Premium Sound",
+  "spPremiumSoundPartialSupport": "Einige Effekte werden auf diesem Gerät nicht unterstützt — Klarheit und Bass sind weiterhin aktiv",
+  "spPremiumSoundSubtitle": "Kristallklare Vocals, tieferer Bass und immersiver Premium-Sound",
+  "spShowCastIcon": "Chromecast-Symbol anzeigen",
+  "spShowCastIconSubtitle": "Steuere, wann das Cast-Symbol im Vollbild-Player erscheint"
 }

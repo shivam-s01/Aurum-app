@@ -14,6 +14,7 @@ import '../widgets/shorts_category_toggle_bar.dart';
 import '../widgets/shorts_info_overlay.dart';
 import '../widgets/shorts_visual_card.dart';
 import 'shorts_preferences_screen.dart';
+import '../../utils/aurum_haptics.dart';
 
 /// Full-screen vertical Shorts feed. Reels-style swipe navigation.
 /// Runs its own ShortsFeedController + its own video player instance —
@@ -169,7 +170,7 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
   }
 
   Future<void> _onDoubleTap() async {
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     if (!_controller.isLiked) {
       await _controller.toggleLike();
     }
@@ -223,7 +224,7 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
   Future<void> _onDownload(ShortItem item) async {
     if (_controller.downloadState != DownloadTrackState.idle) return;
     _controller.setDownloadState(DownloadTrackState.downloading);
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
 
     try {
       final song = await _resolveFullSong(item);
@@ -395,10 +396,10 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
                               },
                               onDownload: () => _onDownload(item),
                               onShare: () {
-                                HapticFeedback.selectionClick();
+                                AurumHaptics.selection();
                               },
                               onMore: () async {
-                                HapticFeedback.selectionClick();
+                                AurumHaptics.selection();
                                 ctrl.togglePlayPause(); // pause while editing prefs
                                 final changed = await Navigator.of(context)
                                     .push<bool>(

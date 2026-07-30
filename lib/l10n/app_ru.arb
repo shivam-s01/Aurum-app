@@ -164,6 +164,26 @@
   "spShakeToSkipSubtitle": "Встряхните телефон для перехода к следующему треку",
   "spSwipeToChange": "Смахнуть для смены песни",
   "spSwipeToChangeSubtitle": "Смахните по обложке плеера для пропуска",
+  "spHapticIntensity": "Сила вибрации",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "Насколько сильными ощущаются нажатия и вибрации в приложении",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Выкл",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Слабая",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Сильная",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "Длительность истории",
   "spHistorySongsCount": "{count} песен",
   "spSleepTimerSheetTitle": "Таймер сна",
@@ -172,6 +192,39 @@
   "spFinishCurrentSongSubtitle": "Позволить текущей песне закончиться перед остановкой",
   "spStartTimer": "Запустить таймер · {duration}",
   "spCancelActiveTimer": "Отменить активный таймер",
+  "spSleepTimerCustom": "Свой вариант",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Установить",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "мин",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Введите длительность в минутах",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Максимум {max} минут",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Плавное затухание",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Музыка плавно затихает вместо резкой остановки",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "Высокий битрейт (320kbps)",
   "spPremiumHighBitrateDesc": "Разблокируйте потоковую передачу студийного качества 320kbps с Aurum Plus.",
   "spEqReset": "Сбросить",
@@ -594,5 +647,77 @@
   "fpSourceLabel": "Источник",
   "fpLocalLibrary": "Локальная библиотека",
   "fpOnlineStream": "Онлайн-поток",
-  "fpDownloadFailed": "Не удалось скачать «{title}» — поток недоступен"
+  "fpDownloadFailed": "Не удалось скачать «{title}» — поток недоступен",
+  "audioOutputAutoRoutingNotice": "На этой версии Android вывод звука автоматически переключается на последнее подключённое устройство.",
+  "audioOutputPickerTitle": "Воспроизвести на",
+  "audioOutputSwitchFailed": "Не удалось переключить устройство вывода. Попробуйте снова.",
+  "castDeviceFallbackName": "устройство",
+  "castDeviceFallbackTitle": "Устройство трансляции",
+  "castPickerConnectFailed": "Не удалось подключиться. Попробуйте снова.",
+  "castPickerNoDevices": "Устройства не найдены. Убедитесь, что Chromecast или ТВ подключены к той же сети Wi-Fi.",
+  "castPickerScanning": "Поиск устройств…",
+  "castPickerTitle": "Транслировать на",
+  "castSessionDisconnect": "Отключить",
+  "castSessionStopCasting": "Остановить трансляцию",
+  "castToDeviceLabel": "Транслировать на устройство",
+  "castingToDevice": "Трансляция на {name}",
+  "@castingToDevice": {
+    "description": "Banner/label shown while actively casting to a device",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryAddedSongsToPlaylist": "{count, plural, =1{1 песня добавлена в \"{name}\"} few{{count} песни добавлены в \"{name}\"} many{{count} песен добавлено в \"{name}\"} other{{count} песни добавлены в \"{name}\"}}",
+  "@libraryAddedSongsToPlaylist": {
+    "description": "Snackbar shown after bulk-adding multiple songs to a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryDeselectAll": "Снять выделение",
+  "libraryEnterSelectMode": "Выбрать",
+  "libraryRemoveSelectedConfirm": "{count, plural, =1{Удалить эту песню из плейлиста?} few{Удалить эти {count} песни из плейлиста?} many{Удалить эти {count} песен из плейлиста?} other{Удалить эти {count} песни из плейлиста?}}",
+  "@libraryRemoveSelectedConfirm": {
+    "description": "Confirmation dialog body for bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryRemoveSelectedFromPlaylist": "Удалить из плейлиста",
+  "libraryRemovedSongsFromPlaylist": "{count, plural, =1{Удалена 1 песня} few{Удалено {count} песни} many{Удалено {count} песен} other{Удалено {count} песни}}",
+  "@libraryRemovedSongsFromPlaylist": {
+    "description": "Snackbar shown after bulk-removing songs from a playlist",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "librarySelectAll": "Выбрать все",
+  "librarySelectedCount": "{count, plural, =1{Выбрана 1} few{Выбрано {count}} many{Выбрано {count}} other{Выбрано {count}}}",
+  "@librarySelectedCount": {
+    "description": "Header in multi-select toolbar showing how many songs are selected",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spCastIconAlways": "Всегда показывать",
+  "spCastIconAuto": "Авто",
+  "spCastIconHidden": "Скрыт",
+  "spPremiumSound": "Premium-звук",
+  "spPremiumSoundPartialSupport": "Некоторые эффекты не поддерживаются на этом устройстве — чистота и бас всё ещё активны",
+  "spPremiumSoundSubtitle": "Кристально чистый вокал, глубокий бас и погружающий premium-звук",
+  "spShowCastIcon": "Показывать значок Chromecast",
+  "spShowCastIconSubtitle": "Управляйте тем, когда значок трансляции появляется в полном плеере"
 }

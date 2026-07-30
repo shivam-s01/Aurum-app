@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme/aurum_theme.dart';
 import '../models/shorts_catalog.dart';
+import '../../utils/aurum_haptics.dart';
 
 /// Chrome-tabs-style horizontal category switcher pinned to the top
 /// of the Shorts feed. Exactly one category is active at a time —
@@ -84,7 +85,7 @@ class _ShortsCategoryToggleBarState extends State<ShortsCategoryToggleBar> {
           return GestureDetector(
             onTap: () {
               if (isActive) return;
-              HapticFeedback.selectionClick();
+              AurumHaptics.selection();
               widget.onCategoryChanged(category);
             },
             child: AnimatedContainer(

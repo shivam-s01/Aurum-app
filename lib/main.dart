@@ -35,6 +35,7 @@ import 'providers/recently_played_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/app_lock_screen.dart';
 import 'utils/aurum_transitions.dart';
+import 'utils/aurum_haptics.dart';
 
 late NativeAudioEngine _audioEngine;
 
@@ -145,6 +146,10 @@ Future<void> main() async {
   try {
     await AuthService.init();
   } catch (_) {} // app still works fully offline/unauthenticated if this fails
+
+  try {
+    await AurumHaptics.init();
+  } catch (_) {} // haptics simply fall back to 'light' behavior if this fails
 
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 

@@ -19,6 +19,7 @@ import '../widgets/song_tile.dart';
 import '../utils/aurum_transitions.dart';
 import 'album_screen.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class ArtistScreen extends StatefulWidget {
   /// Either pass a known Saavn artistId, or just an artistName to resolve it.
@@ -103,7 +104,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
             child: IconButton(
               icon: const Icon(Icons.arrow_back_rounded),
               onPressed: () {
-                HapticFeedback.selectionClick();
+                AurumHaptics.selection();
                 Navigator.pop(context);
               },
             ),
@@ -121,7 +122,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
               const SizedBox(height: 16),
               TextButton(
                 onPressed: () {
-                  HapticFeedback.lightImpact();
+                  AurumHaptics.light();
                   _load();
                 },
                 child: Text(l10n.asRetry),
@@ -154,7 +155,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
               child: IconButton(
                 icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
                 onPressed: () {
-                  HapticFeedback.selectionClick();
+                  AurumHaptics.selection();
                   Navigator.pop(context);
                 },
               ),
@@ -255,7 +256,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
               children: [
                 OutlinedButton(
                   onPressed: () {
-                    HapticFeedback.mediumImpact();
+                    AurumHaptics.medium();
                     followed.toggleFollow(
                       artistId: artist.id,
                       name: artist.name,
@@ -295,7 +296,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                   onPressed: artist.topSongs.isEmpty
                       ? null
                       : () {
-                          HapticFeedback.lightImpact();
+                          AurumHaptics.light();
                           final shuffled = List<Song>.from(artist.topSongs)
                             ..shuffle();
                           player.playSong(shuffled.first,
@@ -307,7 +308,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                   onTap: artist.topSongs.isEmpty
                       ? null
                       : () {
-                          HapticFeedback.heavyImpact();
+                          AurumHaptics.heavy();
                           player.playSong(artist.topSongs.first,
                               queue: artist.topSongs, index: 0);
                         },
@@ -406,7 +407,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
               padding: const EdgeInsets.only(right: 12),
               child: GestureDetector(
                 onTap: () {
-                  HapticFeedback.lightImpact();
+                  AurumHaptics.light();
                   AurumPageRoute.to(
                     context,
                     AlbumScreen(

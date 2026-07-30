@@ -19,12 +19,13 @@ import '../l10n/generated/app_localizations.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
 import '../services/native_engine_bridge.dart';
+import '../utils/aurum_haptics.dart';
 
 /// Opens the audio output picker as a bottom sheet. Call this from any
 /// screen with a live PlayerProvider in context (full player, mini
 /// player, etc).
 Future<void> showAudioOutputSheet(BuildContext context) async {
-  HapticFeedback.lightImpact();
+  AurumHaptics.light();
   final isLight = Theme.of(context).brightness == Brightness.light;
   await showModalBottomSheet(
     context: context,
@@ -89,7 +90,7 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
     }
 
     setState(() => _pendingDeviceId = device.id);
-    HapticFeedback.selectionClick();
+    AurumHaptics.selection();
     final ok = await engine.selectAudioOutputDevice(device.id);
     if (!mounted) return;
     setState(() => _pendingDeviceId = null);

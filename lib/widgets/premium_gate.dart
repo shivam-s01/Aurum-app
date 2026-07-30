@@ -20,6 +20,7 @@ import '../providers/premium_provider.dart';
 import '../providers/auth_provider.dart';
 import '../screens/premium_screen.dart';
 import '../utils/aurum_transitions.dart';
+import '../utils/aurum_haptics.dart';
 
 class PremiumGate {
   static void show(
@@ -137,7 +138,7 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
   }
 
   Future<void> _handleCTA(BuildContext context) async {
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     final auth = context.read<AuthProvider>();
 
     if (!auth.isSignedIn) {
@@ -524,7 +525,7 @@ class _LoginGateSheetState extends State<_LoginGateSheet>
   }
 
   Future<void> _handleSignIn(BuildContext context) async {
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     final auth = context.read<AuthProvider>();
     setState(() => _isSigningIn = true);
     final success = await auth.signInWithGoogle();

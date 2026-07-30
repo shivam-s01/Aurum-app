@@ -13,6 +13,7 @@ import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
 import '../services/native_engine_bridge.dart';
 import '../services/audio_prefs.dart';
+import '../utils/aurum_haptics.dart';
 
 /// Compact cast icon button for the full player's top bar. Renders
 /// nothing (zero width) if Cast isn't supported on this device, and
@@ -24,7 +25,7 @@ class CastIconButton extends StatelessWidget {
   const CastIconButton({super.key, this.color, this.size = 21});
 
   Future<void> _onTap(BuildContext context, CastState state) async {
-    HapticFeedback.lightImpact();
+    AurumHaptics.light();
     if (state.isConnected) {
       _showCastSheet(context);
     } else {
@@ -360,7 +361,7 @@ class _CastDevicePickerSheet extends StatelessWidget {
                             ? const Icon(Icons.check_circle_rounded, color: AurumTheme.gold, size: 20)
                             : null,
                         onTap: () async {
-                          HapticFeedback.selectionClick();
+                          AurumHaptics.selection();
                           final ok = await engine.selectCastRoute(route.id);
                           if (context.mounted) Navigator.pop(context);
                           if (!ok && context.mounted) {

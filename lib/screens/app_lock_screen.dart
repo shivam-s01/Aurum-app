@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class AppLockScreen extends StatefulWidget {
   final Widget child;
@@ -138,7 +139,7 @@ class _AppLockScreenState extends State<AppLockScreen> with WidgetsBindingObserv
     if (_enteredPin == _savedPin) {
       setState(() => _locked = false);
     } else {
-      HapticFeedback.vibrate();
+      AurumHaptics.vibrate();
       setState(() { _shaking = true; _error = AppLocalizations.of(context)!.alWrongPin; _enteredPin = ''; });
       await Future.delayed(const Duration(milliseconds: 500));
       if (mounted) setState(() => _shaking = false);

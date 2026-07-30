@@ -216,6 +216,26 @@
   "spShakeToSkipSubtitle": "Shake phone to go to next track",
   "spSwipeToChange": "Swipe to Change Song",
   "spSwipeToChangeSubtitle": "Swipe on player artwork to skip",
+  "spHapticIntensity": "Haptic Intensity",
+  "@spHapticIntensity": {
+    "description": "Settings label for haptic feedback strength picker"
+  },
+  "spHapticIntensitySubtitle": "How strong taps and vibrations feel throughout the app",
+  "@spHapticIntensitySubtitle": {
+    "description": "Subtitle explaining the haptic intensity setting"
+  },
+  "spHapticOff": "Off",
+  "@spHapticOff": {
+    "description": "Haptic intensity option: no vibration feedback"
+  },
+  "spHapticLight": "Light",
+  "@spHapticLight": {
+    "description": "Haptic intensity option: subtle vibration feedback"
+  },
+  "spHapticStrong": "Strong",
+  "@spHapticStrong": {
+    "description": "Haptic intensity option: strong vibration feedback"
+  },
   "spHistoryDuration": "History Duration",
   "spHistorySongsCount": "{count} songs",
   "@spHistorySongsCount": {
@@ -240,6 +260,39 @@
     }
   },
   "spCancelActiveTimer": "Cancel Active Timer",
+  "spSleepTimerCustom": "Custom",
+  "@spSleepTimerCustom": {
+    "description": "Chip label to open custom sleep-timer duration entry"
+  },
+  "spSleepTimerSetDuration": "Set",
+  "@spSleepTimerSetDuration": {
+    "description": "Button to confirm a custom sleep-timer duration"
+  },
+  "spSleepTimerMinutesUnit": "min",
+  "@spSleepTimerMinutesUnit": {
+    "description": "Unit label shown next to the custom sleep-timer number field"
+  },
+  "spSleepTimerInvalidDuration": "Enter a duration in minutes",
+  "@spSleepTimerInvalidDuration": {
+    "description": "Error shown when custom sleep-timer input is empty or zero"
+  },
+  "spSleepTimerMaxDuration": "Max {max} minutes",
+  "@spSleepTimerMaxDuration": {
+    "description": "Error shown when custom sleep-timer input exceeds the maximum",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "spSleepTimerFadeOut": "Fade out",
+  "@spSleepTimerFadeOut": {
+    "description": "Toggle for smooth volume fade-out when the sleep timer ends"
+  },
+  "spSleepTimerFadeOutSubtitle": "Music winds down smoothly instead of stopping abruptly",
+  "@spSleepTimerFadeOutSubtitle": {
+    "description": "Subtitle explaining the sleep-timer fade-out toggle"
+  },
   "spPremiumHighBitrateFeature": "High Bitrate (320kbps)",
   "spPremiumHighBitrateDesc": "Unlock studio-quality 320kbps streaming with Aurum Plus.",
   "spEqReset": "Reset",

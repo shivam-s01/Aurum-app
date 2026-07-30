@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_haptics.dart';
 
 class SettingsNotificationsScreen extends StatefulWidget {
   const SettingsNotificationsScreen({super.key});
@@ -141,7 +142,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
               onTap: _batteryOptimizationIgnored
                   ? null
                   : () async {
-                      HapticFeedback.selectionClick();
+                      AurumHaptics.selection();
                       final status = await Permission.ignoreBatteryOptimizations.request();
                       if (mounted) setState(() => _batteryOptimizationIgnored = status.isGranted);
                       // Some OEM skins (Realme/ColorOS, MIUI, etc.) don't
@@ -239,7 +240,7 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
         ),
       ),
       child: ListTile(
-        onTap: () { HapticFeedback.selectionClick(); setState(() => _notifStyle = style); _save('notif_style', style); },
+        onTap: () { AurumHaptics.selection(); setState(() => _notifStyle = style); _save('notif_style', style); },
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
         leading: Container(
           width: 38, height: 38,

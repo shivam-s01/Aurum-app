@@ -368,6 +368,17 @@ class AudioPrefs {
     } catch (_) {}
   }
 
+  /// Requests the display's highest available refresh rate (90/120Hz on
+  /// supported panels) when enabled, or the platform default when
+  /// disabled. Silently no-ops on failure — same reasoning as
+  /// pushStopOnSwipeToNative above: a smoothness preference should never
+  /// crash Settings if a particular device's display API rejects the call.
+  static Future<void> pushHighRefreshRateToNative(bool v) async {
+    try {
+      await _nativeChannel.invokeMethod('setHighRefreshRate', {'enabled': v});
+    } catch (_) {}
+  }
+
   static Future<void> setSwipeSensitivity(double v) async {
     swipeSensitivity = v;
     final p = await SharedPreferences.getInstance();

@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
+import '../utils/aurum_haptics.dart';
 
 class UpdateService {
   static const _repo = 'shivam-s01/Aurum-app';
@@ -285,7 +286,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
   }
 
   Future<void> _downloadAndInstall() async {
-    HapticFeedback.mediumImpact();
+    AurumHaptics.medium();
     setState(() {
       _downloading = true;
       _status = 'Downloading';
@@ -333,7 +334,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
         _status = 'Installing';
         _progress = 1.0;
       });
-      HapticFeedback.lightImpact();
+      AurumHaptics.light();
       await Future.delayed(const Duration(milliseconds: 350));
       await UpdateService.installApk(path);
       if (mounted) Navigator.pop(context);
@@ -537,7 +538,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                               ),
                               onPressed: () {
-                                HapticFeedback.selectionClick();
+                                AurumHaptics.selection();
                                 widget.onDismiss();
                                 Navigator.pop(context);
                               },

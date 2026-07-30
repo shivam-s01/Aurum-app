@@ -10,7 +10,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.MediaStore
 import android.util.Log
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -63,6 +67,18 @@ class MainActivity : FlutterFragmentActivity() {
     // The system splash is then just a flat dark frame for ~1 cold-start
     // frame, immediately replaced by Flutter's own UI — including our
     // _A_ + AURUM animation in splash_screen.dart.
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Apply the saved High Refresh Rate preference immediately at
+        // launch — without this, the setting would only take effect after
+        // the user re-opens Settings and toggles it again post-launch,
+        // since Flutter's own setHighRefreshRate call only fires from the
+        // Settings screen, not on cold start.
+        val enabled = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            .getBoolean("flutter.high_refresh_rate", true)
+        applyHighRefreshRate(enabled)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -149,9 +165,114 @@ class MainActivity : FlutterFragmentActivity() {
                             result.success(null)
                         }
                     }
+                    "setHighRefreshRate" -> {
+                        try {
+                            val enabled = call.argument<Boolean>("enabled") ?: true
+                            getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                                .edit()
+                                .putBoolean("flutter.high_refresh_rate", enabled)
+                                .apply()
+                            applyHighRefreshRate(enabled)
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "setHighRefreshRate error", e)
+                            result.success(null)
+                        }
+                    }
+                    "vibrateHaptic" -> {
+                        try {
+                            val amplitude = call.argument<Int>("amplitude") ?: 128
+                            val durationMs = call.argument<Int>("durationMs") ?: 12
+                            vibrateWithAmplitude(amplitude, durationMs.toLong())
+                            result.success(null)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "vibrateHaptic error", e)
+                            result.success(null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    // Requests the display's highest available refresh rate for this
+    // window (e.g. 90/120Hz on flagship panels) when enabled, or drops
+    // back to the platform default when disabled. Settings → Appearance
+    // → "High Refresh Rate" toggle drives this. Uses the modern
+    // preferredDisplayModeId API on API 23+ (matches the exact Display.Mode
+    // the panel actually supports, unlike the deprecated preferredRefreshRate
+    // float which some OEM drivers silently ignore or round oddly) and
+    // no-ops safely on anything older or on displays with only one mode.
+    private fun applyHighRefreshRate(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay
+        } ?: return
+
+        if (!enabled) {
+            window.attributes = window.attributes.apply { preferredDisplayModeId = 0 }
+            return
+        }
+        try {
+            val modes = display.supportedModes
+            val currentMode = display.mode
+            // Pick the highest-refresh-rate mode that keeps the same
+            // resolution as the current mode — switching resolution too
+            // would be a visible flicker/letterbox, not just a smoothness
+            // change, so refresh rate is the only axis we optimize here.
+            val best = modes
+                .filter { it.physicalWidth == currentMode.physicalWidth &&
+                          it.physicalHeight == currentMode.physicalHeight }
+                .maxByOrNull { it.refreshRate }
+            if (best != null) {
+                window.attributes = window.attributes.apply { preferredDisplayModeId = best.modeId }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "applyHighRefreshRate error", e)
+        }
+    }
+
+    // Cached lazily — getSystemService is cheap but there's no reason to
+    // repeat the Build.VERSION branch on every single haptic tap, which on
+    // a music app can fire dozens of times per minute (every button, every
+    // swipe, every selection).
+    private var cachedVibrator: Vibrator? = null
+    private fun getVibrator(): Vibrator? {
+        cachedVibrator?.let { return it }
+        val v = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val mgr = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            mgr?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+        cachedVibrator = v
+        return v
+    }
+
+    /** Amplitude-controlled tap used for the Settings → Player → Haptic
+     *  Intensity (Off / Light / Strong) preference. Flutter's built-in
+     *  HapticFeedback.lightImpact()/mediumImpact() map to fixed OS haptic
+     *  constants with no strength parameter, so "Light" vs "Strong" can't
+     *  be expressed through that API at all — this bypasses it and drives
+     *  the vibrator motor directly at a specific amplitude (1-255) instead.
+     *  "Off" is handled entirely on the Dart side (AurumHaptics just
+     *  doesn't call this method at all), so there's no near-zero-amplitude
+     *  buzz to avoid here — every call that reaches this function is
+     *  expected to actually vibrate. */
+    private fun vibrateWithAmplitude(amplitude: Int, durationMs: Long) {
+        val vibrator = getVibrator() ?: return
+        if (!vibrator.hasVibrator()) return
+        val clamped = amplitude.coerceIn(1, 255)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(durationMs, clamped))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(durationMs)
+        }
     }
 
     private fun getSongs(): List<Map<String, Any?>> {
