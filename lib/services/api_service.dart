@@ -648,8 +648,8 @@ class ApiService {
     // asking for more here now actually pays off downstream instead of
     // being a no-op.
     final results = await Future.wait([
-      _searchSaavnDeep(query, limit: 70),
-      _searchYt(query, limit: 70),
+      _searchSaavnDeep(query, limit: 90),
+      _searchYt(query, limit: 90),
     ]);
     final rawSaavn = results[0];
     final rawYt    = results[1];
@@ -663,6 +663,18 @@ class ApiService {
 
     final seenIds    = <String>{};
     final seenTitles = <String>{};
+    // FIX (home sections landing short of 80, same root cause as the Up
+    // Next/search dedup fix): the old exact-string `seenTitles` check only
+    // catches reuploads that normalize to byte-identical strings. Two
+    // different reuploads of the SAME song ("8K...", "With LYRICS...")
+    // both slip through as if they were different songs, each consuming
+    // one of the 80 slots — so a section could hit "80 songs" while really
+    // only containing 50-60 distinct ones, or fail to reach 80 at all once
+    // that unnecessary duplication is later cleaned up elsewhere. Smart
+    // title-head comparison against every raw title already accepted
+    // closes it here too, same fix as RecommendationEngine.rankAndFilter
+    // and ApiService.search.
+    final seenRawTitles = <String>[];
     final merged     = <Song>[];
 
     bool tryAdd(Song s, {required bool isYt}) {
@@ -673,6 +685,10 @@ class ApiService {
       if (isYt && !RecommendationEngine.isPremiumQuality(s)) return false;
       final tk = _normTitle(s.title);
       if (!seenTitles.add(tk)) return false;
+      for (final seenRaw in seenRawTitles) {
+        if (RecommendationEngine.isSameSongSmart(s.title, seenRaw)) return false;
+      }
+      seenRawTitles.add(s.title);
       merged.add(s);
       return true;
     }
@@ -1091,6 +1107,12 @@ class ApiService {
     };
     final mergedIds    = <String>{...allExistingIds};
     final mergedTitles = <String>{};
+    // Same smart-dedup fix applied everywhere else in the Up Next/search
+    // pipeline — exact-string mergedTitles alone misses reuploads whose
+    // junk suffix differs, letting the same song occupy multiple pool
+    // slots across signals (e.g. Saavn-similar AND same-artist search both
+    // returning different reuploads of one song).
+    final mergedRawTitles = <String>[];
     final pool         = <Song>[];
 
     bool addToPool(Song song) {
@@ -1098,8 +1120,12 @@ class ApiService {
       if (RecommendationEngine.isInherentVariant(song.title)) return false;
       final tk = _normTitle(song.title);
       if (mergedTitles.contains(tk)) return false;
+      for (final seenRaw in mergedRawTitles) {
+        if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) return false;
+      }
       mergedIds.add(song.id);
       mergedTitles.add(tk);
+      mergedRawTitles.add(song.title);
       pool.add(song);
       return true;
     }

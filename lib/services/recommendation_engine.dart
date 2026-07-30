@@ -666,8 +666,129 @@ class RecommendationEngine {
     final prefixLen = origCore.length.clamp(0, 15);
     final prefix = origCore.substring(0, prefixLen);
     if (prefix.isNotEmpty && candCore.startsWith(prefix) && candCore != origCore) return true;
+    // FIX ("same song 5-8x in Up Next from different re-uploads"): none of
+    // the checks above catch real-world title pollution like "- SONG |
+    // Salman Khan", "8K - Saajan | Madhuri...", "4k HD ((Jhankar))",
+    // "With LYRICS", "-Duet | Alka...", "(feat. Armaan Malik)". These
+    // aren't remix/cover keywords (isInherentVariant's blocklist can't
+    // catch them, and never fully will — uploaders invent new junk
+    // suffixes constantly) — they're uploader/quality/credit noise
+    // appended AFTER the real title. Comparing on the RAW titles (not the
+    // already-stripped cores) lets isSameSongSmart use the separators
+    // uploaders themselves put around that noise.
+    if (isSameSongSmart(candidate, original)) return true;
     return false;
   }
+
+  // Matches a leading run of separator characters uploaders use to fence
+  // off the real title from everything else in a listing: pipe, colon,
+  // en/em-dash, a spaced hyphen, or an opening bracket. Whatever comes
+  // before the FIRST one of these is, in the overwhelming majority of
+  // real JioSaavn/YouTube titles, the actual song name — movie name,
+  // uploader credit, featured artists, and quality/format tags always
+  // come after one of these markers, never before.
+  static final RegExp _titleSeparator =
+      RegExp(r'\s*[|:\u2013\u2014(\[]\s*|\s-\s');
+
+  // Extra noise words that show up glued directly onto the title itself
+  // (no separator before them) often enough to need stripping even from
+  // the "head": quality tags, "with lyrics", "duet", credit joiners.
+  // Deliberately separate from _variantPattern — these aren't musical
+  // variants (remix/cover/slowed), just upload-listing clutter, so they
+  // don't belong in the "block this song as an inferior variant" list,
+  // only in the "does this look like the same song" comparison.
+  static final RegExp _headNoisePattern = RegExp(
+    r'\b(8k|4k|hd|with\s*lyrics|lyrics|duet|feat|ft|song)\b',
+    caseSensitive: false,
+  );
+
+  /// The real song-title portion of a raw (unstripped) title string — text
+  /// up to the first separator, with quality/credit noise words removed.
+  /// Public so ApiService/PlayerProvider (different files) can build the
+  /// same head for their own dedup passes without duplicating this regex.
+  static String titleHead(String rawTitle) {
+    final firstPart = rawTitle.split(_titleSeparator).first;
+    final cleaned = firstPart
+        .toLowerCase()
+        .replaceAll(_headNoisePattern, '')
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return cleaned;
+  }
+
+  /// Is this the same underlying song, judging by its real title rather
+  /// than the uploader/quality/credit noise wrapped around it? This is
+  /// the durable, generalizing check — Spotify/YouTube Music lean on
+  /// engagement + catalog matching for the same reason a keyword
+  /// blocklist alone never survives contact with real-world uploaders:
+  /// there's no finite list of every way a title can be dressed up.
+  /// Approach: extract each title's "head" (the real name, before any
+  /// uploader/credit/quality suffix) using [titleHead], then require the
+  /// shorter head's words to appear, in order, in the longer head — so
+  /// "Dekha Hai Pehli Baar" (from a bare listing) matches "Dekha Hai
+  /// Pehli Baar 8K" and "...With LYRICS" (extra tag words glued onto the
+  /// head itself, no separator before them) but NOT some unrelated title
+  /// that merely shares a couple of common words.
+  static bool isSameSongSmart(String rawA, String rawB) {
+    final headA = titleHead(rawA);
+    final headB = titleHead(rawB);
+    if (headA.isEmpty || headB.isEmpty) return false;
+    if (headA == headB) return true;
+
+    final tokensA = headA.split(' ').where((t) => t.length >= 2).toList();
+    final tokensB = headB.split(' ').where((t) => t.length >= 2).toList();
+    if (tokensA.isEmpty || tokensB.isEmpty) return false;
+
+    final List<String> shortTokens;
+    final List<String> longTokens;
+    if (tokensA.length <= tokensB.length) {
+      shortTokens = tokensA;
+      longTokens = tokensB;
+    } else {
+      shortTokens = tokensB;
+      longTokens = tokensA;
+    }
+
+    final longSet = longTokens.toSet();
+    final overlap = shortTokens.where((t) => longSet.contains(t)).length;
+    final overlapRatio = overlap / shortTokens.length;
+
+    // Very short heads (<=2 real words) need a perfect match — a single
+    // coincidental shared word means little. Longer heads tolerate one
+    // stray non-matching word (a typo, an extra tag word the noise regex
+    // missed) without being rejected outright.
+    final minRatio = shortTokens.length <= 2 ? 1.0 : 0.8;
+    if (overlapRatio < minRatio) return false;
+
+    // Order check: matched words must appear in the same relative
+    // sequence in both heads, not just the same bag of words — guards
+    // against two unrelated titles that happen to share a couple of
+    // common Hindi/English words in scrambled order.
+    final matchedInShort = shortTokens.where((t) => longSet.contains(t)).toList();
+    final longIndex = <String, int>{};
+    for (var i = 0; i < longTokens.length; i++) {
+      longIndex.putIfAbsent(longTokens[i], () => i);
+    }
+    var lastPos = -1;
+    for (final t in matchedInShort) {
+      final pos = longIndex[t];
+      if (pos == null) continue;
+      if (pos < lastPos) return false;
+      lastPos = pos;
+    }
+    return true;
+  }
+
+  /// Back-compat name kept for call sites that already dedup on
+  /// pre-stripped `_titleCore`/`_normTitle` strings rather than raw
+  /// titles — falls through to the same smart comparison since
+  /// [isSameSongSmart] degrades gracefully on already-cleaned input
+  /// (no separators left to split on just means the whole string is
+  /// treated as the head, which is exactly the old token-overlap
+  /// behavior for that case).
+  static bool isSameSongByTokens(String coreA, String coreB) =>
+      isSameSongSmart(coreA, coreB);
 
   /// Is this song itself a low-quality variant by title alone?
   /// Public — called from ApiService._scoreSearchResult().
@@ -795,6 +916,12 @@ class RecommendationEngine {
     final seenIds    = <String>{currentSong.id, ...existingIds};
     final currentCore = _titleCore(currentSong.title);
     final seenTitles = <String>{currentCore};
+    // Raw (unstripped) titles of everything accepted so far, kept
+    // alongside `seenTitles` so isSameSongSmart still has the original
+    // separators (|, :, -, brackets) to split on — _titleCore already
+    // destroys those, which is fine for the exact/prefix checks above but
+    // would blind the smart head-comparison below.
+    final seenRawTitles = <String>[currentSong.title];
 
     final scored = <_ScoredSong>[];
 
@@ -812,6 +939,25 @@ class RecommendationEngine {
         // Prefix match: block "Tum Hi Ho (Female)" etc.
         final prefix = currentCore.substring(0, currentCore.length.clamp(0, 10));
         if (prefix.isNotEmpty && core.startsWith(prefix) && core != currentCore) continue;
+        // FIX ("same song 5-8x back to back in Up Next"): the checks above
+        // only compare `core` against the CURRENT song and against exact
+        // string matches already in `seenTitles`. Two different re-uploads
+        // of the SAME other song (e.g. "...8K - Saajan | Madhuri..." and
+        // "...With LYRICS | Saajan...") produce two different `core`
+        // strings from each other too, so neither exact-match nor prefix
+        // catches the pair — they'd both individually clear every check
+        // above and both land in the accepted pool side by side. Smart
+        // title-head comparison against every RAW title already accepted
+        // into THIS pool (not just the current song) is what actually
+        // stops that.
+        var isDupOfAccepted = false;
+        for (final seenRaw in seenRawTitles) {
+          if (isSameSongSmart(song.title, seenRaw)) {
+            isDupOfAccepted = true;
+            break;
+          }
+        }
+        if (isDupOfAccepted) continue;
       }
 
       // Artist repetition check from session
@@ -825,6 +971,7 @@ class RecommendationEngine {
 
       seenIds.add(song.id);
       seenTitles.add(_titleCore(song.title));
+      seenRawTitles.add(song.title);
       scored.add(_ScoredSong(song, score));
     }
 
@@ -889,7 +1036,63 @@ class RecommendationEngine {
     // Shuffle slightly within each tier to avoid same-order repetition
     _shuffleTier(result, 0, math.min(coreCount, result.length));
 
-    return result.take(limit).toList();
+    // FIX ("premium feel" — real Spotify/YT Music never play 2-3 songs by
+    // the same artist back-to-back even when that artist legitimately
+    // scores highest for several songs in a row). The per-artist CAP above
+    // only limits how many total songs from one artist appear in the whole
+    // batch — it says nothing about WHERE they land, so 3 allowed copies
+    // of the same artist could still all end up consecutive at positions
+    // 4, 5, 6. This pass re-orders the already-capped, already-shuffled
+    // list so the same artist is pushed at least [_minArtistGap] slots
+    // apart, without dropping or duplicating anything — it only swaps
+    // positions among songs already selected.
+    return _interleaveByArtist(result);
+  }
+
+  // Minimum number of other songs that must separate two plays of the
+  // same artist. 2 mirrors what Spotify/YT Music mixes typically feel
+  // like — an artist can return, just not immediately or one song later.
+  static const int _minArtistGap = 2;
+
+  /// Reorders `songs` so the same artist never appears within
+  /// [_minArtistGap] positions of itself, using a greedy "place the
+  /// highest-priority still-eligible song next" pass. Falls back to
+  /// placing the least-recently-used artist's song if every remaining
+  /// song is currently blocked by the gap rule (small pools / heavy
+  /// single-artist bias), so the queue never comes up short.
+  static List<Song> _interleaveByArtist(List<Song> songs) {
+    if (songs.length < 3) return songs;
+
+    final remaining = List<Song>.from(songs);
+    final result = <Song>[];
+    final lastSeenAt = <String, int>{}; // artist key -> position last placed
+
+    while (remaining.isNotEmpty) {
+      final pos = result.length;
+      int pickIndex = -1;
+
+      // First pass: earliest remaining song (preserves the existing
+      // relevance ordering) whose artist last appeared far enough back.
+      for (var i = 0; i < remaining.length; i++) {
+        final key = _normalizeKey(remaining[i].artist);
+        final last = lastSeenAt[key];
+        if (last == null || pos - last > _minArtistGap) {
+          pickIndex = i;
+          break;
+        }
+      }
+
+      // Every remaining song is still within its artist's gap window
+      // (only happens with a very artist-heavy small pool) — just take
+      // the next one anyway rather than stalling or dropping songs.
+      if (pickIndex == -1) pickIndex = 0;
+
+      final chosen = remaining.removeAt(pickIndex);
+      lastSeenAt[_normalizeKey(chosen.artist)] = pos;
+      result.add(chosen);
+    }
+
+    return result;
   }
 
   static void _shuffleTier(List<Song> list, int start, int end) {

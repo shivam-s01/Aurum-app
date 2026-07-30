@@ -773,14 +773,30 @@ class PlayerProvider extends ChangeNotifier {
       // and get added again later in the queue. Title-based check added
       // alongside the ID check so genuine repeats of the same song are
       // blocked even when their catalog IDs differ.
+      //
+      // FIX (upgraded — "same song re-appears hours later via auto-extend"):
+      // exact-string title match alone misses re-uploads whose junk suffix
+      // differs ("8K...", "With LYRICS...", "-Duet | Alka..."), same gap
+      // as the initial queue build. This is the never-ending background
+      // extend path, so leaving it on the weaker check meant a duplicate
+      // could still sneak back in during a long listening session even
+      // after the initial-queue fix. Smart title-head comparison (raw
+      // titles, not pre-stripped) closes it here too.
       final currentQueueIds = _queue.map((s) => s.id).toSet();
       final currentQueueTitles = _queue.map((s) => _normTitleForDedup(s.title)).toSet();
+      final currentQueueRawTitles = _queue.map((s) => s.title).toList();
       final toAdd = <Song>[];
       for (final s in nextSongs) {
         if (currentQueueIds.contains(s.id)) continue;
         final tk = _normTitleForDedup(s.title);
         if (currentQueueTitles.contains(tk)) continue;
+        var isDup = false;
+        for (final rawTitle in currentQueueRawTitles) {
+          if (RecommendationEngine.isSameSongSmart(s.title, rawTitle)) { isDup = true; break; }
+        }
+        if (isDup) continue;
         currentQueueTitles.add(tk);
+        currentQueueRawTitles.add(s.title);
         toAdd.add(s);
       }
 
@@ -1058,6 +1074,16 @@ class PlayerProvider extends ChangeNotifier {
         _normTitleForDedup(song.title),
         for (final s in _queue) _normTitleForDedup(s.title),
       };
+      // Raw (unstripped) titles in parallel with `queuedTitles`, so the
+      // smart head-comparison below still has separators (|, :, -,
+      // brackets) to split the real title from uploader/quality/credit
+      // noise — _normTitleForDedup already strips those for the
+      // exact-match check above, which would blind the smart comparison
+      // if reused here.
+      final queuedRawTitles = <String>[
+        song.title,
+        for (final s in _queue) s.title,
+      ];
       // Phase 1: 20 songs fast
       final phase1 = await ApiService.getAutoQueue(song, limit: 20, existingQueueIds: alreadyInQueue);
       if (sessionId != _uiPlaySession) return;
@@ -1067,8 +1093,21 @@ class PlayerProvider extends ChangeNotifier {
         for (final s in phase1) {
           if (currentIds.contains(s.id)) continue;
           final tk = _normTitleForDedup(s.title);
+          // FIX ("same song 5-8x in Up Next"): exact-string containment
+          // check alone misses re-uploads whose junk suffix differs
+          // ("8K...", "With LYRICS...", "-Duet | Alka...") — see the
+          // matching fix in getAutoQueue's addToPool and rankAndFilter.
+          // This is the third and last place the same exact-match gap
+          // existed, so it needed the same smart title-head check,
+          // compared on RAW titles, to close the loop end to end.
           if (queuedTitles.contains(tk)) continue;
+          var isDup = false;
+          for (final rawTitle in queuedRawTitles) {
+            if (RecommendationEngine.isSameSongSmart(s.title, rawTitle)) { isDup = true; break; }
+          }
+          if (isDup) continue;
           queuedTitles.add(tk);
+          queuedRawTitles.add(s.title);
           toAdd.add(s);
         }
         for (final s in toAdd) {
@@ -1092,7 +1131,13 @@ class PlayerProvider extends ChangeNotifier {
           if (currentIds.contains(s.id)) continue;
           final tk = _normTitleForDedup(s.title);
           if (queuedTitles.contains(tk)) continue;
+          var isDup = false;
+          for (final rawTitle in queuedRawTitles) {
+            if (RecommendationEngine.isSameSongSmart(s.title, rawTitle)) { isDup = true; break; }
+          }
+          if (isDup) continue;
           queuedTitles.add(tk);
+          queuedRawTitles.add(s.title);
           toAdd.add(s);
         }
         for (final s in toAdd) {

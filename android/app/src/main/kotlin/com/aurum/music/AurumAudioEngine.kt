@@ -700,6 +700,37 @@ class AurumAudioEngine(
         val casting = _castManager?.isCasting == true
         val activePlayer: Player = if (casting) _castManager!!.castPlayer!! else player
 
+        // FIX ("UI shows new song, notification/lock-screen shows a
+        // DIFFERENT older song — worse the faster you skip, esp. on
+        // offline/local songs"): currentSongId used to be derived purely
+        // from queueSongs.getOrNull(currentIndex) — the Dart-mirrored
+        // queue state, which playQueueInternal updates OPTIMISTICALLY the
+        // instant a skip starts (before hardStopAndMute/setMediaItem have
+        // actually run). Meanwhile the Media3-driven notification reads
+        // player.currentMediaItem directly — the REAL ExoPlayer state,
+        // which lags behind queueSongs/currentIndex until
+        // setSingleMediaItemInternal actually completes. Under a fast
+        // skip (or a second skip landing while the first is still
+        // resolving), pushState() could report a currentSongId newer than
+        // what the player had actually loaded — Dart's UI (driven by
+        // this pushState) would show the new song while the notification
+        // (driven by the real player) still showed the old one, exactly
+        // the mismatch reported. Local/offline songs resolve near-
+        // instantly, which shrinks the window but doesn't close it — the
+        // optimistic currentIndex write still happens before
+        // setMediaItem, so the race is still there, just tighter.
+        //
+        // Fix: prefer the player's OWN current media item id — the same
+        // source of truth the notification already uses — so pushState()
+        // can never report a song to Dart that the player hasn't actually
+        // switched to yet. Only fall back to the queue-mirror id while the
+        // player genuinely has no media item yet (mid-transition, e.g.
+        // right after hardStopAndMute's clearMediaItems()), so a legitimate
+        // "loading" state doesn't just report null/stale.
+        val liveMediaItemId = activePlayer.currentMediaItem?.mediaId
+        val effectiveCurrentSongId = liveMediaItemId
+            ?: queueSongs.getOrNull(currentIndex)?.id
+
         _state.value = NativeEngineState(
             processingState = when {
                 // Reported first: a resolve is in flight and ExoPlayer has no
@@ -720,7 +751,7 @@ class AurumAudioEngine(
             currentIndex = currentIndex,
             speed = activePlayer.playbackParameters.speed,
             queueIds = queueSongs.map { it.id },
-            currentSongId = queueSongs.getOrNull(currentIndex)?.id,
+            currentSongId = effectiveCurrentSongId,
             liked = currentSongLiked,
         )
     }
