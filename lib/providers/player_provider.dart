@@ -1004,8 +1004,23 @@ class PlayerProvider extends ChangeNotifier {
     }
 
     if (queue != null && index != null) {
-      _queue = List<Song>.from(queue);
-      _currentIndex = index;
+      // FIX ("Up Next full of unrelated reupload junk after tapping a
+      // search result"): a caller-supplied queue (search results, library
+      // list, etc.) is just "whatever else was on screen when the user
+      // tapped" — it was never a vetted recommendation list, and in
+      // search's case it's every song that matched the *typed text*,
+      // which has nothing to do with the tapped song's actual sound.
+      // Passing that whole list straight into `_queue` here meant every
+      // slot right after the tapped song was raw search/library junk,
+      // and the real recommendation engine (getAutoQueue, below) only
+      // ever got appended after it. Trimming to just the tapped song
+      // means Up Next is built fresh from `_buildInitialSmartQueue`
+      // every time — the exact same real-recommendation path already
+      // used when no queue is passed at all — so search/library taps and
+      // "just play this song" taps now produce an identical, relevant
+      // Up Next instead of two different behaviors.
+      _queue = [song];
+      _currentIndex = 0;
       _currentSong = song;
       _expectedSongId = song.id;
       _expectedSongIdSetAt = DateTime.now();
@@ -1041,7 +1056,12 @@ class PlayerProvider extends ChangeNotifier {
         // return, leaving _isLoading/_expectedSongId stuck and the UI
         // frozen on "loading" with no error surfaced. The catch block only
         // ever fires on a genuine exception, not a silent hang.
-        await _engine.playQueue(queue, index).timeout(const Duration(seconds: 8));
+        // Play just the tapped song natively — _queue was trimmed to
+        // [song] above, so the native engine's own queue starts clean too;
+        // getAutoQueue-built recommendations get appended via
+        // _engine.addToQueue() inside _buildInitialSmartQueue once ready,
+        // same as the no-queue-passed path below.
+        await _engine.playQueue(_queue, _currentIndex).timeout(const Duration(seconds: 8));
       } catch (e) {
         if (mySession != _uiPlaySession) return; // superseded — ignore stale failure
         // Native call hung/timed out or threw a PlatformException. Clear
@@ -1057,7 +1077,30 @@ class PlayerProvider extends ChangeNotifier {
         return;
       }
       if (mySession != _uiPlaySession) return; // superseded by a newer tap
-      if (queue.length < 10 && !song.isLocal) {
+      // FIX ("Up Next full of unrelated reupload junk after tapping a
+      // search result" — e.g. playing "Ye Dua Hai Meri Rab Se" from search
+      // then seeing 8 different reuploads of an unrelated "Gori Hai
+      // Kalaiyan" fill Up Next): this used to only build a real smart
+      // queue when the caller-supplied queue was short (<10). Search
+      // passes the entire on-screen results list (often 20+ songs) as the
+      // queue, so that guard was false and getAutoQueue never ran at all
+      // — the raw list of whatever else matched the *search text* became
+      // permanent Up Next, with zero relation to the song actually
+      // playing. The ≤8-remaining auto-extend path would eventually kick
+      // in, but only after skipping deep into that irrelevant batch.
+      // Any caller-provided queue is just "what was on screen when you
+      // tapped" — never a vetted recommendation list — so a real
+      // similar-songs queue always needs building around the tapped song,
+      // regardless of how many songs happened to be on that screen.
+      // Same isLocal-vs-source distinction as the no-queue branch below:
+      // isLocal is also true for downloaded songs (they keep a localPath
+      // for offline playback), so gating on isLocal here would skip smart
+      // queue building for a downloaded song tapped from search/library —
+      // even though downloaded songs keep their real source/id and
+      // recommendations still work fine for them. Only genuinely imported
+      // local files (SongSource.local) have no online identity to base
+      // recommendations on.
+      if (song.source != SongSource.local) {
         _buildInitialSmartQueue(song, alreadyInQueue: queue.map((s) => s.id).toSet(), sessionId: mySession);
       }
     } else {

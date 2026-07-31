@@ -47,6 +47,16 @@ class _SessionState {
   final SessionLanguage language;
   final List<String> recentArtists;  // last 5 unique artists
   final List<String> recentIds;       // last 20 song IDs (anti-repeat window)
+  // FIX ("Up Next endless session eventually repeats a reupload of a song
+  // played much earlier" — YT-Music-style infinite queues run for hundreds
+  // of songs, but recentIds only remembers the last 20; once a song's ID
+  // ages out of that window, a DIFFERENT-ID reupload of it (different
+  // Saavn track ID, same actual song) could pass every dedup check again).
+  // recentTitles is a much longer rolling window (200) of normalized
+  // titles — cheap to store, and long enough that a genuinely infinite
+  // session still remembers "have I played something with this title
+  // before" long after the ID-based window has forgotten it.
+  final List<String> recentTitles;
   final DateTime startedAt;
 
   _SessionState({
@@ -55,6 +65,7 @@ class _SessionState {
     required this.language,
     required this.recentArtists,
     required this.recentIds,
+    required this.recentTitles,
     required this.startedAt,
   });
 
@@ -67,6 +78,7 @@ class _SessionState {
             (e) => e.name == j['language'], orElse: () => SessionLanguage.hindi),
         recentArtists: List<String>.from(j['recentArtists'] ?? []),
         recentIds: List<String>.from(j['recentIds'] ?? []),
+        recentTitles: List<String>.from(j['recentTitles'] ?? []),
         startedAt: DateTime.tryParse(j['startedAt'] ?? '') ?? DateTime.now(),
       );
 
@@ -76,6 +88,7 @@ class _SessionState {
         'language': language.name,
         'recentArtists': recentArtists,
         'recentIds': recentIds,
+        'recentTitles': recentTitles,
         'startedAt': startedAt.toIso8601String(),
       };
 
@@ -85,6 +98,7 @@ class _SessionState {
     SessionLanguage? language,
     List<String>? recentArtists,
     List<String>? recentIds,
+    List<String>? recentTitles,
   }) =>
       _SessionState(
         mood: mood ?? this.mood,
@@ -92,6 +106,7 @@ class _SessionState {
         language: language ?? this.language,
         recentArtists: recentArtists ?? this.recentArtists,
         recentIds: recentIds ?? this.recentIds,
+        recentTitles: recentTitles ?? this.recentTitles,
         startedAt: startedAt,
       );
 }
@@ -408,6 +423,7 @@ class RecommendationEngine {
         language: language,
         recentArtists: [song.artist],
         recentIds: [song.id],
+        recentTitles: [_titleCore(song.title)],
         startedAt: DateTime.now(),
       );
       return;
@@ -428,12 +444,23 @@ class RecommendationEngine {
     // Rolling song ID window: keep last 20 IDs (anti-repeat window)
     final ids = [song.id, ..._session!.recentIds].take(20).toList();
 
+    // FIX: title window kept separately and much longer (200) than the ID
+    // window (20) — see _SessionState.recentTitles doc comment. A
+    // reupload with a fresh Saavn ID still carries the same normalized
+    // title, so this is what actually stops it resurfacing deep into a
+    // long endless session after its ID has aged out of `recentIds`.
+    final titles = [_titleCore(song.title), ..._session!.recentTitles]
+        .toSet()
+        .take(200)
+        .toList();
+
     _session = _session!.copyWith(
       mood: updatedMood,
       genre: updatedGenre,
       language: updatedLang,
       recentArtists: artists,
       recentIds: ids,
+      recentTitles: titles,
     );
   }
 
@@ -1281,6 +1308,17 @@ class RecommendationEngine {
     final seenIds    = <String>{currentSong.id, ...existingIds};
     final currentCore = _titleCore(currentSong.title);
     final seenTitles = <String>{currentCore};
+    // FIX ("infinite Up Next eventually replays a reupload from much
+    // earlier in the session"): seenTitles above only ever knew about
+    // titles accepted within THIS SINGLE rankAndFilter call. On a long
+    // endless session, _maybeExtendQueue calls getAutoQueue→rankAndFilter
+    // fresh every time the queue runs low, so nothing here previously
+    // remembered a title that was accepted three or four batches ago.
+    // Seeding seenTitles with the session's long title window (up to 200,
+    // see RecommendationEngine.sessionRecentTitles) closes that gap —
+    // batches now share dedup memory across the whole session, not just
+    // within themselves.
+    seenTitles.addAll(sessionRecentTitles);
     // Raw (unstripped) titles of everything accepted so far, kept
     // alongside `seenTitles` so isSameSongSmart still has the original
     // separators (|, :, -, brackets) to split on — _titleCore already
@@ -2013,6 +2051,13 @@ class RecommendationEngine {
   /// IDs in the current session recent window. Used for queue dedup.
   static Set<String> get sessionRecentIds =>
       _session?.recentIds.toSet() ?? {};
+
+  /// Normalized titles in the current session's long-window memory (up to
+  /// 200) — used alongside [sessionRecentIds] so a reupload with a fresh
+  /// ID still gets caught once its title has already been played earlier
+  /// in a long/endless session, well after the 20-slot ID window forgot it.
+  static Set<String> get sessionRecentTitles =>
+      _session?.recentTitles.toSet() ?? {};
 
   /// Artists in current session (for anti-repeat). Returns up to 5.
   static List<String> get sessionRecentArtists =>
