@@ -649,6 +649,7 @@
   "fpInfo": "Bilgi",
   "fpQueueEmpty": "Sıra boş",
   "fpUpNext": "SIRADAKİ",
+  "fpFindingSongs": "Senin için şarkılar bulunuyor…",
   "fpMoveToTop": "Başa Taşı",
   "fpRemoveFromQueue": "Sıradan Kaldır",
   "fpNoLyricsFound": "Şarkı sözü bulunamadı",

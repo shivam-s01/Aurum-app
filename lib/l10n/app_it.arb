@@ -649,6 +649,7 @@
   "fpInfo": "Info",
   "fpQueueEmpty": "La coda è vuota",
   "fpUpNext": "IN ARRIVO",
+  "fpFindingSongs": "Ricerca canzoni per te…",
   "fpMoveToTop": "Sposta in cima",
   "fpRemoveFromQueue": "Rimuovi dalla coda",
   "fpNoLyricsFound": "Nessun testo trovato",

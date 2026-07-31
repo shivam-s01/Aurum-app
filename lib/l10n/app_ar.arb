@@ -649,6 +649,7 @@
   "fpInfo": "معلومات",
   "fpQueueEmpty": "قائمة الانتظار فارغة",
   "fpUpNext": "التالي",
+  "fpFindingSongs": "جارٍ البحث عن أغانٍ لك…",
   "fpMoveToTop": "نقل إلى الأعلى",
   "fpRemoveFromQueue": "إزالة من قائمة الانتظار",
   "fpNoLyricsFound": "لم يتم العثور على كلمات",

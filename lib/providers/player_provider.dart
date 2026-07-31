@@ -118,6 +118,11 @@ class PlayerProvider extends ChangeNotifier {
   bool     _showFullPlayer = false;
 
   bool _isBuildingInitialQueue = false;
+  // Lets the Queue UI show "finding songs for you" instead of a blank Up
+  // Next while the background build below is still in flight — a user
+  // isn't going to wait 10-15s staring at an empty list before assuming
+  // the app is broken, so the UI needs to say *something* is happening.
+  bool get isBuildingQueue => _isBuildingInitialQueue;
   bool _isAutoExtendingQueue = false;
   Timer? _indexDebounce;
   int?   _lastHandledIndex;
@@ -1279,6 +1284,15 @@ class PlayerProvider extends ChangeNotifier {
     } catch (_) {
     } finally {
       _isBuildingInitialQueue = false;
+      // Always tell the UI the loading flag flipped, even if phase1/phase2
+      // both ended up empty and neither of their own notifyListeners()
+      // calls above ever fired — without this, a build that genuinely
+      // found nothing would leave the Queue screen's "finding songs..."
+      // state stuck forever instead of falling through to a real empty
+      // state message. Guarded on sessionId so a stale/superseded build
+      // finishing late doesn't cause a pointless rebuild for a screen
+      // that's already moved on to a different song.
+      if (sessionId == _uiPlaySession) notifyListeners();
       // A newer song's build request arrived while this one was running
       // and got parked above — replay it now, but only if it's still the
       // current session (the user may have moved on yet again while THIS

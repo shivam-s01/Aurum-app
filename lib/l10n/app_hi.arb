@@ -641,6 +641,7 @@
   "fpInfo": "जानकारी",
   "fpQueueEmpty": "कतार खाली है",
   "fpUpNext": "आगे है",
+  "fpFindingSongs": "आपके लिए गाने ढूंढ रहे हैं…",
   "fpMoveToTop": "शीर्ष पर ले जाएं",
   "fpRemoveFromQueue": "कतार से हटाएं",
   "fpNoLyricsFound": "कोई गीत नहीं मिला",

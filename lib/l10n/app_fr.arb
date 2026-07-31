@@ -641,6 +641,7 @@
   "fpInfo": "Infos",
   "fpQueueEmpty": "La file d'attente est vide",
   "fpUpNext": "À SUIVRE",
+  "fpFindingSongs": "Recherche de chansons pour vous…",
   "fpMoveToTop": "Déplacer en haut",
   "fpRemoveFromQueue": "Retirer de la file",
   "fpNoLyricsFound": "Aucune parole trouvée",

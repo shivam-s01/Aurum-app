@@ -649,6 +649,7 @@
   "fpInfo": "Info",
   "fpQueueEmpty": "Warteschlange ist leer",
   "fpUpNext": "ALS NÄCHSTES",
+  "fpFindingSongs": "Suche Songs für dich…",
   "fpMoveToTop": "Nach oben verschieben",
   "fpRemoveFromQueue": "Aus Warteschlange entfernen",
   "fpNoLyricsFound": "Kein Songtext gefunden",

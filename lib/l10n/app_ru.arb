@@ -641,6 +641,7 @@
   "fpInfo": "Инфо",
   "fpQueueEmpty": "Очередь пуста",
   "fpUpNext": "ДАЛЕЕ",
+  "fpFindingSongs": "Подбираем песни для вас…",
   "fpMoveToTop": "Переместить наверх",
   "fpRemoveFromQueue": "Удалить из очереди",
   "fpNoLyricsFound": "Текст не найден",

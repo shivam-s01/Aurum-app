@@ -996,6 +996,7 @@
   "fpInfo": "Info",
   "fpQueueEmpty": "Queue is empty",
   "fpUpNext": "UP NEXT",
+  "fpFindingSongs": "Finding songs for you…",
   "fpMoveToTop": "Move to Top",
   "fpRemoveFromQueue": "Remove from Queue",
   "fpNoLyricsFound": "No lyrics found",

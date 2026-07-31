@@ -649,6 +649,7 @@
   "fpInfo": "정보",
   "fpQueueEmpty": "대기열이 비어 있습니다",
   "fpUpNext": "다음 곡",
+  "fpFindingSongs": "당신을 위한 노래를 찾는 중…",
   "fpMoveToTop": "맨 위로 이동",
   "fpRemoveFromQueue": "대기열에서 제거",
   "fpNoLyricsFound": "가사를 찾을 수 없습니다",

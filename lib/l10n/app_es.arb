@@ -653,6 +653,7 @@
   "fpInfo": "Info",
   "fpQueueEmpty": "La cola está vacía",
   "fpUpNext": "A CONTINUACIÓN",
+  "fpFindingSongs": "Buscando canciones para ti…",
   "fpMoveToTop": "Mover al principio",
   "fpRemoveFromQueue": "Quitar de la cola",
   "fpNoLyricsFound": "No se encontró la letra",

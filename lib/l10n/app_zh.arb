@@ -653,6 +653,7 @@
   "fpInfo": "信息",
   "fpQueueEmpty": "队列为空",
   "fpUpNext": "接下来播放",
+  "fpFindingSongs": "正在为你寻找歌曲…",
   "fpMoveToTop": "移到顶部",
   "fpRemoveFromQueue": "从队列中移除",
   "fpNoLyricsFound": "未找到歌词",

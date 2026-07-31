@@ -641,6 +641,7 @@
   "fpInfo": "情報",
   "fpQueueEmpty": "キューは空です",
   "fpUpNext": "次の曲",
+  "fpFindingSongs": "あなたにおすすめの曲を探しています…",
   "fpMoveToTop": "先頭に移動",
   "fpRemoveFromQueue": "キューから削除",
   "fpNoLyricsFound": "歌詞が見つかりません",

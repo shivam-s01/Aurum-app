@@ -3515,8 +3515,9 @@ class _QueuePage extends StatelessWidget {
     final mutedText =
         isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(60);
 
-    return Selector<PlayerProvider, ({List<Song> queue, int? current})>(
-      selector: (_, player) => (queue: player.queue, current: player.currentIndex),
+    return Selector<PlayerProvider, ({List<Song> queue, int? current, bool building})>(
+      selector: (_, player) =>
+          (queue: player.queue, current: player.currentIndex, building: player.isBuildingQueue),
       builder: (context, data, _) {
         final queue = data.queue;
         final current = data.current;
@@ -3555,6 +3556,52 @@ class _QueuePage extends StatelessWidget {
             if (current != null && current < queue.length)
               SliverToBoxAdapter(
                 child: _NowPlayingHeader(song: queue[current]),
+              ),
+            // FIX ("Up Next looks empty/broken right after tapping play"):
+            // _buildInitialSmartQueue runs fire-and-forget in the
+            // background and can genuinely take several seconds (multiple
+            // network signals, each with its own timeout) before any
+            // songs land in `queue`. Before this, that whole window showed
+            // nothing at all below "Now Playing" — indistinguishable from
+            // a real bug, and no user is going to sit and wait 10-15s on
+            // a blank screen before assuming the app is broken. This fills
+            // that exact window with a visible "still working on it" state
+            // instead, and disappears the instant either real songs land
+            // (upNext.isNotEmpty above takes over) or the build genuinely
+            // finishes empty (data.building flips false, matching the
+            // notifyListeners() fix in player_provider.dart's finally
+            // block that made sure this flag reliably reaches the UI even
+            // when a build ends with zero results).
+            if (upNext.isEmpty && data.building)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.fpUpNext,
+                        style: TextStyle(
+                          color: mutedText,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.8,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          const AurumM3Loader(width: 22, height: 2.5),
+                          const SizedBox(width: 12),
+                          Text(
+                            l10n.fpFindingSongs,
+                            style: TextStyle(color: mutedText, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
             // Up Next label
             if (upNext.isNotEmpty)

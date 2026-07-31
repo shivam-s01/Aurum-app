@@ -174,11 +174,17 @@ class BrowseTrack {
           : (rawImage ?? '').toString(),
     );
     final durationSec = int.tryParse(j['duration']?.toString() ?? '');
+    // FIX (same bug as _deriveAlbums below): j['album'] is a nested
+    // {id, name} object on most Saavn endpoints, not a plain string.
+    final albumField = j['album'];
+    final albumStr = albumField is Map
+        ? (albumField['name'] ?? '').toString()
+        : (albumField ?? '').toString();
     return BrowseTrack(
       trackId:    (j['id'] ?? j['song_id'] ?? '').toString(),
       title:      _clean((j['song'] ?? j['name'] ?? j['title'] ?? 'Unknown').toString()),
       artist:     _clean((j['primary_artists'] ?? j['singers'] ?? j['artist'] ?? 'Unknown').toString()),
-      album:      _clean((j['album'] ?? '').toString()),
+      album:      _clean(albumStr),
       artworkUrl: artwork,
       durationMs: durationSec != null ? durationSec * 1000 : null,
     );
@@ -705,7 +711,20 @@ class BrowseService {
   static List<BrowseAlbum> _deriveAlbums(List<Map<String, dynamic>> raw) {
     final seen = <String, BrowseAlbum>{};
     for (final j in raw) {
-      final albumName = (j['album'] ?? '').toString().trim();
+      // FIX (album names showing raw "{id: 2170756, name: Azaad...}" text):
+      // Saavn's API returns `album` as a nested {id, name} object on most
+      // endpoints, not a plain string — this used to do
+      // `(j['album'] ?? '').toString()`, which on a Map just stringifies
+      // the whole map instead of extracting the name. api_service.dart's
+      // song parser already handles both shapes correctly; this mirrors
+      // that same pattern so Browse's derived album cards match.
+      final albumField = j['album'];
+      String albumName;
+      if (albumField is Map) {
+        albumName = (albumField['name'] ?? '').toString().trim();
+      } else {
+        albumName = (albumField ?? '').toString().trim();
+      }
       if (albumName.isEmpty) continue;
       final key = albumName.toLowerCase();
       if (seen.containsKey(key)) continue;
