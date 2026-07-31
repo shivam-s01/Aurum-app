@@ -1148,33 +1148,37 @@ class ApiService {
     // to keep low-scoring songs just to hit the count.
     final poolTarget = limit * 3;
 
-    // ── Signal 1: Real Saavn similar-songs (album + artist, era-filtered
-    //    server-side) — this is actual Saavn catalog data, not a guessed
-    //    query string, and is the strongest "up next" signal available. ──
-    try {
-      final similar = await _fetchSimilarFromSaavn(currentSong, limit: limit)
-          .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
-      for (final s in similar) addToPool(s);
-      _log('[autoQueue] signal1 similar: ${pool.length}');
-    } catch (e) {
-      _log('[autoQueue] signal1 similar failed: $e');
-    }
-
-    // ── Signal 2: Same artist ─────────────────────────────────────────────
-    if (pool.length < poolTarget) {
-      final artistSongs = await _searchSaavn('${currentSong.artist} songs', limit: limit * 2)
-          .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
-      for (final s in artistSongs) addToPool(s);
-      _log('[autoQueue] signal2 artist: ${pool.length}');
-    }
+    // ── Signal 1 + 2: Real Saavn similar-songs (album+artist) AND same-
+    //    artist catalog — these are the two strongest, most specific
+    //    signals and neither depends on the other's output, so they now
+    //    fire together instead of Signal 2 waiting for Signal 1's full
+    //    round-trip to finish first. Same data, same category priority
+    //    (album/artist match still wins ties via addToPool's insertion
+    //    order below), just no longer paid for twice in a row.
+    final signal1And2 = await Future.wait([
+      _fetchSimilarFromSaavn(currentSong, limit: limit)
+          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+          .catchError((_) => <Song>[]),
+      _searchSaavn('${currentSong.artist} songs', limit: limit * 2)
+          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+          .catchError((_) => <Song>[]),
+    ]);
+    for (final s in signal1And2[0]) addToPool(s);
+    for (final s in signal1And2[1]) addToPool(s);
+    _log('[autoQueue] signal1+2 saavn: ${pool.length}');
 
     // ── Signal 3: Mood+genre+era fallback ────────────────────────────────
     if (pool.length < poolTarget) {
       final queries = RecommendationEngine.generateQueries(currentSong);
-      for (final q in queries) {
-        if (pool.length >= poolTarget) break;
-        final r = await _searchSaavn(q.query, limit: limit)
-            .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
+      // SPEED FIX: these queries used to run one-by-one, each paying a
+      // full Saavn round-trip before the next fired. Firing them all at
+      // once cuts this signal's wall-clock time from N round-trips down
+      // to roughly one, since none of the queries depend on each other.
+      final signal3Results = await Future.wait(queries.map((q) =>
+          _searchSaavn(q.query, limit: limit)
+              .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+              .catchError((_) => <Song>[])));
+      for (final r in signal3Results) {
         for (final s in r) addToPool(s);
       }
       _log('[autoQueue] signal3 fallback: ${pool.length}');
@@ -1203,15 +1207,14 @@ class ApiService {
     // actually produce a full, varied queue.
     if (pool.length < poolTarget) {
       final queries = RecommendationEngine.generateQueries(currentSong);
-      for (final q in queries) {
-        if (pool.length >= poolTarget) break;
-        try {
-          final ytSongs = await _searchYt(q.query, limit: limit)
-              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
-          for (final s in ytSongs) addToPool(s);
-        } catch (e) {
-          _log('[autoQueue] signal4 yt query "${q.query}" failed: $e');
-        }
+      // SPEED FIX: same one-by-one-round-trip problem as Signal 3, now
+      // fired concurrently instead of sequentially.
+      final signal4Results = await Future.wait(queries.map((q) =>
+          _searchYt(q.query, limit: limit)
+              .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+              .catchError((_) => <Song>[])));
+      for (final r in signal4Results) {
+        for (final s in r) addToPool(s);
       }
       _log('[autoQueue] signal4 yt fallback: ${pool.length}');
     }
@@ -1234,19 +1237,21 @@ class ApiService {
     if (song.album.trim().isNotEmpty) queries.add(song.album);
     queries.add('${song.artist} songs');
 
+    // SPEED FIX: album-query and artist-query used to run one after the
+    // other (full round-trip each, back to back) even though neither
+    // depends on the other's result. Firing both at once and merging
+    // halves this signal's wall-clock cost with the exact same data.
+    final resultsList = await Future.wait(queries.map((q) =>
+        _searchSaavn(q, limit: 25)
+            .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[])));
+
     final merged = <String, Song>{};
-    for (final q in queries) {
-      try {
-        final results = await _searchSaavn(q, limit: 25)
-            .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
-        for (final s in results) {
-          if (s.id.isEmpty || s.id == song.id) continue;
-          merged[s.id] = s;
-        }
-      } catch (e) {
-        _log('[_fetchSimilarFromSaavn] query "$q" failed: $e');
+    for (final results in resultsList) {
+      for (final s in results) {
+        if (s.id.isEmpty || s.id == song.id) continue;
+        merged[s.id] = s;
       }
-      if (merged.length >= limit) break;
     }
     return merged.values.toList();
   }
@@ -1303,30 +1308,34 @@ class ApiService {
     }
     lyricVariants.remove(q);
 
-    // Saavn gets 10s and a much higher limit so results feel as complete as
-    // the real JioSaavn app — YT only fills genuine gaps, never competes
-    // for the same slots Saavn already covers.
-    final both = await Future.wait([
+    // SPEED FIX ("Saavn pehle rahe, YT sirf jab Saavn kam ho, aur fast"):
+    // this used to ALWAYS fire Saavn (10s ceiling) and YT (6s ceiling) in
+    // lockstep and wait for both no matter what, even when Saavn alone
+    // already had a complete, high-quality hit — every keystroke's search
+    // paid YT's full round-trip time for nothing. Now Saavn (+ its lyric
+    // variants) is awaited FIRST with a tight timeout; YT is only fired
+    // at all — and only awaited — when Saavn genuinely came up short.
+    // Saavn still always wins the top slots when it does have results
+    // (unchanged below), this just stops paying for YT when it isn't
+    // needed and keeps the live-search feel snappy.
+    final saavnFutures = [
       _searchSaavn(q, limit: 50)
-          .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[]),
-      _searchYt(q, limit: 20)
-          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]),
+          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]),
       ...lyricVariants.map((v) => _searchSaavn(v, limit: 20)
-          .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
+          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[])),
-    ]);
-
-    final saavnResults = both[0];
-    final ytResults    = both[1];
-    // Merge lyric-variant Saavn hits in AFTER the raw main-query results —
-    // they still go through the exact same scoring/relevance-floor/dedup
-    // pass below (scored against the ORIGINAL query q, not the variant),
-    // so a variant hit only survives if it's genuinely relevant to what
-    // the user actually typed, not just to the trimmed sub-phrase.
-    final saavnCombined = [
-      ...saavnResults,
-      for (var i = 2; i < both.length; i++) ...both[i],
     ];
+    final saavnAll = await Future.wait(saavnFutures);
+    final saavnResults = saavnAll[0];
+    final saavnCombined = [for (final list in saavnAll) ...list];
+
+    // Only pay for YT's round-trip when Saavn genuinely didn't cover the
+    // query well — a handful of loose hits still counts as "cover it",
+    // since YT would just be deduped out below anyway.
+    final ytResults = saavnResults.length >= 8
+        ? <Song>[]
+        : await _searchYt(q, limit: 20)
+            .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
 
     final saavnScored = <_ScoredSong>[];
     final ytScored    = <_ScoredSong>[];
@@ -1409,7 +1418,14 @@ class ApiService {
     // the whole cap), so a healthy Saavn AND YT mix is the normal case
     // instead of YT being a rare emergency fallback.
     final results = List<Song>.from(directResults);
-    if (directResults.isNotEmpty) {
+    // SPEED FIX ("ekdam fast, smooth, lightweight rahe"): related expansion
+    // fires N extra Saavn + N extra YT network calls and used to run on
+    // EVERY search, even when direct results already fully answered the
+    // query — meaning every keystroke during live typing paid for a whole
+    // second wave of requests just to pad the list with "vibe" filler.
+    // Now it only runs when direct results are thin, so a query that
+    // already lands a clean, complete Saavn match returns immediately.
+    if (directResults.isNotEmpty && directResults.length < 12) {
       final topMatch = directResults.first;
       final directIds    = <String>{for (final s in directResults) s.id};
       final directTitles = <String>{for (final s in directResults) _normTitle(s.title)};
@@ -1432,10 +1448,10 @@ class ApiService {
       // twice in a row.
       final combinedRelated = await Future.wait([
         ...relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 25)
-            .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+            .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[])),
         ...relatedQueries.map((rq) => _searchYt(rq.query, limit: 20)
-            .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+            .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[])),
       ]);
       final saavnBatchCount = relatedQueries.length;

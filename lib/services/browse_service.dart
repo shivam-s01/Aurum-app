@@ -358,10 +358,16 @@ class BrowseService {
       }
     }
 
-    // Derive a lightweight "Albums" and "Artists" view from the (already
-    // relevance-filtered) track results so Browse still feels rich without
-    // needing extra endpoints.
-    var albums  = _deriveAlbums(effectiveRawTracks);
+    // Albums must be 100% YouTube — never derived from Saavn track results.
+    // SPEED FIX: this used to run AFTER tracks/artists were fully built
+    // (sequential extra 8s YT round-trip tacked onto the end of every
+    // Browse search). Firing it concurrently with the tracks/artists work
+    // above means Browse pays for the YT round-trip once, in parallel,
+    // not as an added tail latency on every single search.
+    final albumsFuture = query.trim().isNotEmpty
+        ? _ytAlbumFallback(query.trim())
+        : Future.value(<BrowseAlbum>[]);
+
     var artists = _deriveArtists(effectiveRawTracks);
 
     // PATCH: real artist photos. Saavn's dedicated artist-search endpoint
@@ -372,16 +378,15 @@ class BrowseService {
       artists = await Future.wait(artists.map(_withArtistPhoto));
     }
 
-    // PATCH: if Saavn gave us nothing at all for albums/artists (common for
+    // PATCH: if Saavn gave us nothing at all for artists (common for
     // niche or misspelled queries), fill the section from YouTube instead
     // of leaving it blank — a search results screen with an empty "Artists"
     // row reads as broken, not as "no results".
     if (artists.isEmpty && query.trim().isNotEmpty) {
       artists = await _ytArtistFallback(query.trim());
     }
-    if (albums.isEmpty && query.trim().isNotEmpty) {
-      albums = await _ytAlbumFallback(query.trim());
-    }
+
+    final albums = await albumsFuture;
 
     return BrowseSearchResult(tracks: tracks, albums: albums, artists: artists);
   }

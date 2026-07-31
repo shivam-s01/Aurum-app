@@ -260,16 +260,37 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     result.success(null)
                 }
                 "addToQueue" -> {
-                    engine.addToQueue(parseSong(call.argument<Map<String, Any?>>("song")!!))
-                    result.success(null)
+                    // FIX: previously fired engine.addToQueue() (a plain
+                    // fun launching its own unawaited coroutine) and
+                    // returned success immediately — Dart's `await`
+                    // resolved before the native media-item list actually
+                    // updated. addToQueue is now suspend + queueMutex-
+                    // serialized (see AurumAudioEngine); calling it here
+                    // inside scope.launch and only replying success AFTER
+                    // it completes means Dart's await genuinely waits for
+                    // the native queue to be in its final state — closing
+                    // the race that let a fast-following moveQueueItem
+                    // (playNext()) desync queueSongs from the real player.
+                    val song = parseSong(call.argument<Map<String, Any?>>("song")!!)
+                    scope.launch {
+                        engine.addToQueue(song)
+                        result.success(null)
+                    }
                 }
                 "removeFromQueue" -> {
-                    engine.removeFromQueue(call.argument<Int>("index") ?: -1)
-                    result.success(null)
+                    val index = call.argument<Int>("index") ?: -1
+                    scope.launch {
+                        engine.removeFromQueue(index)
+                        result.success(null)
+                    }
                 }
                 "moveQueueItem" -> {
-                    engine.moveQueueItem(call.argument<Int>("from") ?: 0, call.argument<Int>("to") ?: 0)
-                    result.success(null)
+                    val from = call.argument<Int>("from") ?: 0
+                    val to = call.argument<Int>("to") ?: 0
+                    scope.launch {
+                        engine.moveQueueItem(from, to)
+                        result.success(null)
+                    }
                 }
                 "clearQueue" -> { engine.clearQueue(); result.success(null) }
                 "play" -> { engine.play(); result.success(null) }

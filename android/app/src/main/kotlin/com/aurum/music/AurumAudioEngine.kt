@@ -64,6 +64,24 @@ class AurumAudioEngine(
     // time, in order, against consistent player state.
     private val skipMutex = Mutex()
 
+    // BUG FIX ("tap a queue item, wrong song plays / next click plays out
+    // of order"): addToQueue/removeFromQueue/moveQueueItem each launched
+    // their own independent coroutine with NO serialization between them.
+    // addToQueue in particular returned success to Dart the instant the
+    // coroutine was launched — NOT once player.addMediaItem() had actually
+    // run — so a fast-following moveQueueItem (e.g. from playNext()) could
+    // execute against the native ExoPlayer media-item list BEFORE the add
+    // had landed, moving/seeking an index that didn't exist yet. That one
+    // race permanently desynced queueSongs (this Kotlin list) from the
+    // ExoPlayer media item list from then on, so every later index-based
+    // op — including skipToQueueItem's player.seekTo(index, 0) — pointed
+    // at the wrong physical item even though the index "looked" correct.
+    // Routing every queue-mutating op through this same mutex forces them
+    // to run one at a time, each fully completing its native mutation
+    // before the next one starts, so queueSongs and the real player list
+    // never drift apart.
+    private val queueMutex = Mutex()
+
     // Lightweight buffer profile: enough to avoid audible stalls on a
     // typical connection, without ExoPlayer greedily decoding 60-90s ahead
     // in the background 24/7 — that constant background decode+network
@@ -1491,8 +1509,16 @@ class AurumAudioEngine(
     // ─────────────────────────────────────────────────────────────────
     // QUEUE MUTATIONS
     // ─────────────────────────────────────────────────────────────────
-    fun addToQueue(song: NativeSong) {
-        scope.launch { addToQueueInternal(song, playSessionId) }
+    // FIX: these are now suspend functions serialized on queueMutex (see
+    // the mutex's doc comment above) instead of each firing an unawaited
+    // scope.launch{}. The channel handler now calls these via
+    // scope.launch { ... ; result.success(null) }, so Dart's `await
+    // _engine.addToQueue(...)` genuinely doesn't resolve until the native
+    // media-item list has actually been updated — closing the race that
+    // let a fast-following moveQueueItem/skipToQueueItem run against a
+    // still-mutating queue.
+    suspend fun addToQueue(song: NativeSong) = queueMutex.withLock {
+        addToQueueInternal(song, playSessionId)
     }
 
     private suspend fun addToQueueInternal(song: NativeSong, session: Int) {
@@ -1507,8 +1533,8 @@ class AurumAudioEngine(
         pushState()
     }
 
-    fun removeFromQueue(index: Int) {
-        if (index !in queueSongs.indices) return
+    suspend fun removeFromQueue(index: Int) = queueMutex.withLock {
+        if (index !in queueSongs.indices) return@withLock
         queueSongs = queueSongs.filterIndexed { i, _ -> i != index }
         if (index < liveMediaIds.size) {
             player.removeMediaItem(index)
@@ -1519,8 +1545,8 @@ class AurumAudioEngine(
         pushState()
     }
 
-    fun moveQueueItem(from: Int, to: Int) {
-        if (from !in queueSongs.indices || to !in queueSongs.indices) return
+    suspend fun moveQueueItem(from: Int, to: Int) = queueMutex.withLock {
+        if (from !in queueSongs.indices || to !in queueSongs.indices) return@withLock
         val mutable = queueSongs.toMutableList()
         val song = mutable.removeAt(from)
         mutable.add(to, song)
@@ -1741,17 +1767,25 @@ class AurumAudioEngine(
         }
         val gen = ++skipGen
         scope.launch {
-            skipMutex.withLock {
-                if (gen != skipGen) return@withLock
-                if (index < player.mediaItemCount && !splicingInProgress) {
-                    if (index < queueSongs.size) {
-                        currentIndex = index
-                        pushState()
+            // FIX: also serialize against queueMutex — without this, a
+            // skipToQueueItem could still run its seekTo(index, 0) WHILE
+            // an addToQueue/moveQueueItem from the same burst of taps
+            // (e.g. Up Next "play this now") was mid-mutation on the
+            // native media-item list, seeking to an index whose meaning
+            // was about to change underneath it.
+            queueMutex.withLock {
+                skipMutex.withLock {
+                    if (gen != skipGen) return@withLock
+                    if (index < player.mediaItemCount && !splicingInProgress) {
+                        if (index < queueSongs.size) {
+                            currentIndex = index
+                            pushState()
+                        }
+                        player.seekTo(index, 0)
+                        player.play()
+                    } else if (index < queueSongs.size) {
+                        playQueueInternal(queueSongs, index)
                     }
-                    player.seekTo(index, 0)
-                    player.play()
-                } else if (index < queueSongs.size) {
-                    playQueueInternal(queueSongs, index)
                 }
             }
         }
