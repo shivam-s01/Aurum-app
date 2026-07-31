@@ -230,4 +230,107 @@ object YoutubeInnertube {
             mimeType = best.format?.mimeType ?: "",
         )
     }
+
+    // ---------------------------------------------------------------
+    // Related/"Up Next" videos — YouTube's own recommendation graph.
+    //
+    // ADDITIVE ONLY: nothing above this line was touched. This mirrors
+    // resolve()/resolveOnce()'s exact structure (ensureInit → try →
+    // transient-retry → same TRANSIENT_EXCEPTION_NAMES set) so it fails
+    // the same safe way (null/empty, never throws) as every other
+    // function here, and never touches AudioStream/VideoStream/search's
+    // existing code paths — a caller not using getRelated is completely
+    // unaffected by this addition.
+    //
+    // StreamExtractor already fetches the full watch page for
+    // resolve()/resolveVideo() — that same page response carries
+    // YouTube's related-videos ("Up Next" sidebar / autoplay queue)
+    // data via NewPipeExtractor's relatedItems. This is what Musify
+    // (via youtube_explode_dart's videos.getRelatedVideos) and every
+    // other NewPipe-based player uses for YouTube-sourced autoplay —
+    // it's literally YouTube's own algorithm output, not a guessed
+    // search query, which is a strictly stronger signal than a
+    // title/artist re-search for any song whose real identity lives on
+    // YouTube (the same category of song api_service.dart's Signal 4
+    // YouTube fallback already searches for). Kept as a clearly
+    // separate, optional signal on the Dart side — this does not
+    // replace Saavn's own similar-songs signal, which stays primary.
+    // ---------------------------------------------------------------
+
+    data class RelatedResult(
+        val videoId: String,
+        val title: String,
+        val uploaderName: String,
+        val durationSecs: Long,
+        // -1 when NewPipeExtractor couldn't parse a view count for this
+        // item (its own standard convention for "not available" on long
+        // fields) — surfaced as-is rather than defaulted to 0, so the
+        // Dart side can tell "genuinely zero views" apart from "unknown"
+        // the same way it already treats a null viewCount for other
+        // YouTube-sourced songs (see RecommendationEngine.isPremiumQuality).
+        val viewCount: Long,
+    )
+
+    suspend fun getRelated(videoId: String): List<RelatedResult> = withContext(Dispatchers.IO) {
+        try {
+            ensureInit()
+            getRelatedOnce(videoId)
+        } catch (e: Exception) {
+            val transient = e.javaClass.simpleName in TRANSIENT_EXCEPTION_NAMES ||
+                e.message?.contains("reloaded", ignoreCase = true) == true
+            if (transient) {
+                for (attempt in 1..2) {
+                    Log.w(TAG, "Transient related-videos error for $videoId, retry $attempt/2: ${e.message}")
+                    delay(600L * attempt)
+                    try {
+                        return@withContext getRelatedOnce(videoId)
+                    } catch (eRetry: Exception) {
+                        lastFailureReason = "videoId=$videoId ${eRetry.javaClass.simpleName}: ${eRetry.message}"
+                        Log.w(TAG, "getRelated retry $attempt/2 failed for $videoId: ${eRetry.message}", eRetry)
+                        if (attempt == 2) return@withContext emptyList()
+                    }
+                }
+            }
+            lastFailureReason = "videoId=$videoId ${e.javaClass.simpleName}: ${e.message}"
+            Log.w(TAG, "getRelated failed for $videoId: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    private fun getRelatedOnce(videoId: String): List<RelatedResult> {
+        val url = "https://www.youtube.com/watch?v=$videoId"
+        val extractor = ServiceList.YouTube.getStreamExtractor(url)
+        extractor.fetchPage()
+
+        // FIX: StreamExtractor.getRelatedItems() returns a nullable
+        // InfoItemsCollector, NOT a List directly (unlike search()'s
+        // extractor.initialPage.items above, which already is a List) —
+        // the actual items come from the collector's own .items property.
+        // Collector items can also include non-stream entries (e.g.
+        // playlist/mix shelves alongside individual videos), so
+        // filterIsInstance<StreamInfoItem> stays required here too.
+        val relatedItems = extractor.relatedItems?.items ?: emptyList()
+
+        return relatedItems
+            .filterIsInstance<StreamInfoItem>()
+            .map {
+                RelatedResult(
+                    videoId = extractVideoId(it.url),
+                    title = it.name ?: "",
+                    uploaderName = it.uploaderName ?: "",
+                    durationSecs = it.duration,
+                    // FIX: StreamInfoItem.getViewCount() is declared to
+                    // throw ParsingException per-item (view count is
+                    // scraped text, same as everything else NewPipe
+                    // extracts) — letting one item's parse failure throw
+                    // out of this whole .map{} would silently drop every
+                    // OTHER already-successfully-parsed related video too.
+                    // Isolating the try/catch per-item means a single
+                    // odd item just falls back to -1 (unavailable)
+                    // instead of losing the entire related-videos result.
+                    viewCount = try { it.viewCount } catch (_: Exception) { -1L },
+                )
+            }
+            .filter { it.videoId.isNotEmpty() }
+    }
 }

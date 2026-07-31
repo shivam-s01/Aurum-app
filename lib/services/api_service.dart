@@ -48,6 +48,7 @@ import '../models/lyrics.dart';
 import '../utils/constants.dart';
 import 'audio_prefs.dart';
 import 'recommendation_engine.dart';
+import 'native_related_videos.dart' show NativeRelatedVideos, YtRelatedVideo;
 
 // =============================================================================
 // Result of a REAL playback attempt, used by debugPlaybackPath's
@@ -1167,6 +1168,46 @@ class ApiService {
     for (final s in signal1And2[1]) addToPool(s);
     _log('[autoQueue] signal1+2 saavn: ${pool.length}');
 
+    // ── Signal 1.5: YouTube's own related-videos graph — only for
+    //    YouTube-sourced current songs, since it needs a real YouTube
+    //    video ID as its seed. This is YOUTUBE'S OWN ALGORITHM output (via
+    //    NewPipeExtractor's StreamExtractor.relatedItems, the same data
+    //    every NewPipe-based player uses for autoplay), not a guessed
+    //    search query — a strictly stronger signal than Signal 3/4 below
+    //    for exactly the songs this applies to. Kept clearly AFTER Saavn
+    //    similar-songs, not first: Saavn's own catalog metadata stays the
+    //    primary signal for every song, since it's what era-filtering and
+    //    the quality gates below were built around; this only supplements
+    //    it for the subset of songs where a native YouTube identity
+    //    exists. Only fired when the pool still needs more (matches every
+    //    other signal's own pool.length < poolTarget gate below) — no
+    //    point paying for a native extraction round-trip once Signal 1+2
+    //    already filled the pool. Best-effort by design —
+    //    NativeRelatedVideos.getRelated() never throws, so any native-
+    //    extraction hiccup here just means this signal contributes
+    //    nothing, exactly like every other signal's own timeout/try-catch.
+    if (pool.length < poolTarget && currentSong.source == SongSource.youtube) {
+      try {
+        final related = await NativeRelatedVideos.getRelated(currentSong.id)
+            .timeout(const Duration(seconds: 8), onTimeout: () => <YtRelatedVideo>[]);
+        for (final r in related) {
+          addToPool(Song(
+            id: r.videoId,
+            title: r.title,
+            artist: r.uploaderName,
+            album: '',
+            artworkUrl: 'https://i.ytimg.com/vi/${r.videoId}/hqdefault.jpg',
+            source: SongSource.youtube,
+            duration: r.durationSecs,
+            viewCount: r.viewCount,
+          ));
+        }
+        _log('[autoQueue] signal1.5 yt-related: ${pool.length}');
+      } catch (e) {
+        _log('[autoQueue] signal1.5 yt-related failed: $e');
+      }
+    }
+
     // ── Signal 3: Mood+genre+era fallback ────────────────────────────────
     if (pool.length < poolTarget) {
       final queries = RecommendationEngine.generateQueries(currentSong);
@@ -1429,7 +1470,22 @@ class ApiService {
       final topMatch = directResults.first;
       final directIds    = <String>{for (final s in directResults) s.id};
       final directTitles = <String>{for (final s in directResults) _normTitle(s.title)};
-      final relatedQueries = RecommendationEngine.generateQueries(topMatch);
+      // FIX ("us movie ke sb songs ka playlist show ho, premium jaisa"):
+      // generateQueries() only ever builds artist/mood/genre/era queries —
+      // it never looks at topMatch.album, so a search for a specific song
+      // never surfaced the OTHER songs from the same movie/OST, only
+      // vaguely-similar era/mood songs from unrelated films. Browse tab's
+      // _openAlbum already does this correctly via BrowseService.albumTracks,
+      // but plain Search had no equivalent. Prepending a dedicated
+      // "<album> movie all songs" query — highest weight, searched first —
+      // means when a song has a real album/movie name, the rest of that
+      // soundtrack anchors the related section instead of getting buried
+      // under generic mood-matched filler.
+      final relatedQueries = [
+        if (topMatch.album.trim().isNotEmpty)
+          AutoQueueQuery('${topMatch.album.trim()} movie all songs', weight: 3),
+        ...RecommendationEngine.generateQueries(topMatch),
+      ];
       final relatedPool = <Song>[];
       final seenRelated = <String>{};
       const relatedCap = 55;

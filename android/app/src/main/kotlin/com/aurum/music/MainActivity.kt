@@ -43,6 +43,12 @@ class MainActivity : FlutterFragmentActivity() {
     // pool) — fully separate from the audio engine/main queue above.
     private var shortsChannelHandler: AurumShortsChannelHandler? = null
 
+    // Exposes YoutubeInnertube.getRelated() (YouTube's own related-videos
+    // graph) to Dart for use as a getAutoQueue signal — fully separate
+    // channel from audio engine playback commands and Shorts, see
+    // AurumRelatedChannelHandler's doc comment for why.
+    private var relatedChannelHandler: AurumRelatedChannelHandler? = null
+
     // THE fix for "background/lock-screen kuch nahi ho raha": previously
     // nothing ever bound to or started AurumMediaSessionService, so its
     // onCreate()/onGetSession() never ran and no MediaSession was ever
@@ -91,6 +97,8 @@ class MainActivity : FlutterFragmentActivity() {
         // artwork on the Dart side).
         val shortsHandler = AurumShortsChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         shortsChannelHandler = shortsHandler
+
+        relatedChannelHandler = AurumRelatedChannelHandler(flutterEngine.dartExecutor.binaryMessenger)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
