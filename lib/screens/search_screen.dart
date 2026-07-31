@@ -8,6 +8,7 @@ import '../models/song.dart';
 import '../services/api_service.dart';
 
 import '../services/browse_service.dart';
+import '../services/recommendation_engine.dart';
 import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
@@ -356,6 +357,45 @@ class _SearchScreenState extends State<SearchScreen>
       // also trigger browse if on Browse tab
       if (_tabController.index == 1) _fetchBrowse(query);
     });
+  }
+
+  // FIX ("same song 5-6 times back to back in Up Next"): tapping a search
+  // result used to pass `queue: _results` — the raw, unfiltered search
+  // response — straight into the player. A popular song's search results
+  // are naturally full of near-duplicate entries (the same song re-uploaded
+  // by five different channels, official + lyric-video + status-video cuts
+  // of the same track, etc.), and none of that gets deduped before display
+  // because search SHOULD show every version so the user can pick one.
+  // But once picked, dumping that same noisy list straight into Up Next
+  // meant the next 5-6 slots were just re-uploads of the song that was
+  // just tapped. This builds a separate queue for playback only: the
+  // tapped song goes first, then every other result is kept only if
+  // isSameSongSmart doesn't already consider it a re-upload of something
+  // already in the queue. _results itself (what's on screen) is untouched
+  // — search still shows every version; only what auto-plays next changes.
+  List<Song> _dedupedQueueFor(int tappedIndex) {
+    final anchor = _results[tappedIndex];
+    final seenIds = <String>{anchor.id};
+    final seenRawTitles = <String>[anchor.title];
+    final out = <Song>[anchor];
+    for (int j = 0; j < _results.length; j++) {
+      if (j == tappedIndex) continue;
+      final s = _results[j];
+      if (seenIds.contains(s.id)) continue;
+      if (RecommendationEngine.isInherentVariant(s.title)) continue;
+      var isDup = false;
+      for (final raw in seenRawTitles) {
+        if (RecommendationEngine.isSameSongSmart(s.title, raw)) {
+          isDup = true;
+          break;
+        }
+      }
+      if (isDup) continue;
+      seenIds.add(s.id);
+      seenRawTitles.add(s.title);
+      out.add(s);
+    }
+    return out;
   }
 
   void _search(String q) {
@@ -959,7 +999,7 @@ class _SearchScreenState extends State<SearchScreen>
             itemKey: 'result_${_results[i].id}',
             child: SongTile(
               key: ValueKey('result_${_results[i].id}_$i'),
-              song: _results[i], queue: _results, index: i,
+              song: _results[i], queue: _dedupedQueueFor(i), index: 0,
             ),
           ),
         ),

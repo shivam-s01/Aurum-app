@@ -821,9 +821,12 @@ class PlayerProvider extends ChangeNotifier {
         ...RecommendationEngine.sessionRecentIds,
       };
 
+      // TUNED: 20 -> 30 per refill batch, keeping pace with the larger
+      // ~80-song initial build above rather than trickling back down
+      // to a much smaller buffer between refills.
       final nextSongs = await ApiService.getAutoQueue(
         current,
-        limit: 20,
+        limit: 30,
         existingQueueIds: existingIds,
       );
 
@@ -860,15 +863,22 @@ class PlayerProvider extends ChangeNotifier {
         toAdd.add(s);
       }
 
-      for (final song in toAdd) {
+      // Background metadata cleanup — see api_service.dart's "METADATA
+      // CLEANUP" section for why this is safe here: the current song is
+      // already playing, this only touches songs about to be appended to
+      // Up Next, and it has its own hard timeout so a slow/failed lookup
+      // just means those songs keep their original Saavn/YT titles.
+      final cleanToAdd = await ApiService.enrichWithCleanMetadata(toAdd);
+
+      for (final song in cleanToAdd) {
         await _engine.addToQueue(song);
         _queue.add(song);
       }
 
       // Prefetch next song's stream URL so it starts instantly
-      if (toAdd.isNotEmpty) {
-        ApiService.prefetchNext(toAdd.first);
-        if (toAdd.length > 1) ApiService.prefetchNext(toAdd[1]);
+      if (cleanToAdd.isNotEmpty) {
+        ApiService.prefetchNext(cleanToAdd.first);
+        if (cleanToAdd.length > 1) ApiService.prefetchNext(cleanToAdd[1]);
         notifyListeners();
       }
     } catch (e) {
@@ -1174,17 +1184,25 @@ class PlayerProvider extends ChangeNotifier {
           queuedRawTitles.add(s.title);
           toAdd.add(s);
         }
-        for (final s in toAdd) {
+        // Background metadata cleanup (see api_service.dart) — re-check
+        // staleness after it since this is async and the user may have
+        // switched songs while these lookups were in flight.
+        final cleanToAdd = await ApiService.enrichWithCleanMetadata(toAdd);
+        if (sessionId != _uiPlaySession) return;
+        for (final s in cleanToAdd) {
           if (sessionId != _uiPlaySession) return;
           await _engine.addToQueue(s);
           _queue.add(s);
         }
-        alreadyInQueue.addAll(toAdd.map((s) => s.id));
+        alreadyInQueue.addAll(cleanToAdd.map((s) => s.id));
         notifyListeners();
       }
-      // Phase 2: 40 more songs (Phase 1's 20 + this = 60 total, matching
-      // getAutoQueue's own default depth)
-      final phase2 = await ApiService.getAutoQueue(song, limit: 40, existingQueueIds: {
+      // Phase 2: 60 more songs (Phase 1's 20 + this = 80 total). TUNED:
+      // raised from 40 to 60 so a freshly-started session's Up Next holds
+      // ~80 songs up front instead of ~60 — matches the continuous
+      // ≤8-remaining auto-extend below in "never feels like it's about to
+      // run out" spirit, just for the very first build too.
+      final phase2 = await ApiService.getAutoQueue(song, limit: 60, existingQueueIds: {
         ...alreadyInQueue, ...RecommendationEngine.sessionRecentIds,
       });
       if (sessionId != _uiPlaySession) return;
@@ -1204,7 +1222,11 @@ class PlayerProvider extends ChangeNotifier {
           queuedRawTitles.add(s.title);
           toAdd.add(s);
         }
-        for (final s in toAdd) {
+        // Background metadata cleanup (see api_service.dart) — re-check
+        // staleness after it, same reasoning as Phase 1 above.
+        final cleanToAdd = await ApiService.enrichWithCleanMetadata(toAdd);
+        if (sessionId != _uiPlaySession) return;
+        for (final s in cleanToAdd) {
           if (sessionId != _uiPlaySession) return;
           await _engine.addToQueue(s);
           _queue.add(s);
