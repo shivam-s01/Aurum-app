@@ -269,11 +269,24 @@ class BrowseArtist {
 
 class BrowseService {
   static final _client = http.Client();
-  // The old backend (jiosaavn-op-gits.onrender.com) was suspended by
-  // Render for exceeding free-tier monthly usage hours. Migrated to the
-  // same repo's Vercel deployment (jiosavan-three) — serverless functions
-  // don't sleep/get suspended for usage-hours the way Render's free web
-  // services do, so this should hold up better long-term.
+  // BACKEND FIX ("Browse behaves worse/different than Search"): this used
+  // to hit ONLY the Flask fallback pillar (jiosavan-three.vercel.app),
+  // while api_service.dart's Search tab prefers the Node-family primary
+  // (jiosaavn-op-c4oo.onrender.com) first and only falls back to the
+  // Flask hosts if that's down. Browse was quietly running on the weaker
+  // fallback host all the time — different backend, different response
+  // freshness/coverage — which is a real part of why Browse could feel
+  // worse than Search for the exact same query. Now Browse tries hosts in
+  // the same priority order Search does.
+  static const List<String> _nodeHosts = [
+    'https://jiosaavn-op-c4oo.onrender.com',
+  ];
+  static const List<String> _flaskHosts = [
+    'https://jiosavan-ecc1.onrender.com',
+    'https://jiosavan-three.vercel.app',
+  ];
+  // Kept for the two other call sites in this file (artist/album track
+  // lookups) that still build a Flask-style `/result/` URL directly.
   static const _base = 'https://jiosavan-three.vercel.app';
 
   static Future<BrowseSearchResult> search(String query) async {
@@ -285,8 +298,9 @@ class BrowseService {
     // Dedicated /search/albums and /search/artists endpoints aren't part
     // of this API's flat schema, so we derive albums/artists from the
     // song results themselves instead of hitting endpoints that 404.
-    final body = await _fetch('$_base/result/?query=$encoded&limit=30');
-    final rawTracks = _parseList(body);
+    // Now races the same host priority Search uses (Node primary first)
+    // instead of only ever hitting the Flask fallback pillar.
+    final rawTracks = await _fetchTracksMultiHost(encoded, limit: 30);
 
     // FIX (Browse tab showing unrelated tracks for loose/typo'd queries):
     // Browse's track list previously took every Saavn result verbatim with
@@ -311,6 +325,31 @@ class BrowseService {
     final tracks  = <BrowseTrack>[];
     for (final j in effectiveRawTracks) {
       try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
+    }
+
+    // FIX ("YT se songs catch nahi kar raha" in Browse): Albums and
+    // Artists below already had a YouTube fallback for when Saavn came up
+    // empty, but Tracks — the main list users actually scroll — never
+    // did. A query where Saavn returned nothing (or only a couple of thin
+    // results) left the Tracks section empty/sparse with no YT topup at
+    // all, even though YouTube is otherwise treated as a first-class
+    // source everywhere else in the app (Search, Up Next, Home feed).
+    // Mirrors the same "empty or thin -> topup from YT" pattern already
+    // used for albums/artists just below, deduped against what Saavn
+    // already returned.
+    if (tracks.length < 10 && query.trim().isNotEmpty) {
+      final ytTracks = await _ytTracksFor(query.trim());
+      final seenTitles = <String>[for (final t in tracks) t.title];
+      for (final ytTrack in ytTracks) {
+        if (tracks.length >= 30) break;
+        var isDup = false;
+        for (final seen in seenTitles) {
+          if (RecommendationEngine.isSameSongSmart(ytTrack.title, seen)) { isDup = true; break; }
+        }
+        if (isDup) continue;
+        seenTitles.add(ytTrack.title);
+        tracks.add(ytTrack);
+      }
     }
 
     // Derive a lightweight "Albums" and "Artists" view from the (already
@@ -410,19 +449,41 @@ class BrowseService {
     }
   }
 
-  // Full YouTube-sourced fallback for albums when Saavn has none — groups
-  // top video results loosely so the row still shows something playable.
+  // Full YouTube-sourced fallback for albums when Saavn has none.
   //
-  // FIX ("Albums" row showing junk/duplicate results): this used to take
-  // YouTube's raw top-6 results with zero filtering — no view-count/quality
-  // gate (unlike every other YouTube-sourced surface in the app: search,
-  // up-next, home feed all apply RecommendationEngine.isPremiumQuality /
-  // isLowQualityUpload) and no duplicate detection, so 2-3 re-uploads of
-  // the exact same song could easily eat multiple slots in a 6-card row,
-  // and low-view junk uploads (status videos, wedding uploads, etc.) could
-  // fill the rest. Fetching a wider pool and filtering/deduping down to the
-  // requested count brings this row up to the same premium bar the rest of
-  // the app already holds YouTube content to.
+  // PREMIUM REDESIGN ("ekdam pro level ka albums chahiye"): the previous
+  // version turned each individual top-ranked VIDEO into its own "Album"
+  // card — that's not really an album, it's one song wearing an album
+  // label, and worse, tapping it searched YouTube using the raw VIDEO ID
+  // as a text query (collectionId was set to v.id.value), which returns
+  // garbage/unrelated results since a video id means nothing as search
+  // text. A real premium "Albums" row should represent an artist/channel's
+  // body of work, not a single video.
+  //
+  // Fix: search once, then GROUP results by their uploading channel
+  // (official music-label channels prioritized — same _officialChannelMarkers
+  // list api_service.dart's YouTube search already uses to rank official
+  // uploads above random reuploads). Each accepted channel becomes ONE
+  // album card, using its highest-quality song as the card's artwork/
+  // title, with collectionId set to the CHANNEL NAME (not a video id) —
+  // so tapping the card resolves via _ytTracksFor('$channelName songs'),
+  // giving a real multi-track list from that channel instead of one
+  // video's worth of "album".
+  static const List<String> _officialAlbumChannelMarkers = [
+    't-series', 'zee music', 'sony music', 'saregama', 'tips official',
+    'tips music', 'speed records', 'desi music factory', 'shemaroo',
+    'venus', 'eros now music', 'yrf', 'jjust music', 'white hill music',
+    'times music', 'muzik one', 'goldmines', 'ultra music', 'divo',
+    'universal music', 'sony music south', 'aditya music', 'lahari music',
+    'think music', 'zee music south', 'wave music', 'atlantic records',
+    'republic records', 'columbia records', 'interscope', 'def jam',
+  ];
+
+  static bool _isOfficialAlbumChannel(String channelName) {
+    final c = channelName.toLowerCase();
+    return _officialAlbumChannelMarkers.any((m) => c.contains(m));
+  }
+
   static Future<List<BrowseAlbum>> _ytAlbumFallback(String query, {int count = 6}) async {
     final ytClient = yt.YoutubeExplode();
     try {
@@ -430,48 +491,105 @@ class BrowseService {
           .then((list) => list.toList())
           .timeout(const Duration(seconds: 8), onTimeout: () => <yt.Video>[]);
 
-      final out = <BrowseAlbum>[];
-      final acceptedTitles = <String>[];
-      for (final v in results) {
-        if (out.length >= count) break;
-        if (!_isBrowseQuality(v)) continue;
-        if (RecommendationEngine.isInherentVariant(v.title)) continue;
-        var isDup = false;
-        for (final seen in acceptedTitles) {
-          if (RecommendationEngine.isSameSongSmart(v.title, seen)) { isDup = true; break; }
+      // Reject junk/variant titles and apply the quality floor FIRST,
+      // then group survivors by channel — so a channel's "album" card is
+      // always built from its best qualifying upload, never a low-view or
+      // junk-titled one even if that's all a niche channel had.
+      final qualified = results.where((v) =>
+          _isBrowseQuality(v) && !RecommendationEngine.isInherentVariant(v.title)).toList();
+
+      // Group by channel (case-insensitive), keeping first-seen order so
+      // the channel whose song ranked highest in YT's own relevance order
+      // still anchors that channel's position in the output row.
+      final channelOrder = <String>[];
+      final channelBest = <String, yt.Video>{};
+      final channelTitles = <String, List<String>>{};
+      for (final v in qualified) {
+        final channel = v.author.trim();
+        if (channel.isEmpty) continue;
+        final key = channel.toLowerCase();
+        // De-dupe within a channel using the same smart-title comparison
+        // used everywhere else, so a channel that re-uploaded the same
+        // song 3x under slightly different titles doesn't look "richer"
+        // than it is when we later derive a track count.
+        final titlesSoFar = channelTitles.putIfAbsent(key, () => []);
+        var isDupWithinChannel = false;
+        for (final seen in titlesSoFar) {
+          if (RecommendationEngine.isSameSongSmart(v.title, seen)) { isDupWithinChannel = true; break; }
         }
-        if (isDup) continue;
-        acceptedTitles.add(v.title);
+        if (isDupWithinChannel) continue;
+        titlesSoFar.add(v.title);
+        if (!channelBest.containsKey(key)) {
+          channelOrder.add(key);
+          channelBest[key] = v;
+        }
+      }
+
+      // Official label/publisher channels first (a T-Series or Zee Music
+      // "album" card is exactly what a premium browse row should lead
+      // with), independent channels after — same tie-break used for
+      // individual YT search results elsewhere in the app.
+      channelOrder.sort((a, b) {
+        final aOfficial = _isOfficialAlbumChannel(a) ? 0 : 1;
+        final bOfficial = _isOfficialAlbumChannel(b) ? 0 : 1;
+        return aOfficial.compareTo(bOfficial);
+      });
+
+      final out = <BrowseAlbum>[];
+      for (final key in channelOrder) {
+        if (out.length >= count) break;
+        final v = channelBest[key]!;
         final thumb = _bestYtThumbnail(v.thumbnails);
+        final trackCount = channelTitles[key]?.length;
         out.add(BrowseAlbum(
-          collectionId: v.id.value, // real YT video id — used directly for playback
+          // Channel name, not a video id — this is what makes tapping the
+          // card actually work (see albumTracks below): it's used as a
+          // real search query ('$channelName songs'), not a meaningless
+          // video-id string.
+          collectionId: v.author.trim(),
           name: _clean(v.title),
           artist: _clean(v.author),
           artworkUrl: thumb,
+          trackCount: trackCount,
           isFromYoutube: true,
         ));
       }
 
       // Quality/dedup filtering left the row short (thin catalog for a
-      // niche query) — backfill from the same pool ignoring the view-count
-      // floor (but still respecting dedup) rather than showing fewer cards
-      // than the user would expect from a normal Browse row.
+      // niche query) — backfill from the RAW pool (ignoring the view-count
+      // floor, but still respecting per-channel dedup and still grouping
+      // by channel) rather than showing fewer cards than the user would
+      // expect from a normal Browse row.
       if (out.isEmpty) {
-        final acceptedFallback = <String>[];
+        final fallbackChannelOrder = <String>[];
+        final fallbackChannelBest = <String, yt.Video>{};
+        final fallbackChannelTitles = <String, List<String>>{};
         for (final v in results) {
-          if (out.length >= count) break;
-          var isDup = false;
-          for (final seen in acceptedFallback) {
-            if (RecommendationEngine.isSameSongSmart(v.title, seen)) { isDup = true; break; }
+          final channel = v.author.trim();
+          if (channel.isEmpty) continue;
+          final key = channel.toLowerCase();
+          final titlesSoFar = fallbackChannelTitles.putIfAbsent(key, () => []);
+          var isDupWithinChannel = false;
+          for (final seen in titlesSoFar) {
+            if (RecommendationEngine.isSameSongSmart(v.title, seen)) { isDupWithinChannel = true; break; }
           }
-          if (isDup) continue;
-          acceptedFallback.add(v.title);
+          if (isDupWithinChannel) continue;
+          titlesSoFar.add(v.title);
+          if (!fallbackChannelBest.containsKey(key)) {
+            fallbackChannelOrder.add(key);
+            fallbackChannelBest[key] = v;
+          }
+        }
+        for (final key in fallbackChannelOrder) {
+          if (out.length >= count) break;
+          final v = fallbackChannelBest[key]!;
           final thumb = _bestYtThumbnail(v.thumbnails);
           out.add(BrowseAlbum(
-            collectionId: v.id.value,
+            collectionId: v.author.trim(),
             name: _clean(v.title),
             artist: _clean(v.author),
             artworkUrl: thumb,
+            trackCount: fallbackChannelTitles[key]?.length,
             isFromYoutube: true,
           ));
         }
@@ -658,12 +776,15 @@ class BrowseService {
   // this backend has no dedicated /albums?id= endpoint.
   //
   // FIX: when the album card itself came from the YouTube fallback (Saavn
-  // had nothing for the query), its "name" is a YT video title, not a real
-  // Saavn album — searching Saavn for that text matched nothing and the
-  // track list opened empty. isFromYoutube routes straight to a YouTube
-  // search instead, so tapping a YT-sourced card always plays something.
+  // had nothing for the query), its collectionId is now the CHANNEL NAME
+  // (see _ytAlbumFallback's premium redesign above) rather than a random
+  // Saavn album string or a meaningless video id — appending "songs" gets
+  // a real track list from that channel/label, the same pattern
+  // artistTopSongs already uses for YT-sourced artist chips, instead of
+  // searching the bare channel name (which can match unrelated uploads
+  // that merely mention the channel name in their title).
   static Future<List<BrowseTrack>> albumTracks(String collectionId, {bool isFromYoutube = false}) async {
-    if (isFromYoutube) return _ytTracksFor(collectionId);
+    if (isFromYoutube) return _ytTracksFor('$collectionId songs');
     final encoded = Uri.encodeQueryComponent(collectionId.trim());
     final body = await _fetch('$_base/result/?query=$encoded&limit=25');
     final tracks = <BrowseTrack>[];
@@ -702,6 +823,44 @@ class BrowseService {
       if (res.statusCode == 200) return res.body;
     } catch (_) {}
     return '{}';
+  }
+
+  // Races the Node-family primary (/api/search/songs — different JSON
+  // shape) against the Flask fallback hosts (/result/) at the same time,
+  // returning whichever comes back with usable raw results first. Falls
+  // back through in priority order if the race yields nothing at all.
+  // Returns raw parsed maps already normalised to the flat shape the rest
+  // of this file expects (song/title/name keys etc. handled by the
+  // existing _parseList/BrowseTrack.fromSaavn code further down).
+  static Future<List<Map<String, dynamic>>> _fetchTracksMultiHost(String encodedQuery, {int limit = 30}) async {
+    Future<List<Map<String, dynamic>>?> tryNode(String host) async {
+      final body = await _fetch('$host/api/search/songs?query=$encodedQuery&limit=$limit');
+      try {
+        final data = jsonDecode(body);
+        final results = data is Map ? (data['data']?['results'] ?? []) : [];
+        if (results is List && results.isNotEmpty) {
+          final list = results.whereType<Map<String, dynamic>>().toList();
+          if (list.isNotEmpty) return list;
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    Future<List<Map<String, dynamic>>?> tryFlask(String host) async {
+      final body = await _fetch('$host/result/?query=$encodedQuery&limit=$limit');
+      final list = _parseList(body);
+      return list.isNotEmpty ? list : null;
+    }
+
+    final futures = <Future<List<Map<String, dynamic>>?>>[
+      for (final host in _nodeHosts) tryNode(host),
+      for (final host in _flaskHosts) tryFlask(host),
+    ];
+    final resultsInOrder = await Future.wait(futures);
+    for (final r in resultsInOrder) {
+      if (r != null) return r;
+    }
+    return [];
   }
 
   static List<Map<String, dynamic>> _parseList(String body) {

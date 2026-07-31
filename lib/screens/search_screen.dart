@@ -155,6 +155,20 @@ class _SearchScreenState extends State<SearchScreen>
   List<Song>   _liveResults = [];
   List<String> _suggestions = [];
   List<String> _history     = [];
+  // PERF FIX ("scroll karo to bahut jyada lag kar raha hai"): _dedupedQueueFor
+  // and _dedupedRelatedQueueFor used to run their O(n) nested dedup loop
+  // (isSameSongSmart string comparisons against every prior song) fresh
+  // inside itemBuilder, on every single build — which for a ListView means
+  // every scroll frame, for every visible tile. With 80-100 search results
+  // that's hundreds of string comparisons repeated per frame purely from
+  // scrolling, which is exactly what read as "lag". Since the underlying
+  // queue for a given tapped index never changes unless _results/
+  // _relatedResults themselves change, it's computed ONCE right after those
+  // lists are set (see _search/_onChanged) and cached here — itemBuilder now
+  // just does an O(1) list lookup instead of recomputing the whole dedup
+  // pass on every frame.
+  List<List<Song>> _resultQueues = [];
+  List<List<Song>> _relatedQueues = [];
   bool _loading     = false;
   bool _liveLoading = false;
   // FIX (search screen "goes blank/covers with a loader" on live typing):
@@ -378,58 +392,63 @@ class _SearchScreenState extends State<SearchScreen>
   // isSameSongSmart doesn't already consider it a re-upload of something
   // already in the queue. _results itself (what's on screen) is untouched
   // — search still shows every version; only what auto-plays next changes.
-  List<Song> _dedupedQueueFor(int tappedIndex) {
-    final anchor = _results[tappedIndex];
-    final seenIds = <String>{anchor.id};
-    final seenRawTitles = <String>[anchor.title];
-    final out = <Song>[anchor];
-    for (int j = 0; j < _results.length; j++) {
-      if (j == tappedIndex) continue;
-      final s = _results[j];
-      if (seenIds.contains(s.id)) continue;
-      if (RecommendationEngine.isInherentVariant(s.title)) continue;
-      var isDup = false;
-      for (final raw in seenRawTitles) {
-        if (RecommendationEngine.isSameSongSmart(s.title, raw)) {
-          isDup = true;
-          break;
+  // PERF: computes every tapped-index queue for _results ONCE, called right
+  // after _results is set (search submit, or live results promoted) instead
+  // of once per itemBuilder call. Same dedup logic as before, just computed
+  // up-front instead of on every scroll frame.
+  void _precomputeResultQueues() {
+    _resultQueues = List.generate(_results.length, (tappedIndex) {
+      final anchor = _results[tappedIndex];
+      final seenIds = <String>{anchor.id};
+      final seenRawTitles = <String>[anchor.title];
+      final out = <Song>[anchor];
+      for (int j = 0; j < _results.length; j++) {
+        if (j == tappedIndex) continue;
+        final s = _results[j];
+        if (seenIds.contains(s.id)) continue;
+        if (RecommendationEngine.isInherentVariant(s.title)) continue;
+        var isDup = false;
+        for (final raw in seenRawTitles) {
+          if (RecommendationEngine.isSameSongSmart(s.title, raw)) {
+            isDup = true;
+            break;
+          }
         }
+        if (isDup) continue;
+        seenIds.add(s.id);
+        seenRawTitles.add(s.title);
+        out.add(s);
       }
-      if (isDup) continue;
-      seenIds.add(s.id);
-      seenRawTitles.add(s.title);
-      out.add(s);
-    }
-    return out;
+      return out;
+    });
   }
 
-  // Same dedup logic as _dedupedQueueFor, scoped to the "You might also
-  // like" section instead of the direct-match section — tapping a related
-  // song should queue up more related songs, not jump back into direct
-  // matches for the original query.
-  List<Song> _dedupedRelatedQueueFor(int tappedIndex) {
-    final anchor = _relatedResults[tappedIndex];
-    final seenIds = <String>{anchor.id};
-    final seenRawTitles = <String>[anchor.title];
-    final out = <Song>[anchor];
-    for (int j = 0; j < _relatedResults.length; j++) {
-      if (j == tappedIndex) continue;
-      final s = _relatedResults[j];
-      if (seenIds.contains(s.id)) continue;
-      if (RecommendationEngine.isInherentVariant(s.title)) continue;
-      var isDup = false;
-      for (final raw in seenRawTitles) {
-        if (RecommendationEngine.isSameSongSmart(s.title, raw)) {
-          isDup = true;
-          break;
+  // Same as _precomputeResultQueues but for _relatedResults.
+  void _precomputeRelatedQueues() {
+    _relatedQueues = List.generate(_relatedResults.length, (tappedIndex) {
+      final anchor = _relatedResults[tappedIndex];
+      final seenIds = <String>{anchor.id};
+      final seenRawTitles = <String>[anchor.title];
+      final out = <Song>[anchor];
+      for (int j = 0; j < _relatedResults.length; j++) {
+        if (j == tappedIndex) continue;
+        final s = _relatedResults[j];
+        if (seenIds.contains(s.id)) continue;
+        if (RecommendationEngine.isInherentVariant(s.title)) continue;
+        var isDup = false;
+        for (final raw in seenRawTitles) {
+          if (RecommendationEngine.isSameSongSmart(s.title, raw)) {
+            isDup = true;
+            break;
+          }
         }
+        if (isDup) continue;
+        seenIds.add(s.id);
+        seenRawTitles.add(s.title);
+        out.add(s);
       }
-      if (isDup) continue;
-      seenIds.add(s.id);
-      seenRawTitles.add(s.title);
-      out.add(s);
-    }
-    return out;
+      return out;
+    });
   }
 
   void _search(String q) {
@@ -462,6 +481,8 @@ class _SearchScreenState extends State<SearchScreen>
       _results = [];
       _suggestions = [];
       _liveResults = [];
+      _resultQueues = [];
+      _relatedQueues = [];
     });
     _saveToHistory(query);
     _debounce = Timer(const Duration(milliseconds: 150), () async {
@@ -475,6 +496,15 @@ class _SearchScreenState extends State<SearchScreen>
         _relatedResults = result.related;
         _loading = false;
       });
+      // Precompute queues right after results are set — kept as separate
+      // calls (not merged into the setState body above) since they don't
+      // themselves need to trigger a rebuild; the setState above already
+      // does that. Called synchronously right after, so by the time
+      // Flutter actually runs build() (next frame), both _results and
+      // _resultQueues/_relatedQueues are already consistent — no separate
+      // async gap where one could be stale relative to the other.
+      _precomputeResultQueues();
+      _precomputeRelatedQueues();
     });
   }
 
@@ -490,7 +520,7 @@ class _SearchScreenState extends State<SearchScreen>
       _results = []; _relatedResults = []; _liveResults = []; _suggestions = [];
       _liveLoading = false; _showLiveLoader = false; _loading = false;
       _showHistory = _history.isNotEmpty;
-      
+      _resultQueues = []; _relatedQueues = [];
       _browseResult = BrowseSearchResult.empty();
       _lastBrowseQuery = '';
     });
@@ -1052,7 +1082,9 @@ class _SearchScreenState extends State<SearchScreen>
                   itemKey: 'result_${_results[i].id}',
                   child: SongTile(
                     key: ValueKey('result_${_results[i].id}_$i'),
-                    song: _results[i], queue: _dedupedQueueFor(i), index: 0,
+                    song: _results[i],
+                    queue: i < _resultQueues.length ? _resultQueues[i] : [_results[i]],
+                    index: 0,
                   ),
                 ),
               );
@@ -1070,7 +1102,10 @@ class _SearchScreenState extends State<SearchScreen>
                 child: SongTile(
                   key: ValueKey('related_${_relatedResults[relatedIdx].id}_$relatedIdx'),
                   song: _relatedResults[relatedIdx],
-                  queue: _dedupedRelatedQueueFor(relatedIdx), index: 0,
+                  queue: relatedIdx < _relatedQueues.length
+                      ? _relatedQueues[relatedIdx]
+                      : [_relatedResults[relatedIdx]],
+                  index: 0,
                 ),
               ),
             );
@@ -1445,7 +1480,14 @@ class _AlbumCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(album.name, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-          Text(album.artist, style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(
+            album.trackCount != null && album.trackCount! > 1
+                ? '${album.artist} • ${album.trackCount} songs'
+                : album.artist,
+            style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 11),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ]),
       ),
     );

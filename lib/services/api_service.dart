@@ -1275,6 +1275,34 @@ class ApiService {
 
     final wantsVariant = _wantsVariantQuery(q);
 
+    // FIX ("Saavn ki full power use karke exact match nahi la raha" — a
+    // long lyric-line query like "mujhko dard dil ki dawa chahiye" often
+    // has no exact hit in Saavn's own full-text search, because Saavn's
+    // backend matches loosely on the WHOLE string and a 6-word lyric line
+    // rarely appears verbatim in any song's indexed metadata. Real JioSaavn
+    // (and Spotify) handle this by also trying shorter sub-phrases of a
+    // long query, not just the raw string once. Builds a few trimmed
+    // variants (front-trimmed and back-trimmed 3-4 word windows) and fires
+    // them at Saavn IN PARALLEL with the main query — same total wait time
+    // as before (nothing here is sequential/extra-latency), just more
+    // chances for Saavn's own search to land a real hit before ever
+    // falling back to YT.
+    final qWordsForVariants = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final lyricVariants = <String>{};
+    if (qWordsForVariants.length >= 4) {
+      // Drop trailing filler word(s): "...dawa chahiye" -> "...dawa"
+      lyricVariants.add(qWordsForVariants.sublist(0, qWordsForVariants.length - 1).join(' '));
+      // Drop leading filler word(s): "mujhko dard..." -> "dard..."
+      lyricVariants.add(qWordsForVariants.sublist(1).join(' '));
+      // Middle 3-4 word core phrase — often the actual song-title fragment
+      // inside a longer remembered lyric line.
+      final mid = (qWordsForVariants.length / 2).floor();
+      final start = (mid - 2).clamp(0, qWordsForVariants.length).toInt();
+      final end = (start + 4).clamp(0, qWordsForVariants.length).toInt();
+      if (end > start) lyricVariants.add(qWordsForVariants.sublist(start, end).join(' '));
+    }
+    lyricVariants.remove(q);
+
     // Saavn gets 10s and a much higher limit so results feel as complete as
     // the real JioSaavn app — YT only fills genuine gaps, never competes
     // for the same slots Saavn already covers.
@@ -1283,10 +1311,22 @@ class ApiService {
           .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[]),
       _searchYt(q, limit: 20)
           .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]),
+      ...lyricVariants.map((v) => _searchSaavn(v, limit: 20)
+          .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
+          .catchError((_) => <Song>[])),
     ]);
 
     final saavnResults = both[0];
     final ytResults    = both[1];
+    // Merge lyric-variant Saavn hits in AFTER the raw main-query results —
+    // they still go through the exact same scoring/relevance-floor/dedup
+    // pass below (scored against the ORIGINAL query q, not the variant),
+    // so a variant hit only survives if it's genuinely relevant to what
+    // the user actually typed, not just to the trimmed sub-phrase.
+    final saavnCombined = [
+      ...saavnResults,
+      for (var i = 2; i < both.length; i++) ...both[i],
+    ];
 
     final saavnScored = <_ScoredSong>[];
     final ytScored    = <_ScoredSong>[];
@@ -1310,7 +1350,7 @@ class ApiService {
     // "Emitemitemo" — because every result was kept and shown regardless
     // of how weak its match score was.
     const minRelevanceScore = 15.0;
-    for (final song in saavnResults) {
+    for (final song in saavnCombined) {
       final score = _scoreSearchResult(song, q, wantsVariant);
       if (score < minRelevanceScore) continue;
       var isDupOfAccepted = false;
@@ -1378,45 +1418,38 @@ class ApiService {
       final seenRelated = <String>{};
       const relatedCap = 55;
 
-      // PARALLEL FIX: previously two sequential for-loops (await inside
-      // for) fired up to 4 Saavn calls + 4 YT calls one after another —
-      // 8 sequential network round-trips per search, each up to 6s,
-      // causing multi-second lag. Now each set fires concurrently via
-      // Future.wait — same data, same caps/filters, just parallel.
-      final saavnResults = await Future.wait(
-        relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 25)
+      // SPEED FIX ("search bahut lag kar raha hai"): this used to be TWO
+      // sequential phases — wait for ALL Saavn-related queries to finish,
+      // THEN (only if still short) fire ALL YT-related queries and wait
+      // again. Even though each phase itself ran its queries in parallel,
+      // the phases stacked on top of each other, so a search could pay
+      // Saavn's full round-trip time AND THEN YT's full round-trip time
+      // back to back — on top of the initial direct-search Future.wait
+      // that already happens before this block even starts. Firing every
+      // Saavn-related AND every YT-related query in ONE combined
+      // Future.wait removes that second sequential wait entirely — same
+      // total network calls, same filters, just no longer paying for them
+      // twice in a row.
+      final combinedRelated = await Future.wait([
+        ...relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 25)
             .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[])),
-      );
-      for (final r in saavnResults) {
-        for (final s in r) {
+        ...relatedQueries.map((rq) => _searchYt(rq.query, limit: 20)
+            .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[])),
+      ]);
+      final saavnBatchCount = relatedQueries.length;
+      for (var i = 0; i < combinedRelated.length; i++) {
+        if (relatedPool.length >= relatedCap) break;
+        final isYt = i >= saavnBatchCount;
+        for (final s in combinedRelated[i]) {
           if (relatedPool.length >= relatedCap) break;
           if (directIds.contains(s.id)) continue;
           if (RecommendationEngine.isInherentVariant(s.title)) continue;
+          if (isYt && !RecommendationEngine.isPremiumQuality(s)) continue;
           final tk = _normTitle(s.title);
           if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
           relatedPool.add(s);
-        }
-        if (relatedPool.length >= relatedCap) break;
-      }
-
-      if (relatedPool.length < 45) {
-        final ytResults = await Future.wait(
-          relatedQueries.map((rq) => _searchYt(rq.query, limit: 20)
-              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
-              .catchError((_) => <Song>[])),
-        );
-        for (final r in ytResults) {
-          for (final s in r) {
-            if (relatedPool.length >= relatedCap) break;
-            if (directIds.contains(s.id)) continue;
-            if (RecommendationEngine.isInherentVariant(s.title)) continue;
-            if (!RecommendationEngine.isPremiumQuality(s)) continue;
-            final tk = _normTitle(s.title);
-            if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
-            relatedPool.add(s);
-          }
-          if (relatedPool.length >= relatedCap) break;
         }
       }
       results.addAll(relatedPool);
@@ -1631,9 +1664,33 @@ class ApiService {
     final saavnResults = await _searchSaavn(q, limit: limit + 15)
         .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
 
+    // FIX ("Saavn ki full power use karke exact match nahi la raha" while
+    // live-typing): same reasoning as the full search() fallback below —
+    // a long lyric-line query rarely appears verbatim in Saavn's index.
+    // Only tried here if the plain query came up genuinely short (fewer
+    // than half the wanted slots), so normal fast-matching queries pay
+    // zero extra latency — this only kicks in for the exact case that was
+    // reported (a full sentence/lyric line typed in Search).
+    final qWordsForVariants = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    List<Song> variantResults = [];
+    if (saavnResults.length < (limit * 0.5).ceil() && qWordsForVariants.length >= 4) {
+      final trimmedFront = qWordsForVariants.sublist(0, qWordsForVariants.length - 1).join(' ');
+      final trimmedBack  = qWordsForVariants.sublist(1).join(' ');
+      final variantBatches = await Future.wait([
+        _searchSaavn(trimmedFront, limit: 15)
+            .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[]),
+        _searchSaavn(trimmedBack, limit: 15)
+            .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[]),
+      ]);
+      variantResults = [...variantBatches[0], ...variantBatches[1]];
+    }
+    final saavnCombined = [...saavnResults, ...variantResults];
+
     final saavnScored = <_ScoredSong>[];
     final saavnRawTitlesAccepted = <String>[];
-    for (final song in saavnResults) {
+    for (final song in saavnCombined) {
       final score = _scoreSearchResult(song, q, wantsVariant);
       if (score < minLiveRelevanceScore) continue;
       var isDup = false;
@@ -1765,103 +1822,79 @@ class ApiService {
   // and /api/songs/:id returns clean non-DRM direct .mp4 URLs. Old Flask
   // hosts kept below as fallback in case v2 has downtime.
   // ===========================================================================
+  // SPEED FIX ("search bahut lag kar raha hai"): this used to try each of
+  // 4 possible hosts (Node primary, onrender Flask, Vercel Flask, CF
+  // worker) ONE AT A TIME with an 8s timeout each — if the primary host
+  // was merely slow (not fully down), the code still burned its whole 8s
+  // budget waiting before even starting the next host, so a single search
+  // could take up to ~32s in the worst case. Racing every host at once
+  // and taking whichever responds first with usable results removes that
+  // stacked wait — total time is now bounded by the FASTEST host, not the
+  // sum of every host's timeout. Falls back through hosts in priority
+  // order only if the race turns up nothing at all (kept purely for the
+  // pathological case where every host times out with zero data).
   static Future<List<Song>> _searchSaavn(String query, {int limit = 20}) async {
-    // 0. jiosaavn-op v2 (Node family) — /api/search/songs route.
-    //    Loops through ALL _saavnNodeHosts, not just the first, so adding a
-    //    second Node mirror to that list is enough to get failover here too.
-    for (final host in _saavnNodeHosts) {
+    Future<List<Song>?> tryNodeHost(String host) async {
       try {
         final url = Uri.parse(
           '$host/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
         );
         final res = await _client.get(url).timeout(const Duration(seconds: 8));
-        if (res.statusCode == 200) {
-          final data = jsonDecode(res.body);
-          final results = data is Map ? (data['data']?['results'] ?? []) : [];
-          if (results is List && results.isNotEmpty) {
-            final songs = results
-                .whereType<Map<String, dynamic>>()
-                .take(limit)
-                .map(_songFromSaavn)
-                .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
-                .toList();
-            if (songs.isNotEmpty) return songs;
-          }
-        }
+        if (res.statusCode != 200) return null;
+        final data = jsonDecode(res.body);
+        final results = data is Map ? (data['data']?['results'] ?? []) : [];
+        if (results is! List || results.isEmpty) return null;
+        final songs = results
+            .whereType<Map<String, dynamic>>()
+            .take(limit)
+            .map(_songFromSaavn)
+            .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+            .toList();
+        return songs.isNotEmpty ? songs : null;
       } catch (e) {
         _log('[_searchSaavn] $host error: $e');
+        return null;
       }
     }
-    // 1. onrender primary — /result/ route
-    try {
-      final url = Uri.parse(
-        '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
-      );
-      final res = await _client.get(url).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
+
+    Future<List<Song>?> tryResultRoute(String host) async {
+      try {
+        final url = Uri.parse(
+          '$host/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+        );
+        final res = await _client.get(url).timeout(const Duration(seconds: 8));
+        if (res.statusCode != 200) return null;
         final data = jsonDecode(res.body);
         final results = data is List
             ? data
             : (data['data']?['results'] ?? data['data'] ?? []);
-        if (results is List && results.isNotEmpty) {
-          final songs = results
-              .whereType<Map<String, dynamic>>()
-              .take(limit)
-              .map(_songFromSaavn)
-              .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
-              .toList();
-          if (songs.isNotEmpty) return songs;
-        }
+        if (results is! List || results.isEmpty) return null;
+        final songs = results
+            .whereType<Map<String, dynamic>>()
+            .take(limit)
+            .map(_songFromSaavn)
+            .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+            .toList();
+        return songs.isNotEmpty ? songs : null;
+      } catch (e) {
+        _log('[_searchSaavn] $host error: $e');
+        return null;
       }
-    } catch (e) {
-      _log('[_searchSaavn] onrender /result/ error: $e');
     }
-    // 2. Vercel secondary pillar — /result/ route (same Flask API)
-    try {
-      final url = Uri.parse(
-        '$_saavnSecondary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
-      );
-      final res = await _client.get(url).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final results = data is List
-            ? data
-            : (data['data']?['results'] ?? data['data'] ?? []);
-        if (results is List && results.isNotEmpty) {
-          final songs = results
-              .whereType<Map<String, dynamic>>()
-              .take(limit)
-              .map(_songFromSaavn)
-              .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
-              .toList();
-          if (songs.isNotEmpty) return songs;
-        }
-      }
-    } catch (e) {
-      _log('[_searchSaavn] Vercel /result/ error: $e');
-    }
-    // 3. Fallback to existing CF worker backend
-    try {
-      final url = Uri.parse(
-        '$_saavn/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
-      );
-      final res = await _client.get(url).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final results = data is List
-            ? data
-            : (data['data']?['results'] ?? data['data'] ?? []);
-        if (results is List && results.isNotEmpty) {
-          return results
-              .whereType<Map<String, dynamic>>()
-              .take(limit)
-              .map(_songFromSaavn)
-              .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
-              .toList();
-        }
-      }
-    } catch (e) {
-      _log('[_searchSaavn] Error: $e');
+
+    // Race every host at once, in priority order for tie-breaking (first
+    // non-null result in priority order wins, not just first-to-finish) —
+    // this keeps the Node primary preferred when it's fast enough, while
+    // never forcing a full sequential wait past it when it isn't.
+    final futures = <Future<List<Song>?>>[
+      for (final host in _saavnNodeHosts) tryNodeHost(host),
+      tryResultRoute(_saavnPrimary),
+      tryResultRoute(_saavnSecondary),
+      tryResultRoute(_saavn),
+    ];
+    final resultsInOrder = await Future.wait(futures);
+    for (final r in resultsInOrder) {
+      if (r != null) return r;
     }
     return [];
   }

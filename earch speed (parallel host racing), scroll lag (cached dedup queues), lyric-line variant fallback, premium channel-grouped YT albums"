@@ -1,0 +1,69 @@
+[33mcommit 363aee7ab33901b7a3297095ab3d8ef8c6d4e09e[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: shivam-s01 <sharmashivam9109@gmail.com>
+Date:   Fri Jul 31 16:05:29 2026 +0530
+
+    fix: search direct/related split, up next real recommendations, session-wide dedup
+
+ .../player_provider.dart      | 51 [32m++++++++[m[31m-[m
+ ...recommendation_engine.dart | 45 [32m++++++++[m
+ 2 files changed, 92 insertions(+), 4 deletions(-)
+
+[33mcommit 646fe9eac567a7550510bd6f9630f59ba5e4249d[m
+Author: shivam-s01 <sharmashivam9109@gmail.com>
+Date:   Fri Jul 31 15:49:02 2026 +0530
+
+    fix: search direct/related split, up next dedup
+
+ lib/l10n/app_ar.arb           |   1 [32m+[m
+ lib/l10n/app_de.arb           |   1 [32m+[m
+ lib/l10n/app_en.arb           |   1 [32m+[m
+ lib/l10n/app_es.arb           |   1 [32m+[m
+ lib/l10n/app_fr.arb           |   1 [32m+[m
+ lib/l10n/app_hi.arb           |   1 [32m+[m
+ lib/l10n/app_id.arb           |   1 [32m+[m
+ lib/l10n/app_it.arb           |   1 [32m+[m
+ lib/l10n/app_ja.arb           |   1 [32m+[m
+ lib/l10n/app_ko.arb           |   1 [32m+[m
+ lib/l10n/app_ru.arb           |   1 [32m+[m
+ lib/l10n/app_ta.arb           |   1 [32m+[m
+ lib/l10n/app_tr.arb           |   1 [32m+[m
+ lib/l10n/app_ur.arb           |   1 [32m+[m
+ lib/l10n/app_vi.arb           |   1 [32m+[m
+ lib/l10n/app_zh.arb           |   1 [32m+[m
+ .../search_screen.dart        | 101 [32m+++++++[m[31m-[m
+ lib/services/api_service.dart |  40 [32m++[m[31m-[m
+ 18 files changed, 135 insertions(+), 22 deletions(-)
+
+[33mcommit 6512552622e42f6fd1c60a8097dafb5c0cfb7bcc[m
+Author: shivam-s01 <sharmashivam9109@gmail.com>
+Date:   Fri Jul 31 15:09:40 2026 +0530
+
+    remove iTunes enrichment completely — pure Saavn/YT metadata
+
+ lib/screens/home_screen.dart  |  17 [31m-[m
+ .../search_screen.dart        |  14 [31m-[m
+ lib/services/api_service.dart | 147 [32m+[m[31m-------[m
+ 3 files changed, 4 insertions(+), 174 deletions(-)
+
+[33mcommit 2c7ca8b36638298a73f27c135fe1fcd2b9700af9[m
+Author: shivam-s01 <sharmashivam9109@gmail.com>
+Date:   Fri Jul 31 14:42:05 2026 +0530
+
+    fix: parallelize search lag + iTunes metadata enrichment (search/home/upnext)
+
+ lib/models/song.dart          |  7 [32m+[m
+ lib/screens/home_screen.dart  | 17 [32m++[m
+ .../search_screen.dart        | 14 [32m++[m
+ lib/services/api_service.dart | 73 [32m++++++[m[31m---[m
+ 4 files changed, 88 insertions(+), 23 deletions(-)
+
+[33mcommit 51788ea3ed831b372162c71f1efd88647a2a192c[m
+Author: shivam-s01 <sharmashivam9109@gmail.com>
+Date:   Fri Jul 31 14:05:59 2026 +0530
+
+    Add background iTunes metadata cleanup for Up Next; tune search/queue depth toward 80 songs with Saavn+YT blend
+
+ .../player_provider.dart      |  44 [32m++[m[31m-[m
+ .../search_screen.dart        |  42 [32m+[m[31m-[m
+ lib/services/api_service.dart | 150 [32m+++++++[m[31m-[m
+ 3 files changed, 219 insertions(+), 17 deletions(-)
