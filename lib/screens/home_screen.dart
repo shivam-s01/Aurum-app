@@ -370,23 +370,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _onlineSections = liveSections;
             _onlineLoading = false;
           });
-
-          // BACKGROUND METADATA POLISH: the section is already visible and
-          // playable with its original Saavn/YT metadata — this silently
-          // swaps in iTunes' clean title/artist/album/artwork per song once
-          // resolved. Never delays the section from appearing; never
-          // touches id/source/streamUrl, so playback is unaffected.
-          unawaited(() async {
-            final enrichedSongs =
-                await ApiService.enrichWithCleanMetadata(section.songs, maxLookups: 20);
-            if (!mounted) return;
-            final idx = liveSections.indexWhere((s) => s.id == section.id);
-            if (idx == -1) return;
-            setState(() {
-              liveSections[idx] = section.copyWith(songs: enrichedSongs);
-              _onlineSections = liveSections;
-            });
-          }());
         },
       ).timeout(const Duration(seconds: 25));
       if (mounted) {

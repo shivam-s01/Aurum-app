@@ -4003,155 +4003,16 @@ class ApiService {
     return decoded;
   }
 
-  // ===========================================================================
-  // METADATA CLEANUP — iTunes Search (free, no key/account required)
-  //
-  // MASTER SWITCH: flip this one flag to instantly turn iTunes enrichment
-  // OFF everywhere it's wired (search, home feed, Up Next) without touching
-  // any call site or deleting code. When false, enrichWithCleanMetadata()
-  // returns the input list completely untouched.
-  static const bool enableItunesEnrichment = true;
-  //
-  // WHAT THIS DOES: Saavn/YT titles are often messy — "Gori Hain Kalaiyan |
-  // Aaj Ka Arjun | Shabbir Ku..." instead of a clean "Gori Hai Kalaiyan" /
-  // "Lata Mangeshkar, Shabbir Kumar". iTunes' catalog has properly
-  // formatted title/artist/album strings. This module looks a song up on
-  // iTunes and, ONLY if confident it found the same song, swaps in the
-  // clean title/artist/album — id/source/streamUrl/duration/viewCount/
-  // localPath are copied through completely untouched, so which file
-  // actually plays is never affected by this in any way.
-  //
-  // WHERE THIS IS ALLOWED TO BE CALLED FROM: background queue-building
-  // only (_buildInitialSmartQueue / _maybeExtendQueue in player_provider,
-  // both of which already run async while a DIFFERENT song is already
-  // playing). It must NEVER be called from search() or anywhere in the
-  // playSong()/playQueue() path — every call here already has a strict
-  // timeout that fails silently, but the real guarantee that play speed
-  // is unaffected is architectural: this code is simply never reached
-  // from the tap-to-play path, not just "fast if it works".
-  // ===========================================================================
-
-  static const int _itunesLookupTimeoutMs = 2500;
-  static const Duration _itunesCacheTtl = Duration(hours: 12);
-  static final Map<String, _CachedItunesMeta> _itunesCache = {};
-
-  static Future<_ItunesMeta?> _lookupItunesMeta(String title, String artist) async {
-    // Dedicated key — NOT reusing _normalise() here, which truncates to 25
-    // chars for its own (different) purpose. That truncation would let two
-    // different songs collide onto the same cache key here and return each
-    // other's metadata, so this builds its own untruncated key instead.
-    final cacheKey = '${title.toLowerCase().trim()}|${artist.toLowerCase().trim()}';
-    final cached = _itunesCache[cacheKey];
-    if (cached != null && !cached.isExpired) return cached.meta;
-
-    try {
-      final term = Uri.encodeComponent('$title $artist'.trim());
-      final url = Uri.parse(
-        'https://itunes.apple.com/search?term=$term&media=music&entity=song&limit=3',
-      );
-      final res = await _client
-          .get(url)
-          .timeout(Duration(milliseconds: _itunesLookupTimeoutMs));
-      if (res.statusCode != 200) {
-        _itunesCache[cacheKey] = _CachedItunesMeta(null);
-        return null;
-      }
-      final decoded = jsonDecode(res.body) as Map<String, dynamic>;
-      final results = (decoded['results'] as List?) ?? const [];
-      for (final r in results) {
-        final candidateTitle = (r['trackName'] ?? '').toString();
-        if (candidateTitle.isEmpty) continue;
-        // Confidence gate: only accept if this is genuinely the same song,
-        // not just the closest thing iTunes' own loose search returned —
-        // reuses the exact same smart title-comparison already trusted
-        // everywhere else in this file for the same purpose.
-        if (!RecommendationEngine.isSameSongSmart(candidateTitle, title)) continue;
-        final rawArt = (r['artworkUrl100'] ?? '').toString();
-        final hiResArt = rawArt.isNotEmpty
-            ? rawArt.replaceAll('100x100bb', '600x600bb').replaceAll('100x100', '600x600')
-            : '';
-        final meta = _ItunesMeta(
-          title:  candidateTitle,
-          artist: (r['artistName'] ?? artist).toString(),
-          album:  (r['collectionName'] ?? '').toString(),
-          artworkUrl: hiResArt,
-        );
-        _itunesCache[cacheKey] = _CachedItunesMeta(meta);
-        return meta;
-      }
-      _itunesCache[cacheKey] = _CachedItunesMeta(null);
-      return null;
-    } catch (_) {
-      // Network hiccup, timeout, malformed JSON — never let a metadata
-      // nice-to-have throw. Caller just keeps the original song untouched.
-      return null;
-    }
-  }
-
-  static Song _withCleanMeta(Song original, _ItunesMeta meta) => Song(
-        id:         original.id,
-        title:      meta.title,
-        artist:     meta.artist,
-        album:      meta.album.isNotEmpty ? meta.album : original.album,
-        artworkUrl: meta.artworkUrl.isNotEmpty ? meta.artworkUrl : original.artworkUrl,
-        streamUrl:  original.streamUrl,
-        duration:   original.duration,
-        language:   original.language,
-        year:       original.year,
-        localPath:  original.localPath,
-        source:     original.source,
-        viewCount:  original.viewCount,
-      );
-
-  /// Background-only metadata cleanup for a batch of songs. Bounded by ONE
-  /// overall timeout no matter how many songs are passed in or how slow
-  /// iTunes is responding — any song whose lookup hasn't finished by then
-  /// is returned exactly as it came in. Never throws, never blocks longer
-  /// than [overallTimeout], and never touches id/source/streamUrl.
+  /// No-op passthrough. Kept only so existing callers in
+  /// player_provider.dart (Up Next queue building) keep compiling
+  /// unchanged — always returns the songs exactly as given, untouched.
   static Future<List<Song>> enrichWithCleanMetadata(
     List<Song> songs, {
     int maxLookups = 15,
     Duration overallTimeout = const Duration(seconds: 4),
   }) async {
-    if (!enableItunesEnrichment) return songs;
-    if (songs.isEmpty) return songs;
-    final toLookUp = songs.take(maxLookups).toList();
-    final rest = songs.skip(maxLookups).toList();
-
-    List<Song> enriched;
-    try {
-      enriched = await Future.wait(
-        toLookUp.map((s) async {
-          final meta = await _lookupItunesMeta(s.title, s.artist);
-          return meta != null ? _withCleanMeta(s, meta) : s;
-        }),
-      ).timeout(overallTimeout, onTimeout: () => toLookUp);
-    } catch (_) {
-      enriched = toLookUp;
-    }
-    return [...enriched, ...rest];
+    return songs;
   }
-}
-
-class _ItunesMeta {
-  final String title;
-  final String artist;
-  final String album;
-  final String artworkUrl;
-  const _ItunesMeta({
-    required this.title,
-    required this.artist,
-    required this.album,
-    this.artworkUrl = '',
-  });
-}
-
-class _CachedItunesMeta {
-  final _ItunesMeta? meta;
-  final DateTime cachedAt;
-  _CachedItunesMeta(this.meta) : cachedAt = DateTime.now();
-  bool get isExpired =>
-      DateTime.now().difference(cachedAt) > ApiService._itunesCacheTtl;
 }
 
 // =============================================================================
