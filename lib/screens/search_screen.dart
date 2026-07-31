@@ -437,6 +437,20 @@ class _SearchScreenState extends State<SearchScreen>
       // this was in flight, don't stomp on the newer query's results.
       if (_controller.text.trim() != query) return;
       setState(() { _results = results; _loading = false; });
+
+      // BACKGROUND METADATA POLISH: results are already on screen and
+      // playable — this silently swaps in iTunes' clean title/artist/
+      // album/artwork once it resolves, with zero effect on how fast
+      // results appeared or which stream plays. Same stale-guards as
+      // above so a fast re-search never gets overwritten by a slow
+      // enrichment pass for the old query.
+      unawaited(() async {
+        final enriched = await ApiService.enrichWithCleanMetadata(results, maxLookups: 30);
+        if (!mounted) return;
+        if (_controller.text.trim() != query) return;
+        if (_results != results) return;
+        setState(() => _results = enriched);
+      }());
     });
   }
 

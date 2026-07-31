@@ -158,6 +158,13 @@ class SongSection {
   SongSection({required this.title, required this.songs, String? id})
       : id = id ?? _slugify(title);
 
+  SongSection copyWith({String? title, List<Song>? songs, String? id}) =>
+      SongSection(
+        title: title ?? this.title,
+        songs: songs ?? this.songs,
+        id: id ?? this.id,
+      );
+
   static String _slugify(String title) => title
       .toLowerCase()
       .trim()

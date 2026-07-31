@@ -1377,37 +1377,46 @@ class ApiService {
       final relatedPool = <Song>[];
       final seenRelated = <String>{};
       const relatedCap = 55;
-      for (final rq in relatedQueries) {
+
+      // PARALLEL FIX: previously two sequential for-loops (await inside
+      // for) fired up to 4 Saavn calls + 4 YT calls one after another —
+      // 8 sequential network round-trips per search, each up to 6s,
+      // causing multi-second lag. Now each set fires concurrently via
+      // Future.wait — same data, same caps/filters, just parallel.
+      final saavnResults = await Future.wait(
+        relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 25)
+            .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[])),
+      );
+      for (final r in saavnResults) {
+        for (final s in r) {
+          if (relatedPool.length >= relatedCap) break;
+          if (directIds.contains(s.id)) continue;
+          if (RecommendationEngine.isInherentVariant(s.title)) continue;
+          final tk = _normTitle(s.title);
+          if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
+          relatedPool.add(s);
+        }
         if (relatedPool.length >= relatedCap) break;
-        try {
-          final r = await _searchSaavn(rq.query, limit: 25)
-              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
+      }
+
+      if (relatedPool.length < 45) {
+        final ytResults = await Future.wait(
+          relatedQueries.map((rq) => _searchYt(rq.query, limit: 20)
+              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+              .catchError((_) => <Song>[])),
+        );
+        for (final r in ytResults) {
           for (final s in r) {
             if (relatedPool.length >= relatedCap) break;
             if (directIds.contains(s.id)) continue;
             if (RecommendationEngine.isInherentVariant(s.title)) continue;
+            if (!RecommendationEngine.isPremiumQuality(s)) continue;
             final tk = _normTitle(s.title);
             if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
             relatedPool.add(s);
           }
-        } catch (_) {}
-      }
-      if (relatedPool.length < 45) {
-        for (final rq in relatedQueries) {
           if (relatedPool.length >= relatedCap) break;
-          try {
-            final r = await _searchYt(rq.query, limit: 20)
-                .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[]);
-            for (final s in r) {
-              if (relatedPool.length >= relatedCap) break;
-              if (directIds.contains(s.id)) continue;
-              if (RecommendationEngine.isInherentVariant(s.title)) continue;
-              if (!RecommendationEngine.isPremiumQuality(s)) continue;
-              final tk = _normTitle(s.title);
-              if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
-              relatedPool.add(s);
-            }
-          } catch (_) {}
         }
       }
       results.addAll(relatedPool);
@@ -3997,6 +4006,12 @@ class ApiService {
   // ===========================================================================
   // METADATA CLEANUP — iTunes Search (free, no key/account required)
   //
+  // MASTER SWITCH: flip this one flag to instantly turn iTunes enrichment
+  // OFF everywhere it's wired (search, home feed, Up Next) without touching
+  // any call site or deleting code. When false, enrichWithCleanMetadata()
+  // returns the input list completely untouched.
+  static const bool enableItunesEnrichment = true;
+  //
   // WHAT THIS DOES: Saavn/YT titles are often messy — "Gori Hain Kalaiyan |
   // Aaj Ka Arjun | Shabbir Ku..." instead of a clean "Gori Hai Kalaiyan" /
   // "Lata Mangeshkar, Shabbir Kumar". iTunes' catalog has properly
@@ -4051,10 +4066,15 @@ class ApiService {
         // reuses the exact same smart title-comparison already trusted
         // everywhere else in this file for the same purpose.
         if (!RecommendationEngine.isSameSongSmart(candidateTitle, title)) continue;
+        final rawArt = (r['artworkUrl100'] ?? '').toString();
+        final hiResArt = rawArt.isNotEmpty
+            ? rawArt.replaceAll('100x100bb', '600x600bb').replaceAll('100x100', '600x600')
+            : '';
         final meta = _ItunesMeta(
           title:  candidateTitle,
           artist: (r['artistName'] ?? artist).toString(),
           album:  (r['collectionName'] ?? '').toString(),
+          artworkUrl: hiResArt,
         );
         _itunesCache[cacheKey] = _CachedItunesMeta(meta);
         return meta;
@@ -4073,7 +4093,7 @@ class ApiService {
         title:      meta.title,
         artist:     meta.artist,
         album:      meta.album.isNotEmpty ? meta.album : original.album,
-        artworkUrl: original.artworkUrl,
+        artworkUrl: meta.artworkUrl.isNotEmpty ? meta.artworkUrl : original.artworkUrl,
         streamUrl:  original.streamUrl,
         duration:   original.duration,
         language:   original.language,
@@ -4093,6 +4113,7 @@ class ApiService {
     int maxLookups = 15,
     Duration overallTimeout = const Duration(seconds: 4),
   }) async {
+    if (!enableItunesEnrichment) return songs;
     if (songs.isEmpty) return songs;
     final toLookUp = songs.take(maxLookups).toList();
     final rest = songs.skip(maxLookups).toList();
@@ -4116,7 +4137,13 @@ class _ItunesMeta {
   final String title;
   final String artist;
   final String album;
-  const _ItunesMeta({required this.title, required this.artist, required this.album});
+  final String artworkUrl;
+  const _ItunesMeta({
+    required this.title,
+    required this.artist,
+    required this.album,
+    this.artworkUrl = '',
+  });
 }
 
 class _CachedItunesMeta {
