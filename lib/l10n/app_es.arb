@@ -100,6 +100,7 @@
   "searchClearAll": "Borrar todo",
   "searchNoResultsFor": "Sin resultados para \"{query}\"",
   "searchEverywhere": "Buscar en todas partes",
+  "searchYouMightAlsoLike": "Es posible que también te guste",
   "searchSeeAllResultsFor": "Ver todos los resultados de \"{query}\"",
   "searchFavouriteSongs": "Busca tus canciones favoritas",
   "searchAllInOnePlace": "Canciones, artistas, álbumes — todo en un solo lugar",

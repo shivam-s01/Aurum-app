@@ -146,7 +146,12 @@ class _SearchScreenState extends State<SearchScreen>
   late final TabController _tabController;
 
   // Search tab state
-  List<Song>   _results     = [];
+  List<Song>   _results        = [];
+  // Vibe/related expansion, kept separate from _results so the UI shows it
+  // as its own labeled "You might also like" section — never silently
+  // merged into the direct matches (that mixing was why unrelated songs
+  // used to appear inside plain search results with no explanation).
+  List<Song>   _relatedResults = [];
   List<Song>   _liveResults = [];
   List<String> _suggestions = [];
   List<String> _history     = [];
@@ -398,6 +403,35 @@ class _SearchScreenState extends State<SearchScreen>
     return out;
   }
 
+  // Same dedup logic as _dedupedQueueFor, scoped to the "You might also
+  // like" section instead of the direct-match section — tapping a related
+  // song should queue up more related songs, not jump back into direct
+  // matches for the original query.
+  List<Song> _dedupedRelatedQueueFor(int tappedIndex) {
+    final anchor = _relatedResults[tappedIndex];
+    final seenIds = <String>{anchor.id};
+    final seenRawTitles = <String>[anchor.title];
+    final out = <Song>[anchor];
+    for (int j = 0; j < _relatedResults.length; j++) {
+      if (j == tappedIndex) continue;
+      final s = _relatedResults[j];
+      if (seenIds.contains(s.id)) continue;
+      if (RecommendationEngine.isInherentVariant(s.title)) continue;
+      var isDup = false;
+      for (final raw in seenRawTitles) {
+        if (RecommendationEngine.isSameSongSmart(s.title, raw)) {
+          isDup = true;
+          break;
+        }
+      }
+      if (isDup) continue;
+      seenIds.add(s.id);
+      seenRawTitles.add(s.title);
+      out.add(s);
+    }
+    return out;
+  }
+
   void _search(String q) {
     final query = q.trim();
     if (query.isEmpty) return;
@@ -431,12 +465,16 @@ class _SearchScreenState extends State<SearchScreen>
     });
     _saveToHistory(query);
     _debounce = Timer(const Duration(milliseconds: 150), () async {
-      final results = await ApiService.search(query);
+      final result = await ApiService.search(query);
       if (!mounted) return;
       // Stale-guard: if the user kept typing/searched something else while
       // this was in flight, don't stomp on the newer query's results.
       if (_controller.text.trim() != query) return;
-      setState(() { _results = results; _loading = false; });
+      setState(() {
+        _results        = result.direct;
+        _relatedResults = result.related;
+        _loading = false;
+      });
     });
   }
 
@@ -449,7 +487,7 @@ class _SearchScreenState extends State<SearchScreen>
     // STRICT: do NOT requestFocus here — user cleared the text but that
     // doesn't mean they want the keyboard back. They can tap the bar again.
     setState(() {
-      _results = []; _liveResults = []; _suggestions = [];
+      _results = []; _relatedResults = []; _liveResults = []; _suggestions = [];
       _liveLoading = false; _showLiveLoader = false; _loading = false;
       _showHistory = _history.isNotEmpty;
       
@@ -983,6 +1021,18 @@ class _SearchScreenState extends State<SearchScreen>
   // ── Results ──────────────────────────────────────────────────
 
   Widget _buildResults() {
+    final l10n = AppLocalizations.of(context)!;
+    // Two clearly separated sections instead of one flat list — direct
+    // matches for the query first, then a labeled "You might also like"
+    // section for the mood/genre-related expansion. This is the fix for
+    // search showing unrelated songs (e.g. other artists' tracks) with no
+    // explanation of why they were there: now they're visually and
+    // structurally set apart, same as Spotify/Fabtune-style search.
+    final showRelatedHeader = _relatedResults.isNotEmpty;
+    final itemCount = _results.length
+        + (showRelatedHeader ? 1 : 0)
+        + _relatedResults.length;
+
     return Stack(
       children: [
         ListView.builder(
@@ -991,17 +1041,40 @@ class _SearchScreenState extends State<SearchScreen>
           // PERF: same pop-in fix as history list above — search results
           // often get scrolled through quickly.
           cacheExtent: 800,
-          itemCount: _results.length,
-          itemExtent: 66,
+          itemCount: itemCount,
           padding: const EdgeInsets.only(bottom: 80),
-          itemBuilder: (_, i) => _StaggeredItem(
-            index: i,
-            itemKey: 'result_${_results[i].id}',
-            child: SongTile(
-              key: ValueKey('result_${_results[i].id}_$i'),
-              song: _results[i], queue: _dedupedQueueFor(i), index: 0,
-            ),
-          ),
+          itemBuilder: (_, i) {
+            if (i < _results.length) {
+              return SizedBox(
+                height: 66,
+                child: _StaggeredItem(
+                  index: i,
+                  itemKey: 'result_${_results[i].id}',
+                  child: SongTile(
+                    key: ValueKey('result_${_results[i].id}_$i'),
+                    song: _results[i], queue: _dedupedQueueFor(i), index: 0,
+                  ),
+                ),
+              );
+            }
+            final headerIdx = _results.length;
+            if (showRelatedHeader && i == headerIdx) {
+              return _sectionLabel(context, l10n.searchYouMightAlsoLike);
+            }
+            final relatedIdx = i - _results.length - (showRelatedHeader ? 1 : 0);
+            return SizedBox(
+              height: 66,
+              child: _StaggeredItem(
+                index: i,
+                itemKey: 'related_${_relatedResults[relatedIdx].id}',
+                child: SongTile(
+                  key: ValueKey('related_${_relatedResults[relatedIdx].id}_$relatedIdx'),
+                  song: _relatedResults[relatedIdx],
+                  queue: _dedupedRelatedQueueFor(relatedIdx), index: 0,
+                ),
+              ),
+            );
+          },
         ),
         // Thin top progress line while a new submit-search is refreshing
         // these same results — this is the "premium" refresh cue: the

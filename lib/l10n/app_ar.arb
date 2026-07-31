@@ -96,6 +96,7 @@
   "searchClearAll": "مسح الكل",
   "searchNoResultsFor": "لا توجد نتائج لـ \"{query}\"",
   "searchEverywhere": "البحث في كل مكان",
+  "searchYouMightAlsoLike": "قد يعجبك أيضًا",
   "searchSeeAllResultsFor": "عرض كل النتائج لـ \"{query}\"",
   "searchFavouriteSongs": "ابحث عن أغانيك المفضلة",
   "searchAllInOnePlace": "الأغاني، الفنانون، الألبومات — كلها في مكان واحد",

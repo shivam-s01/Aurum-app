@@ -116,6 +116,7 @@
     }
   },
   "searchEverywhere": "Search everywhere",
+  "searchYouMightAlsoLike": "You might also like",
   "searchSeeAllResultsFor": "See all results for \"{query}\"",
   "@searchSeeAllResultsFor": {
     "description": "Tap to run a full search for the current query",

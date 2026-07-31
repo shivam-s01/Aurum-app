@@ -88,6 +88,7 @@
   "searchClearAll": "सभी हटाएं",
   "searchNoResultsFor": "\"{query}\" के लिए कोई परिणाम नहीं",
   "searchEverywhere": "हर जगह खोजें",
+  "searchYouMightAlsoLike": "आपको यह भी पसंद आ सकता है",
   "searchSeeAllResultsFor": "\"{query}\" के सभी परिणाम देखें",
   "searchFavouriteSongs": "अपने पसंदीदा गाने खोजें",
   "searchAllInOnePlace": "गाने, कलाकार, एल्बम — सब एक ही जगह",

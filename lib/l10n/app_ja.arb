@@ -88,6 +88,7 @@
   "searchClearAll": "すべてクリア",
   "searchNoResultsFor": "「{query}」の結果はありません",
   "searchEverywhere": "すべてを検索",
+  "searchYouMightAlsoLike": "こちらもおすすめ",
   "searchSeeAllResultsFor": "「{query}」のすべての結果を見る",
   "searchFavouriteSongs": "お気に入りの曲を検索",
   "searchAllInOnePlace": "曲、アーティスト、アルバム — すべてが一箇所に",

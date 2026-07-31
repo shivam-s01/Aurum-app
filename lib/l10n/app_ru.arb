@@ -88,6 +88,7 @@
   "searchClearAll": "Очистить все",
   "searchNoResultsFor": "Нет результатов для «{query}»",
   "searchEverywhere": "Искать везде",
+  "searchYouMightAlsoLike": "Вам может также понравиться",
   "searchSeeAllResultsFor": "Показать все результаты для «{query}»",
   "searchFavouriteSongs": "Найдите любимые песни",
   "searchAllInOnePlace": "Песни, исполнители, альбомы — всё в одном месте",

@@ -96,6 +96,7 @@
   "searchClearAll": "Hapus semua",
   "searchNoResultsFor": "Tidak ada hasil untuk \"{query}\"",
   "searchEverywhere": "Cari di mana saja",
+  "searchYouMightAlsoLike": "Anda mungkin juga suka",
   "searchSeeAllResultsFor": "Lihat semua hasil untuk \"{query}\"",
   "searchFavouriteSongs": "Cari lagu favoritmu",
   "searchAllInOnePlace": "Lagu, artis, album — semua di satu tempat",

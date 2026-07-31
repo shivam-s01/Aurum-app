@@ -100,6 +100,7 @@
   "searchClearAll": "清除全部",
   "searchNoResultsFor": "未找到\"{query}\"的结果",
   "searchEverywhere": "全局搜索",
+  "searchYouMightAlsoLike": "你可能还喜欢",
   "searchSeeAllResultsFor": "查看\"{query}\"的所有结果",
   "searchFavouriteSongs": "搜索你喜欢的歌曲",
   "searchAllInOnePlace": "歌曲、艺人、专辑 — 一应俱全",

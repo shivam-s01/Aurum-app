@@ -88,6 +88,7 @@
   "searchClearAll": "அனைத்தையும் அழி",
   "searchNoResultsFor": "\"{query}\" க்கு முடிவுகள் இல்லை",
   "searchEverywhere": "எல்லா இடங்களிலும் தேடு",
+  "searchYouMightAlsoLike": "இதுவும் உங்களுக்குப் பிடிக்கலாம்",
   "searchSeeAllResultsFor": "\"{query}\" க்கான அனைத்து முடிவுகளையும் காண்க",
   "searchFavouriteSongs": "உங்களுக்குப் பிடித்த பாடல்களைத் தேடுங்கள்",
   "searchAllInOnePlace": "பாடல்கள், கலைஞர்கள், ஆல்பங்கள் — அனைத்தும் ஒரே இடத்தில்",

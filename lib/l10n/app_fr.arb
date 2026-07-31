@@ -88,6 +88,7 @@
   "searchClearAll": "Tout effacer",
   "searchNoResultsFor": "Aucun résultat pour « {query} »",
   "searchEverywhere": "Rechercher partout",
+  "searchYouMightAlsoLike": "Vous pourriez aussi aimer",
   "searchSeeAllResultsFor": "Voir tous les résultats pour « {query} »",
   "searchFavouriteSongs": "Recherchez vos chansons préférées",
   "searchAllInOnePlace": "Chansons, artistes, albums — tout au même endroit",

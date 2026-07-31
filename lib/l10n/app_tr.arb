@@ -96,6 +96,7 @@
   "searchClearAll": "Tümünü temizle",
   "searchNoResultsFor": "\"{query}\" için sonuç yok",
   "searchEverywhere": "Her yerde ara",
+  "searchYouMightAlsoLike": "Şunlar da hoşunuza gidebilir",
   "searchSeeAllResultsFor": "\"{query}\" için tüm sonuçları gör",
   "searchFavouriteSongs": "Favori şarkılarını ara",
   "searchAllInOnePlace": "Şarkılar, sanatçılar, albümler — hepsi bir arada",

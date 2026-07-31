@@ -1262,9 +1262,9 @@ class ApiService {
   //   • YT songs only deduped against Saavn (not each other)
   //   • Saavn source bonus: +5 → +15
   // ===========================================================================
-  static Future<List<Song>> search(String query) async {
+  static Future<SearchResult> search(String query) async {
     final q = query.trim();
-    if (q.isEmpty) return [];
+    if (q.isEmpty) return const SearchResult(direct: [], related: []);
 
     final cacheKey = _normalise(q);
     final cached = _searchCache[cacheKey];
@@ -1422,10 +1422,20 @@ class ApiService {
       results.addAll(relatedPool);
     }
 
-    _writeSearchCache(cacheKey, results);
-    _log('[search] "$q" → ${results.length} results '
-         '(direct:${directResults.length} related:${results.length - directResults.length})');
-    return results;
+    // Kept as two separate lists (not merged) so the UI can render them as
+    // distinct labeled sections instead of one flat list — that's what was
+    // making "Gori Hai Kalaiyan" search results show unrelated songs like
+    // "Paan Banaras Ka" / "Daiya Daiya Re" with no explanation of why they
+    // were there. directResults is exactly what matched; everything after
+    // it is the vibe/related expansion only.
+    final relatedOnly = results.length > directResults.length
+        ? results.sublist(directResults.length)
+        : <Song>[];
+    final result = SearchResult(direct: directResults, related: relatedOnly);
+
+    _writeSearchCache(cacheKey, result);
+    _log('[search] "$q" → direct:${directResults.length} related:${relatedOnly.length}');
+    return result;
   }
 
   static double _scoreSearchResult(Song song, String query, bool wantsVariant) {
@@ -2679,7 +2689,7 @@ class ApiService {
     _searchCache.removeWhere((_, v) => v.isExpired);
   }
 
-  static void _writeSearchCache(String key, List<Song> results) {
+  static void _writeSearchCache(String key, SearchResult results) {
     if (_searchCache.length >= _maxSearchCache) {
       final expiredKeys = _searchCache.entries
           .where((e) => e.value.isExpired).map((e) => e.key).toList();
@@ -4027,11 +4037,25 @@ class _CachedStream {
 }
 
 class _CachedSearch {
-  final List<Song> results;
+  final SearchResult results;
   final DateTime   cachedAt;
   _CachedSearch(this.results) : cachedAt = DateTime.now();
   bool get isExpired =>
       DateTime.now().difference(cachedAt) > ApiService._searchTtl;
+}
+
+/// Search results split into the two sections a clean, professional
+/// search UI (Spotify/Fabtune-style) shows separately: [direct] is what
+/// actually matched the query, [related] is the "you might also like"
+/// vibe-expansion. Kept apart so the UI never merges "the song you typed"
+/// with loosely-related songs from other artists into one undifferentiated
+/// list — that mixing is what made results look random/unprofessional.
+class SearchResult {
+  final List<Song> direct;
+  final List<Song> related;
+  const SearchResult({required this.direct, required this.related});
+  List<Song> get all => [...direct, ...related];
+  bool get isEmpty => direct.isEmpty && related.isEmpty;
 }
 
 class _ScoredSong {

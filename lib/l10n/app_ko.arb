@@ -96,6 +96,7 @@
   "searchClearAll": "모두 지우기",
   "searchNoResultsFor": "\"{query}\"에 대한 결과 없음",
   "searchEverywhere": "전체에서 검색",
+  "searchYouMightAlsoLike": "이런 곡도 좋아하실 거예요",
   "searchSeeAllResultsFor": "\"{query}\"의 모든 결과 보기",
   "searchFavouriteSongs": "좋아하는 노래를 검색하세요",
   "searchAllInOnePlace": "노래, 아티스트, 앨범 — 한 곳에서",

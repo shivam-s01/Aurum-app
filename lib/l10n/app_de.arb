@@ -96,6 +96,7 @@
   "searchClearAll": "Alles löschen",
   "searchNoResultsFor": "Keine Ergebnisse für \"{query}\"",
   "searchEverywhere": "Überall suchen",
+  "searchYouMightAlsoLike": "Das könnte dir auch gefallen",
   "searchSeeAllResultsFor": "Alle Ergebnisse für \"{query}\" ansehen",
   "searchFavouriteSongs": "Suche nach deinen Lieblingssongs",
   "searchAllInOnePlace": "Songs, Künstler, Alben — alles an einem Ort",

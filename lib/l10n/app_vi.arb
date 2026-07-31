@@ -96,6 +96,7 @@
   "searchClearAll": "Xóa tất cả",
   "searchNoResultsFor": "Không có kết quả cho \"{query}\"",
   "searchEverywhere": "Tìm kiếm mọi nơi",
+  "searchYouMightAlsoLike": "Có thể bạn cũng thích",
   "searchSeeAllResultsFor": "Xem tất cả kết quả cho \"{query}\"",
   "searchFavouriteSongs": "Tìm bài hát yêu thích của bạn",
   "searchAllInOnePlace": "Bài hát, nghệ sĩ, album — tất cả trong một nơi",
