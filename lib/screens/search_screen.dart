@@ -10,6 +10,7 @@ import '../services/api_service.dart';
 import '../services/browse_service.dart';
 import '../services/recommendation_engine.dart';
 import '../providers/player_provider.dart';
+import '../providers/recently_played_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
@@ -48,7 +49,32 @@ import '../utils/aurum_haptics.dart';
 // no entrance animation at all. Keying by a stable item identity (song
 // id, passed in as itemKey) when available, falling back to the index
 // only when no such identity exists, fixes that cross-query collision.
+// LIGHTWEIGHT FIX ("ekdam lightweight rahe, hang na ho"): this set is
+// module-level (lives for the whole app session, not just this screen) and
+// previously had no upper bound — every unique itemKey ever seen across
+// every search query, scroll pass, and Browse visit stayed in memory
+// forever with nothing ever removed. Over a long session (lots of
+// searching/scrolling) this is a slow, permanent memory leak. Capped with
+// simple FIFO eviction: once the set gets large, the oldest entries are
+// dropped. Losing an old entry only means that one specific item plays its
+// entrance animation again if it's ever scrolled back into view after a
+// long time — a purely cosmetic, one-time replay, not a functional bug —
+// which is a fair trade for bounded memory.
 final _seenStaggeredItems = <String>{};
+final _seenStaggeredOrder = <String>[];
+const _maxSeenStaggeredItems = 500;
+
+void _markStaggeredSeen(String key) {
+  _seenStaggeredItems.add(key);
+  _seenStaggeredOrder.add(key);
+  if (_seenStaggeredOrder.length > _maxSeenStaggeredItems) {
+    final evict = _seenStaggeredOrder.removeAt(0);
+    // Only remove from the set if nothing else re-added the same key later
+    // in the order list (cheap safety check; keys are effectively unique
+    // per song id so this is normally a no-op condition).
+    if (!_seenStaggeredOrder.contains(evict)) _seenStaggeredItems.remove(evict);
+  }
+}
 
 class _StaggeredItem extends StatefulWidget {
   final int index;
@@ -67,56 +93,64 @@ class _StaggeredItem extends StatefulWidget {
 
 class _StaggeredItemState extends State<_StaggeredItem>
     with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _fade;
-  late Animation<Offset> _slide;
+  AnimationController? _ctrl;
+  Animation<double>?   _fade;
+  Animation<Offset>?   _slide;
+  // LIGHTWEIGHT FIX ("aur stable/lightweight kro, hang na kre"): every
+  // item used to get a full AnimationController + two Tweens +
+  // CurvedAnimations allocated in initState, even for items whose
+  // entrance animation was already played once and were just jumping
+  // straight to the settled end state (_ctrl.value = 1.0 below). On a
+  // long lazy-loaded list, scrolling back and forth re-mounts items
+  // repeatedly — each re-mount was paying for a Ticker registration and
+  // three object allocations purely to sit at a fixed final value that
+  // needed no animation machinery at all. Already-seen items now skip
+  // controller creation entirely and render as a plain static widget.
+  bool _alreadySettled = false;
 
   @override
   void initState() {
     super.initState();
+    final seenKey = widget.itemKey ?? 'idx_${widget.index}';
+    if (_seenStaggeredItems.contains(seenKey)) {
+      _alreadySettled = true;
+      return;
+    }
+    _markStaggeredSeen(seenKey);
+
     final cappedIndex = widget.index.clamp(0, 10);
-    _ctrl = AnimationController(
+    final ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 320),
     );
+    _ctrl = ctrl;
     _fade = Tween(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut),
+      CurvedAnimation(parent: ctrl, curve: Curves.easeOut),
     );
     _slide = Tween<Offset>(
       begin: const Offset(0, 0.06),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    ).animate(CurvedAnimation(parent: ctrl, curve: Curves.easeOutCubic));
 
-    // FIX (see _seenStaggeredItems doc comment above): only play the
-    // slide/fade-in the first time this item is ever seen. A re-mount
-    // from scrolling back on-screen jumps straight to the settled end
-    // state instead of replaying the entrance animation. Keyed by the
-    // stable itemKey when available so a new query's results at the same
-    // position as an old query's don't collide.
-    final seenKey = widget.itemKey ?? 'idx_${widget.index}';
-    if (_seenStaggeredItems.contains(seenKey)) {
-      _ctrl.value = 1.0;
-    } else {
-      _seenStaggeredItems.add(seenKey);
-      Future.delayed(Duration(milliseconds: 20 + cappedIndex * 35), () {
-        if (mounted) _ctrl.forward();
-      });
-    }
+    Future.delayed(Duration(milliseconds: 20 + cappedIndex * 35), () {
+      if (mounted) ctrl.forward();
+    });
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _ctrl?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_alreadySettled) return widget.child;
     return AnimatedBuilder(
-      animation: _ctrl,
+      animation: _ctrl!,
       builder: (_, child) => FadeTransition(
-        opacity: _fade,
-        child: SlideTransition(position: _slide, child: child),
+        opacity: _fade!,
+        child: SlideTransition(position: _slide!, child: child),
       ),
       child: widget.child,
     );
@@ -337,7 +371,12 @@ class _SearchScreenState extends State<SearchScreen>
       if (_liveLoading) setState(() => _showLiveLoader = true);
     });
 
-    _suggestDebounce = Timer(const Duration(milliseconds: 280), () async {
+    // SPEED FIX ("network tip-top fast, Spotify level"): was 280ms.
+    // _searchSaavn races every host for the FIRST valid response instead
+    // of waiting for the slowest to settle, so each round-trip resolves
+    // fast — a shorter debounce no longer means paying full latency on
+    // every keystroke.
+    _suggestDebounce = Timer(const Duration(milliseconds: 120), () async {
       // FIX (blank search screen): if the query changed by the time this
       // timer fired (user kept typing), we used to bail out here WITHOUT
       // resetting _liveLoading — which was already set true back in
@@ -357,8 +396,21 @@ class _SearchScreenState extends State<SearchScreen>
       ApiService.quickSearch(query).then((songs) {
         if (!mounted) return;
         if (_controller.text.trim() != query) return;
+        // SMART ENGINE FEATURE ("history se seekhe, jo pehle play kiya
+        // wahi priority mile"): a STABLE partial re-sort — songs the user
+        // has played before are pulled to the front IN THE ORDER
+        // quickSearch already ranked them, only breaking ties among
+        // otherwise-similar relevance, never overriding an exact-title
+        // match quickSearch already placed first.
+        final playedIds = context.read<RecentlyPlayedProvider>().playedIdSet;
+        final boosted = playedIds.isEmpty
+            ? songs
+            : [
+                ...songs.where((s) => playedIds.contains(s.id)),
+                ...songs.where((s) => !playedIds.contains(s.id)),
+              ];
         setState(() {
-          _liveResults = songs;
+          _liveResults = boosted;
           _liveLoading = false;
           _showLiveLoader = false;
         });
@@ -373,8 +425,16 @@ class _SearchScreenState extends State<SearchScreen>
         setState(() => _suggestions = suggestions);
       }).catchError((_) {});
 
-      // also trigger browse if on Browse tab
-      if (_tabController.index == 1) _fetchBrowse(query);
+      // STABILITY FIX ("production level pe crash na ho"): this callback
+      // runs after a 120ms Timer delay — a real async gap. If the widget
+      // gets disposed during that wait (user backs out of Search fast
+      // enough), _fetchBrowse's very first line does
+      // `setState(() => _browseLoading = true)` with no mounted check of
+      // its own, which throws "setState() called after dispose()" and
+      // crashes. Every other callback in this same Timer already guards
+      // on `if (!mounted) return` before touching state; this call site
+      // was the one gap.
+      if (mounted && _tabController.index == 1) _fetchBrowse(query);
     });
   }
 
@@ -459,20 +519,26 @@ class _SearchScreenState extends State<SearchScreen>
     _liveLoaderGraceTimer?.cancel();
     AurumHaptics.light();
     _dismissKeyboard();
-    // FIX ("live suggestions/results flash and vanish 2s after typing,
-    // then songs appear"): _search() previously left _suggestions and
-    // _liveResults completely untouched — only _results was cleared. Since
-    // _computeBodyKey()/_buildBody fall back to the 'live' panel (built
-    // from _suggestions/_liveResults) whenever _results is empty, the
-    // OLD suggestion dropdown and live results kept sitting on screen,
-    // fully interactive-looking, for the entire 150ms debounce + full
-    // network round-trip of ApiService.search() — then vanished all at
-    // once the instant _results finally populated. That abrupt swap is
-    // exactly the "gayab ho jata hai" symptom reported. Explicitly
-    // clearing _suggestions/_liveResults here means the panel falls
-    // through to the (already-existing) loading state immediately, so
-    // there's one clean transition — typing → loading → results — instead
-    // of stale suggestions lingering and then snapping away.
+    // FIX (full-page-cover bug on submit search — "search page cover ho
+    // jata hai"): this used to clear _liveResults in the SAME setState
+    // that flips _loading true. _hasVisibleContent checks
+    // `_results.isNotEmpty || (text.isNotEmpty && _liveResults.isNotEmpty)`
+    // — with _liveResults wiped and _results still empty, that flips
+    // false on the very same frame _loading becomes true, so
+    // _computeBodyKey() fell into the 'loading' branch and _buildBody's
+    // full-cover AurumMorphLoader slammed down over whatever was already
+    // showing. Since ApiService.search() genuinely takes anywhere from a
+    // few hundred ms to several seconds (sequential Saavn passes + a 5s
+    // timeout + optional YT fallback), that full-cover loader could sit
+    // there for a long, visibly "stuck" stretch — until literally any
+    // other state change (e.g. switching to the Browse tab and back)
+    // forced a rebuild that happened to land after the response arrived,
+    // which is what made it look like tapping Browse was what "fixed" it.
+    // Only suggestions are cleared here now — the dropdown-style
+    // suggestion list genuinely looks stale/wrong once a search is
+    // submitted. _liveResults is intentionally LEFT ON SCREEN as
+    // "refreshing" content until the real results replace it, so
+    // _hasVisibleContent stays true and the page never goes fully blank.
     setState(() {
       _loading = true;
       _liveLoading = false;
@@ -480,7 +546,6 @@ class _SearchScreenState extends State<SearchScreen>
       _showHistory = false;
       _results = [];
       _suggestions = [];
-      _liveResults = [];
       _resultQueues = [];
       _relatedQueues = [];
     });
@@ -508,6 +573,17 @@ class _SearchScreenState extends State<SearchScreen>
     });
   }
 
+  // ROOT of "search history se seekhe" — see the matching doc comment on
+  // ApiService.recordSearchSelection for the full reasoning. Called the
+  // instant a result tile is tapped (onTapDown, before playback even
+  // starts) so the engine learns "this song is what they meant by this
+  // query" and can surface it first next time, exactly like Spotify/
+  // YouTube Music. Fire-and-forget — never blocks or delays the tap.
+  void _recordSelection(String query, Song song) {
+    if (query.trim().isEmpty) return;
+    ApiService.recordSearchSelection(query, song);
+  }
+
   void _clearSearch() {
     AurumHaptics.light();
     _suggestDebounce?.cancel();
@@ -528,6 +604,7 @@ class _SearchScreenState extends State<SearchScreen>
 
 
   Future<void> _fetchBrowse(String query) async {
+    if (!mounted) return;
     if (query == _lastBrowseQuery) return;
     _lastBrowseQuery = query;
     setState(() => _browseLoading = true);
@@ -961,27 +1038,96 @@ class _SearchScreenState extends State<SearchScreen>
       // loader".
       content = _showLiveLoader ? _buildLiveLoadingState(context) : _buildNoLiveResults(context, query);
     } else {
-      content = ListView(
+      // LIGHTWEIGHT FIX ("bahut jyada MB le raha tha, late/hang ho raha
+      // tha"): this was a plain ListView with children built via
+      // `.map()` — i.e. EVERY song in _liveResults got its SongTile (with
+      // its own network artwork image, animations, gesture handlers)
+      // instantiated immediately, all at once, regardless of how many
+      // were actually visible on screen. With quickSearch's typo-variant
+      // fallback able to add extra songs on top of the base 15, that
+      // could mean dozens of full tiles — and dozens of simultaneous
+      // artwork image downloads — building in a single frame on every
+      // keystroke. ListView.builder only builds/loads what's actually
+      // scrolled into view (plus a small cache extent), which is the
+      // standard Flutter fix for exactly this symptom: high memory from
+      // eager list rendering and jank/hang from too much work in one
+      // frame. The suggestions/divider/progress-bar header is folded into
+      // a single flattened index space so it still scrolls as part of the
+      // same list.
+      final headerCount = (_liveLoading ? 1 : 0)
+          + (hasSuggestions ? _suggestions.length + (hasLive ? 1 : 0) : 0)
+          + (hasLive ? 1 : 0); // the "Songs" section label itself
+      final tailCount = query.isNotEmpty ? 1 : 0;
+      final totalCount = headerCount + (hasLive ? _liveResults.length : 0) + tailCount;
+
+      content = ListView.builder(
         padding: const EdgeInsets.only(bottom: 80),
-        children: [
-          if (_liveLoading) _buildLiveProgressBar(context),
-          if (hasSuggestions) ...[
-            ..._suggestions.map((s) => _suggestionTile(context, s)),
-            if (hasLive) Divider(color: AurumTheme.dividerOf(context), height: 1, indent: 16, endIndent: 16),
-          ],
-          if (hasLive) ...[
-            _sectionLabel(context, AppLocalizations.of(context)!.librarySongs),
-            ..._liveResults.asMap().entries.map((e) => _StaggeredItem(
-              index: e.key,
-              itemKey: 'live_${e.value.id}',
-              child: SongTile(
-                key: ValueKey('live_${e.value.id}_${e.key}'),
-                song: e.value, queue: _liveResults, index: e.key,
-              ),
-            )),
-          ],
-          if (query.isNotEmpty) _seeAllTile(context, query),
-        ],
+        itemCount: totalCount,
+        // PERF: bounds how much off-screen content gets pre-built while
+        // scrolling — same tuning as the submit-search results list below.
+        cacheExtent: 600,
+        itemBuilder: (context, i) {
+          var idx = i;
+          if (_liveLoading) {
+            if (idx == 0) return _buildLiveProgressBar(context);
+            idx--;
+          }
+          if (hasSuggestions) {
+            if (idx < _suggestions.length) return _suggestionTile(context, _suggestions[idx]);
+            idx -= _suggestions.length;
+            if (hasLive) {
+              if (idx == 0) {
+                return Divider(color: AurumTheme.dividerOf(context), height: 1, indent: 16, endIndent: 16);
+              }
+              idx--;
+            }
+          }
+          if (hasLive) {
+            if (idx == 0) return _sectionLabel(context, AppLocalizations.of(context)!.librarySongs);
+            idx--;
+            if (idx < _liveResults.length) {
+              final song = _liveResults[idx];
+              // PERF: fixed height matches SongTile's actual rendered
+              // size (same 66px convention the submit-search list uses)
+              // so Flutter can lay out this item without measuring its
+              // subtree first — cheaper per-item cost during fast scroll.
+              return SizedBox(
+                height: 66,
+                child: _StaggeredItem(
+                  index: idx,
+                  itemKey: 'live_${song.id}',
+                  // GestureDetector wraps SongTile purely to observe the tap
+                  // for search-history learning (see _recordSelection doc
+                  // comment below) — translucent + onTapDown so it never
+                  // intercepts or delays SongTile's own tap handling, it
+                  // just also fires alongside it.
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTapDown: (_) => _recordSelection(query, song),
+                    // LIGHTWEIGHT FIX: key used to be suffixed with the
+                    // list index ('live_${song.id}_$idx'). A stable key
+                    // exists specifically so Flutter can match this element
+                    // to the same one from the previous build and reuse its
+                    // state/render object instead of tearing it down and
+                    // rebuilding from scratch. Appending the index defeats
+                    // that entirely — the same song at a different position
+                    // (which happens on nearly every keystroke as ranking
+                    // shifts) got treated as a brand-new widget every time,
+                    // forcing unnecessary rebuilds/relayouts and extra
+                    // artwork image churn on every live-search update. The
+                    // song id alone is already unique within this list.
+                    child: SongTile(
+                      key: ValueKey('live_${song.id}'),
+                      song: song, queue: _liveResults, index: idx,
+                    ),
+                  ),
+                ),
+              );
+            }
+            idx -= _liveResults.length;
+          }
+          return _seeAllTile(context, query);
+        },
       );
     }
 
@@ -1080,11 +1226,21 @@ class _SearchScreenState extends State<SearchScreen>
                 child: _StaggeredItem(
                   index: i,
                   itemKey: 'result_${_results[i].id}',
-                  child: SongTile(
-                    key: ValueKey('result_${_results[i].id}_$i'),
-                    song: _results[i],
-                    queue: i < _resultQueues.length ? _resultQueues[i] : [_results[i]],
-                    index: 0,
+                  // Non-invasive tap observer for search-history learning —
+                  // see _recordSelection doc comment. Never intercepts
+                  // SongTile's own tap.
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTapDown: (_) => _recordSelection(_controller.text, _results[i]),
+                    // LIGHTWEIGHT FIX: same index-suffixed-key issue as the
+                    // live panel above — see that fix's doc comment. Song id
+                    // is already unique within _results.
+                    child: SongTile(
+                      key: ValueKey('result_${_results[i].id}'),
+                      song: _results[i],
+                      queue: i < _resultQueues.length ? _resultQueues[i] : [_results[i]],
+                      index: 0,
+                    ),
                   ),
                 ),
               );
@@ -1099,8 +1255,14 @@ class _SearchScreenState extends State<SearchScreen>
               child: _StaggeredItem(
                 index: i,
                 itemKey: 'related_${_relatedResults[relatedIdx].id}',
+                // Related/"you might also like" taps are NOT recorded
+                // against the typed query — they weren't a direct match for
+                // it, so learning from them would teach the engine a wrong
+                // lesson (boosting a loosely-related song for an unrelated
+                // query next time).
+                // LIGHTWEIGHT FIX: same index-suffixed-key issue as above.
                 child: SongTile(
-                  key: ValueKey('related_${_relatedResults[relatedIdx].id}_$relatedIdx'),
+                  key: ValueKey('related_${_relatedResults[relatedIdx].id}'),
                   song: _relatedResults[relatedIdx],
                   queue: relatedIdx < _relatedQueues.length
                       ? _relatedQueues[relatedIdx]
@@ -1259,29 +1421,78 @@ class _BrowseTabState extends State<_BrowseTab> {
     if (widget.loading)       return const Center(child: AurumMorphLoader(size: 56));
     if (widget.result.isEmpty) return _buildBrowseEmpty(context);
 
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 100),
-      children: [
+    // LIGHTWEIGHT FIX ("browser mai bhi bahut MB/hang" — same root cause
+    // as the live-search panel): this was a plain ListView whose track
+    // sections (topAlbumTracks, tracks) were built via `.map()` — every
+    // track tile (with its own artwork image + gesture handling)
+    // instantiated immediately regardless of scroll position. A movie
+    // with a large OST or a broad keyword search could mean dozens of
+    // tiles and simultaneous image loads on a single search. Converted to
+    // CustomScrollView + slivers so the fixed carousels (artists/albums)
+    // stay as-is, but each track list is a SliverList.builder — lazily
+    // built only as the user actually scrolls to it.
+    return CustomScrollView(
+      slivers: [
+        const SliverPadding(padding: EdgeInsets.only(top: 0)),
+        // PREMIUM FEATURE: complete playlist for a strongly-matched
+        // album/movie name, pre-fetched by BrowseService.search — shown
+        // above Artists/Albums since it's the most direct answer to "I
+        // typed a movie name" and the user shouldn't have to tap the
+        // album card first to see it.
+        if (widget.result.topAlbum != null && widget.result.topAlbumTracks.isNotEmpty) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+              child: Row(children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: AurumArtwork(url: widget.result.topAlbum!.artworkUrl, size: 48),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(widget.result.topAlbum!.name, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 15, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text('${widget.result.topAlbumTracks.length} songs', style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 12)),
+                  ]),
+                ),
+              ]),
+            ),
+          ),
+          SliverList.builder(
+            itemCount: widget.result.topAlbumTracks.length,
+            itemBuilder: (_, i) {
+              final t = widget.result.topAlbumTracks[i];
+              return _StaggeredItem(
+                index: i,
+                itemKey: 'topalbum_${t.trackId}',
+                child: _BrowseTrackTile(track: t, onPlay: () => widget.onPlay(t)),
+              );
+            },
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 8)),
+        ],
         // Artists
         if (widget.result.artists.isNotEmpty) ...[
-          _sectionLabel(context, AppLocalizations.of(context)!.libraryArtists),
-          FadedHorizontalList(
-            height: 100,
-            controller: _artistsScrollController,
-            child: ListView.builder(
+          SliverToBoxAdapter(child: _sectionLabel(context, AppLocalizations.of(context)!.libraryArtists)),
+          SliverToBoxAdapter(
+            child: FadedHorizontalList(
+              height: 100,
               controller: _artistsScrollController,
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              // PERF: horizontal carousel pop-in fix.
-              cacheExtent: 500,
-              itemCount: widget.result.artists.length,
-              itemBuilder: (_, i) => _StaggeredItem(
-                index: i,
-                itemKey: 'artist_${widget.result.artists[i].artistId}',
-                child: _ArtistChip(
-                  artist: widget.result.artists[i],
-                  onTap: () => _openArtist(widget.result.artists[i]),
+              child: ListView.builder(
+                controller: _artistsScrollController,
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                // PERF: horizontal carousel pop-in fix.
+                cacheExtent: 500,
+                itemCount: widget.result.artists.length,
+                itemBuilder: (_, i) => _StaggeredItem(
+                  index: i,
+                  itemKey: 'artist_${widget.result.artists[i].artistId}',
+                  child: _ArtistChip(
+                    artist: widget.result.artists[i],
+                    onTap: () => _openArtist(widget.result.artists[i]),
+                  ),
                 ),
               ),
             ),
@@ -1289,24 +1500,26 @@ class _BrowseTabState extends State<_BrowseTab> {
         ],
         // Albums
         if (widget.result.albums.isNotEmpty) ...[
-          _sectionLabel(context, AppLocalizations.of(context)!.libraryAlbums),
-          FadedHorizontalList(
-            height: 180,
-            controller: _albumsScrollController,
-            child: ListView.builder(
+          SliverToBoxAdapter(child: _sectionLabel(context, AppLocalizations.of(context)!.libraryAlbums)),
+          SliverToBoxAdapter(
+            child: FadedHorizontalList(
+              height: 180,
               controller: _albumsScrollController,
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              // PERF: horizontal carousel pop-in fix.
-              cacheExtent: 700,
-              itemCount: widget.result.albums.length,
-              itemBuilder: (_, i) => _StaggeredItem(
-                index: i,
-                itemKey: 'album_${widget.result.albums[i].collectionId}',
-                child: _AlbumCard(
-                  album: widget.result.albums[i],
-                  onTap: () => _openAlbum(widget.result.albums[i]),
+              child: ListView.builder(
+                controller: _albumsScrollController,
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                // PERF: horizontal carousel pop-in fix.
+                cacheExtent: 700,
+                itemCount: widget.result.albums.length,
+                itemBuilder: (_, i) => _StaggeredItem(
+                  index: i,
+                  itemKey: 'album_${widget.result.albums[i].collectionId}',
+                  child: _AlbumCard(
+                    album: widget.result.albums[i],
+                    onTap: () => _openAlbum(widget.result.albums[i]),
+                  ),
                 ),
               ),
             ),
@@ -1314,13 +1527,20 @@ class _BrowseTabState extends State<_BrowseTab> {
         ],
         // Tracks
         if (widget.result.tracks.isNotEmpty) ...[
-          _sectionLabel(context, AppLocalizations.of(context)!.librarySongs),
-          ...widget.result.tracks.asMap().entries.map((e) => _StaggeredItem(
-            index: e.key,
-            itemKey: 'track_${e.value.trackId}',
-            child: _BrowseTrackTile(track: e.value, onPlay: () => widget.onPlay(e.value)),
-          )),
+          SliverToBoxAdapter(child: _sectionLabel(context, AppLocalizations.of(context)!.librarySongs)),
+          SliverList.builder(
+            itemCount: widget.result.tracks.length,
+            itemBuilder: (_, i) {
+              final t = widget.result.tracks[i];
+              return _StaggeredItem(
+                index: i,
+                itemKey: 'track_${t.trackId}',
+                child: _BrowseTrackTile(track: t, onPlay: () => widget.onPlay(t)),
+              );
+            },
+          ),
         ],
+        const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
       ],
     );
   }

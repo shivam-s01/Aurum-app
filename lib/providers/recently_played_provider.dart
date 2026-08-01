@@ -50,6 +50,11 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   /// Newest-first list of recently played songs. Used by Library screen.
   List<Song> get history => List.unmodifiable(_history);
 
+  /// Set of song IDs the user has played before — O(1) membership checks.
+  /// Used by search's "you've played this before" ranking boost, where
+  /// checking against a List for every search result would be O(n*m).
+  Set<String> get playedIdSet => _playedAtById.keys.toSet();
+
   // ---------------------------------------------------------------------------
   // INIT
   // ---------------------------------------------------------------------------

@@ -257,7 +257,48 @@ class BrowseService {
       artists = await Future.wait(artists.map(_withArtistPhoto));
     }
 
-    return BrowseSearchResult(tracks: tracks, albums: albums, artists: artists);
+    // PREMIUM FEATURE ("search karte hi seedha playlist dikhna chahiye"):
+    // if the query strongly matches one of the derived YT albums — the
+    // user typed a movie/OST/album/channel name, not just a loose keyword
+    // — pre-fetch that album's full track list right here and attach it
+    // to the result, so the UI can show the complete playlist the instant
+    // search results land, without waiting for a tap first. Tap-to-open
+    // (_openAlbum in search_screen.dart -> albumTracks below) is untouched
+    // and still works identically for every other album in the list.
+    // Deliberately gated on a STRONG match since this fires an extra
+    // network round-trip: a weak/partial match would pay that cost on
+    // every search for no real benefit.
+    BrowseAlbum? topAlbum;
+    List<BrowseTrack> topAlbumTracks = const [];
+    if (albums.isNotEmpty) {
+      String norm(String s) => s.toLowerCase().trim().replaceAll(RegExp(r'[^a-z0-9\s]'), '');
+      final qNorm = norm(q);
+      for (final a in albums) {
+        final aNorm = norm(a.name);
+        if (aNorm.isEmpty || qNorm.isEmpty) continue;
+        final isStrongMatch = aNorm == qNorm || aNorm.startsWith(qNorm) || qNorm.startsWith(aNorm);
+        if (isStrongMatch) {
+          topAlbum = a;
+          break;
+        }
+      }
+      if (topAlbum != null) {
+        try {
+          topAlbumTracks = await albumTracks(topAlbum.collectionId, isFromYoutube: true)
+              .timeout(const Duration(seconds: 6), onTimeout: () => <BrowseTrack>[]);
+        } catch (_) {
+          topAlbumTracks = const [];
+        }
+      }
+    }
+
+    return BrowseSearchResult(
+      tracks: tracks,
+      albums: albums,
+      artists: artists,
+      topAlbum: topAlbumTracks.isNotEmpty ? topAlbum : null,
+      topAlbumTracks: topAlbumTracks,
+    );
   }
 
   // Patches in a display photo for an artist chip that doesn't already
@@ -593,11 +634,19 @@ class BrowseSearchResult {
   final List<BrowseTrack>  tracks;
   final List<BrowseAlbum>  albums;
   final List<BrowseArtist> artists;
+  // PREMIUM FEATURE ("search karte hi seedha playlist dikhna chahiye"):
+  // full track list for a strongly query-matched album, pre-fetched by
+  // search() above so the UI can render the complete playlist immediately
+  // without waiting for a tap. Null/empty when no album matched strongly.
+  final BrowseAlbum? topAlbum;
+  final List<BrowseTrack> topAlbumTracks;
 
   const BrowseSearchResult({
     required this.tracks,
     required this.albums,
     required this.artists,
+    this.topAlbum,
+    this.topAlbumTracks = const [],
   });
 
   factory BrowseSearchResult.empty() => const BrowseSearchResult(

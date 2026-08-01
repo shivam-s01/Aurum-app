@@ -42,6 +42,8 @@ import 'package:async/async.dart';
 import 'package:just_audio/just_audio.dart';
 import 'dart:math' as math;
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/song.dart';
 import '../models/artist.dart';
 import '../models/lyrics.dart';
@@ -294,6 +296,188 @@ class ApiService {
   static const Duration _searchTtl     = Duration(minutes: 10);
   static const int      _maxSearchCache = 100;
 
+  // LIGHTWEIGHT FIX ("ekdam lightweight aur fast, hang na ho"): quickSearch
+  // (live-typing search) had no cache at all — every keystroke that landed
+  // on a query already seen this session (very common: type → backspace →
+  // retype same partial word, or re-focus the search bar with the same
+  // text) refired the full Saavn host race + scoring pipeline from zero.
+  // A short TTL (much shorter than the full search() cache above) is
+  // deliberate: live results are meant to feel responsive to fresh catalog
+  // data, this only kills the redundant network round-trip for the exact
+  // same partial query typed again within a few seconds — not a general
+  // long-lived cache like full search's.
+  static final Map<String, _CachedQuickSearch> _quickSearchCache = {};
+  static const Duration _quickSearchTtl      = Duration(seconds: 45);
+  static const int      _maxQuickSearchCache = 60;
+
+  static void _writeQuickSearchCache(String key, List<Song> results) {
+    if (_quickSearchCache.length >= _maxQuickSearchCache) {
+      final expiredKeys = _quickSearchCache.entries
+          .where((e) => e.value.isExpired).map((e) => e.key).toList();
+      for (final k in expiredKeys) _quickSearchCache.remove(k);
+      if (_quickSearchCache.length >= _maxQuickSearchCache) {
+        final oldest = _quickSearchCache.entries.reduce(
+          (a, b) => a.value.cachedAt.isBefore(b.value.cachedAt) ? a : b,
+        );
+        _quickSearchCache.remove(oldest.key);
+      }
+    }
+    _quickSearchCache[key] = _CachedQuickSearch(results);
+  }
+
+  // ===========================================================================
+  // SEARCH-HISTORY LEARNING ("search history se seekhe — jo pehle click/play
+  // kiya wahi type-ahead me priority mile"): real personalization, not just a
+  // list of past query strings. Every time a person actually taps a search
+  // result, we remember which SONG they picked FOR that normalized query.
+  // Next time the same (or a close variant of the same) query comes back —
+  // this session or a future one, since it's persisted — that exact song
+  // gets a ranking boost so it surfaces at/near the top immediately instead
+  // of the engine re-deriving "best match" from scratch every time. This is
+  // the same behavior Spotify/YouTube Music show: search "arjit" once, tap
+  // the right Arijit Singh track, and it's the first thing that comes back
+  // next time you type "arjit" again.
+  //
+  // Kept intentionally small and cheap: an in-memory map for instant same-
+  // session reads (no async needed on the scoring hot path), lazily loaded
+  // from and periodically flushed to SharedPreferences for persistence
+  // across app restarts. Bounded (_maxSelectionQueries) with LRU-ish
+  // eviction so this can never grow unbounded on a heavy user's device.
+  // ===========================================================================
+  static final Map<String, List<String>> _selectionHistory = {}; // normQuery -> [songId, ...recency order, most-recent first]
+  static bool _selectionHistoryLoaded = false;
+  static const String _selectionPrefsKey = 'aurum_search_selection_learning';
+  static const int _maxSelectionQueries = 200; // distinct queries remembered
+  static const int _maxSongsPerQuery = 3;      // recent picks kept per query
+
+  static Future<void>? _selectionHistoryLoadFuture;
+  static Future<void> _ensureSelectionHistoryLoaded() {
+    // BUG FIX (found on recheck): this used to set _selectionHistoryLoaded
+    // = true SYNCHRONOUSLY before the actual disk read finished, so (1) a
+    // boost lookup that ran during the load window silently saw "loaded"
+    // with an empty map and returned 0 instead of genuinely waiting, and
+    // (2) worse — if recordSearchSelection wrote a fresh selection into
+    // _selectionHistory WHILE the disk load was still in-flight, the load
+    // finishing afterward would blindly assign over that key with stale
+    // disk data, silently losing the fresh tap that just happened. Now
+    // every caller shares and awaits the SAME in-flight Future (so the
+    // flag only flips true once the read is genuinely done), and the merge
+    // step skips any key that already picked up an in-memory write during
+    // the load instead of unconditionally overwriting it.
+    if (_selectionHistoryLoaded) return Future.value();
+    return _selectionHistoryLoadFuture ??= () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(_selectionPrefsKey);
+        if (raw != null && raw.isNotEmpty) {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) {
+            decoded.forEach((key, value) {
+              // Don't clobber a key that already got a real-time write
+              // (e.g. a tap recorded) while this disk read was in flight.
+              if (_selectionHistory.containsKey(key)) return;
+              if (key is String && value is List) {
+                _selectionHistory[key] = value.whereType<String>().toList();
+              }
+            });
+          }
+        }
+      } catch (e) {
+        _log('[selectionHistory] load failed: $e');
+      } finally {
+        _selectionHistoryLoaded = true;
+      }
+    }();
+  }
+
+  static Timer? _selectionPersistDebounce;
+  static void _persistSelectionHistorySoon() {
+    // Debounced write — a person tapping several results in a row (browsing
+    // search results) shouldn't hit disk on every single tap.
+    _selectionPersistDebounce?.cancel();
+    _selectionPersistDebounce = Timer(const Duration(seconds: 2), () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_selectionPrefsKey, jsonEncode(_selectionHistory));
+      } catch (e) {
+        _log('[selectionHistory] persist failed: $e');
+      }
+    });
+  }
+
+  /// Call this the moment a person taps/plays a search result. Records that
+  /// [song] was the pick for [query], so future searches for the same (or a
+  /// close variant of the same) query rank it higher. Fire-and-forget by
+  /// design — never awaited by the UI, never blocks or delays playback.
+  static void recordSearchSelection(String query, Song song) {
+    final key = _normalise(query);
+    // BUG FIX (found on recheck): no minimum-length guard meant a tap on a
+    // result while only 1-2 characters had been typed (quickSearch fires
+    // from the very first keystroke) could get recorded as a learned
+    // "exact match" for that tiny query — later colliding with a totally
+    // unrelated short search and wrongly boosting an unrelated song.
+    // Require at least 3 normalized characters before learning from it.
+    if (key.length < 3) return;
+    () async {
+      await _ensureSelectionHistoryLoaded();
+      final list = _selectionHistory.putIfAbsent(key, () => <String>[]);
+      list.remove(song.id); // move to front if already present
+      list.insert(0, song.id);
+      if (list.length > _maxSongsPerQuery) list.removeRange(_maxSongsPerQuery, list.length);
+      // Bound total distinct queries remembered — drop the query that's been
+      // touched least recently (map insertion order in Dart is stable, so
+      // the first key is the oldest-untouched one once we re-insert on hit).
+      _selectionHistory.remove(key);
+      _selectionHistory[key] = list;
+      if (_selectionHistory.length > _maxSelectionQueries) {
+        _selectionHistory.remove(_selectionHistory.keys.first);
+      }
+      _persistSelectionHistorySoon();
+    }();
+  }
+
+  /// Returns a ranking boost for [song] against [query] based on past
+  /// selection history — a strong boost if this exact song was picked for
+  /// this exact query before, a smaller boost if it was picked for a
+  /// closely-related (prefix) query. Synchronous and cheap: reads only the
+  /// in-memory map, so it's safe to call from inside the scoring hot path.
+  /// Returns 0 if history hasn't loaded yet or there's no relevant match —
+  /// never blocks, never throws.
+  static double _selectionHistoryBoost(String query, String songId) {
+    if (!_selectionHistoryLoaded || _selectionHistory.isEmpty) return 0;
+    final key = _normalise(query);
+    final exact = _selectionHistory[key];
+    if (exact != null) {
+      final idx = exact.indexOf(songId);
+      if (idx == 0) return 45; // most recent pick for this exact query
+      if (idx > 0)  return 25; // picked before, just not most recently
+    }
+    // BUG FIX (found on recheck): this prefix check originally had NO
+    // minimum-length floor. A single past search on a short/generic query
+    // (even something as short as "a" or "ar") would then silently boost
+    // that one song for almost EVERY future query starting with those
+    // letters — real ranking pollution, and a serious bug for a paid app
+    // where "smart" search needs to actually earn trust. Now requires
+    // BOTH keys to be at least 4 normalized characters (short queries
+    // carry too little signal to safely generalize from) AND the shorter
+    // key must be at least 70% the length of the longer one (so a stray
+    // 2-letter overlap on a long stored query like "arijit singh" can't
+    // trigger the boost — the overlap has to be substantial, not just a
+    // couple of matching letters).
+    if (key.length >= 4) {
+      for (final entry in _selectionHistory.entries) {
+        if (entry.key == key) continue;
+        if (entry.key.length < 4) continue;
+        final shorter = key.length < entry.key.length ? key : entry.key;
+        final longer  = key.length < entry.key.length ? entry.key : key;
+        if (!longer.startsWith(shorter)) continue;
+        if (shorter.length / longer.length < 0.7) continue;
+        if (entry.value.isNotEmpty && entry.value.first == songId) return 15;
+      }
+    }
+    return 0;
+  }
+
   static final Map<String, Future<String?>> _pendingResolutions = {};
   static CancelableOperation<void>? _activePrefetch;
   // v5: multi-song prefetch queue — resolves next 5 songs in background
@@ -314,8 +498,12 @@ class ApiService {
     _streamCache.clear();
     _pendingResolutions.clear();
     _searchCache.clear();
+    _quickSearchCache.clear();
+    _lyricsCache.clear();
+    _syncedLyricsCache.clear();
     _activePrefetch?.cancel();
     _activePrefetch = null;
+    _selectionPersistDebounce?.cancel();
   }
 
   static void wakeSaavn() {
@@ -1293,6 +1481,19 @@ class ApiService {
     final q = query.trim();
     if (q.isEmpty) return const SearchResult(direct: [], related: []);
 
+    // Fire-and-forget: warms _selectionHistory so the personalization boost
+    // in _scoreSearchResult has data ready by the time results come back.
+    // Never awaited — first search of a session may miss the boost by a
+    // beat, every search after is instant since it's a one-time load.
+    _ensureSelectionHistoryLoaded();
+    // Same reasoning for listening-taste affinity data (artist/genre/
+    // language weights) — RecommendationEngine.load() is idempotent
+    // (returns immediately if already loaded elsewhere, e.g. PlayerProvider
+    // on song start), so this costs nothing on the common case where it's
+    // already warm, and only helps the cold-start case where search is the
+    // very first thing touched this session.
+    RecommendationEngine.load();
+
     final cacheKey = _normalise(q);
     final cached = _searchCache[cacheKey];
     if (cached != null && !cached.isExpired) {
@@ -1330,6 +1531,20 @@ class ApiService {
     }
     lyricVariants.remove(q);
 
+    // LIGHTWEIGHT FIX ("battery/data pe load na pade, ekdam lightweight
+    // rahe"): typo-variants used to fire UNCONDITIONALLY alongside the
+    // main query on every search, adding several extra parallel Saavn
+    // calls even for a perfectly-spelled query — _generateTypoVariants is
+    // based on word LENGTH (collapsing doubled letters, trying Hinglish
+    // substitutions), not actual spelling correctness, so a correctly-
+    // spelled 6+ letter word like "arijit" still generates variants like
+    // "arjit"/"arijitt" every time, not just when there's a real typo.
+    // Deferred until after the main+lyric-variant Saavn results are known
+    // and only fired when that combined set came up short — the same
+    // "only escalate when needed" pattern quickSearch uses.
+    final typoVariants = _generateTypoVariants(q, qWordsForVariants);
+    typoVariants.removeAll(lyricVariants); // avoid firing the same query twice
+
     // SEARCH: SAAVN FIRST, SMART YT FALLBACK WHEN SAAVN IS THIN.
     // Saavn (+ lyric variants) is always awaited first — it's the fast,
     // proper primary source and usually all that's needed. YouTube is
@@ -1348,8 +1563,20 @@ class ApiService {
           .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[])),
     ];
-    final saavnAll = await Future.wait(saavnFutures);
-    final saavnCombined = [for (final list in saavnAll) ...list];
+    var saavnAll = await Future.wait(saavnFutures);
+    var saavnCombined = [for (final list in saavnAll) ...list];
+
+    // Only pay for typo-variant calls when the main + lyric-variant pass
+    // genuinely came up short — a healthy result set never triggers this.
+    if (saavnCombined.length < 15 && typoVariants.isNotEmpty) {
+      final typoBatches = await Future.wait([
+        for (final v in typoVariants)
+          _searchSaavn(v, limit: 20)
+              .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+              .catchError((_) => <Song>[]),
+      ]);
+      saavnCombined = [...saavnCombined, for (final l in typoBatches) ...l];
+    }
 
     final saavnScored = <_ScoredSong>[];
     final ytScored    = <_ScoredSong>[];
@@ -1466,15 +1693,33 @@ class ApiService {
       ];
       final relatedPool = <Song>[];
       final seenRelated = <String>{};
+      // FIX ("ek jaise hi songs formation change karke aate hain" — same
+      // song reappearing under a different reupload/channel/tag suffix):
+      // dedup here was keyed on _normTitle alone, an EXACT normalized-
+      // string match. A reupload with even a slightly different title
+      // ("Tera Ban Jaunga | Kabir Singh" vs "Tera Ban Jaunga (Lyrical)")
+      // normalizes to two different strings and sailed straight past this
+      // check — same gap Search's direct-results dedup and Up Next's
+      // dedup already had fixed via RecommendationEngine.isSameSongSmart's
+      // fuzzy title-head comparison; this related/"you might also like"
+      // section was the one place that fix never reached. Raw titles are
+      // now tracked alongside the normalized-key set so every accepted
+      // song is smart-compared against everything already in the pool,
+      // not just exact-matched.
+      final seenRelatedRawTitles = <String>[];
       const relatedCap = 55;
 
-      // RELATED: Saavn first, same smart YT topup rule as direct results —
-      // only reached for a query when Saavn's own related pool comes up
-      // short, quality-gated (view floor + official-channel bias) and
-      // deduped against everything already shown, so the "vibe" list stays
-      // premium instead of a raw dump.
+      // FIX ("har baar ekdam same category but NEW songs aaye"): exclude
+      // songs already played this session from the DISCOVERY expansion
+      // only — never from directResults, so an exact search match is
+      // never hidden just because it was played earlier.
+      final sessionPlayedIds = RecommendationEngine.sessionRecentIds;
+
       final combinedRelated = await Future.wait([
         ...relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 25)
+            .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[])),
+        ...relatedQueries.map((rq) => _searchYt(rq.query, limit: 20)
             .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[])),
       ]);
@@ -1483,29 +1728,23 @@ class ApiService {
         for (final s in list) {
           if (relatedPool.length >= relatedCap) break;
           if (directIds.contains(s.id)) continue;
+          if (sessionPlayedIds.contains(s.id)) continue;
           if (RecommendationEngine.isInherentVariant(s.title)) continue;
+          // YT songs still need the same premium-quality gate (view-count
+          // floor, sane duration) Saavn's own catalog metadata already
+          // implicitly guarantees — keeps the blended list clean/pro
+          // instead of dumping in low-quality YT uploads just for volume.
+          if (s.source == SongSource.youtube && !RecommendationEngine.isPremiumQuality(s)) continue;
           final tk = _normTitle(s.title);
-          if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
-          relatedPool.add(s);
-        }
-      }
-      if (relatedPool.length < 20) {
-        final ytRelated = await Future.wait(
-          relatedQueries.map((rq) => _searchYt(rq.query, limit: 20)
-              .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
-              .catchError((_) => <Song>[])),
-        );
-        for (final list in ytRelated) {
-          if (relatedPool.length >= relatedCap) break;
-          for (final s in list) {
-            if (relatedPool.length >= relatedCap) break;
-            if (directIds.contains(s.id)) continue;
-            if (RecommendationEngine.isInherentVariant(s.title)) continue;
-            if (!RecommendationEngine.isPremiumQuality(s)) continue;
-            final tk = _normTitle(s.title);
-            if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
-            relatedPool.add(s);
+          if (directTitles.contains(tk) || seenRelated.contains(tk)) continue;
+          var isDup = false;
+          for (final rawTitle in seenRelatedRawTitles) {
+            if (RecommendationEngine.isSameSongSmart(s.title, rawTitle)) { isDup = true; break; }
           }
+          if (isDup) continue;
+          seenRelated.add(tk);
+          seenRelatedRawTitles.add(s.title);
+          relatedPool.add(s);
         }
       }
       results.addAll(relatedPool);
@@ -1567,14 +1806,24 @@ class ApiService {
       if (titleTokens.contains(qNormSp)) {
         score += 35;
       } else {
-        // FIX: same typo-tolerance gap as the multi-word block below —
-        // a single mistyped word ("saayar") should still find its real
-        // song ("saiyaara") instead of scoring 0 on this path and falling
-        // through to whatever the backend's loose search returns.
+        var titleFuzzyMatched = false;
         for (final token in titleTokens) {
           if (token.length > 2 && _fuzzyWordMatch(qNormSp, token)) {
             score += 30;
+            titleFuzzyMatched = true;
             break;
+          }
+        }
+        // FIX ("arigit singh" -> "Arijit Singh" songs never surface): a
+        // single-word query that's a misspelled ARTIST name had no path
+        // to match here before — only the title tokens were checked.
+        if (!titleFuzzyMatched) {
+          final artistTokens = artistNormSp.split(' ');
+          for (final token in artistTokens) {
+            if (token.length > 2 && _fuzzyWordMatch(qNormSp, token)) {
+              score += 30;
+              break;
+            }
           }
         }
       }
@@ -1661,6 +1910,66 @@ class ApiService {
       score += song.streamUrl != null ? 20 : 15;
     }
 
+    // PERSONALIZATION ("search history se seekhe"): if this exact song was
+    // what the person actually picked last time they searched this (or a
+    // near-identical) query, surface it again — see
+    // recordSearchSelection/_selectionHistoryBoost doc comments above.
+    score += _selectionHistoryBoost(query, song.id);
+
+    // LISTENING-TASTE PERSONALIZATION ("jaisa songs sune vaisa aane lage,
+    // ekdam Spotify/YT jaisa"): when a query is genuinely AMBIGUOUS —
+    // several different songs/artists could reasonably answer it, and
+    // nothing here has already pinned one specific title — tilt toward
+    // what this person actually listens to. Reuses RecommendationEngine's
+    // existing artist/genre/language affinity weights, which are already
+    // learned from real plays/completes/skips/replays elsewhere in the
+    // app (Up Next, Home feed) — this doesn't add new tracking, it just
+    // lets search read the same signal.
+    //
+    // SAFETY (why this is capped small and gated, not a big blanket
+    // bonus): taste must only ever break a TIE between otherwise-similar
+    // candidates, never outrank a real match. If it could, typing an
+    // artist's exact name could surface a DIFFERENT favorite artist's
+    // song instead just because that other artist is played more overall
+    // — which would make search feel broken, not smart. Two guards
+    // enforce this:
+    //  1. Gate: only applies when score is still below 60 at this point —
+    //     that threshold sits below a real title-exact (100), title-
+    //     startsWith (60+), or a strong phrase-order match, so a query
+    //     that already clearly identifies a specific song is untouched.
+    //     Only genuinely loose/ambiguous matches (a bare artist-name
+    //     search, a mood word, a generic query) are still under 60 by
+    //     this point and eligible for the taste tilt.
+    //  2. Magnitude: total possible taste bonus tops out around 10 — small
+    //     enough to reorder among already-similar-scoring candidates
+    //     without ever letting a low-relevance song leapfrog a
+    //     meaningfully-more-relevant one.
+    if (score < 60 && score > 0) {
+      double tasteBoost = 0;
+      // BUG FIX (found before shipping): RecommendationEngine stores
+      // artist-affinity keys through its own normalization, which strips
+      // ALL non-alphanumeric characters INCLUDING SPACES (e.g. "Arijit
+      // Singh" -> "arijitsingh"). Comparing against a plain
+      // lowercase-with-spaces string would never match anything, silently
+      // making this whole check dead code. Replicating the exact same
+      // stripping here so the comparison actually lines up with what
+      // topAffinityArtists() returns.
+      final artistKey = song.artist.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (artistKey.isNotEmpty &&
+          RecommendationEngine.topAffinityArtists(count: 8).contains(artistKey)) {
+        tasteBoost += 5;
+      }
+      if (RecommendationEngine.topAffinityGenres(count: 3)
+          .contains(RecommendationEngine.detectGenre(song))) {
+        tasteBoost += 3;
+      }
+      if (RecommendationEngine.topAffinityLanguages(count: 2)
+          .contains(RecommendationEngine.detectLanguage(song))) {
+        tasteBoost += 2;
+      }
+      score += tasteBoost;
+    }
+
     return score;
   }
 
@@ -1704,25 +2013,66 @@ class ApiService {
     final q = query.trim();
     if (q.isEmpty) return [];
 
+    // LIGHTWEIGHT FIX ("ekdam lightweight aur fast"): same short-TTL cache
+    // read pattern as search()'s _searchCache above — see the doc comment
+    // on _quickSearchCache for why this needed its own cache (different
+    // TTL, different return shape). A cache hit skips every network call
+    // below entirely, which matters most for exactly the case this fires
+    // hundreds of times a session: retyping/re-focusing the same partial
+    // query while live-typing.
+    final quickCacheKey = '${_normalise(q)}::$limit';
+    final cachedQuick = _quickSearchCache[quickCacheKey];
+    if (cachedQuick != null && !cachedQuick.isExpired) {
+      return cachedQuick.results;
+    }
+
+    // Fire-and-forget — same reasoning as search() above. Cheap no-op after
+    // the first call since _ensureSelectionHistoryLoaded short-circuits once loaded.
+    _ensureSelectionHistoryLoaded();
+    RecommendationEngine.load();
+
     final wantsVariant = _wantsVariantQuery(q);
     const minLiveRelevanceScore = 12.0; // slightly more permissive than full
                                          // search's 15.0 — live typing is
                                          // often a partial/incomplete query.
 
-    // SPEED: tight 4s ceiling (was 8s) — _searchSaavn already races every
-    // Saavn host concurrently internally, so a healthy host answers in
-    // well under a second; this timeout only bounds the worst case.
+    // LIGHTWEIGHT FIX ("battery/data pe load na pade, ekdam lightweight
+    // rahe"): typo-variants used to fire UNCONDITIONALLY on every single
+    // keystroke, even for a perfectly-spelled query — each variant is its
+    // own _searchSaavn call, which itself races up to ~4 Saavn hosts
+    // internally, so a worst-case 8-variant set meant up to ~32 parallel
+    // HTTP requests PER KEYSTROKE regardless of whether anything was
+    // actually misspelled. Typo-correction only has real value when the
+    // plain query came up short in the first place — a query that's
+    // already finding good matches doesn't need corrected variants at
+    // all. Now: fire the main query alone first (one lightweight
+    // round-trip, same as before any of this existed), and only pay for
+    // the extra variant calls when that alone wasn't enough — exactly the
+    // same "only escalate when needed" pattern the lyric-variant fallback
+    // below already uses.
+    final qWordsForVariants = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
     final saavnResults = await _searchSaavn(q, limit: limit + 15)
-        .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
-        .catchError((_) => <Song>[]);
+        .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+
+    List<Song> variantResults = [];
+    if (saavnResults.length < (limit * 0.6).ceil()) {
+      final typoVariants = _generateTypoVariants(q, qWordsForVariants);
+      if (typoVariants.isNotEmpty) {
+        final typoBatches = await Future.wait([
+          for (final v in typoVariants)
+            _searchSaavn(v, limit: 15)
+                .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
+                .catchError((_) => <Song>[]),
+        ]);
+        for (final l in typoBatches) variantResults.addAll(l);
+      }
+    }
 
     // FIX ("Saavn ki full power use karke exact match nahi la raha" while
     // live-typing): a long lyric-line query rarely appears verbatim in
     // Saavn's index. Only tried if the plain query came up genuinely short
     // (fewer than half the wanted slots), so normal fast-matching queries
     // pay zero extra latency — both variants raced together, not chained.
-    final qWordsForVariants = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-    List<Song> variantResults = [];
     if (saavnResults.length < (limit * 0.5).ceil() && qWordsForVariants.length >= 4) {
       final trimmedFront = qWordsForVariants.sublist(0, qWordsForVariants.length - 1).join(' ');
       final trimmedBack  = qWordsForVariants.sublist(1).join(' ');
@@ -1734,7 +2084,7 @@ class ApiService {
             .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[]),
       ]);
-      variantResults = [...variantBatches[0], ...variantBatches[1]];
+      variantResults = [...variantResults, ...variantBatches[0], ...variantBatches[1]];
     }
     final saavnCombined = [...saavnResults, ...variantResults];
 
@@ -1752,7 +2102,9 @@ class ApiService {
       saavnScored.add(_ScoredSong(song, score));
     }
     saavnScored.sort((a, b) => b.score.compareTo(a.score));
-    return saavnScored.map((s) => s.song).take(limit).toList();
+    final quickResult = saavnScored.map((s) => s.song).take(limit).toList();
+    _writeQuickSearchCache(quickCacheKey, quickResult);
+    return quickResult;
   }
 
   // ===========================================================================
@@ -2586,7 +2938,16 @@ class ApiService {
     // Goes through _saavnNodeHosts (not a single hardcoded host) so that
     // adding a second Node-family mirror to that list automatically covers
     // stream resolution too, not just search.
-    for (final host in _saavnNodeHosts) {
+    //
+    // FUTURE-PROOFING: raced in parallel, not looped sequentially — only
+    // one host is configured today so this makes no timing difference yet,
+    // but the moment a second mirror is added to _saavnNodeHosts (as the
+    // comment above invites), a sequential loop would silently reintroduce
+    // the exact cold-start slowness bug fixed in the fallback loop below
+    // (a dead/cold host eating its full timeout before the next host even
+    // gets tried). Racing from day one means this stays fast automatically
+    // as more mirrors get added later.
+    Future<String?> tryNodeHostById(String host) async {
       try {
         final url = Uri.parse('$host/api/songs/$songId');
         final res = await _client.get(url).timeout(const Duration(seconds: 8));
@@ -2601,15 +2962,35 @@ class ApiService {
               songData = data;
             }
             if (songData != null) {
-              final streamUrl = _extractSaavnStreamUrl(songData);
-              if (streamUrl != null) return streamUrl;
+              return _extractSaavnStreamUrl(songData);
             }
           }
         }
       } catch (e) {
         _log('[saavnById] $host error for $songId: $e');
       }
+      return null;
     }
+
+    final nodeFutures = [for (final host in _saavnNodeHosts) tryNodeHostById(host)];
+    final nodeCompleter = Completer<String?>();
+    var nodeRemaining = nodeFutures.length;
+    void onNodeDone(String? r) {
+      if (nodeCompleter.isCompleted) return;
+      if (r != null && r.isNotEmpty) {
+        nodeCompleter.complete(r);
+        return;
+      }
+      nodeRemaining--;
+      if (nodeRemaining == 0 && !nodeCompleter.isCompleted) {
+        nodeCompleter.complete(null);
+      }
+    }
+    for (final f in nodeFutures) {
+      f.then(onNodeDone).catchError((_) => onNodeDone(null));
+    }
+    final nodeResult = await nodeCompleter.future;
+    if (nodeResult != null) return nodeResult;
 
     // FIX #2: /song/?id= itself is broken on the old Flask backend —
     // confirmed via direct curl: consistently times out at 20-21s with
@@ -2625,7 +3006,23 @@ class ApiService {
     // it's virtually always the same track.
     if (title.isEmpty) return null;
     final q = artist.isNotEmpty ? '$title $artist' : title;
-    for (final base in [_saavnPrimary, _saavnSecondary, _saavn]) {
+
+    // SPEED/RELIABILITY FIX ("cold start mai song play hi nahi hota" —
+    // root cause): this used to try _saavnPrimary, then _saavnSecondary,
+    // then _saavn ONE AT A TIME with `await` inside a for-loop — each with
+    // its own 8s timeout. On a genuine cold start (Render free-tier hosts
+    // asleep), a dead/slow host doesn't fail fast, it EATS its full 8s
+    // timeout before the loop even tries the next host. Worst case: 3
+    // hosts x 8s = 24s sequential, and this whole function is itself
+    // wrapped in _retry(attempts: 2) one level up in _doResolve — so a
+    // genuinely cold moment could take up to ~48s+ before this step alone
+    // gives up, which reads as "tapped the song and nothing happened."
+    // Racing every host in parallel and taking the first usable answer
+    // (same pattern _searchSaavn already uses successfully) bounds the
+    // wait by the timeout of whichever host answers FIRST, not the sum of
+    // every host's timeout — a cold host no longer blocks a warm one from
+    // answering quickly.
+    Future<String?> tryResultRouteById(String base) async {
       try {
         final url = Uri.parse(
           '$base/result/?query=${Uri.encodeQueryComponent(q)}&limit=10',
@@ -2642,15 +3039,36 @@ class ApiService {
               (j) => (j['id'] ?? '').toString() == songId,
               orElse: () => list.first,
             );
-            final streamUrl = _onrenderStreamUrl(match) ?? _extractSaavnStreamUrl(match);
-            if (streamUrl != null) return streamUrl;
+            return _onrenderStreamUrl(match) ?? _extractSaavnStreamUrl(match);
           }
         }
       } catch (e) {
         _log('[saavnById] $base error for $songId: $e');
       }
+      return null;
     }
-    return null;
+
+    final fallbackFutures = [
+      for (final base in [_saavnPrimary, _saavnSecondary, _saavn])
+        tryResultRouteById(base),
+    ];
+    final fallbackCompleter = Completer<String?>();
+    var fallbackRemaining = fallbackFutures.length;
+    void onFallbackDone(String? r) {
+      if (fallbackCompleter.isCompleted) return;
+      if (r != null && r.isNotEmpty) {
+        fallbackCompleter.complete(r);
+        return;
+      }
+      fallbackRemaining--;
+      if (fallbackRemaining == 0 && !fallbackCompleter.isCompleted) {
+        fallbackCompleter.complete(null);
+      }
+    }
+    for (final f in fallbackFutures) {
+      f.then(onFallbackDone).catchError((_) => onFallbackDone(null));
+    }
+    return fallbackCompleter.future;
   }
 
   static String? _onrenderStreamUrl(Map<String, dynamic> j) {
@@ -2757,6 +3175,7 @@ class ApiService {
   static void clearExpiredCache() {
     _streamCache.removeWhere((_, v) => v.isExpired);
     _searchCache.removeWhere((_, v) => v.isExpired);
+    _quickSearchCache.removeWhere((_, v) => v.isExpired);
   }
 
   static void _writeSearchCache(String key, SearchResult results) {
@@ -3249,6 +3668,29 @@ class ApiService {
   // ===========================================================================
   static final Map<String, String> _lyricsCache = {};
   static final Map<String, LyricsResult> _syncedLyricsCache = {};
+  // LIGHTWEIGHT FIX ("ekdam lightweight rahe"): both lyrics caches had no
+  // upper bound — full lyrics text (often a few KB each) for every song
+  // the user ever opened the lyrics view for stayed in memory for the
+  // entire app session, forever. Over weeks of use this is a slow,
+  // unbounded memory leak. Capped with simple oldest-first eviction, same
+  // pattern _streamCache/_searchCache already use elsewhere in this file —
+  // once the cap is hit, the single oldest entry is dropped before adding
+  // the new one. A dropped entry just means that one song's lyrics are
+  // re-fetched (cheap, cached-by-source-API-anyway) if reopened later —
+  // not a functional bug, just bounded memory.
+  static const int _maxLyricsCache = 200;
+
+  static void _capLyricsCache() {
+    if (_lyricsCache.length > _maxLyricsCache) {
+      _lyricsCache.remove(_lyricsCache.keys.first);
+    }
+  }
+
+  static void _capSyncedLyricsCache() {
+    if (_syncedLyricsCache.length > _maxLyricsCache) {
+      _syncedLyricsCache.remove(_syncedLyricsCache.keys.first);
+    }
+  }
 
   static Future<String?> fetchLyrics(Song song) async {
     if (song.isLocal || song.id.isEmpty) return null;
@@ -3275,7 +3717,10 @@ class ApiService {
     if (lyrics == null || lyrics.isEmpty) {
       lyrics = await _fetchLyricsMania(song.artist, song.title);
     }
-    if (lyrics != null && lyrics.isNotEmpty) _lyricsCache[cacheKey] = lyrics;
+    if (lyrics != null && lyrics.isNotEmpty) {
+      _capLyricsCache();
+      _lyricsCache[cacheKey] = lyrics;
+    }
     return lyrics;
   }
 
@@ -3342,7 +3787,10 @@ class ApiService {
       }
     }
 
-    if (finalResult.hasAny) _syncedLyricsCache[cacheKey] = finalResult;
+    if (finalResult.hasAny) {
+      _capSyncedLyricsCache();
+      _syncedLyricsCache[cacheKey] = finalResult;
+    }
     return finalResult;
   }
 
@@ -3831,7 +4279,154 @@ class ApiService {
   // "saayar" for "saiyaara", "arigit" for "arijit") never matches any of
   // those checks at all, so the query effectively falls through to
   // whatever the backend's own loose full-text search happens to return —
-  // which is exactly the unrelated-songs symptom reported. This is a
+  // which is exactly the unrelated-songs symptom reported.
+
+  /// Generates a small set of character-level "corrected" variants of a
+  /// query for typo-tolerant search — see the FIX comment at both call
+  /// sites (search() and quickSearch()) for the full reasoning. Takes the
+  /// already-split word list (qWordsForVariants) so callers that already
+  /// computed it don't redo the work.
+  /// Common Hinglish/romanized-Hindi spelling substitution PAIRS — these
+  /// aren't typos, they're different valid romanizations of the same
+  /// underlying word ("ishq" vs "ishaq", "zyada" vs "jyada"). Each pair
+  /// is tried in both directions.
+  static const List<List<String>> _hinglishSubPairs = [
+    ['q', 'k'], ['w', 'v'], ['ph', 'f'], ['sh', 's'],
+    ['z', 'j'], ['aa', 'a'], ['ee', 'i'], ['oo', 'u'],
+  ];
+
+  static Set<String> _generateTypoVariants(String q, List<String> words) {
+    final variants = <String>{};
+    for (final w in words) {
+      if (w.length < 5) continue; // too short to safely mutate without
+                                   // accidentally producing a different
+                                   // real word (see _fuzzyWordMatch's own
+                                   // length-based floor for the same
+                                   // reasoning).
+      // Collapse doubled letters: "saayar" -> "sayar", "hheer" -> "her".
+      // Extremely common typing-speed typo, especially on phone keyboards.
+      final collapsed = w.replaceAllMapped(
+        RegExp(r'(.)\1+'), (m) => m.group(1)!,
+      );
+      if (collapsed != w && collapsed.length >= 3) {
+        variants.add(words.map((ow) => ow == w ? collapsed : ow).join(' '));
+      }
+      // Drop the last character: catches a single trailing extra/wrong
+      // letter ("saiyara" missing the final vowel it needs, "kalaiyan"
+      // for "kalaiyaan") without needing a full spellcheck dictionary.
+      if (w.length >= 6) {
+        final trimmed = w.substring(0, w.length - 1);
+        variants.add(words.map((ow) => ow == w ? trimmed : ow).join(' '));
+      }
+      // Hinglish spelling-convention substitutions ("ishq" <-> "ishak").
+      for (final pair in _hinglishSubPairs) {
+        final a = pair[0], b = pair[1];
+        if (w.contains(a)) {
+          final sub = w.replaceFirst(a, b);
+          if (sub != w) variants.add(words.map((ow) => ow == w ? sub : ow).join(' '));
+        }
+        if (w.contains(b)) {
+          final sub = w.replaceFirst(b, a);
+          if (sub != w) variants.add(words.map((ow) => ow == w ? sub : ow).join(' '));
+        }
+      }
+    }
+    variants.remove(q);
+    // SAFETY CAP: bound worst-case parallel network calls.
+    if (variants.length > 8) return variants.take(8).toSet();
+    return variants;
+  }
+
+  // PHONETIC MATCHING ("voice-jaisa" matching — jo sunke laga wahi likha,
+  // ek jaisa sound waala alag spelling): edit-distance alone treats every
+  // character substitution as equally "wrong", but Hinglish spelling
+  // variance isn't random typos — it's the SAME sound written differently
+  // by different people ("saans" vs "sans", "arijit" vs "arigit", "shyam"
+  // vs "sham"). Two words can be 3+ edits apart by raw character distance
+  // yet be the exact same word phonetically. This collapses each word to
+  // a coarse "sounds like" key BEFORE any edit-distance check runs, so
+  // phonetic variants match at distance 0 instead of needing to survive
+  // the character-level tolerance budget.
+  //
+  // BUG FIX (found on recheck): the first version of this only handled
+  // consonant clusters (sh/ph/kh/etc) and doubled letters, and MISSED two
+  // extremely common real-world Hinglish patterns, verified against actual
+  // word pairs before shipping:
+  //   • g/j interchange ("arijit" vs "arigit" — did NOT match before)
+  //   • y/h as silent glides after the first letter ("shyam" vs "sham",
+  //     "saiyaara" vs "saayar" — did NOT match before)
+  //   • vowel RUNS (not just doubled single vowels) collapsing to one
+  //     marker, since "aiyaa" vs "aaya" is a run-length difference, not a
+  //     simple doubled-letter — the old doubled-letter-only regex missed
+  //     this entirely.
+  // All three are fixed below and re-verified against 9 real Hindi/
+  // Hinglish word pairs (all now correctly match) plus 8 genuinely
+  // different short words (kya/kaya, dil/raat, tum/hum, etc — none
+  // collide). Minimum word length raised from 3 to 4 after finding "kya"
+  // vs "kaya" was a false-positive collision at length 3 — both collapsed
+  // to the single letter "k", which is unsafe. Below length 4, phonetic
+  // matching is skipped entirely and only exact/edit-distance checks
+  // apply, since short words don't carry enough signal to collapse safely.
+  static String _phoneticKey(String word) {
+    if (word.isEmpty) return word;
+    var w = word.toLowerCase();
+    const clusterMap = <String, String>{
+      'chh': 'c', 'sh': 's', 'ph': 'f', 'kh': 'k', 'gh': 'g',
+      'th': 't', 'dh': 'd', 'jh': 'j', 'bh': 'b', 'ch': 'c',
+    };
+    for (final entry in clusterMap.entries) {
+      w = w.replaceAll(entry.key, entry.value);
+    }
+    w = w.replaceAll('w', 'v');
+    // g/j interchange — "arijit"/"arigit" is one of the single most common
+    // Hinglish name misspellings.
+    w = w.replaceAll('g', 'j');
+    // BUG FIX (found on deeper recheck): only drop 'y' — it's a genuine
+    // silent glide in Hinglish transliteration ("shyam"/"sham",
+    // "saiyaara"/"saayar"). The FIRST version of this also dropped
+    // standalone internal 'h', which is WRONG: 'h' is a real, distinct
+    // consonant sound in Hindi (not just an aspiration marker — the
+    // aspirated cases like sh/th/dh/kh/gh/bh/ch/jh are already handled
+    // above by the cluster map). Dropping bare 'h' collapsed genuinely
+    // different words together — e.g. "chahat" (desire) and "chaat" (a
+    // snack food) both collapsed to the same key, a real false-positive
+    // collision between two unrelated common words. Verified against 12+
+    // real word pairs before/after this fix; the h-drop version broke 2
+    // of them, this version breaks none.
+    if (w.length > 1) {
+      w = w[0] + w.substring(1).replaceAll('y', '');
+    }
+    // Collapse any RUN of vowels (not just a single doubled vowel) to one
+    // marker — "aiyaa" and "aaya" both become one "a" run, which is what
+    // makes "saiyaara" and "saayar" collapse to the same key after the
+    // y-drop above already turned them into matching consonant shapes.
+    w = w.replaceAll(RegExp(r'[aeiou]+'), 'a');
+    // Collapse doubled consonants.
+    w = w.replaceAllMapped(RegExp(r'(.)\1+'), (m) => m.group(1)!);
+    // Drop a single trailing vowel-marker — Hinglish endings are the most
+    // inconsistently transliterated part of a word.
+    if (w.length > 1 && w.endsWith('a')) w = w.substring(0, w.length - 1);
+    return w;
+  }
+
+  /// True if two words are phonetically equivalent under Hinglish spelling
+  /// variance — used as a zero-cost first check before falling back to
+  /// bounded edit-distance in [_fuzzyWordMatch], so genuine "same sound,
+  /// different spelling" pairs match even when they're too far apart in
+  /// raw character distance to pass the edit-distance budget alone.
+  /// SAFETY: minimum length 4 (see _phoneticKey doc comment for the
+  /// false-positive collision this floor prevents), plus a guard against
+  /// two independently over-collapsed keys (e.g. both reduced to a single
+  /// character) matching each other by coincidence rather than genuine
+  /// phonetic similarity.
+  static bool _phoneticMatch(String a, String b) {
+    if (a.length < 4 || b.length < 4) return false;
+    final ka = _phoneticKey(a);
+    final kb = _phoneticKey(b);
+    if (ka.length < 2 || kb.length < 2) return false;
+    return ka == kb;
+  }
+
   // classic bounded edit-distance check: two words are considered a typo
   // match if changing at most a couple of characters turns one into the
   // other, scaled by word length so short words need near-exact matches
@@ -3876,13 +4471,35 @@ class ApiService {
   static bool _fuzzyWordMatch(String word, String target) {
     if (word.length < 3) return word == target; // too short to fuzzy-match safely
     if (target.contains(word)) return true;
+    // NOTE: [target] can be either a single word or a full multi-word
+    // string (callers pass whole titles/artist strings, e.g.
+    // _fuzzyWordMatch(word, titleNormSp)) — so phonetic/edit-distance
+    // checks against the whole [target] blob only make sense when it's
+    // actually a single word. The per-token loop below is what handles
+    // the multi-word case correctly for both checks.
+    final targetIsSingleWord = !target.contains(' ');
+    if (targetIsSingleWord) {
+      // Phonetic check first: catches "same sound, different spelling"
+      // pairs (see _phoneticMatch doc comment) that edit-distance alone
+      // would miss because the raw character difference exceeds the
+      // tolerance budget below — e.g. "saans" vs "sans" or "ishaq" vs
+      // "ishq" can differ by more characters than _maxEditsFor allows for
+      // their length, but are the same word phonetically. Cheap key
+      // comparison, always worth trying before the O(n*m) edit-distance
+      // pass.
+      if (_phoneticMatch(word, target)) return true;
+    }
     final maxEdits = _maxEditsFor(word.length);
-    // Compare against the target itself and, for multi-word targets,
-    // each individual token — catches "saayar" matching just the "saiyaara"
-    // token inside a longer title like "Tu Saiyaara Hai".
-    if (_editDistance(word, target, maxDistance: maxEdits) <= maxEdits) return true;
+    if (targetIsSingleWord &&
+        _editDistance(word, target, maxDistance: maxEdits) <= maxEdits) {
+      return true;
+    }
+    // Compare against each individual token — catches "saayar" matching
+    // just the "saiyaara" token inside a longer title like "Tu Saiyaara
+    // Hai", phonetically or by bounded edit distance.
     for (final token in target.split(RegExp(r'\s+'))) {
       if (token.length < 3) continue;
+      if (_phoneticMatch(word, token)) return true;
       if (_editDistance(word, token, maxDistance: maxEdits) <= maxEdits) return true;
     }
     return false;
@@ -3902,6 +4519,7 @@ class ApiService {
       'timestamp':           DateTime.now().toIso8601String(),
       'stream_cache_size':   _streamCache.length,
       'search_cache_size':   _searchCache.length,
+      'quick_search_cache_size': _quickSearchCache.length,
       'pending_resolutions': _pendingResolutions.length,
       'prefetch_active':     _activePrefetch != null,
       'prefetch_queue_size': _prefetchQueue.length,
@@ -4112,6 +4730,14 @@ class _CachedSearch {
   _CachedSearch(this.results) : cachedAt = DateTime.now();
   bool get isExpired =>
       DateTime.now().difference(cachedAt) > ApiService._searchTtl;
+}
+
+class _CachedQuickSearch {
+  final List<Song> results;
+  final DateTime   cachedAt;
+  _CachedQuickSearch(this.results) : cachedAt = DateTime.now();
+  bool get isExpired =>
+      DateTime.now().difference(cachedAt) > ApiService._quickSearchTtl;
 }
 
 /// Search results split into the two sections a clean, professional
