@@ -1143,122 +1143,103 @@ class ApiService {
       return true;
     }
 
-    // A pool of ~3x the requested limit gives rankAndFilter (which still
-    // applies scoring, era penalties, and the 70/20/10 discovery mix)
-    // enough candidates to actually choose from rather than being forced
-    // to keep low-scoring songs just to hit the count.
-    final poolTarget = limit * 3;
+    // ═══════════════════════════════════════════════════════════════════
+    // SPEED FIX ("Up Next mein songs bahut late aate hain"): every signal
+    // below used to be a SEPARATE SEQUENTIAL STAGE — Signal 1+2 fully
+    // awaited, THEN (only if the pool was still short of poolTarget =
+    // limit*3) Signal 1.5 awaited, THEN Signal 3, THEN Signal 4. Each
+    // stage is fast on its own (parallel internally), but the STAGES
+    // stacked on top of each other: worst case this was 6s + 8s + 5s + 5s
+    // = 24 SECONDS of sequential waiting before Up Next had anything to
+    // show, and even the common case (Signal 1+2 alone rarely fills a
+    // limit*3 pool) routinely paid for 2-3 stages back to back. None of
+    // these signals actually depend on each other's results — Signal 3/4
+    // build their queries from currentSong, not from what Signal 1/2
+    // returned — so there's no real reason to wait for one before
+    // starting the next.
+    //
+    // Now every signal fires AT ONCE, unconditionally — the old
+    // pool.length < poolTarget gate is gone since there's no longer a
+    // sequential pool to check between stages. Total wall-clock time
+    // becomes roughly the single SLOWEST signal (~8s worst case for the
+    // YT-related fetch) instead of the sum of all of them — a 3-4x
+    // speedup on a fresh/cold queue build, which is exactly the moment a
+    // user is sitting there watching "Up Next" for something to appear.
+    // Signal 3/4's queries are generated once up front (shared by both)
+    // since generateQueries() is cheap and deterministic-per-call; each
+    // result list still goes through addToPool in the same priority order
+    // as before (1, 2, 1.5, 3, 4) so a stronger, more specific signal
+    // still wins any tie for a duplicate song, exactly as it did when
+    // they ran in stages. The only real cost is a small number of extra
+    // parallel network calls on songs where Signal 1+2 alone would have
+    // been enough — traded deliberately for consistently fast, predictable
+    // queue-build latency instead of latency that varies with how many
+    // stages happened to be needed.
+    // ═══════════════════════════════════════════════════════════════════
+    final fallbackQueries = RecommendationEngine.generateQueries(currentSong);
+    final wantsYtRelated = currentSong.source == SongSource.youtube;
 
-    // ── Signal 1 + 2: Real Saavn similar-songs (album+artist) AND same-
-    //    artist catalog — these are the two strongest, most specific
-    //    signals and neither depends on the other's output, so they now
-    //    fire together instead of Signal 2 waiting for Signal 1's full
-    //    round-trip to finish first. Same data, same category priority
-    //    (album/artist match still wins ties via addToPool's insertion
-    //    order below), just no longer paid for twice in a row.
-    final signal1And2 = await Future.wait([
+    final results = await Future.wait<List<Song>>([
+      // Signal 1: Saavn similar-songs (album+artist correlation)
       _fetchSimilarFromSaavn(currentSong, limit: limit)
           .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[]),
+      // Signal 2: Same-artist catalog search
       _searchSaavn('${currentSong.artist} songs', limit: limit * 2)
           .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[]),
-    ]);
-    for (final s in signal1And2[0]) addToPool(s);
-    for (final s in signal1And2[1]) addToPool(s);
-    _log('[autoQueue] signal1+2 saavn: ${pool.length}');
-
-    // ── Signal 1.5: YouTube's own related-videos graph — only for
-    //    YouTube-sourced current songs, since it needs a real YouTube
-    //    video ID as its seed. This is YOUTUBE'S OWN ALGORITHM output (via
-    //    NewPipeExtractor's StreamExtractor.relatedItems, the same data
-    //    every NewPipe-based player uses for autoplay), not a guessed
-    //    search query — a strictly stronger signal than Signal 3/4 below
-    //    for exactly the songs this applies to. Kept clearly AFTER Saavn
-    //    similar-songs, not first: Saavn's own catalog metadata stays the
-    //    primary signal for every song, since it's what era-filtering and
-    //    the quality gates below were built around; this only supplements
-    //    it for the subset of songs where a native YouTube identity
-    //    exists. Only fired when the pool still needs more (matches every
-    //    other signal's own pool.length < poolTarget gate below) — no
-    //    point paying for a native extraction round-trip once Signal 1+2
-    //    already filled the pool. Best-effort by design —
-    //    NativeRelatedVideos.getRelated() never throws, so any native-
-    //    extraction hiccup here just means this signal contributes
-    //    nothing, exactly like every other signal's own timeout/try-catch.
-    if (pool.length < poolTarget && currentSong.source == SongSource.youtube) {
-      try {
-        final related = await NativeRelatedVideos.getRelated(currentSong.id)
-            .timeout(const Duration(seconds: 8), onTimeout: () => <YtRelatedVideo>[]);
-        for (final r in related) {
-          addToPool(Song(
-            id: r.videoId,
-            title: r.title,
-            artist: r.uploaderName,
-            album: '',
-            artworkUrl: 'https://i.ytimg.com/vi/${r.videoId}/hqdefault.jpg',
-            source: SongSource.youtube,
-            duration: r.durationSecs,
-            viewCount: r.viewCount,
-          ));
-        }
-        _log('[autoQueue] signal1.5 yt-related: ${pool.length}');
-      } catch (e) {
-        _log('[autoQueue] signal1.5 yt-related failed: $e');
-      }
-    }
-
-    // ── Signal 3: Mood+genre+era fallback ────────────────────────────────
-    if (pool.length < poolTarget) {
-      final queries = RecommendationEngine.generateQueries(currentSong);
-      // SPEED FIX: these queries used to run one-by-one, each paying a
-      // full Saavn round-trip before the next fired. Firing them all at
-      // once cuts this signal's wall-clock time from N round-trips down
-      // to roughly one, since none of the queries depend on each other.
-      final signal3Results = await Future.wait(queries.map((q) =>
+      // Signal 1.5: YouTube's own related-videos graph (YT-sourced songs
+      // only) — a no-op empty future for Saavn-sourced songs so the list
+      // shape/indexing below stays fixed regardless of source.
+      if (wantsYtRelated)
+        NativeRelatedVideos.getRelated(currentSong.id)
+            .timeout(const Duration(seconds: 8), onTimeout: () => <YtRelatedVideo>[])
+            .then((related) => related.map((r) => Song(
+                  id: r.videoId,
+                  title: r.title,
+                  artist: r.uploaderName,
+                  album: '',
+                  artworkUrl: 'https://i.ytimg.com/vi/${r.videoId}/hqdefault.jpg',
+                  source: SongSource.youtube,
+                  duration: r.durationSecs,
+                  viewCount: r.viewCount,
+                )).toList())
+            .catchError((_) => <Song>[])
+      else
+        Future.value(<Song>[]),
+      // Signal 3: Mood+genre+era fallback (Saavn) — one query per
+      // generated AutoQueueQuery, all raced together and flattened.
+      Future.wait(fallbackQueries.map((q) =>
           _searchSaavn(q.query, limit: limit)
               .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
-              .catchError((_) => <Song>[])));
-      for (final r in signal3Results) {
-        for (final s in r) addToPool(s);
-      }
-      _log('[autoQueue] signal3 fallback: ${pool.length}');
-    }
-
-    // ── Signal 4: YouTube supplementary fill ─────────────────────────────
-    // Only reached when Saavn's own catalog genuinely couldn't fill the
-    // pool — common for niche/regional artists, older/deep-catalog songs,
-    // or very new releases with a thin Saavn presence. Reuses the same
-    // mood/genre/era queries from Signal 3 (so the vibe-matching logic is
-    // identical, just pointed at a different catalog) rather than a
-    // separate, looser query — a YT result has to match the same "sounds
-    // like this" intent as every other signal, not just be "something on
-    // YouTube".
-    //
-    // FIX (thin queue on niche/older songs — e.g. only 7-8 candidates
-    // reaching rankAndFilter instead of the ~40-60 it needs): this used to
-    // stop filling once pool.length reached `limit` (e.g. 20 for Phase 1).
-    // But rankAndFilter needs close to `poolTarget` (limit*3) candidates to
-    // have real choices for scoring, era-matching, and the 70/20/10
-    // discovery mix — with only `limit` candidates in the pool, aggressive
-    // variant/dedup filtering inside rankAndFilter could easily strip the
-    // pool down to a handful of songs with nothing left to backfill from.
-    // Filling toward poolTarget instead means a niche song with a thin
-    // Saavn presence still gets enough raw candidates for rankAndFilter to
-    // actually produce a full, varied queue.
-    if (pool.length < poolTarget) {
-      final queries = RecommendationEngine.generateQueries(currentSong);
-      // SPEED FIX: same one-by-one-round-trip problem as Signal 3, now
-      // fired concurrently instead of sequentially.
-      final signal4Results = await Future.wait(queries.map((q) =>
+              .catchError((_) => <Song>[])))
+          .then((lists) => [for (final l in lists) ...l]),
+      // Signal 4: YouTube supplementary fill — same mood/genre/era queries
+      // as Signal 3, pointed at YouTube instead of Saavn. Previously only
+      // fired at all once Signal 1-3 left the pool short; now it always
+      // fires alongside everything else (its own result is still only as
+      // useful as whatever addToPool below actually accepts — a healthy
+      // Saavn pool means most/all of this signal's songs simply get
+      // rejected as unneeded duplicates-of-nothing-new, which costs
+      // nothing but the parallel network call itself).
+      Future.wait(fallbackQueries.map((q) =>
           _searchYt(q.query, limit: limit)
               .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
-              .catchError((_) => <Song>[])));
-      for (final r in signal4Results) {
-        for (final s in r) addToPool(s);
-      }
-      _log('[autoQueue] signal4 yt fallback: ${pool.length}');
+              .catchError((_) => <Song>[])))
+          .then((lists) => [for (final l in lists) ...l]),
+    ]);
+
+    // Apply in the same priority order as the old sequential stages, so a
+    // stronger/more specific signal still wins any addToPool duplicate-tie
+    // exactly as before — only the WAITING changed, not the precedence.
+    for (final s in results[0]) addToPool(s); // Signal 1
+    for (final s in results[1]) addToPool(s); // Signal 2
+    if (wantsYtRelated) {
+      for (final s in results[2]) addToPool(s); // Signal 1.5
     }
+    for (final s in results[3]) addToPool(s); // Signal 3
+    for (final s in results[4]) addToPool(s); // Signal 4
+    _log('[autoQueue] all signals parallel: ${pool.length}');
 
     return RecommendationEngine.rankAndFilter(
       pool: pool, currentSong: currentSong,
@@ -1349,34 +1330,26 @@ class ApiService {
     }
     lyricVariants.remove(q);
 
-    // SPEED FIX ("Saavn pehle rahe, YT sirf jab Saavn kam ho, aur fast"):
-    // this used to ALWAYS fire Saavn (10s ceiling) and YT (6s ceiling) in
-    // lockstep and wait for both no matter what, even when Saavn alone
-    // already had a complete, high-quality hit — every keystroke's search
-    // paid YT's full round-trip time for nothing. Now Saavn (+ its lyric
-    // variants) is awaited FIRST with a tight timeout; YT is only fired
-    // at all — and only awaited — when Saavn genuinely came up short.
-    // Saavn still always wins the top slots when it does have results
-    // (unchanged below), this just stops paying for YT when it isn't
-    // needed and keeps the live-search feel snappy.
+    // SEARCH: SAAVN FIRST, SMART YT FALLBACK WHEN SAAVN IS THIN.
+    // Saavn (+ lyric variants) is always awaited first — it's the fast,
+    // proper primary source and usually all that's needed. YouTube is
+    // ONLY queried when Saavn genuinely didn't cover the query (fewer
+    // than 8 usable hits after scoring), so a healthy Saavn query never
+    // pays YT's round-trip at all. When it IS needed, it goes through the
+    // same "masterpiece" pipeline as the rest of the app: official-label-
+    // channel priority, a real quality/view floor, smart dedup against
+    // what Saavn already returned, and the same relevance scoring — never
+    // a raw, unfiltered YT dump.
     final saavnFutures = [
       _searchSaavn(q, limit: 50)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]),
+          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+          .catchError((_) => <Song>[]),
       ...lyricVariants.map((v) => _searchSaavn(v, limit: 20)
           .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[])),
     ];
     final saavnAll = await Future.wait(saavnFutures);
-    final saavnResults = saavnAll[0];
     final saavnCombined = [for (final list in saavnAll) ...list];
-
-    // Only pay for YT's round-trip when Saavn genuinely didn't cover the
-    // query well — a handful of loose hits still counts as "cover it",
-    // since YT would just be deduped out below anyway.
-    final ytResults = saavnResults.length >= 8
-        ? <Song>[]
-        : await _searchYt(q, limit: 20)
-            .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
 
     final saavnScored = <_ScoredSong>[];
     final ytScored    = <_ScoredSong>[];
@@ -1417,31 +1390,40 @@ class ApiService {
       saavnScored.add(_ScoredSong(song, score));
     }
 
-    // YT: skip if title is near-identical to a Saavn result, OR is a smart
-    // duplicate of one (a YT re-upload of a song already returned by
-    // Saavn shouldn't get its own slot either).
-    for (final song in ytResults) {
-      final norm = _normTitle(song.title);
-      if (saavnNorms.contains(norm)) continue;
-      var isDupOfSaavn = false;
-      for (final seenRaw in saavnRawTitlesAccepted) {
-        if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) {
-          isDupOfSaavn = true;
-          break;
+    saavnScored.sort((a, b) => b.score.compareTo(a.score));
+
+    // YouTube fallback — only fired when Saavn genuinely came up short.
+    // 8 usable hits is the same bar quickSearch/full-search elsewhere in
+    // the app already treats as "Saavn covered it" — below that, YT fills
+    // the gap through the SAME quality pipeline _searchYt already applies
+    // (official-label-channel sort, real videos only), plus the search
+    // relevance floor and smart dedup against Saavn so nothing doubles up.
+    if (saavnScored.length < 8) {
+      final ytResults = await _searchYt(q, limit: 20)
+          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+      for (final song in ytResults) {
+        final norm = _normTitle(song.title);
+        if (saavnNorms.contains(norm)) continue;
+        var isDupOfSaavn = false;
+        for (final seenRaw in saavnRawTitlesAccepted) {
+          if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) {
+            isDupOfSaavn = true;
+            break;
+          }
         }
+        if (isDupOfSaavn) continue;
+        if (!RecommendationEngine.isPremiumQuality(song)) continue;
+        final score = _scoreSearchResult(song, q, wantsVariant);
+        if (score < minRelevanceScore) continue;
+        ytScored.add(_ScoredSong(song, score));
       }
-      if (isDupOfSaavn) continue;
-      final score = _scoreSearchResult(song, q, wantsVariant);
-      if (score < minRelevanceScore) continue;
-      ytScored.add(_ScoredSong(song, score));
+      ytScored.sort((a, b) => b.score.compareTo(a.score));
     }
 
     // Saavn songs are ranked strictly above every YT song — YT only ever
-    // fills in below Saavn's own results, never interleaves with them,
-    // so Saavn content always appears first no matter the individual
+    // fills in below Saavn's own results, never interleaves with them, so
+    // Saavn (the fast, proper primary) always leads no matter individual
     // match score.
-    saavnScored.sort((a, b) => b.score.compareTo(a.score));
-    ytScored.sort((a, b) => b.score.compareTo(a.score));
     final directResults = [...saavnScored, ...ytScored].map((s) => s.song).toList();
 
     // ── RELATED EXPANSION (Spotify-style) ──────────────────────────────────
@@ -1451,13 +1433,9 @@ class ApiService {
     // so search and Up Next behave consistently: search "Gori Hai
     // Kalaiyaan" and its 90s/genre-mates show up too, exactly like tapping
     // play and watching Up Next fill in with the same vibe.
-    // TUNED (target: ~80 total results, Saavn AND YT both represented):
-    // cap raised 40 -> 55 so direct(≈15-40 after dedup) + related(≈55)
-    // comfortably clears 80 for well-covered songs. The YT pass used to
-    // only run if Saavn-related came up short (<20) — now it always runs
-    // (threshold raised to <45, i.e. skip only if Saavn alone nearly filled
-    // the whole cap), so a healthy Saavn AND YT mix is the normal case
-    // instead of YT being a rare emergency fallback.
+    // TUNED (target: ~80 total results): cap raised 40 -> 55 so
+    // direct(≈15-40 after dedup) + related(≈55) comfortably clears 80 for
+    // well-covered songs — Saavn-led, with the same smart YT topup rule.
     final results = List<Song>.from(directResults);
     // SPEED FIX ("ekdam fast, smooth, lightweight rahe"): related expansion
     // fires N extra Saavn + N extra YT network calls and used to run on
@@ -1490,38 +1468,44 @@ class ApiService {
       final seenRelated = <String>{};
       const relatedCap = 55;
 
-      // SPEED FIX ("search bahut lag kar raha hai"): this used to be TWO
-      // sequential phases — wait for ALL Saavn-related queries to finish,
-      // THEN (only if still short) fire ALL YT-related queries and wait
-      // again. Even though each phase itself ran its queries in parallel,
-      // the phases stacked on top of each other, so a search could pay
-      // Saavn's full round-trip time AND THEN YT's full round-trip time
-      // back to back — on top of the initial direct-search Future.wait
-      // that already happens before this block even starts. Firing every
-      // Saavn-related AND every YT-related query in ONE combined
-      // Future.wait removes that second sequential wait entirely — same
-      // total network calls, same filters, just no longer paying for them
-      // twice in a row.
+      // RELATED: Saavn first, same smart YT topup rule as direct results —
+      // only reached for a query when Saavn's own related pool comes up
+      // short, quality-gated (view floor + official-channel bias) and
+      // deduped against everything already shown, so the "vibe" list stays
+      // premium instead of a raw dump.
       final combinedRelated = await Future.wait([
         ...relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 25)
             .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[])),
-        ...relatedQueries.map((rq) => _searchYt(rq.query, limit: 20)
-            .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
-            .catchError((_) => <Song>[])),
       ]);
-      final saavnBatchCount = relatedQueries.length;
-      for (var i = 0; i < combinedRelated.length; i++) {
+      for (final list in combinedRelated) {
         if (relatedPool.length >= relatedCap) break;
-        final isYt = i >= saavnBatchCount;
-        for (final s in combinedRelated[i]) {
+        for (final s in list) {
           if (relatedPool.length >= relatedCap) break;
           if (directIds.contains(s.id)) continue;
           if (RecommendationEngine.isInherentVariant(s.title)) continue;
-          if (isYt && !RecommendationEngine.isPremiumQuality(s)) continue;
           final tk = _normTitle(s.title);
           if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
           relatedPool.add(s);
+        }
+      }
+      if (relatedPool.length < 20) {
+        final ytRelated = await Future.wait(
+          relatedQueries.map((rq) => _searchYt(rq.query, limit: 20)
+              .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
+              .catchError((_) => <Song>[])),
+        );
+        for (final list in ytRelated) {
+          if (relatedPool.length >= relatedCap) break;
+          for (final s in list) {
+            if (relatedPool.length >= relatedCap) break;
+            if (directIds.contains(s.id)) continue;
+            if (RecommendationEngine.isInherentVariant(s.title)) continue;
+            if (!RecommendationEngine.isPremiumQuality(s)) continue;
+            final tk = _normTitle(s.title);
+            if (directTitles.contains(tk) || !seenRelated.add(tk)) continue;
+            relatedPool.add(s);
+          }
         }
       }
       results.addAll(relatedPool);
@@ -1710,39 +1694,33 @@ class ApiService {
   }
 
   // ===========================================================================
-  // QUICK SEARCH — Saavn first (fast), YT only fills remaining slots
+  // QUICK SEARCH — 100% Saavn, no YouTube. Every keystroke fires this, so
+  // it must be pure and fast: race Saavn hosts (already handled inside
+  // _searchSaavn), apply the relevance floor so typos/garbage don't leak
+  // through, and stop there. No YT gap-fill — typed search is Saavn-only
+  // by design so results are always proper JioSaavn tracks, arriving fast.
   // ===========================================================================
   static Future<List<Song>> quickSearch(String query, {int limit = 15}) async {
     final q = query.trim();
     if (q.isEmpty) return [];
 
-    // FIX ("Tu saayar hai" → unrelated songs shown while live-typing"):
-    // this used to return _searchSaavn's raw backend results completely
-    // unranked and unfiltered — no relevance floor, no typo tolerance, none
-    // of the scoring _search() applies. That's exactly why misspelled or
-    // loosely-matching live-typing queries showed whatever the backend's
-    // own loose full-text match happened to surface, including songs with
-    // no real relation to the query. Live search now goes through the same
-    // _scoreSearchResult ranking (with fuzzy typo tolerance) and the same
-    // relevance floor as full search — just against a smaller pool and
-    // with a tighter timeout, since this path exists for speed while
-    // typing, not for it to skip quality entirely.
     final wantsVariant = _wantsVariantQuery(q);
     const minLiveRelevanceScore = 12.0; // slightly more permissive than full
                                          // search's 15.0 — live typing is
                                          // often a partial/incomplete query.
 
-    // Saavn first — show results fast without waiting for slow YT
+    // SPEED: tight 4s ceiling (was 8s) — _searchSaavn already races every
+    // Saavn host concurrently internally, so a healthy host answers in
+    // well under a second; this timeout only bounds the worst case.
     final saavnResults = await _searchSaavn(q, limit: limit + 15)
-        .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
+        .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
+        .catchError((_) => <Song>[]);
 
     // FIX ("Saavn ki full power use karke exact match nahi la raha" while
-    // live-typing): same reasoning as the full search() fallback below —
-    // a long lyric-line query rarely appears verbatim in Saavn's index.
-    // Only tried here if the plain query came up genuinely short (fewer
-    // than half the wanted slots), so normal fast-matching queries pay
-    // zero extra latency — this only kicks in for the exact case that was
-    // reported (a full sentence/lyric line typed in Search).
+    // live-typing): a long lyric-line query rarely appears verbatim in
+    // Saavn's index. Only tried if the plain query came up genuinely short
+    // (fewer than half the wanted slots), so normal fast-matching queries
+    // pay zero extra latency — both variants raced together, not chained.
     final qWordsForVariants = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
     List<Song> variantResults = [];
     if (saavnResults.length < (limit * 0.5).ceil() && qWordsForVariants.length >= 4) {
@@ -1750,10 +1728,10 @@ class ApiService {
       final trimmedBack  = qWordsForVariants.sublist(1).join(' ');
       final variantBatches = await Future.wait([
         _searchSaavn(trimmedFront, limit: 15)
-            .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[]),
         _searchSaavn(trimmedBack, limit: 15)
-            .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+            .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[]),
       ]);
       variantResults = [...variantBatches[0], ...variantBatches[1]];
@@ -1774,38 +1752,7 @@ class ApiService {
       saavnScored.add(_ScoredSong(song, score));
     }
     saavnScored.sort((a, b) => b.score.compareTo(a.score));
-    final rankedSaavn = saavnScored.map((s) => s.song).toList();
-
-    // Saavn gave most of what's needed — return immediately, skip YT entirely.
-    // FIX: threshold lowered from "limit" to "limit * 0.6" so YT is only used
-    // as a true last resort gap-filler, not a co-equal source.
-    if (rankedSaavn.length >= (limit * 0.6).ceil()) {
-      return rankedSaavn.take(limit).toList();
-    }
-
-    // Saavn short — fill remaining slots with YT quickly
-    final remaining = limit - rankedSaavn.length;
-    final ytResults = await _searchYt(q, limit: remaining * 2)
-        .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
-
-    final saavnNorms = rankedSaavn.map((s) => _normTitle(s.title)).toSet();
-    final ytScored = <_ScoredSong>[];
-    for (final song in ytResults) {
-      final norm = _normTitle(song.title);
-      if (saavnNorms.contains(norm)) continue;
-      var isDup = false;
-      for (final seenRaw in saavnRawTitlesAccepted) {
-        if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) { isDup = true; break; }
-      }
-      if (isDup) continue;
-      final score = _scoreSearchResult(song, q, wantsVariant);
-      if (score < minLiveRelevanceScore) continue;
-      ytScored.add(_ScoredSong(song, score));
-    }
-    ytScored.sort((a, b) => b.score.compareTo(a.score));
-    final ytUnique = ytScored.map((s) => s.song).take(remaining).toList();
-
-    return [...rankedSaavn, ...ytUnique];
+    return saavnScored.map((s) => s.song).take(limit).toList();
   }
 
   // ===========================================================================
@@ -1954,21 +1901,39 @@ class ApiService {
       }
     }
 
-    // Race every host at once, in priority order for tie-breaking (first
-    // non-null result in priority order wins, not just first-to-finish) —
-    // this keeps the Node primary preferred when it's fast enough, while
-    // never forcing a full sequential wait past it when it isn't.
+    // SPEED FIX ("ekdam fast aaye"): Future.wait blocks until EVERY host
+    // finishes, even after the fastest one already has a good answer — so
+    // one slow/dead host in the list held up the whole search for its
+    // full timeout every time, no matter how fast the winner was. This
+    // races every host in parallel and completes the instant the FIRST
+    // one returns usable results — no waiting on stragglers. Every host
+    // is still fired and still gets a chance to answer; only the wait is
+    // removed. If every host comes back empty/failed, resolves to [].
     final futures = <Future<List<Song>?>>[
       for (final host in _saavnNodeHosts) tryNodeHost(host),
       tryResultRoute(_saavnPrimary),
       tryResultRoute(_saavnSecondary),
       tryResultRoute(_saavn),
     ];
-    final resultsInOrder = await Future.wait(futures);
-    for (final r in resultsInOrder) {
-      if (r != null) return r;
+    final completer = Completer<List<Song>>();
+    var remaining = futures.length;
+
+    void onDone(List<Song>? r) {
+      if (completer.isCompleted) return;
+      if (r != null && r.isNotEmpty) {
+        completer.complete(r);
+        return;
+      }
+      remaining--;
+      if (remaining == 0 && !completer.isCompleted) {
+        completer.complete(<Song>[]);
+      }
     }
-    return [];
+
+    for (final f in futures) {
+      f.then(onDone).catchError((_) => onDone(null));
+    }
+    return completer.future;
   }
 
   // Shared single-page fetch helper used by _searchSaavn's pagination logic.

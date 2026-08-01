@@ -169,6 +169,24 @@ class RecommendationEngine {
   // Prevents old listening habits from dominating new ones.
   static const double _decayFactor = 0.92;
 
+  // FIX ("Up Next: same songs come back, just format/reupload changed"):
+  // generateQueries() used to be fully deterministic per song — same
+  // artist name, same static mood phrase, and _pickSimilarArtist was
+  // DAY-seeded (same similar-artist all day, every single extend call).
+  // Auto-queue extends every time ≤8 songs remain — often several times
+  // per session — and each extend fired the EXACT SAME 4 query strings at
+  // Saavn/YT, which is itself a deterministic search index: same query ->
+  // same top results, every time. Dedup blocked the exact songs already
+  // queued, but with no new query angle the shrinking pool of "not yet
+  // queued" hits from that one static query set ran out fast — the queue
+  // kept re-surfacing the same handful of songs under different
+  // reuploads, exactly the "format change karke wapas aata hai" symptom.
+  // This counter increments once per generateQueries() call and drives
+  // rotation (similar-artist pick, mood-phrasing) so consecutive extends
+  // genuinely explore different corners of the catalog instead of
+  // hammering one query on repeat.
+  static int _queryRotation = 0;
+
   // ---------------------------------------------------------------------------
   // SECTION 3: INITIALIZATION
   // ---------------------------------------------------------------------------
@@ -1573,11 +1591,17 @@ class RecommendationEngine {
     // `era` already has language/"songs" baked in and can't be used as a prefix.
     final decadeTok = _songDecade(currentSong);
 
+    // Bump the rotation counter once per call — this is what makes
+    // consecutive auto-queue extends explore different similar-artists/
+    // mood-phrasings instead of hammering the exact same query (see the
+    // fix note on _queryRotation's declaration above).
+    final rotation = _queryRotation++;
+
     if (!_loaded) {
       return [
         AutoQueueQuery('${currentSong.artist} songs', weight: 2),
-        AutoQueueQuery(_moodLockedQuery(activeMood, lang, genre, era: decadeTok), weight: 2),
-        AutoQueueQuery(_sessionMoodQuery(activeMood, lang, era: decadeTok), weight: 1),
+        AutoQueueQuery(_moodLockedQuery(activeMood, lang, genre, era: decadeTok, rotation: rotation), weight: 2),
+        AutoQueueQuery(_sessionMoodQuery(activeMood, lang, era: decadeTok, rotation: rotation), weight: 1),
         AutoQueueQuery(era, weight: 2),
       ];
     }
@@ -1597,14 +1621,20 @@ class RecommendationEngine {
 
     // Signal 2: Mood-locked + genre + ERA — THIS is the YouTube magic
     // Sad 90s song -> "sad 90s bollywood hindi songs", not just "sad bollywood hindi songs"
-    // Different artists, same vibe, same decade
+    // Different artists, same vibe, same decade. Mood phrasing now rotates
+    // through a few synonym variants per call (see _moodLockedQuery) so
+    // this doesn't become the exact same static string every extend.
     final q2 = AutoQueueQuery(
-      _moodLockedQuery(activeMood, lang, genre, era: decadeTok),
+      _moodLockedQuery(activeMood, lang, genre, era: decadeTok, rotation: rotation),
       weight: 2,
     );
 
-    // Signal 3: Similar artist from genre pool (artist diversity)
-    final similarArtist = _pickSimilarArtist(currentSong, topArtists);
+    // Signal 3: Similar artist from genre pool (artist diversity). Now
+    // rotation-driven instead of day-seeded — a fresh extend call walks
+    // to the NEXT artist in the pool rather than repeating the same one
+    // for the whole day, which was the single biggest cause of "Up Next
+    // keeps circling back to the same songs".
+    final similarArtist = _pickSimilarArtist(currentSong, topArtists, rotation);
     final q3 = AutoQueueQuery(
       '$similarArtist songs',
       weight: 1,
@@ -1613,17 +1643,37 @@ class RecommendationEngine {
     // Signal 4: Pure era+mood query — broadest net, catches era-matching songs
     // across artists the user hasn't explicitly listened to
     final q4 = AutoQueueQuery(
-      decadeTok != null ? era : _sessionMoodQuery(activeMood, lang),
+      decadeTok != null ? era : _sessionMoodQuery(activeMood, lang, rotation: rotation),
       weight: 2,
     );
 
-    return [q1, q2, q3, q4];
+    // Signal 5 (NEW): a second, DIFFERENT similar-artist pick from the
+    // same genre pool — pure catalog-exploration query with no mood/era
+    // scoping at all, so it surfaces a genuinely different artist's
+    // popular songs every rotation instead of only ever mining the same
+    // 1-2 signal shapes for fresh candidates. This is what keeps a long,
+    // many-extend session from exhausting one narrow slice of the
+    // catalog — same idea real music apps use ("explore" alongside
+    // "more like this").
+    final exploreArtist = _pickSimilarArtist(currentSong, topArtists, rotation + 3);
+    final q5 = AutoQueueQuery(
+      '$exploreArtist hit songs',
+      weight: 1,
+    );
+
+    return [q1, q2, q3, q4, q5];
   }
 
   /// Builds a mood-locked query combining mood + language + genre + era.
   /// This is what makes the queue feel like YouTube's mood-aware mix.
-  static String _moodLockedQuery(SessionMood mood, String lang, String genre, {String? era}) {
-    final moodWord = _moodSearchWord(mood);
+  /// [rotation] picks between a few equivalent phrasings of the same mood
+  /// (see _moodSearchWord) so consecutive auto-queue extends for the same
+  /// song don't fire the literal same query string at Saavn/YT every time
+  /// — same intent, different words, so the search index returns a
+  /// genuinely different slice of matching songs instead of the same
+  /// top-N results minus whatever's already been queued.
+  static String _moodLockedQuery(SessionMood mood, String lang, String genre, {String? era, int rotation = 0}) {
+    final moodWord = _moodSearchWord(mood, rotation);
     final erapfx = (era != null && era.isNotEmpty) ? '$era ' : '';
     // For regional genres, use genre name directly — more precise Saavn results
     if (genre == 'bhojpuri') return '$erapfx$moodWord bhojpuri songs';
@@ -1638,20 +1688,26 @@ class RecommendationEngine {
     return '$erapfx$moodWord bollywood hindi songs';
   }
 
-  static String _moodSearchWord(SessionMood mood) {
-    switch (mood) {
-      case SessionMood.romantic:   return 'romantic love';
-      case SessionMood.sad:        return 'sad heartbreak dard';
-      case SessionMood.party:      return 'party dance';
-      case SessionMood.workout:    return 'energetic motivation';
-      case SessionMood.chill:      return 'chill relax';
-      case SessionMood.energetic:  return 'energetic upbeat';
-      case SessionMood.devotional: return 'bhakti devotional';
-      case SessionMood.neutral:    return 'top hits';
-    }
+  // Each mood maps to a small list of near-equivalent search phrasings —
+  // real synonyms a human would also type, not random words — so rotating
+  // through them still returns genuinely mood-matching songs, just from a
+  // different angle of Saavn/YT's own search ranking each time.
+  static String _moodSearchWord(SessionMood mood, [int rotation = 0]) {
+    const variants = <SessionMood, List<String>>{
+      SessionMood.romantic:   ['romantic love', 'love', 'romantic'],
+      SessionMood.sad:        ['sad heartbreak dard', 'sad', 'emotional heartbreak'],
+      SessionMood.party:      ['party dance', 'dance party', 'party'],
+      SessionMood.workout:    ['energetic motivation', 'workout gym', 'motivation'],
+      SessionMood.chill:      ['chill relax', 'relaxing', 'chill'],
+      SessionMood.energetic:  ['energetic upbeat', 'upbeat', 'high energy'],
+      SessionMood.devotional: ['bhakti devotional', 'devotional bhajan', 'bhakti'],
+      SessionMood.neutral:    ['top hits', 'best songs', 'popular hits'],
+    };
+    final options = variants[mood] ?? const ['top hits'];
+    return options[rotation.abs() % options.length];
   }
 
-  static String _pickSimilarArtist(Song song, List<String> userTopArtists) {
+  static String _pickSimilarArtist(Song song, List<String> userTopArtists, [int rotation = 0]) {
     final genre = detectGenre(song);
     final pool  = _genreSimilarArtists[genre] ?? _genreSimilarArtists['bollywood']!;
 
@@ -1659,20 +1715,35 @@ class RecommendationEngine {
     final currentNorm = _normalizeKey(song.artist);
     final candidates = pool.where((a) => !_normalizeKey(a).contains(currentNorm) &&
                                          !currentNorm.contains(_normalizeKey(a))).toList();
+    if (candidates.isEmpty) return pool.first;
 
-    // Prefer artists the user has affinities for
+    // Prefer artists the user has affinities for — but still rotate
+    // THROUGH the matching preferred artists instead of always returning
+    // the very first one, so a user with several high-affinity artists in
+    // the same genre gets all of them explored across extends, not just
+    // their single top pick every single time.
+    final preferredMatches = <String>[];
     for (final preferred in userTopArtists) {
       final match = candidates.firstWhere(
         (a) => _normalizeKey(a) == _normalizeKey(preferred),
         orElse: () => '',
       );
-      if (match.isNotEmpty) return match;
+      if (match.isNotEmpty) preferredMatches.add(match);
+    }
+    if (preferredMatches.isNotEmpty) {
+      return preferredMatches[rotation.abs() % preferredMatches.length];
     }
 
-    // Fall back to day-seeded rotation
-    if (candidates.isEmpty) return pool.first;
-    final dayIdx = DateTime.now().difference(DateTime(2026, 1, 1)).inDays;
-    return candidates[dayIdx % candidates.length];
+    // FIX ("Up Next keeps circling back to the same songs"): this used to
+    // be day-seeded (DateTime.now() based), which meant EVERY auto-queue
+    // extend call for the entire day picked the exact same similar-artist
+    // — so every single extend fired the same '$artist songs' query and
+    // ran into the same shrinking, already-queued result set. Rotation is
+    // now driven by the per-call counter passed in from generateQueries,
+    // so each successive extend walks to the next artist in the pool —
+    // still a stable, sensible sequence (not random noise), just no
+    // longer frozen for 24 hours at a time.
+    return candidates[rotation.abs() % candidates.length];
   }
 
   static String _moodQuery(Song song) {
@@ -1681,18 +1752,22 @@ class RecommendationEngine {
     return _sessionMoodQuery(mood, lang);
   }
 
-  static String _sessionMoodQuery(SessionMood mood, String lang, {String? era}) {
-    const queries = {
-      SessionMood.romantic:   'romantic love songs',
-      SessionMood.sad:        'heartbreak sad songs',
-      SessionMood.party:      'party dance hits',
-      SessionMood.devotional: 'bhakti devotional songs',
-      SessionMood.workout:    'workout motivation energy songs',
-      SessionMood.chill:      'chill relax lofi songs',
-      SessionMood.energetic:  'energetic upbeat hits',
-      SessionMood.neutral:    'top hits songs',
+  static String _sessionMoodQuery(SessionMood mood, String lang, {String? era, int rotation = 0}) {
+    // Same fix as _moodSearchWord — a few real-phrasing variants per mood
+    // instead of one static string, so this signal's query also rotates
+    // across successive auto-queue extends rather than repeating verbatim.
+    const variants = <SessionMood, List<String>>{
+      SessionMood.romantic:   ['romantic love songs', 'love songs', 'romantic hits'],
+      SessionMood.sad:        ['heartbreak sad songs', 'sad songs', 'emotional songs'],
+      SessionMood.party:      ['party dance hits', 'dance hits', 'party songs'],
+      SessionMood.devotional: ['bhakti devotional songs', 'devotional bhajan songs'],
+      SessionMood.workout:    ['workout motivation energy songs', 'gym workout songs'],
+      SessionMood.chill:      ['chill relax lofi songs', 'relaxing songs', 'chill songs'],
+      SessionMood.energetic:  ['energetic upbeat hits', 'upbeat songs', 'high energy hits'],
+      SessionMood.neutral:    ['top hits songs', 'best songs', 'popular songs'],
     };
-    var base = queries[mood] ?? 'top hits songs';
+    final options = variants[mood] ?? const ['top hits songs'];
+    var base = options[rotation.abs() % options.length];
     if (era != null && era.isNotEmpty && mood != SessionMood.devotional) {
       base = '$era $base';
     }
@@ -1735,9 +1810,32 @@ class RecommendationEngine {
   // SECTION 11: SIGNAL DETECTION (PUBLIC — used by ApiService)
   // ---------------------------------------------------------------------------
 
+  // Word-boundary-safe "does this text mention this artist" check — plain
+  // .contains() on short/common artist names (e.g. "sia", "kk singer",
+  // "abba") could false-match inside unrelated words ("asia", "kkumar",
+  // "abbas"). Splitting the haystack into whole words and comparing
+  // against the artist's own word sequence avoids that, while still
+  // matching multi-word artist names ("the weeknd") as a contiguous
+  // sequence rather than requiring an exact single-token match.
+  static bool _mentionsArtist(String haystackLower, String artistLower) {
+    final artistWords = artistLower.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    if (artistWords.isEmpty) return false;
+    final haystackWords = haystackLower.split(RegExp(r'[^a-z0-9]+')).where((w) => w.isNotEmpty).toList();
+    if (artistWords.length == 1) return haystackWords.contains(artistWords.first);
+    for (var i = 0; i + artistWords.length <= haystackWords.length; i++) {
+      var matches = true;
+      for (var j = 0; j < artistWords.length; j++) {
+        if (haystackWords[i + j] != artistWords[j]) { matches = false; break; }
+      }
+      if (matches) return true;
+    }
+    return false;
+  }
+
   static String detectGenre(Song song) {
     final text = '${song.title} ${song.artist} ${song.language ?? ""}'.toLowerCase();
     final langLow = (song.language ?? '').toLowerCase();
+    final artistLow = song.artist.toLowerCase();
 
     // Bhojpuri — detect before bollywood fallback
     if (langLow.contains('bhojpuri') || text.contains('bhojpuri') ||
@@ -1751,16 +1849,34 @@ class RecommendationEngine {
 
     if (text.contains('punjabi') || text.contains('bhangra') ||
         text.contains('diljit') || text.contains('sidhu') ||
-        (song.language ?? '').toLowerCase() == 'punjabi') return 'punjabi';
+        langLow == 'punjabi') return 'punjabi';
     if (text.contains('rap') || text.contains('hip hop') || text.contains('hiphop') ||
         text.contains('trap') || text.contains('divine') || text.contains('emiway') ||
         text.contains('kr\$na') || text.contains('mc stan') || text.contains('seedhe')) return 'hiphop';
     if (text.contains('lofi') || text.contains('lo-fi') ||
         text.contains('chill') || text.contains('study') || text.contains('sleep')) return 'lofi';
-    if ((song.language ?? '').toLowerCase() == 'english' ||
-        text.contains('english pop') || text.contains('pop hits')) return 'english';
-    if (text.contains('tamil') || (song.language ?? '').toLowerCase() == 'tamil') return 'tamil';
-    if (text.contains('telugu') || (song.language ?? '').toLowerCase() == 'telugu') return 'telugu';
+
+    // FIX ("Hollywood song falls back to Bollywood genre"): the old check
+    // only ever fired on an explicit language=='english' tag or the
+    // literal phrase "english pop"/"pop hits" appearing in the title —
+    // neither of which is true for the vast majority of real English
+    // songs (Saavn/YT metadata routinely leaves `language` blank for
+    // YouTube-sourced tracks, and a real title never contains the words
+    // "english pop"). That silently sent almost every Hollywood song
+    // through the bollywood fallback at the bottom, which is exactly why
+    // Up Next for an English song could end up mood/genre-matching against
+    // Bollywood queries instead. Now cross-checked against the full,
+    // authoritative english artist pool (single source of truth shared
+    // with the "similar artist" rotation) using word-boundary-safe
+    // matching, so any artist in that god-level list is correctly
+    // recognized regardless of what the language tag says.
+    if (langLow == 'english' || text.contains('english pop') || text.contains('pop hits') ||
+        (_genreSimilarArtists['english'] ?? const []).any((a) => _mentionsArtist(artistLow, a))) {
+      return 'english';
+    }
+
+    if (text.contains('tamil') || langLow == 'tamil') return 'tamil';
+    if (text.contains('telugu') || langLow == 'telugu') return 'telugu';
     if (text.contains('bhajan') || text.contains('aarti') || text.contains('mantra') ||
         text.contains('kirtan') || text.contains('chalisa')) return 'devotional';
     return 'bollywood';
@@ -1783,6 +1899,18 @@ class RecommendationEngine {
         a.contains('shilpi raj') || a.contains('pramod premi') || a.contains('nirhua') ||
         a.contains('samar singh') || a.contains('ritesh pandey') || a.contains('ankush raja') ||
         a.contains('gunjan singh') || a.contains('amrapali') || a.contains('akshara singh')) return 'bhojpuri';
+    // FIX (same root cause as detectGenre): a missing/blank language tag
+    // — very common for YouTube-sourced Hollywood tracks — used to fall
+    // all the way through to a hardcoded 'hindi' default, meaning
+    // Up Next's mood query for an English song could come out as "sad
+    // heartbreak dard bollywood hindi songs" instead of an English mood
+    // query, actively working against the song the user is actually
+    // listening to. Cross-checking the artist against the same
+    // authoritative english pool used by detectGenre/_pickSimilarArtist
+    // closes that gap without needing a second hardcoded artist list.
+    if ((_genreSimilarArtists['english'] ?? const []).any((art) => _mentionsArtist(a, art))) {
+      return 'english';
+    }
     return 'hindi';
   }
 
@@ -2067,11 +2195,58 @@ class RecommendationEngine {
   // SECTION 13: GENRE ARTIST POOLS
   // ---------------------------------------------------------------------------
   static const Map<String, List<String>> _genreSimilarArtists = {
+    // BOLLYWOOD — "god level" pool: current playback-singers, legendary
+    // playback singers, composers/music-directors, and current chart-
+    // topping male/female voices, so _pickSimilarArtist's rotation has a
+    // genuinely deep, era-spanning bench to draw from instead of cycling
+    // through the same dozen names every few extends.
     'bollywood': [
+      // Current-gen leading male voices
       'arijit singh', 'atif aslam', 'armaan malik', 'jubin nautiyal',
-      'shreya ghoshal', 'neha kakkar', 'sonu nigam', 'kumar sanu',
-      'udit narayan', 'lata mangeshkar', 'kishore kumar', 'mohd rafi',
+      'sonu nigam', 'shaan', 'kk singer', 'mohit chauhan', 'vishal mishra',
+      'darshan raval', 'stebin ben', 'yasser desai', 'ankit tiwari',
+      'amaal mallik', 'javed ali', 'rahat fateh ali khan',
+      // Current-gen leading female voices
+      'shreya ghoshal', 'neha kakkar', 'sunidhi chauhan', 'monali thakur',
+      'palak muchhal', 'asees kaur', 'dhvani bhanushali', 'neeti mohan',
+      'shilpa rao', 'jonita gandhi', 'kanika kapoor', 'akasa singh',
+      'shashaa tirupati', 'nikhita gandhi',
+      // Legendary playback singers (golden/silver era — still core to any
+      // "bollywood similar artist" query for older/classic songs)
+      'lata mangeshkar', 'kishore kumar', 'mohd rafi', 'asha bhosle',
+      'udit narayan', 'kumar sanu', 'alka yagnik', 'mukesh',
+      'manna dey', 'hemant kumar', 'geeta dutt', 'mahendra kapoor',
+      // Composers / music directors (their name alone is a strong,
+      // distinct "similar songs" search anchor — Pritam's or A.R.
+      // Rahman's discography sounds nothing alike, which is exactly the
+      // artist-diversity rotation needs)
       'a r rahman', 'pritam', 'vishal shekhar', 'shankar ehsaan loy',
+      'anu malik', 'nadeem shravan', 'himesh reshammiya', 'amit trivedi',
+      'sachin jigar', 'tanishk bagchi', 'vishal bhardwaj', 'ram sampath',
+      'rd burman', 'laxmikant pyarelal',
+    ],
+    // HOLLYWOOD / ENGLISH — "god level" pool: current pop chart-toppers,
+    // legendary/classic acts, and major bands/groups across pop, rock, and
+    // R&B, so the rotation has real range instead of only ~15 of the same
+    // 2020s pop names.
+    'english': [
+      // Current pop / chart-topping solo acts
+      'the weeknd', 'ed sheeran', 'bruno mars', 'charlie puth',
+      'post malone', 'dua lipa', 'taylor swift', 'ariana grande',
+      'billie eilish', 'olivia rodrigo', 'shawn mendes', 'harry styles',
+      'sam smith', 'adele', 'justin bieber', 'selena gomez',
+      'rihanna', 'beyonce', 'lady gaga', 'katy perry', 'miley cyrus',
+      'sia', 'khalid', 'zayn', 'niall horan', 'camila cabello',
+      'doja cat', 'sza', 'the kid laroi', 'lewis capaldi',
+      // Bands / groups
+      'coldplay', 'imagine dragons', 'onerepublic', 'maroon 5',
+      'the chainsmokers', 'twenty one pilots', 'panic at the disco',
+      'fall out boy', 'linkin park', 'the killers',
+      // Legends / classic acts (still a strong, distinct search anchor
+      // for "similar english songs" regardless of era)
+      'michael jackson', 'whitney houston', 'eminem', 'queen',
+      'the beatles', 'elton john', 'celine dion', 'mariah carey',
+      'george michael', 'phil collins', 'stevie wonder', 'abba',
     ],
     'punjabi': [
       'diljit dosanjh', 'ap dhillon', 'sidhu moosewala', 'guru randhawa',
@@ -2081,12 +2256,6 @@ class RecommendationEngine {
     'hiphop': [
       'divine', 'emiway bantai', 'kr\$na', 'mc stan', 'seedhe maut',
       'yo yo honey singh', 'badshah', 'raftar', 'naezy', 'ranveer',
-    ],
-    'english': [
-      'the weeknd', 'ed sheeran', 'bruno mars', 'charlie puth',
-      'post malone', 'dua lipa', 'taylor swift', 'ariana grande',
-      'billie eilish', 'olivia rodrigo', 'shawn mendes', 'harry styles',
-      'sam smith', 'adele', 'cold play', 'imagine dragons',
     ],
     'lofi': [
       'lofi hip hop', 'chillhop music', 'lo-fi beats', 'study music',

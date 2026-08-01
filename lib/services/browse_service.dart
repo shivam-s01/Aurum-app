@@ -2,12 +2,16 @@
 // FILE: lib/services/browse_service.dart
 // PROJECT: Aurum Music
 //
-// BROWSE — Powered by JioSaavn. No third-party music APIs.
+// BROWSE — Powered by YouTube. Search tab owns Saavn; Browse is the
+// YouTube-catalogue side (channels, live versions, remixes, regional/indie
+// uploads, full discographies-as-playlists), held to the same premium
+// quality bar (view-count floor, official-channel priority, smart dedup)
+// as every other YT-sourced surface in the app.
 //
 // What this does:
-//   - Search Saavn for songs, albums, artists
+//   - Search YouTube for songs, albums (grouped by channel), artists
 //   - Returns BrowseTrack / BrowseAlbum / BrowseArtist objects
-//   - On tap, caller resolves stream via existing ApiService (Saavn/YT)
+//   - On tap, caller resolves stream via existing ApiService (YT path)
 //
 // To REMOVE this integration:
 //   1. Delete this file
@@ -15,7 +19,6 @@
 //   3. That's it. Nothing else touches Browse.
 // =============================================================================
 
-import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 import 'recommendation_engine.dart';
@@ -53,57 +56,6 @@ bool _isBrowseQuality(yt.Video v) {
   if (views == null || views < _kMinViewsForBrowse) return false;
   if (RecommendationEngine.isLowQualityUpload(v.title)) return false;
   return true;
-}
-
-/// True if a Browse Saavn result actually relates to what was typed —
-/// same word-overlap + typo-tolerance idea as api_service.dart's search
-/// scoring, kept local/simple since Browse doesn't need full relevance
-/// scoring, just a "not obviously unrelated" floor.
-bool _looksRelevant(String title, String query) {
-  if (title.isEmpty || query.isEmpty) return false;
-  String norm(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), '');
-  final t = norm(title);
-  final q = norm(query);
-  if (t == q || t.contains(q) || q.contains(t)) return true;
-
-  final qWords = q.split(RegExp(r'\s+')).where((w) => w.length > 2).toList();
-  if (qWords.isEmpty) return true; // too short a query to filter safely
-  var matched = 0;
-  for (final w in qWords) {
-    if (t.contains(w)) {
-      matched++;
-      continue;
-    }
-    // Bounded edit-distance typo tolerance — same reasoning as
-    // ApiService._fuzzyWordMatch: a genuine misspelling ("saayar" for
-    // "saiyaara") shouldn't make an otherwise-correct result look
-    // unrelated just because it doesn't substring-match exactly.
-    final tTokens = t.split(' ');
-    for (final tok in tTokens) {
-      if (tok.length < 3) continue;
-      final maxEdits = w.length <= 4 ? 1 : (w.length <= 7 ? 2 : 3);
-      if ((w.length - tok.length).abs() > maxEdits) continue;
-      if (_editDistanceAtMost(w, tok, maxEdits)) { matched++; break; }
-    }
-  }
-  return (matched / qWords.length) >= 0.5;
-}
-
-bool _editDistanceAtMost(String a, String b, int maxDistance) {
-  if (a == b) return true;
-  final la = a.length, lb = b.length;
-  if ((la - lb).abs() > maxDistance) return false;
-  var prev = List<int>.generate(lb + 1, (j) => j);
-  for (var i = 1; i <= la; i++) {
-    final cur = List<int>.filled(lb + 1, 0);
-    cur[0] = i;
-    for (var j = 1; j <= lb; j++) {
-      final cost = a[i - 1] == b[j - 1] ? 0 : 1;
-      cur[j] = [cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost].reduce((v, e) => v < e ? v : e);
-    }
-    prev = cur;
-  }
-  return prev[lb] <= maxDistance;
 }
 
 String _clean(String s) => s
@@ -275,160 +227,56 @@ class BrowseArtist {
 
 class BrowseService {
   static final _client = http.Client();
-  // BACKEND FIX ("Browse behaves worse/different than Search"): this used
-  // to hit ONLY the Flask fallback pillar (jiosavan-three.vercel.app),
-  // while api_service.dart's Search tab prefers the Node-family primary
-  // (jiosaavn-op-c4oo.onrender.com) first and only falls back to the
-  // Flask hosts if that's down. Browse was quietly running on the weaker
-  // fallback host all the time — different backend, different response
-  // freshness/coverage — which is a real part of why Browse could feel
-  // worse than Search for the exact same query. Now Browse tries hosts in
-  // the same priority order Search does.
-  static const List<String> _nodeHosts = [
-    'https://jiosaavn-op-c4oo.onrender.com',
-  ];
-  static const List<String> _flaskHosts = [
-    'https://jiosavan-ecc1.onrender.com',
-    'https://jiosavan-three.vercel.app',
-  ];
-  // Kept for the two other call sites in this file (artist/album track
-  // lookups) that still build a Flask-style `/result/` URL directly.
-  static const _base = 'https://jiosavan-three.vercel.app';
 
   static Future<BrowseSearchResult> search(String query) async {
     if (query.trim().isEmpty) return BrowseSearchResult.empty();
+    final q = query.trim();
 
-    final encoded = Uri.encodeQueryComponent(query.trim());
+    // BROWSE IS 100% YOUTUBE — no Saavn calls anywhere in this tab anymore.
+    // Search tab already owns "proper Saavn songs, fast"; Browse's whole
+    // purpose is the complementary side: YouTube's much deeper catalogue
+    // (channels, live versions, remixes, regional/indie uploads, full
+    // albums-as-playlists) with the same premium quality bar (view-count
+    // floor + official-channel priority + smart dedup) the old YT-fallback
+    // paths already used elsewhere in this file — just applied everywhere
+    // in Browse now, not only when Saavn came up short.
+    final tracksFuture  = _ytTracksFor(q);
+    final albumsFuture  = _ytAlbumFallback(q);
+    final artistsFuture = _ytArtistFallback(q);
 
-    // Only the song-search endpoint is confirmed to exist on this backend.
-    // Dedicated /search/albums and /search/artists endpoints aren't part
-    // of this API's flat schema, so we derive albums/artists from the
-    // song results themselves instead of hitting endpoints that 404.
-    // Now races the same host priority Search uses (Node primary first)
-    // instead of only ever hitting the Flask fallback pillar.
-    final rawTracks = await _fetchTracksMultiHost(encoded, limit: 30);
+    final results = await Future.wait([tracksFuture, albumsFuture, artistsFuture]);
+    final tracks  = results[0] as List<BrowseTrack>;
+    var albums    = results[1] as List<BrowseAlbum>;
+    var artists   = results[2] as List<BrowseArtist>;
 
-    // FIX (Browse tab showing unrelated tracks for loose/typo'd queries):
-    // Browse's track list previously took every Saavn result verbatim with
-    // no relevance check at all — the Search tab already learned this
-    // lesson (a backend's own loose full-text match can return genuinely
-    // unrelated songs for a misspelled or partial query) and applies a
-    // lightweight relevance floor; Browse had no equivalent, so the same
-    // "typo query returns random songs" symptom could show up here too.
-    // This mirrors that same word/phrase-overlap floor, just without
-    // needing ApiService's private scorer — kept local and simple since
-    // Browse doesn't need the full mood/session-aware scoring, only "is
-    // this actually related to what was typed".
-    final relevantRawTracks = rawTracks.where((j) {
-      final title = (j['song'] ?? j['name'] ?? j['title'] ?? '').toString();
-      return _looksRelevant(title, query.trim());
-    }).toList();
-    // If the relevance filter left nothing (very short/ambiguous query,
-    // or every result happened to score low), fall back to the unfiltered
-    // list rather than showing an empty Browse tab.
-    final effectiveRawTracks = relevantRawTracks.isNotEmpty ? relevantRawTracks : rawTracks;
-
-    final tracks  = <BrowseTrack>[];
-    for (final j in effectiveRawTracks) {
-      try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
-    }
-
-    // FIX ("YT se songs catch nahi kar raha" in Browse): Albums and
-    // Artists below already had a YouTube fallback for when Saavn came up
-    // empty, but Tracks — the main list users actually scroll — never
-    // did. A query where Saavn returned nothing (or only a couple of thin
-    // results) left the Tracks section empty/sparse with no YT topup at
-    // all, even though YouTube is otherwise treated as a first-class
-    // source everywhere else in the app (Search, Up Next, Home feed).
-    // Mirrors the same "empty or thin -> topup from YT" pattern already
-    // used for albums/artists just below, deduped against what Saavn
-    // already returned.
-    if (tracks.length < 10 && query.trim().isNotEmpty) {
-      final ytTracks = await _ytTracksFor(query.trim());
-      final seenTitles = <String>[for (final t in tracks) t.title];
-      for (final ytTrack in ytTracks) {
-        if (tracks.length >= 30) break;
-        var isDup = false;
-        for (final seen in seenTitles) {
-          if (RecommendationEngine.isSameSongSmart(ytTrack.title, seen)) { isDup = true; break; }
-        }
-        if (isDup) continue;
-        seenTitles.add(ytTrack.title);
-        tracks.add(ytTrack);
-      }
-    }
-
-    // Albums must be 100% YouTube — never derived from Saavn track results.
-    // SPEED FIX: this used to run AFTER tracks/artists were fully built
-    // (sequential extra 8s YT round-trip tacked onto the end of every
-    // Browse search). Firing it concurrently with the tracks/artists work
-    // above means Browse pays for the YT round-trip once, in parallel,
-    // not as an added tail latency on every single search.
-    final albumsFuture = query.trim().isNotEmpty
-        ? _ytAlbumFallback(query.trim())
-        : Future.value(<BrowseAlbum>[]);
-
-    var artists = _deriveArtists(effectiveRawTracks);
-
-    // PATCH: real artist photos. Saavn's dedicated artist-search endpoint
-    // returns a proper display picture — swap that in for each derived
-    // artist (limit concurrency so this stays fast). Falls back to a
-    // YouTube channel thumbnail if Saavn has nothing for that name.
+    // Real artist photos: try a quick YT-channel-thumbnail patch for any
+    // artist chip missing one (should be rare since _ytArtistFallback
+    // already sets imageUrl from the anchoring video's thumbnail, but kept
+    // as a safety net).
     if (artists.isNotEmpty) {
       artists = await Future.wait(artists.map(_withArtistPhoto));
     }
 
-    // PATCH: if Saavn gave us nothing at all for artists (common for
-    // niche or misspelled queries), fill the section from YouTube instead
-    // of leaving it blank — a search results screen with an empty "Artists"
-    // row reads as broken, not as "no results".
-    if (artists.isEmpty && query.trim().isNotEmpty) {
-      artists = await _ytArtistFallback(query.trim());
-    }
-
-    final albums = await albumsFuture;
-
     return BrowseSearchResult(tracks: tracks, albums: albums, artists: artists);
   }
 
-  // Look up a real artist photo from Saavn's artist-search endpoint by name.
-  // Keeps everything else about the derived artist (id, name) unchanged —
-  // only the image gets patched in. Falls back to a YouTube thumbnail.
+  // Patches in a display photo for an artist chip that doesn't already
+  // have one (rare — _ytArtistFallback normally sets this from the
+  // anchoring video's thumbnail already). YouTube-only, matching the rest
+  // of Browse.
   static Future<BrowseArtist> _withArtistPhoto(BrowseArtist artist) async {
     if (artist.imageUrl.isNotEmpty) return artist;
-    try {
-      final uri = Uri.parse('$_base/api/search/artists')
-          .replace(queryParameters: {'query': artist.name, 'limit': '1'});
-      final res = await _client.get(uri).timeout(const Duration(seconds: 5));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final results = data['data']?['results'] as List?;
-        if (results != null && results.isNotEmpty) {
-          final r = results.first as Map<String, dynamic>;
-          final imageList = r['image'];
-          final url = _hqArtwork(
-            imageList is List
-                ? ((imageList.lastWhere((e) => e is Map, orElse: () => {}) as Map)['url']
-                        ?? (imageList.lastWhere((e) => e is Map, orElse: () => {}) as Map)['link']
-                        ?? '').toString()
-                : (imageList ?? '').toString(),
-          );
-          if (url.isNotEmpty) return artist.copyWith(imageUrl: url);
-        }
-      }
-    } catch (_) {}
-    // Saavn had nothing — patch in a YouTube channel/video thumbnail.
     final ytThumb = await _ytThumbnailFor('${artist.name} singer');
     if (ytThumb.isNotEmpty) return artist.copyWith(imageUrl: ytThumb);
     return artist;
   }
 
-  // Full YouTube-sourced fallback when Saavn returns zero artists for the
-  // query — derives a small artist row from YT's top video results so the
-  // section never reads as empty/broken. Uses youtube_explode_dart (the
-  // same library the rest of the app already relies on for YT playback)
-  // instead of scraping raw search-page HTML, which is far more fragile
-  // and prone to silently returning nothing if YouTube tweaks its markup.
+  // YouTube-sourced artist row — derives a small artist chip list from YT's
+  // top video results grouped by channel/author. Uses youtube_explode_dart
+  // (the same library the rest of the app already relies on for YT
+  // playback) instead of scraping raw search-page HTML, which is far more
+  // fragile and prone to silently returning nothing if YouTube tweaks its
+  // markup.
   static Future<List<BrowseArtist>> _ytArtistFallback(String query) async {
     // FIX (YoutubeExplode client leak): close() previously only ran on the
     // success path, right after search() returned. If search() itself threw
@@ -460,7 +308,7 @@ class BrowseService {
     }
   }
 
-  // Full YouTube-sourced fallback for albums when Saavn has none.
+  // YouTube-sourced "Albums" row for Browse.
   //
   // PREMIUM REDESIGN ("ekdam pro level ka albums chahiye"): the previous
   // version turned each individual top-ranked VIDEO into its own "Album"
@@ -702,58 +550,9 @@ class BrowseService {
     return '';
   }
 
-  // Group track results by album name to fake an "Albums" row.
-  //
-  // FIX (Albums row showing duplicate cards / missing genuine variety):
-  // dedup was keyed on the raw albumName string, case-sensitively. The
-  // same backend often returns the same album with inconsistent casing
-  // across different track entries (e.g. "Saajan" on one song, "SAAJAN"
-  // on another from the same OST) — those produced two separate cards
-  // for the same album, eating a slot that could have gone to a genuinely
-  // different album, and made the row look broken/repetitive. Dedup key
-  // is now case-normalized while the original casing is still used for
-  // display.
-  static List<BrowseAlbum> _deriveAlbums(List<Map<String, dynamic>> raw) {
-    final seen = <String, BrowseAlbum>{};
-    for (final j in raw) {
-      // FIX (album names showing raw "{id: 2170756, name: Azaad...}" text):
-      // Saavn's API returns `album` as a nested {id, name} object on most
-      // endpoints, not a plain string — this used to do
-      // `(j['album'] ?? '').toString()`, which on a Map just stringifies
-      // the whole map instead of extracting the name. api_service.dart's
-      // song parser already handles both shapes correctly; this mirrors
-      // that same pattern so Browse's derived album cards match.
-      final albumField = j['album'];
-      String albumName;
-      if (albumField is Map) {
-        albumName = (albumField['name'] ?? '').toString().trim();
-      } else {
-        albumName = (albumField ?? '').toString().trim();
-      }
-      if (albumName.isEmpty) continue;
-      final key = albumName.toLowerCase();
-      if (seen.containsKey(key)) continue;
-      try {
-        final artwork = _hqArtwork((j['image'] ?? '').toString());
-        seen[key] = BrowseAlbum(
-          collectionId: albumName, // used as a search key, not a real ID
-          name: _clean(albumName),
-          artist: _clean((j['primary_artists'] ?? j['singers'] ?? 'Unknown').toString()),
-          artworkUrl: artwork,
-          releaseYear: j['year']?.toString(),
-        );
-      } catch (_) {}
-      if (seen.length >= 10) break;
-    }
-    return seen.values.toList();
-  }
-
-  // Known music-label / channel / playlist names that show up in Saavn's
-  // "primary_artists" field but are NOT actual singers — filtering these
-  // out was the reason tapping an "artist" like "T-Series" or "90's Gaane"
-  // opened an empty track list: BrowseService.artistTopSongs() searched
-  // Saavn for that literal string, which matches nothing since it's a
-  // label name, not a singer anyone actually recorded under.
+  // Known music-label / channel / playlist names that show up as a YT
+  // channel/author name but are NOT actual singers — filtering these out
+  // is why _ytArtistFallback below skips them when building artist chips.
   static const _labelBlacklist = {
     't-series', 'tips official', 'tips', 'zee music company', 'zee music',
     'sony music', 'sony music entertainment', 'saregama', 'venus',
@@ -774,135 +573,17 @@ class BrowseService {
     return true;
   }
 
-  // Group track results by primary artist to fake an "Artists" row.
-  // Splits combined "A, B" credits into individual real singers and
-  // drops label/channel names so every chip is tappable and actually
-  // resolves to a track list.
-  static List<BrowseArtist> _deriveArtists(List<Map<String, dynamic>> raw) {
-    final seen = <String>{};
-    final artists = <BrowseArtist>[];
-    for (final j in raw) {
-      final rawName = (j['primary_artists'] ?? j['singers'] ?? '').toString().trim();
-      if (rawName.isEmpty) continue;
-      for (final single in rawName.split(',')) {
-        final name = single.trim();
-        if (name.isEmpty || !_isRealArtist(name) || seen.contains(name.toLowerCase())) continue;
-        seen.add(name.toLowerCase());
-        artists.add(BrowseArtist(artistId: name, name: _clean(name)));
-        if (artists.length >= 8) break;
-      }
-      if (artists.length >= 8) break;
-    }
-    return artists;
+  // Fetch tracks for a Browse album card — always YouTube now, since every
+  // album in Browse is YT-sourced (see search() above). Kept the
+  // isFromYoutube param for call-site compatibility with search_screen.dart.
+  static Future<List<BrowseTrack>> albumTracks(String collectionId, {bool isFromYoutube = true}) async {
+    return _ytTracksFor('$collectionId songs');
   }
 
-  // Fetch tracks for a derived "album" — re-searches by album name since
-  // this backend has no dedicated /albums?id= endpoint.
-  //
-  // FIX: when the album card itself came from the YouTube fallback (Saavn
-  // had nothing for the query), its collectionId is now the CHANNEL NAME
-  // (see _ytAlbumFallback's premium redesign above) rather than a random
-  // Saavn album string or a meaningless video id — appending "songs" gets
-  // a real track list from that channel/label, the same pattern
-  // artistTopSongs already uses for YT-sourced artist chips, instead of
-  // searching the bare channel name (which can match unrelated uploads
-  // that merely mention the channel name in their title).
-  static Future<List<BrowseTrack>> albumTracks(String collectionId, {bool isFromYoutube = false}) async {
-    if (isFromYoutube) return _ytTracksFor('$collectionId songs');
-    final encoded = Uri.encodeQueryComponent(collectionId.trim());
-    final body = await _fetch('$_base/result/?query=$encoded&limit=25');
-    final tracks = <BrowseTrack>[];
-    for (final j in _parseList(body)) {
-      try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
-    }
-    // Saavn search matched nothing (common for a niche/misspelled album) —
-    // fall back to YouTube rather than showing an empty track list.
-    if (tracks.isEmpty) return _ytTracksFor(collectionId);
-    return tracks;
-  }
-
-  // Fetch top songs for an artist. Same YouTube-routing fix as albumTracks:
-  // a YT-sourced artist chip holds a channel/byline name that won't match
-  // anything on Saavn, so isFromYoutube (or an empty Saavn result) sends
-  // the query straight to YouTube for guaranteed-playable results.
-  static Future<List<BrowseTrack>> artistTopSongs(String artistName, {bool isFromYoutube = false}) async {
-    if (isFromYoutube) return _ytTracksFor('$artistName songs');
-    final encoded = Uri.encodeQueryComponent(artistName.trim());
-    final body = await _fetch('$_base/result/?query=$encoded&limit=25');
-    final tracks = <BrowseTrack>[];
-    for (final j in _parseList(body)) {
-      try { tracks.add(BrowseTrack.fromSaavn(j)); } catch (_) {}
-    }
-    if (tracks.isEmpty) return _ytTracksFor('$artistName songs');
-    return tracks;
-  }
-
-  static Future<String> _fetch(String url) async {
-    try {
-      final res = await _client
-          .get(Uri.parse(url))
-          // 9s — matches api_service.dart's Saavn timeout to absorb
-          // Render free-tier cold starts instead of failing early.
-          .timeout(const Duration(seconds: 9));
-      if (res.statusCode == 200) return res.body;
-    } catch (_) {}
-    return '{}';
-  }
-
-  // Races the Node-family primary (/api/search/songs — different JSON
-  // shape) against the Flask fallback hosts (/result/) at the same time,
-  // returning whichever comes back with usable raw results first. Falls
-  // back through in priority order if the race yields nothing at all.
-  // Returns raw parsed maps already normalised to the flat shape the rest
-  // of this file expects (song/title/name keys etc. handled by the
-  // existing _parseList/BrowseTrack.fromSaavn code further down).
-  static Future<List<Map<String, dynamic>>> _fetchTracksMultiHost(String encodedQuery, {int limit = 30}) async {
-    Future<List<Map<String, dynamic>>?> tryNode(String host) async {
-      final body = await _fetch('$host/api/search/songs?query=$encodedQuery&limit=$limit');
-      try {
-        final data = jsonDecode(body);
-        final results = data is Map ? (data['data']?['results'] ?? []) : [];
-        if (results is List && results.isNotEmpty) {
-          final list = results.whereType<Map<String, dynamic>>().toList();
-          if (list.isNotEmpty) return list;
-        }
-      } catch (_) {}
-      return null;
-    }
-
-    Future<List<Map<String, dynamic>>?> tryFlask(String host) async {
-      final body = await _fetch('$host/result/?query=$encodedQuery&limit=$limit');
-      final list = _parseList(body);
-      return list.isNotEmpty ? list : null;
-    }
-
-    final futures = <Future<List<Map<String, dynamic>>?>>[
-      for (final host in _nodeHosts) tryNode(host),
-      for (final host in _flaskHosts) tryFlask(host),
-    ];
-    final resultsInOrder = await Future.wait(futures);
-    for (final r in resultsInOrder) {
-      if (r != null) return r;
-    }
-    return [];
-  }
-
-  static List<Map<String, dynamic>> _parseList(String body) {
-    try {
-      final data = jsonDecode(body);
-      List? list;
-      if (data is List) {
-        list = data;
-      } else if (data is Map) {
-        list = data['data']?['results'] as List?
-            ?? data['data'] as List?
-            ?? data['results'] as List?;
-      }
-      if (list != null) {
-        return list.whereType<Map<String, dynamic>>().toList();
-      }
-    } catch (_) {}
-    return [];
+  // Fetch top songs for a Browse artist chip — always YouTube now, since
+  // every artist in Browse is YT-sourced (see search() above).
+  static Future<List<BrowseTrack>> artistTopSongs(String artistName, {bool isFromYoutube = true}) async {
+    return _ytTracksFor('$artistName songs');
   }
 
   static void dispose() => _client.close();
