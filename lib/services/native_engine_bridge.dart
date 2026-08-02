@@ -59,6 +59,39 @@ class PlaybackErrorEvent {
 }
 
 class NativeAudioEngine {
+  // FIX (root cause of "seek bar permanently frozen, isLoading stuck true,
+  // audio genuinely plays and notification shows the correct song" —
+  // reported on EVERY song, regardless of source/how it was started):
+  // NativeAudioEngine() used to be a plain constructor, called fresh at
+  // FIVE separate call sites across the app (main.dart's real _audioEngine,
+  // AuthProvider._engineBridge, home_screen.dart's one-shot Auto Sleep
+  // Guard prompt check, auto_sleep_guard_tile.dart, and potentially more).
+  // Each call site's comment assumed this was a cheap, side-effect-free
+  // "handle" onto shared native state — it is NOT. The constructor calls
+  // _stateEvents.receiveBroadcastStream().listen(...), and Flutter's
+  // EventChannel only supports ONE live native-side sink per channel name
+  // at a time: subscribing a SECOND Dart-side listener on the same
+  // EventChannel silently fires onCancel on Kotlin's existing sink, then
+  // onListen again for the new one — stealing the subscription. Every
+  // extra `NativeAudioEngine()` instantiation after the first (e.g.
+  // AuthProvider's field initializer running during app startup, or
+  // home_screen.dart's one-shot _maybeShowAutoSleepGuardResumePrompt())
+  // silently killed the event stream that PlayerProvider's `_engine` was
+  // actually listening to — permanently, for the rest of the session,
+  // since nothing ever re-subscribes the original instance. The native
+  // Kotlin engine itself was always correct (which is exactly why audio
+  // played fine and the notification always showed the right song/title/
+  // duration) — PlayerProvider simply never received another state event
+  // to update _isLoading/_currentSong/_position/_duration from again after
+  // the first stray extra instantiation happened, anywhere in the app.
+  //
+  // Fix: true singleton. Every call site's `NativeAudioEngine()` now
+  // returns the exact same object, so the constructor body (and its
+  // EventChannel subscriptions) only ever runs once per app process,
+  // regardless of how many places construct it or in what order.
+  static NativeAudioEngine? _instance;
+  factory NativeAudioEngine() => _instance ??= NativeAudioEngine._internal();
+
   static const MethodChannel _method = MethodChannel('com.aurum.music/audio_engine');
   static const EventChannel _stateEvents = EventChannel('com.aurum.music/audio_engine_state');
   static const EventChannel _errorEvents = EventChannel('com.aurum.music/audio_engine_errors');
@@ -110,7 +143,7 @@ class NativeAudioEngine {
   // crash startup.
   void Function(String songId)? onLikeToggleRequested;
 
-  NativeAudioEngine() {
+  NativeAudioEngine._internal() {
     // Same MethodChannel as the outgoing calls below — Kotlin's
     // AurumEngineChannelHandler uses this channel bidirectionally: Dart
     // calls playQueue/playSong/etc. on it, and it calls back
@@ -329,16 +362,6 @@ class NativeAudioEngine {
         'isLocal': song.isLocal,
         'localPath': song.localPath,
       };
-
-  // FIX ("UI stuck showing loading/paused while audio genuinely plays in
-  // background"): this is the method PlayerProvider.didChangeAppLifecycleState
-  // was already trying to call (as forceStateResync, which never existed —
-  // see player_provider.dart doc comment) and the loading watchdog now also
-  // reaches for. Kotlin's AurumAudioEngine.refreshState() re-reads
-  // ExoPlayer's live playbackState/isPlaying/position directly and re-emits
-  // a fresh NativeEngineState — it doesn't touch playback, just forces a
-  // state push, so it's safe to call any time a stuck UI needs a nudge.
-  Future<void> refreshState() => _method.invokeMethod('refreshState');
 
   // ── Dart -> Kotlin: transport / queue commands ──
   Future<void> playQueue(List<Song> songs, int startIndex) => _method.invokeMethod(
