@@ -363,6 +363,16 @@ class NativeAudioEngine {
         'localPath': song.localPath,
       };
 
+  // FIX ("UI stuck showing loading/paused while audio genuinely plays in
+  // background"): this is the method PlayerProvider.didChangeAppLifecycleState
+  // was already trying to call (as forceStateResync, which never existed —
+  // see player_provider.dart doc comment) and the loading watchdog now also
+  // reaches for. Kotlin's AurumAudioEngine.refreshState() re-reads
+  // ExoPlayer's live playbackState/isPlaying/position directly and re-emits
+  // a fresh NativeEngineState — it doesn't touch playback, just forces a
+  // state push, so it's safe to call any time a stuck UI needs a nudge.
+  Future<void> refreshState() => _method.invokeMethod('refreshState');
+
   // ── Dart -> Kotlin: transport / queue commands ──
   Future<void> playQueue(List<Song> songs, int startIndex) => _method.invokeMethod(
         'playQueue',
