@@ -1337,7 +1337,16 @@ class _OnlineContent extends StatelessWidget {
       children: [
         for (int i = 0; i < sections.length; i++)
           _StaggeredSection(
-            index: i,
+            // PERF FIX (cold-start "lag until refresh finishes"): keyed by
+            // the section's own stable id, not its list position, so
+            // Flutter's element diffing can match old/new widgets by
+            // identity instead of rebuilding the whole Column subtree on
+            // every single onSection setState in _loadOnline() (up to
+            // ~20 back-to-back rebuilds while cached content is already
+            // on screen). Each streamed-in section now only touches its
+            // own subtree.
+            key: ValueKey(sections[i].id),
+            sectionId: sections[i].id,
             child: _buildSection(context, sections[i]),
           ),
       ],
@@ -1422,10 +1431,46 @@ class _OnlineContent extends StatelessWidget {
   // it. A "See all" link opens the full mix in MixScreen; tapping any
   // individual card plays that song with the rest of the section as queue.
   Widget _buildSection(BuildContext context, SongSection section) {
-    // Shared controller so FadedHorizontalList can observe this row's
-    // scroll position and only show each edge fade once there's actually
-    // more content to scroll toward — see faded_horizontal_list.dart.
-    final scrollController = ScrollController();
+    return _SongSectionRow(section: section);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// One horizontal section row (title + "See all" + scrollable song cards).
+// PERF/LEAK FIX: this used to be a plain helper method that created a new
+// ScrollController() on every call and never disposed it. Because
+// _StaggeredSection is now keyed by section.id and stable across rebuilds
+// (see _OnlineContent above), a genuinely unchanged section no longer
+// re-runs this at all — but when a section DOES get replaced (new content
+// for the same shelf), the old controller still leaked with no dispose
+// path, since a bare method has no lifecycle to hook into. Wrapping this in
+// its own tiny StatefulWidget gives the controller a proper home with a
+// real dispose(), so even a section that does refresh doesn't accumulate
+// dead controllers over repeated cold starts/refreshes in one session.
+// ─────────────────────────────────────────────────────────────────────────────
+class _SongSectionRow extends StatefulWidget {
+  final SongSection section;
+  const _SongSectionRow({required this.section});
+
+  @override
+  State<_SongSectionRow> createState() => _SongSectionRowState();
+}
+
+class _SongSectionRowState extends State<_SongSectionRow> {
+  // Shared controller so FadedHorizontalList can observe this row's
+  // scroll position and only show each edge fade once there's actually
+  // more content to scroll toward — see faded_horizontal_list.dart.
+  late final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final section = widget.section;
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
       child: Column(
@@ -1486,9 +1531,9 @@ class _OnlineContent extends StatelessWidget {
           const SizedBox(height: 14),
           FadedHorizontalList(
             height: 214,
-            controller: scrollController,
+            controller: _scrollController,
             child: ListView.builder(
-              controller: scrollController,
+              controller: _scrollController,
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               cacheExtent: 600,
@@ -1609,16 +1654,32 @@ class _SongGridCard extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _StaggeredSection extends StatefulWidget {
-  final int index;
+  final String sectionId;
   final Widget child;
-  const _StaggeredSection({required this.index, required this.child});
+  const _StaggeredSection({super.key, required this.sectionId, required this.child});
 
   @override
   State<_StaggeredSection> createState() => _StaggeredSectionState();
 }
 
-// Tracks which section indices have already animated — survives rebuilds/back-nav
-final _seenSections = <int>{};
+// Tracks which section ids have already animated — survives rebuilds/back-nav.
+// PERF FIX (cold-start "lag until refresh finishes"): this used to be keyed
+// by positional `index`. On a cold start with cache-hydration, index 0..N
+// gets its entry animation immediately from cached content; when the live
+// network batch then streams in and REPLACES those same positions with
+// different (or reordered) sections, the widget itself is now keyed by
+// section.id (see _OnlineContent above) so Flutter mounts a genuinely new
+// _StaggeredSectionState for a genuinely new section — but without id-based
+// tracking here too, that fresh state had no memory of "was something
+// already shown at this position" and would always animate, and worse,
+// would stagger its delay off `index` even when 19 other sections were
+// simultaneously arriving, compounding into a long visible cascade of
+// fades/slides layered on top of the rebuild cost. Tracking by id means a
+// section that was already shown (from cache or a previous stream) never
+// re-animates just because it moved to a different index or got replaced
+// in place, and only sections that are genuinely brand new to the screen
+// pay the staggered entrance cost.
+final _seenSections = <String>{};
 
 class _StaggeredSectionState extends State<_StaggeredSection>
     with SingleTickerProviderStateMixin {
@@ -1643,13 +1704,20 @@ class _StaggeredSectionState extends State<_StaggeredSection>
       CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic),
     );
 
-    // If this section has been seen before (e.g. returning from FullPlayerScreen),
-    // skip the animation entirely — jump to end state immediately.
-    if (_seenSections.contains(widget.index)) {
+    // If this section id has been seen before (already shown from cache,
+    // a previous stream, or returning from FullPlayerScreen), skip the
+    // animation entirely — jump to end state immediately. Only a section
+    // id genuinely new to this screen gets the staggered fade-in, and the
+    // stagger delay is based on how many *new* sections have appeared so
+    // far this session, not raw list position — so a late-arriving section
+    // in a list that already has 15 cached entries doesn't inherit a huge
+    // index-based delay it doesn't need.
+    if (_seenSections.contains(widget.sectionId)) {
       _ctrl.value = 1.0;
     } else {
-      _seenSections.add(widget.index);
-      Future.delayed(Duration(milliseconds: 50 + widget.index * 70), () {
+      final newSectionOrder = _seenSections.length;
+      _seenSections.add(widget.sectionId);
+      Future.delayed(Duration(milliseconds: 50 + newSectionOrder * 70), () {
         if (mounted) _ctrl.forward();
       });
     }
@@ -1716,7 +1784,8 @@ class _OfflineContent extends StatelessWidget {
           ]),
         ),
         ...sections.asMap().entries.map((e) => _StaggeredSection(
-          index: e.key,
+          key: ValueKey('offline_${e.value.id}'),
+          sectionId: 'offline_${e.value.id}',
           child: Padding(
             padding: const EdgeInsets.only(top: 20, left: 16, right: 16),
             child: Column(

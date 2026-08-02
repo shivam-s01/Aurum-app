@@ -1250,6 +1250,24 @@ class _SearchScreenState extends State<SearchScreen>
               return _sectionLabel(context, l10n.searchYouMightAlsoLike);
             }
             final relatedIdx = i - _results.length - (showRelatedHeader ? 1 : 0);
+            // STABILITY FIX ("sab type karne ke baad, results scroll karte
+            // time crash"): itemCount above is computed once per build()
+            // from _results.length + _relatedResults.length at that
+            // instant. Both lists get reassigned via setState() whenever a
+            // fresh search response lands — including while the user is
+            // mid-scroll through the PREVIOUS response. Unlike the
+            // _results[i] branch above (which already had `if (i <
+            // _results.length)`), this branch read _relatedResults[relatedIdx]
+            // completely unguarded — if a new, shorter _relatedResults
+            // landed while ListView.builder was still requesting indices
+            // valid under the OLD (longer) itemCount, relatedIdx could
+            // exceed the new list's bounds and throw RangeError: an
+            // uncaught exception during frame build, which crashes the
+            // app outright instead of showing an error widget. This is
+            // the actual "scroll while results update → crash" bug.
+            if (relatedIdx < 0 || relatedIdx >= _relatedResults.length) {
+              return const SizedBox.shrink();
+            }
             return SizedBox(
               height: 66,
               child: _StaggeredItem(

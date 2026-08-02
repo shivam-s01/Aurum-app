@@ -42,8 +42,18 @@ class LibraryProvider extends ChangeNotifier {
         }
       }
 
+      // PERF FIX (2GB-RAM devices): scanLibrarySections() used to call
+      // scanLibrary() again internally — meaning every load()/refresh()
+      // hit the native getSongs() MethodChannel (a full MediaStore query
+      // over the whole device) TWICE back-to-back, building two separate
+      // in-memory Song lists momentarily before the second replaced the
+      // first. On a device with a large local library this doubled both
+      // the scan time and the peak memory footprint for no benefit — the
+      // "section" here is just the same song list wrapped in one
+      // SongSection. Scanning once and deriving the section from that
+      // same list halves both costs.
       final songs = await LocalMusicService.scanLibrary();
-      final sections = await LocalMusicService.scanLibrarySections();
+      final sections = await LocalMusicService.scanLibrarySections(songs);
 
       _allSongs = songs;
       _sections = sections;

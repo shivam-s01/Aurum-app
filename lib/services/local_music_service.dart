@@ -91,10 +91,9 @@ class LocalMusicService {
     }
   }
 
-  static Future<List<SongSection>> scanLibrarySections() async {
-    final songs = await scanLibrary();
-    if (songs.isEmpty) return [];
-    return [SongSection(title: 'Device Songs', songs: songs)];
+  static Future<List<SongSection>> scanLibrarySections(List<Song> songs) {
+    if (songs.isEmpty) return Future.value([]);
+    return Future.value([SongSection(title: 'Device Songs', songs: songs)]);
   }
 
   static String _cleanTitle(String raw) {
