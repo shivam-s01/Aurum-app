@@ -142,37 +142,61 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // guarantees the seek bar is never simply stuck at zero.
   Timer? _localPositionTicker;
 
-  // FIX (compile-time bug + root cause of the permanent "stuck UI, audio
-  // plays fine" symptom): this called _engine.forceStateResync(), a method
-  // that doesn't exist anywhere on NativeAudioEngine — there's no native
-  // "pull current state" call, only the push-based EventChannel stream
-  // (see native_engine_bridge.dart _stateSub). So resuming the app never
-  // actually resynced anything here even when it looked like it should.
-  // Real fix has two parts: (1) native_engine_bridge.dart's _stateSub now
-  // has an onError handler so one malformed event can no longer silently
-  // kill the whole listener and starve _onEngineState of further ticks —
-  // that was the actual mechanism that left _isLoading/_expectedSongId
-  // stuck forever while ExoPlayer/Media3 kept playing in the background.
-  // (2) as a pure-Dart safety net that needs no native support, a
-  // watchdog timer below force-clears a stuck loading flag if it's been
-  // true for way longer than any real load should take, using the same
-  // _expectedSongIdSetAt timestamp _onEngineState already relies on.
+  // FIX (root cause of the permanent "stuck UI, audio plays fine"
+  // symptom — confirmed via on-device debug overlay: expectedSongId ==
+  // currentSongId, so the switch WAS confirmed, but isPlaying stayed
+  // false / isLoading stayed true forever with no further state events
+  // arriving at all): this used to call _engine.forceStateResync(), a
+  // method that never existed anywhere on NativeAudioEngine — there was
+  // no way to ask the native engine to re-push its current state, only
+  // the push-based EventChannel stream (native_engine_bridge.dart
+  // _stateSub) which relies on ExoPlayer's own Player.Listener callbacks
+  // (onIsPlayingChanged/onPlaybackStateChanged) firing to trigger
+  // pushState(). If ExoPlayer ever coalesces or drops one of those
+  // callbacks internally — it really is playing, it just doesn't refire
+  // the callback — nothing in the app could ever recover, since no
+  // native "pull current state" existed at all.
+  //
+  // Real fix has three parts: (1) native_engine_bridge.dart's _stateSub
+  // now has an onError handler so a malformed event can't silently kill
+  // the whole listener either. (2) AurumAudioEngine.kt's existing
+  // refreshState() (previously only used internally for cast handoff) is
+  // now exposed over the MethodChannel as "refreshState", and
+  // NativeAudioEngine.refreshState() in native_engine_bridge.dart calls
+  // it — this re-reads ExoPlayer's live state directly and re-emits a
+  // fresh NativeEngineState, which is the genuine fix for the dropped-
+  // callback case. (3) the watchdog below calls that real resync first;
+  // only if the UI is STILL stuck a few seconds after asking the native
+  // side to refresh does it fall back to force-clearing the flag locally
+  // (covering the case where the state stream itself is the thing that's
+  // dead, not just one missed callback).
   Timer? _loadingWatchdog;
+  bool _refreshRequestedForCurrentStuck = false;
 
   void _startLoadingWatchdog() {
     _loadingWatchdog ??= Timer.periodic(const Duration(seconds: 2), (_) {
-      if (!_isLoading) return;
+      if (!_isLoading) {
+        _refreshRequestedForCurrentStuck = false;
+        return;
+      }
       final setAt = _expectedSongIdSetAt;
       if (setAt == null) return;
-      // Generous margin over the 8s engine-call timeout already enforced
-      // in playSong()/skip*() — if we're still "loading" this long after
-      // the tap, either that timeout's catch block somehow never ran, or
-      // (the real-world case) the state stream stopped delivering events
-      // entirely, so nothing else in the app will ever clear this.
-      if (DateTime.now().difference(setAt) > const Duration(seconds: 10)) {
+      final stuckFor = DateTime.now().difference(setAt);
+      // First give playSong()'s own 8s engine-call timeout a chance to
+      // run its course, then ask the native engine to re-push its real
+      // state once.
+      if (stuckFor > const Duration(seconds: 6) && !_refreshRequestedForCurrentStuck) {
+        _refreshRequestedForCurrentStuck = true;
+        _engine.refreshState();
+      }
+      // If asking for a real resync didn't clear it either, the state
+      // stream itself is likely dead — last-resort local clear so the UI
+      // at least stops looking permanently broken.
+      if (stuckFor > const Duration(seconds: 10)) {
         _isLoading = false;
         _expectedSongId = null;
         _expectedSongIdSetAt = null;
+        _refreshRequestedForCurrentStuck = false;
         notifyListeners();
       }
     });
@@ -180,20 +204,16 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Resuming the app is exactly when a dead event stream would
+    // Resuming the app is exactly when a dropped-callback freeze would
     // otherwise go unnoticed the longest (user was away, came back to a
-    // frozen player). Checking here too catches that case immediately
-    // instead of waiting for the next 2s watchdog tick.
-    if (state == AppLifecycleState.resumed && _isLoading) {
-      final setAt = _expectedSongIdSetAt;
-      if (setAt != null && DateTime.now().difference(setAt) > const Duration(seconds: 10)) {
-        _isLoading = false;
-        _expectedSongId = null;
-        _expectedSongIdSetAt = null;
-        notifyListeners();
-      }
+    // frozen player). Always worth asking the native engine to re-push
+    // its real state here, regardless of how long it's been stuck —
+    // cheap, non-destructive, and the fastest path to recovery.
+    if (state == AppLifecycleState.resumed) {
+      _engine.refreshState();
     }
   }
+
 
   void _startLocalPositionTicker() {
     if (_localPositionTicker?.isActive == true) return;

@@ -260,6 +260,29 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     engine.playQueue(songs, startIndex)
                     result.success(null)
                 }
+                // FIX ("UI stuck showing isLoading=true / isPlaying=false
+                // while audio genuinely plays in background"): engine.
+                // refreshState() already existed (used internally for cast
+                // handoff, see onSessionStarted/onSessionEnded above) but
+                // was never reachable from Dart — there was no MethodChannel
+                // case for it at all. That meant the Dart-side resync call
+                // (PlayerProvider.didChangeAppLifecycleState /
+                // _loadingWatchdog) had nothing real to invoke and could
+                // only guess-and-clear the stuck flag locally, never
+                // actually re-reading ExoPlayer's true current state. If a
+                // Player.Listener callback (onIsPlayingChanged/
+                // onPlaybackStateChanged) is ever coalesced or dropped by
+                // ExoPlayer internally — ExoPlayer really is playing, it
+                // just never re-fired the callback that triggers pushState()
+                // — this is the only way to recover without waiting for
+                // the next natural transition (next song, seek, etc). This
+                // just re-reads activePlayer's live fields and re-emits a
+                // NativeEngineState immediately; it is not a resolve/replay,
+                // so it's safe to call at any time, repeatedly.
+                "refreshState" -> {
+                    engine.refreshState()
+                    result.success(null)
+                }
                 "playSong" -> {
                     engine.playSong(parseSong(call.argument<Map<String, Any?>>("song")!!))
                     result.success(null)

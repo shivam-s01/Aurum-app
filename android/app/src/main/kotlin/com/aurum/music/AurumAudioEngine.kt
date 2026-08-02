@@ -712,6 +712,40 @@ class AurumAudioEngine(
         }
     }
 
+    // FIX (root cause of "isPlaying=true but isLoading stays true forever,
+    // position/duration stuck at 0, audio genuinely playing" — confirmed
+    // via on-device debug overlay: expectedSongId==currentSongId,
+    // isPlaying=true, isLoading=true, position=0/duration=0, with no
+    // further state event ever arriving): player.play() was followed by
+    // exactly one immediate pushState() call in the calling function's
+    // finally block. ExoPlayer processes play() on its own internal
+    // handler/looper — the playbackState transition to STATE_READY and
+    // the isPlaying flip don't necessarily land synchronously the instant
+    // play() returns. That one pushState() call could race ahead of
+    // ExoPlayer's actual internal state settling, snapshotting
+    // "isPlaying=true (already flipped) but playbackState still
+    // STATE_BUFFERING (not yet flipped) / position+duration still 0"
+    // — exactly the frozen state reported. Player.Listener callbacks
+    // (onIsPlayingChanged/onPlaybackStateChanged) SHOULD fire again once
+    // ExoPlayer's internal state genuinely settles and correct this on
+    // their own, but if either callback gets coalesced/dropped for that
+    // particular transition, nothing else was scheduled to catch it —
+    // this was a pure race, not a guaranteed-safe read.
+    //
+    // Fix: fire a couple of short delayed re-pushes after starting
+    // playback, so even if the listener callbacks never refire, a fresh
+    // pushState() runs shortly after once ExoPlayer's state has had time
+    // to actually settle. Cheap (just a state re-read + emit, no I/O) and
+    // self-cancels naturally if playSessionId has already moved on.
+    private fun scheduleSettlePushStates(mySession: Int) {
+        scope.launch {
+            delay(150)
+            if (mySession == playSessionId) pushState()
+            delay(500)
+            if (mySession == playSessionId) pushState()
+        }
+    }
+
     private fun pushState() {
         // While casting, the local ExoPlayer is intentionally paused/muted
         // (see AurumEngineChannelHandler's session-started handoff) and
@@ -907,6 +941,7 @@ class AurumAudioEngine(
             restoreVolume()
             player.play()
             started = true
+            scheduleSettlePushStates(mySession)
         } catch (e: Exception) {
             emitError("playQueue failed for \"${songs[safeIndex].title}\" — ${e.message}")
         } finally {
@@ -1002,6 +1037,7 @@ class AurumAudioEngine(
             reapplySpeed()
             restoreVolume()
             player.play()
+            scheduleSettlePushStates(mySession)
         } catch (e: Exception) {
             emitError("playSong failed for \"${song.title}\" — ${e.message}")
         } finally {
