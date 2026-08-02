@@ -343,6 +343,55 @@ class NativeAudioEngine {
   Future<void> sleepFadeOutAndPause({int fadeMs = 8000}) =>
       _method.invokeMethod('sleepFadeOutAndPause', {'fadeMs': fadeMs});
 
+  // ── Auto Sleep Guard ──────────────────────────────────────────────────
+  // Battery feature, fully separate from the Sleep Timer above. See
+  // AutoSleepGuard.kt for the native implementation. All state (duration,
+  // enabled flag, last-auto-pause record) lives natively in
+  // SharedPreferences — these calls are thin passthroughs, not a
+  // second/duplicate Dart-side store.
+
+  /// Returns `{enabled: bool, durationHours: int, isSignedIn: bool}`.
+  Future<Map<String, dynamic>> autoSleepGuardGetState() async {
+    final result = await _method.invokeMapMethod<String, dynamic>('autoSleepGuardGetState');
+    return result ?? const {'enabled': true, 'durationHours': 5, 'isSignedIn': false};
+  }
+
+  /// [hours] must be 3 or 5 — anything else is clamped to 5 natively.
+  Future<void> autoSleepGuardSetDurationHours(int hours) =>
+      _method.invokeMethod('autoSleepGuardSetDurationHours', {'hours': hours});
+
+  Future<void> autoSleepGuardSetEnabled(bool enabled) =>
+      _method.invokeMethod('autoSleepGuardSetEnabled', {'enabled': enabled});
+
+  /// Call whenever [SleepTimerService]'s active state changes (start,
+  /// cancel, or natural expiry) so the native guard knows to stay
+  /// completely out of the way while a Sleep Timer is running.
+  Future<void> autoSleepGuardSetSleepTimerActive(bool active) =>
+      _method.invokeMethod('autoSleepGuardSetSleepTimerActive', {'active': active});
+
+  /// Call whenever [AuthProvider]'s sign-in state changes — Auto Sleep
+  /// Guard is available to every plan, but only once signed in.
+  Future<void> autoSleepGuardSetSignedIn(bool signedIn) =>
+      _method.invokeMethod('autoSleepGuardSetSignedIn', {'signedIn': signedIn});
+
+  /// Explicit in-app activity ping — call from play/pause/skip/seek
+  /// button handlers in the UI. Native-originated activity (notification/
+  /// lock-screen controls, screen unlock) is already covered on the
+  /// native side and does not need this.
+  Future<void> autoSleepGuardRecordActivity() =>
+      _method.invokeMethod('autoSleepGuardRecordActivity');
+
+  /// Epoch-millis timestamp of the last auto-pause if it hasn't been
+  /// shown to the user yet, else null. Call once on app open/resume to
+  /// drive the "Paused after inactivity — Resume?" prompt; call
+  /// [autoSleepGuardConsumeLastAutoPause] right after showing it so it
+  /// doesn't reappear on the next open.
+  Future<int?> autoSleepGuardPeekLastAutoPause() =>
+      _method.invokeMethod<int>('autoSleepGuardPeekLastAutoPause');
+
+  Future<void> autoSleepGuardConsumeLastAutoPause() =>
+      _method.invokeMethod('autoSleepGuardConsumeLastAutoPause');
+
   // FIX (2026-07-07) — "downloads fail / stuck resolving": DownloadProvider
   // was calling ApiService.resolveStreamUrl() directly for every download,
   // which is the OLD, Worker-only resolve chain — it never benefited from

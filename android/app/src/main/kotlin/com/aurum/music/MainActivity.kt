@@ -438,6 +438,37 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    // Auto Sleep Guard: registered/unregistered around the Activity's
+    // visible lifetime (onStart/onStop) rather than held for the whole
+    // process, since it only needs to catch unlocks while the app could
+    // plausibly be looked at — a background-only session has no UI for
+    // "activity" to mean anything for anyway, and playback continuing to
+    // be silently guarded by the alarm doesn't depend on this receiver at
+    // all (see AutoSleepGuard.recordActivity, called independently from
+    // the player listener and in-app taps).
+    private var screenUnlockReceiver: android.content.BroadcastReceiver? = null
+
+    override fun onStart() {
+        super.onStart()
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                if (intent.action == Intent.ACTION_USER_PRESENT) {
+                    AutoSleepGuard.recordActivity(ctx.applicationContext)
+                }
+            }
+        }
+        registerReceiver(receiver, android.content.IntentFilter(Intent.ACTION_USER_PRESENT))
+        screenUnlockReceiver = receiver
+    }
+
+    override fun onStop() {
+        screenUnlockReceiver?.let {
+            try { unregisterReceiver(it) } catch (_: Exception) {}
+        }
+        screenUnlockReceiver = null
+        super.onStop()
+    }
+
     override fun onDestroy() {
         mediaSessionServiceConnection?.let {
             try { unbindService(it) } catch (_: Exception) {}

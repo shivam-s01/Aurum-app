@@ -254,6 +254,24 @@ class AurumMediaSessionService : MediaSessionService() {
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 AurumWidgetProvider.refreshAll(this@AurumMediaSessionService)
+                // Auto Sleep Guard: schedules/cancels its alarm off the
+                // same play/pause signal everything else here already
+                // listens to — no separate listener or polling added.
+                AutoSleepGuard.onPlaybackStateChanged(this@AurumMediaSessionService, isPlaying)
+            }
+
+            // A user-initiated skip/seek/track-change is real activity —
+            // covers the case where someone is actively skipping through
+            // songs without ever touching play/pause, which should reset
+            // the inactivity window the same as a tap would.
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                    AutoSleepGuard.recordActivity(this@AurumMediaSessionService)
+                }
             }
         })
 

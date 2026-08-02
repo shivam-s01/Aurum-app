@@ -1378,6 +1378,11 @@ class PlayerProvider extends ChangeNotifier {
       _isLoading = true;
       notifyListeners();
       await _engine.play();
+      // Auto Sleep Guard: an explicit in-app play tap is real activity —
+      // resets its inactivity window the same as a screen unlock would.
+      // Native-originated play (lock-screen/notification/widget buttons)
+      // is already covered independently on the native side.
+      unawaited(_engine.autoSleepGuardRecordActivity());
     }
   }
 
@@ -1385,13 +1390,18 @@ class PlayerProvider extends ChangeNotifier {
     if (_duration == Duration.zero) return;
     final pos = Duration(milliseconds: (_duration.inMilliseconds * ratio).round());
     await _engine.seek(pos);
+    unawaited(_engine.autoSleepGuardRecordActivity());
   }
 
-  Future<void> seekTo(Duration pos) => _engine.seek(pos);
+  Future<void> seekTo(Duration pos) {
+    unawaited(_engine.autoSleepGuardRecordActivity());
+    return _engine.seek(pos);
+  }
 
   /// Returns true if skip was allowed, false if limit reached (UI should show gate).
   Future<bool> skipNext() async {
     if (skipLimitReached) return false; // caller shows PremiumGate
+    unawaited(_engine.autoSleepGuardRecordActivity());
     _recordSkip();
     _fireEarlySkipIfArmed(); // ← behavior tracking hook
 
@@ -1478,6 +1488,7 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> skipPrev() async {
+    unawaited(_engine.autoSleepGuardRecordActivity());
     // Same reasoning as skipNext — only safe to guess the next index
     // optimistically when the queue is in linear order.
     if (!_shuffle && _currentIndex - 1 >= 0) {

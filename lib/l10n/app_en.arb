@@ -203,6 +203,53 @@
   },
   "spSleepTimerSetSubtitle": "Set a timer to stop playback",
   "spCancel": "Cancel",
+  "spAutoSleepGuard": "AUTO SLEEP GUARD",
+  "asgTileTitle": "Auto Sleep Guard",
+  "asgTileSubtitleOn": "Pauses after {hours}h of inactivity",
+  "@asgTileSubtitleOn": {
+    "description": "Shown when Auto Sleep Guard is on and configured, e.g. 'Pauses after 5h of inactivity'",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "asgTileSubtitleSignedOut": "Sign in to use Auto Sleep Guard",
+  "asgTileSubtitleOff": "Off",
+  "asgSheetTitle": "Auto Sleep Guard",
+  "asgSheetBody": "Aurum will pause playback after {hours} of inactivity to save your battery.",
+  "@asgSheetBody": {
+    "description": "First-time explainer body text, e.g. 'Aurum will pause playback after 3 or 5 hours of inactivity to save your battery.'",
+    "placeholders": {
+      "hours": {
+        "type": "String"
+      }
+    }
+  },
+  "asgSheetDurationLabel": "Pause after",
+  "asgSheetHours": "{count}h",
+  "@asgSheetHours": {
+    "description": "Duration option label, e.g. '3h'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "asgSheetSaved": "Saved",
+  "asgSheetDone": "Done",
+  "asgResumePromptTitle": "Paused after inactivity",
+  "asgResumePromptSubtitle": "Paused at {time} — Resume?",
+  "@asgResumePromptSubtitle": {
+    "description": "Smart resume prompt shown on next app open after an auto-pause, e.g. 'Paused at 4:12 AM — Resume?'",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "asgResumePromptResume": "Resume",
+  "asgResumePromptDismiss": "Dismiss",
   "spEqualizerTitle": "Equalizer",
   "spEqualizerSubtitle": "10-band EQ with presets",
   "spKeepQueue": "Keep Player Queue on Reopen",

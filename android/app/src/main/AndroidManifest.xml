@@ -159,6 +159,21 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_full_info"/>
         </receiver>
+
+        <!-- Auto Sleep Guard — fires a single inexact alarm (see
+             AutoSleepGuard.kt) that checks whether playback has been idle
+             (no screen unlock / in-app tap) long enough to auto-pause.
+             Not exported: only this app's own AlarmManager PendingIntent
+             should ever be able to trigger it. -->
+        <receiver
+            android:name=".AutoSleepGuardReceiver"
+            android:exported="false"/>
+
+        <!-- Handles the "Yes, I'm here" / "No, pause" actions on the
+             Auto Sleep Guard confirmation prompt notification. -->
+        <receiver
+            android:name=".AutoSleepGuardActionReceiver"
+            android:exported="false"/>
     </application>
     <queries>
         <intent>

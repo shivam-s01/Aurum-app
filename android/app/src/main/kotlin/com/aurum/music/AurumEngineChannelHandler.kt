@@ -13,6 +13,11 @@ import kotlinx.coroutines.launch
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
 
+    // Kept as an application-context field — the constructor parameter
+    // itself isn't visible from the method-call handler defined later in
+    // this class, and Auto Sleep Guard's methods (below) need a Context.
+    private val appContext: Context = context.applicationContext
+
     companion object {
         private const val METHOD_CHANNEL = "com.aurum.music/audio_engine"
         private const val EVENT_CHANNEL = "com.aurum.music/audio_engine_state"
@@ -446,6 +451,65 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                         result.success(url)
                     }
                 }
+
+                // ── Auto Sleep Guard ────────────────────────────────────
+                // Battery feature, independent of the Dart Sleep Timer —
+                // see AutoSleepGuard.kt for the full design rationale.
+
+                "autoSleepGuardGetState" -> {
+                    val isSignedIn = AuthStateBridge.isSignedIn
+                    result.success(
+                        mapOf(
+                            "enabled" to AutoSleepGuard.isEnabled(appContext),
+                            "durationHours" to AutoSleepGuard.durationHours(appContext, isSignedIn),
+                            "isSignedIn" to isSignedIn,
+                        )
+                    )
+                }
+                "autoSleepGuardSetDurationHours" -> {
+                    val hours = call.argument<Int>("hours") ?: 5
+                    AutoSleepGuard.setDurationHours(appContext, hours)
+                    result.success(null)
+                }
+                "autoSleepGuardSetEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: true
+                    AutoSleepGuard.setEnabled(appContext, enabled)
+                    result.success(null)
+                }
+                // Pushed by SleepTimerService (Dart) on every start/cancel/
+                // expire, so the native guard never has to poll Dart to
+                // know whether it should stay out of the way.
+                "autoSleepGuardSetSleepTimerActive" -> {
+                    val active = call.argument<Boolean>("active") ?: false
+                    AutoSleepGuard.setSleepTimerActive(active)
+                    result.success(null)
+                }
+                // Pushed by AuthProvider (Dart) on every auth state change.
+                "autoSleepGuardSetSignedIn" -> {
+                    val signedIn = call.argument<Boolean>("signedIn") ?: false
+                    AuthStateBridge.isSignedIn = signedIn
+                    result.success(null)
+                }
+                // Explicit in-app tap activity (play/pause/skip/seek
+                // buttons in the Dart UI, distinct from the native
+                // notification/lock-screen controls which are already
+                // covered by the player listener in
+                // AurumMediaSessionService). Screen-unlock activity is
+                // reported the same way from MainActivity's onResume.
+                "autoSleepGuardRecordActivity" -> {
+                    AutoSleepGuard.recordActivity(appContext)
+                    result.success(null)
+                }
+                // Polled once on app open (not periodically) to drive the
+                // "Paused after inactivity at 4:12 AM — Resume?" prompt.
+                "autoSleepGuardPeekLastAutoPause" -> {
+                    result.success(AutoSleepGuard.peekLastAutoPause(appContext))
+                }
+                "autoSleepGuardConsumeLastAutoPause" -> {
+                    AutoSleepGuard.consumeLastAutoPause(appContext)
+                    result.success(null)
+                }
+
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {

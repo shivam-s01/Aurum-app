@@ -19,6 +19,7 @@ import '../services/home_feed_cache.dart';
 import '../services/recommendation_engine.dart';
 import '../providers/download_provider.dart';
 import '../services/audio_prefs.dart';
+import '../services/native_engine_bridge.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/faded_horizontal_list.dart';
@@ -225,7 +226,43 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       };
+
+      _maybeShowAutoSleepGuardResumePrompt(player);
     });
+  }
+
+  // Auto Sleep Guard "smart resume" — checked once per app open (not
+  // polled), immediately consumed after checking so it never reappears on
+  // a later open for the same auto-pause event. See AutoSleepGuard.kt's
+  // peekLastAutoPause/consumeLastAutoPause for the native side.
+  Future<void> _maybeShowAutoSleepGuardResumePrompt(PlayerProvider player) async {
+    final engine = NativeAudioEngine();
+    final lastPauseMs = await engine.autoSleepGuardPeekLastAutoPause();
+    if (lastPauseMs == null || !mounted) return;
+    await engine.autoSleepGuardConsumeLastAutoPause();
+    if (!mounted) return;
+
+    final l10n = AppLocalizations.of(context)!;
+    final pausedAt = DateTime.fromMillisecondsSinceEpoch(lastPauseMs);
+    final timeLabel = TimeOfDay.fromDateTime(pausedAt).format(context);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AurumTheme.bgCardOf(context),
+        duration: const Duration(seconds: 6),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        content: Text(
+          l10n.asgResumePromptSubtitle(timeLabel),
+          style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 13),
+        ),
+        action: SnackBarAction(
+          label: l10n.asgResumePromptResume,
+          textColor: AurumTheme.gold,
+          onPressed: () => player.togglePlay(),
+        ),
+      ),
+    );
   }
 
   Future<void> _hydrateFromCache() async {

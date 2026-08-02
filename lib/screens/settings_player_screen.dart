@@ -10,6 +10,7 @@ import '../providers/recently_played_provider.dart';
 import '../providers/premium_provider.dart';
 import '../widgets/premium_gate.dart';
 import '../widgets/aurum_pressable.dart';
+import '../widgets/auto_sleep_guard_tile.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 
@@ -57,13 +58,22 @@ class SleepTimerService {
         _onExpire();
       }
     });
+    // Auto Sleep Guard (a separate, native battery feature) must stay
+    // completely silent while this Sleep Timer is running — see
+    // AutoSleepGuard.kt. Pushed here rather than polled from native side
+    // so there's no cross-language polling in either direction.
+    _engine?.autoSleepGuardSetSleepTimerActive(true);
     _notify();
   }
 
   void cancel() {
+    final wasActive = isActive;
     _timer?.cancel();
     _timer = null;
     _endsAt = null;
+    if (wasActive) {
+      _engine?.autoSleepGuardSetSleepTimerActive(false);
+    }
     _notify();
   }
 
@@ -71,6 +81,7 @@ class SleepTimerService {
     _timer?.cancel();
     _timer = null;
     _endsAt = null;
+    _engine?.autoSleepGuardSetSleepTimerActive(false);
     if (_finishSong) {
       // Let current song finish, then pause at next song start
       _engine?.sleepAfterCurrentSong();
@@ -488,6 +499,13 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                 _save('data_saver', v);
                 AudioPrefs.setDataSaver(v);
               }),
+
+          // Auto Sleep Guard — placed right under Data Saver since both
+          // are battery-related, but styled distinctly (its own gold-
+          // accented card, not a plain switch tile) so it reads as a
+          // standalone premium-feeling feature, not a minor toggle.
+          const AutoSleepGuardTile(),
+
           _switchTile(context,
               icon: Icons.remove_done_rounded,
               title: l10n.spGaplessPlayback,
