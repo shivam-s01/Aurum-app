@@ -240,14 +240,32 @@ class BrowseService {
     // floor + official-channel priority + smart dedup) the old YT-fallback
     // paths already used elsewhere in this file — just applied everywhere
     // in Browse now, not only when Saavn came up short.
-    final tracksFuture  = _ytTracksFor(q);
-    final albumsFuture  = _ytAlbumFallback(q);
-    final artistsFuture = _ytArtistFallback(q);
-
-    final results = await Future.wait([tracksFuture, albumsFuture, artistsFuture]);
-    final tracks  = results[0] as List<BrowseTrack>;
-    var albums    = results[1] as List<BrowseAlbum>;
-    var artists   = results[2] as List<BrowseArtist>;
+    // STABILITY FIX ("browser wale option pe search crash, cold start"):
+    // these three used to run via Future.wait — three separate
+    // YoutubeExplode() clients, each holding its own raw search-result
+    // payload (often 20-50 videos with full thumbnail sets) in memory AT
+    // THE SAME TIME. On lower-RAM devices that peak was enough to trigger
+    // a native OOM kill, which Dart's try/catch can't intercept — the
+    // process dies outright and the next launch is a cold start. Running
+    // them sequentially means only one raw result set is ever alive at
+    // once. Costs a bit of wall-clock time, not correctness.
+    //
+    // PERF: all three now share ONE YoutubeExplode client (created here,
+    // closed once at the end) instead of each call spinning up and tearing
+    // down its own — same sequential/one-result-set-alive-at-a-time safety,
+    // just without repeatedly paying HTTP-client init/teardown cost on
+    // every single Browse search.
+    final ytClient = yt.YoutubeExplode();
+    List<BrowseTrack> tracks;
+    List<BrowseAlbum> albums;
+    List<BrowseArtist> artists;
+    try {
+      tracks  = await _ytTracksFor(q, ytClient);
+      albums  = await _ytAlbumFallback(q, ytClient);
+      artists = await _ytArtistFallback(q, ytClient);
+    } finally {
+      ytClient.close();
+    }
 
     // Real artist photos: try a quick YT-channel-thumbnail patch for any
     // artist chip missing one (should be rare since _ytArtistFallback
@@ -318,15 +336,11 @@ class BrowseService {
   // playback) instead of scraping raw search-page HTML, which is far more
   // fragile and prone to silently returning nothing if YouTube tweaks its
   // markup.
-  static Future<List<BrowseArtist>> _ytArtistFallback(String query) async {
-    // FIX (YoutubeExplode client leak): close() previously only ran on the
-    // success path, right after search() returned. If search() itself threw
-    // (network error, backend hiccup, timeout at the http layer under the
-    // youtube_explode_dart timeout) execution jumped straight to `catch`
-    // and ytClient.close() was skipped — leaking the underlying http client
-    // every time a fallback search failed. try/finally guarantees close()
-    // runs regardless of how the try block exits.
-    final ytClient = yt.YoutubeExplode();
+  // Takes a caller-owned ytClient (search() shares one client across all
+  // three Browse fetches — see search() above) so this never opens/closes
+  // its own connection. No try/finally close() here anymore: lifecycle is
+  // the caller's responsibility.
+  static Future<List<BrowseArtist>> _ytArtistFallback(String query, yt.YoutubeExplode ytClient) async {
     try {
       final results = await ytClient.search.search('$query song')
           .then((list) => list.toList())
@@ -344,8 +358,6 @@ class BrowseService {
       return out;
     } catch (_) {
       return [];
-    } finally {
-      ytClient.close();
     }
   }
 
@@ -384,8 +396,8 @@ class BrowseService {
     return _officialAlbumChannelMarkers.any((m) => c.contains(m));
   }
 
-  static Future<List<BrowseAlbum>> _ytAlbumFallback(String query, {int count = 6}) async {
-    final ytClient = yt.YoutubeExplode();
+  // Shares the caller's ytClient — same reasoning as _ytArtistFallback above.
+  static Future<List<BrowseAlbum>> _ytAlbumFallback(String query, yt.YoutubeExplode ytClient, {int count = 6}) async {
     try {
       final results = await ytClient.search.search('$query song')
           .then((list) => list.toList())
@@ -497,8 +509,6 @@ class BrowseService {
       return out;
     } catch (_) {
       return [];
-    } finally {
-      ytClient.close();
     }
   }
 
@@ -507,8 +517,22 @@ class BrowseService {
   // actual YT video id, so tapping one plays immediately via the app's
   // existing YouTube resolve path instead of round-tripping through a
   // Saavn text search that may match nothing for a channel/video name.
-  static Future<List<BrowseTrack>> _ytTracksFor(String query) async {
-    final ytClient = yt.YoutubeExplode();
+  // PERF: capped at 15 (was 25) — a Browse row/list never shows more than
+  // a screenful-and-a-bit before the user scrolls or taps into an album,
+  // so the extra 10 results were pure unused memory/decode cost (each one
+  // carries a full ThumbnailSet that cached_network_image then has to
+  // fetch+decode the moment it scrolls into view). 15 is still comfortably
+  // more than a typical phone screen shows at once.
+  //
+  // [sharedClient] lets search() reuse one YoutubeExplode across all three
+  // Browse fetches instead of each opening/closing its own. When called
+  // standalone (album/artist drill-down via albumTracks/artistTopSongs
+  // below), no client is passed in, so this creates and closes its own —
+  // unchanged behavior for those call sites.
+  static const int _kMaxBrowseTracks = 15;
+
+  static Future<List<BrowseTrack>> _ytTracksFor(String query, [yt.YoutubeExplode? sharedClient]) async {
+    final ytClient = sharedClient ?? yt.YoutubeExplode();
     try {
       final results = await ytClient.search.search(query)
           .then((list) => list.toList())
@@ -523,7 +547,7 @@ class BrowseService {
       final accepted = <yt.Video>[];
       final acceptedTitles = <String>[];
       for (final v in results) {
-        if (accepted.length >= 25) break;
+        if (accepted.length >= _kMaxBrowseTracks) break;
         if (!_isBrowseQuality(v)) continue;
         var isDup = false;
         for (final seen in acceptedTitles) {
@@ -538,7 +562,7 @@ class BrowseService {
       if (accepted.isEmpty) {
         final acceptedFallback = <String>[];
         for (final v in results) {
-          if (accepted.length >= 25) break;
+          if (accepted.length >= _kMaxBrowseTracks) break;
           var isDup = false;
           for (final seen in acceptedFallback) {
             if (RecommendationEngine.isSameSongSmart(v.title, seen)) { isDup = true; break; }
@@ -564,7 +588,7 @@ class BrowseService {
     } catch (_) {
       return [];
     } finally {
-      ytClient.close();
+      if (sharedClient == null) ytClient.close();
     }
   }
 
