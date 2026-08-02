@@ -39,6 +39,7 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show WidgetsBinding, WidgetsBindingObserver, AppLifecycleState;
 import 'package:just_audio/just_audio.dart' show LoopMode;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
@@ -57,7 +58,7 @@ import 'favorites_provider.dart';
 // constructed anywhere in this file; only the enum is reused so the UI
 // layer needs no changes for this engine swap.
 
-class PlayerProvider extends ChangeNotifier {
+class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final NativeAudioEngine        _engine;
   final RecentlyPlayedProvider? _recentlyPlayed;
   FavoritesProvider? _favorites;
@@ -140,6 +141,13 @@ class PlayerProvider extends ChangeNotifier {
   // only smooths the seconds between real updates and, critically,
   // guarantees the seek bar is never simply stuck at zero.
   Timer? _localPositionTicker;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _engine.forceStateResync();
+    }
+  }
 
   void _startLocalPositionTicker() {
     if (_localPositionTicker?.isActive == true) return;
@@ -416,6 +424,15 @@ class PlayerProvider extends ChangeNotifier {
   PlayerProvider(this._engine, {RecentlyPlayedProvider? recentlyPlayedProvider})
       : _recentlyPlayed = recentlyPlayedProvider {
     _loadPersistedSkipState();
+
+    // FIX ("full player UI stuck at 00:00 while audio genuinely plays in
+    // background"): the native position ticker can silently die when
+    // MainActivity is torn down/recreated (OEM battery throttling, recents
+    // kill) while a song keeps playing — nothing naturally restarts it
+    // since onIsPlayingChanged only fires on a genuine transition. Forcing
+    // a resync every time the app comes back to the foreground self-heals
+    // that, regardless of which exact link broke.
+    WidgetsBinding.instance.addObserver(this);
 
     _subs.add(_engine.errorStream.listen((event) {
       _lastPlaybackError = event.message;
@@ -958,6 +975,17 @@ class PlayerProvider extends ChangeNotifier {
   List<Song> get queue        => _queue;
   int      get currentIndex   => _currentIndex;
   bool     get hasSong        => _currentSong != null;
+
+  // DEBUG ONLY — temporary diagnostic snapshot for tracking down the
+  // "seek bar stuck at 00:00" report. Remove once root-caused. Exposes the
+  // internal fields that decide whether the seek bar should be showing a
+  // live position: is anything expected-but-unconfirmed, is the engine
+  // reporting playing, does it have a real duration yet.
+  String get debugSeekBarState =>
+      'expectedSongId=$_expectedSongId currentSongId=${_currentSong?.id} '
+      'isPlaying=$_isPlaying isLoading=$_isLoading '
+      'position=${_position.inMilliseconds}ms duration=${_duration.inMilliseconds}ms '
+      'localTickerActive=${_localPositionTicker?.isActive == true}';
 
   // ── Mini player visibility — lives here, not in MiniPlayer's State ──
   // This used to be split across two separate pieces of state: a
@@ -1903,6 +1931,7 @@ class PlayerProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _indexDebounce?.cancel();
     _skipDebounce?.cancel();
     _stopLocalPositionTicker();
