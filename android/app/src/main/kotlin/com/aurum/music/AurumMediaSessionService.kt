@@ -132,6 +132,36 @@ class AurumMediaSessionService : MediaSessionService() {
                 return result
             }
 
+            // FIX (root cause of "Aurum Music" generic-title notification +
+            // permanently frozen seek bar while audio genuinely plays,
+            // reported on both search-tapped AND downloaded songs equally):
+            // MediaSession.Callback's default onPlaybackResumption lets
+            // Media3 silently resume/start a MediaItem from its OWN
+            // persisted session state (Android's system media-resumption
+            // feature — surfaced via Android Auto, the media resumption
+            // shelf, or after process death/restart) completely OUTSIDE
+            // AurumAudioEngine.playSong()/playQueue(). That bypasses
+            // buildMediaItem() entirely, so the resumed item has no real
+            // title/artist metadata (hence the notification falling back to
+            // the app label "Aurum Music") — and since Dart never called
+            // playSong/playQueue for it, _expectedSongId/_queue/_isLoading
+            // in player_provider.dart are never touched, leaving the UI
+            // permanently showing whatever loading/expectation state it was
+            // already in while this separately-resumed player audibly
+            // plays in the background. Returning an immediate failed future
+            // here disables Media3's default resumption outright — the ONLY
+            // way a MediaItem can ever load is through this engine's own
+            // playSong/playQueue, called from Dart, which is the sole
+            // source of truth PlayerProvider's state machine assumes.
+            override fun onPlaybackResumption(
+                mediaSession: MediaSession,
+                controller: MediaSession.ControllerInfo,
+            ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                return Futures.immediateFailedFuture(UnsupportedOperationException(
+                    "Playback resumption disabled — Aurum always starts playback via Dart's playSong/playQueue"
+                ))
+            }
+
             override fun onPostConnect(session: MediaSession, controller: MediaSession.ControllerInfo) {
                 super.onPostConnect(session, controller)
                 session.setCustomLayout(ImmutableList.of(likeButton))
@@ -389,6 +419,26 @@ class AurumMediaSessionService : MediaSessionService() {
             mediaSession = null
         }
         instance = null
+        // FIX (related to the onPlaybackResumption fix above): this service
+        // has no onStartCommand override, so it inherits MediaSessionService's
+        // default START_STICKY — Android can restart it after a low-memory
+        // kill. sharedEngine is a companion-object (static) field, so it
+        // survives independently of this Service instance's lifecycle; if
+        // the process itself stays alive across a sticky restart (only the
+        // Service was killed/restarted, not the whole app), sharedEngine
+        // would otherwise still point at the AurumAudioEngine whose player
+        // we just released() two lines above — a dead ExoPlayer instance.
+        // The next onCreate() would then see a non-null (but now-unusable)
+        // sharedEngine, skip its defensive `stopSelf()` fallback for a
+        // genuinely-null engine, and build a new MediaSession around a
+        // released player — silently broken playback controls, indistinguishable
+        // from the resumption bug this mirrors. Clearing it here forces the
+        // next onCreate() to correctly treat this as "no real engine yet"
+        // and bail out via the existing stopSelf() fallback until
+        // MainActivity genuinely re-launches and republishes a fresh one.
+        if (AurumMediaSessionService.sharedEngine != null) {
+            AurumMediaSessionService.sharedEngine = null
+        }
         try {
             AurumWidgetProvider.clearArtworkCache()
             AurumWidgetProvider.refreshAll(this)
