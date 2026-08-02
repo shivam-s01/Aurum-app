@@ -467,13 +467,15 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     )
                 }
                 "autoSleepGuardSetDurationHours" -> {
-                    val hours = call.argument<Int>("hours") ?: 5
+                    val hours = call.argument<Int>("hours") ?: 3
                     AutoSleepGuard.setDurationHours(appContext, hours)
                     result.success(null)
                 }
+                // Kept as a recognized method (no-op) rather than removed
+                // outright — the feature is always-on now with no
+                // user-facing switch, but this avoids a MissingPlugin
+                // exception if any stale Dart build still calls it.
                 "autoSleepGuardSetEnabled" -> {
-                    val enabled = call.argument<Boolean>("enabled") ?: true
-                    AutoSleepGuard.setEnabled(appContext, enabled)
                     result.success(null)
                 }
                 // Pushed by SleepTimerService (Dart) on every start/cancel/

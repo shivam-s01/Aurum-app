@@ -353,15 +353,12 @@ class NativeAudioEngine {
   /// Returns `{enabled: bool, durationHours: int, isSignedIn: bool}`.
   Future<Map<String, dynamic>> autoSleepGuardGetState() async {
     final result = await _method.invokeMapMethod<String, dynamic>('autoSleepGuardGetState');
-    return result ?? const {'enabled': true, 'durationHours': 5, 'isSignedIn': false};
+    return result ?? const {'enabled': true, 'durationHours': 3, 'isSignedIn': false};
   }
 
-  /// [hours] must be 3 or 5 — anything else is clamped to 5 natively.
+  /// [hours] must be 3 or 5 — anything else is clamped to 3 natively.
   Future<void> autoSleepGuardSetDurationHours(int hours) =>
       _method.invokeMethod('autoSleepGuardSetDurationHours', {'hours': hours});
-
-  Future<void> autoSleepGuardSetEnabled(bool enabled) =>
-      _method.invokeMethod('autoSleepGuardSetEnabled', {'enabled': enabled});
 
   /// Call whenever [SleepTimerService]'s active state changes (start,
   /// cancel, or natural expiry) so the native guard knows to stay

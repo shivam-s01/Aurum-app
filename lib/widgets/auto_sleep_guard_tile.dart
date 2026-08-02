@@ -3,19 +3,20 @@
 // PROJECT: Aurum Music
 // DESCRIPTION: Settings → Player card for Auto Sleep Guard — a battery
 //   feature fully separate from the Sleep Timer. Available to every
-//   signed-in user (free or premium), gated on sign-in only. Free users
-//   get a fixed 5h duration with no picker; any signed-in user who opens
-//   this card can choose 3h/5h, saved permanently until changed again.
+//   signed-in user (free or premium), gated on sign-in only.
 //
-//   All state (enabled flag, duration, last-auto-pause record) lives
-//   natively in SharedPreferences via AutoSleepGuard.kt — this widget is a
-//   thin, stateful view over NativeAudioEngine.autoSleepGuardXxx() calls,
-//   not a second source of truth.
+//   Always active — there is no on/off switch, the card just shows an
+//   "Automatic" badge instead of a toggle. Tapping the card still opens
+//   a bottom sheet where the user can choose the inactivity window (3h
+//   or 5h, default 3h), saved permanently until changed again.
+//
+//   All state (duration, last-auto-pause record) lives natively in
+//   SharedPreferences via AutoSleepGuard.kt — this widget is a thin,
+//   stateful view over NativeAudioEngine.autoSleepGuardXxx() calls, not
+//   a second source of truth.
 // =============================================================================
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/auth_provider.dart';
 import 'package:provider/provider.dart';
 import '../services/native_engine_bridge.dart';
@@ -31,13 +32,10 @@ class AutoSleepGuardTile extends StatefulWidget {
 }
 
 class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
-  static const _kExplainerShownKey = 'auto_sleep_guard_explainer_shown';
-
   final NativeAudioEngine _engine = NativeAudioEngine();
 
   bool _loading = true;
-  bool _enabled = true;
-  int _durationHours = 5;
+  int _durationHours = 3;
 
   @override
   void initState() {
@@ -49,23 +47,12 @@ class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
     final state = await _engine.autoSleepGuardGetState();
     if (!mounted) return;
     setState(() {
-      _enabled = state['enabled'] as bool? ?? true;
-      _durationHours = state['durationHours'] as int? ?? 5;
+      _durationHours = state['durationHours'] as int? ?? 3;
       _loading = false;
     });
   }
 
-  Future<bool> _explainerAlreadyShown() async {
-    final p = await SharedPreferences.getInstance();
-    return p.getBool(_kExplainerShownKey) ?? false;
-  }
-
-  Future<void> _markExplainerShown() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setBool(_kExplainerShownKey, true);
-  }
-
-  Future<void> _openSheet(BuildContext context, {required bool isFirstTime}) async {
+  Future<void> _openSheet(BuildContext context) async {
     final result = await showModalBottomSheet<int>(
       context: context,
       backgroundColor: AurumTheme.bgCardOf(context),
@@ -73,17 +60,14 @@ class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => _AutoSleepGuardSheet(
-        initialHours: _durationHours,
-        isFirstTime: isFirstTime,
-      ),
+      builder: (_) => _AutoSleepGuardSheet(initialHours: _durationHours),
     );
 
     if (result == null) return; // dismissed without choosing
+    if (result == _durationHours) return;
 
     setState(() => _durationHours = result);
     await _engine.autoSleepGuardSetDurationHours(result);
-    if (isFirstTime) await _markExplainerShown();
   }
 
   @override
@@ -97,10 +81,10 @@ class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
         color: AurumTheme.bgCardOf(context),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: _enabled && isSignedIn
+          color: isSignedIn
               ? AurumTheme.gold.withOpacity(0.35)
               : AurumTheme.dividerOf(context),
-          width: _enabled && isSignedIn ? 1 : 0.5,
+          width: isSignedIn ? 1 : 0.5,
         ),
       ),
       child: ListTile(
@@ -123,9 +107,9 @@ class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
         subtitle: Text(
           !isSignedIn
               ? l10n.asgTileSubtitleSignedOut
-              : (_enabled ? l10n.asgTileSubtitleOn(_durationHours) : l10n.asgTileSubtitleOff),
+              : l10n.asgTileSubtitleOn(_durationHours),
           style: TextStyle(
-            color: (_enabled && isSignedIn) ? AurumTheme.gold : AurumTheme.textMutedOf(context),
+            color: isSignedIn ? AurumTheme.gold : AurumTheme.textMutedOf(context),
             fontSize: 12,
           ),
         ),
@@ -134,24 +118,31 @@ class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
                 width: 18, height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2, color: AurumTheme.gold),
               )
-            : Switch.adaptive(
-                value: _enabled && isSignedIn,
-                activeColor: AurumTheme.gold,
-                onChanged: !isSignedIn
-                    ? null
-                    : (v) async {
-                        AurumHaptics.selection();
-                        setState(() => _enabled = v);
-                        await _engine.autoSleepGuardSetEnabled(v);
-                      },
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isSignedIn)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AurumTheme.gold.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        l10n.asgTileAutomaticBadge,
+                        style: const TextStyle(
+                          color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  if (isSignedIn) const SizedBox(width: 6),
+                  Icon(Icons.chevron_right_rounded,
+                      color: AurumTheme.textMutedOf(context), size: 18),
+                ],
               ),
         onTap: !isSignedIn
             ? () => _showSignInRequiredHint(context)
-            : () async {
-                final firstTime = !(await _explainerAlreadyShown());
-                if (!context.mounted) return;
-                await _openSheet(context, isFirstTime: firstTime);
-              },
+            : () => _openSheet(context),
       ),
     );
   }
@@ -174,12 +165,12 @@ class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
 }
 
 // =============================================================================
-// First-time explainer / duration picker bottom sheet
+// Duration picker bottom sheet — always shows the explainer body (the
+// feature is on by default, this sheet only ever adjusts the window).
 // =============================================================================
 class _AutoSleepGuardSheet extends StatefulWidget {
   final int initialHours;
-  final bool isFirstTime;
-  const _AutoSleepGuardSheet({required this.initialHours, required this.isFirstTime});
+  const _AutoSleepGuardSheet({required this.initialHours});
 
   @override
   State<_AutoSleepGuardSheet> createState() => _AutoSleepGuardSheetState();
@@ -196,8 +187,7 @@ class _AutoSleepGuardSheetState extends State<_AutoSleepGuardSheet> {
       _selected = hours;
       _showSavedTick = true;
     });
-    // Subtle confirmation fade — no jarring dialog, matches the plan's
-    // "Saved ✓" micro-animation request.
+    // Subtle confirmation fade — no jarring dialog.
     Future.delayed(const Duration(milliseconds: 900), () {
       if (mounted) setState(() => _showSavedTick = false);
     });
@@ -247,13 +237,11 @@ class _AutoSleepGuardSheetState extends State<_AutoSleepGuardSheet> {
                 ),
               ],
             ),
-            if (widget.isFirstTime) ...[
-              const SizedBox(height: 14),
-              Text(
-                l10n.asgSheetBody(l10n.asgSheetHours(_selected)),
-                style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13, height: 1.4),
-              ),
-            ],
+            const SizedBox(height: 14),
+            Text(
+              l10n.asgSheetBody,
+              style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13, height: 1.4),
+            ),
             const SizedBox(height: 20),
             Text(
               l10n.asgSheetDurationLabel,

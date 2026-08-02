@@ -28,10 +28,11 @@ import android.util.Log
  * see [DurationHours]), playback is paused automatically to save battery.
  *
  * ACCESS: available to every signed-in user (free or premium) — gated by
- * Google/Supabase sign-in only, not by PremiumProvider. Free users get a
- * hardcoded 5h duration with no settings UI; signed-in users (regardless
- * of plan) who open the dedicated settings card can choose 3h or 5h, saved
- * permanently in SharedPreferences until they change it again.
+ * Google/Supabase sign-in only, not by PremiumProvider. Always active,
+ * with no on/off switch — there's nothing to turn off. Defaults to a 3h
+ * inactivity window; any signed-in user who opens the dedicated settings
+ * card can switch to 5h, saved permanently in SharedPreferences until
+ * they change it again.
  *
  * IMPLEMENTATION: intentionally has NO Dart Timer, NO polling loop, and NO
  * WorkManager dependency (not present in this project's build.gradle, and
@@ -54,7 +55,6 @@ object AutoSleepGuard {
     private const val TAG = "AutoSleepGuard"
     private const val PREFS_NAME = "FlutterSharedPreferences"
     private const val KEY_DURATION_HOURS = "flutter.auto_sleep_guard_hours"
-    private const val KEY_ENABLED = "flutter.auto_sleep_guard_enabled"
     private const val KEY_LAST_AUTO_PAUSE_AT = "flutter.auto_sleep_guard_last_pause_at"
     private const val KEY_LAST_AUTO_PAUSE_CONSUMED = "flutter.auto_sleep_guard_last_pause_consumed"
 
@@ -64,7 +64,10 @@ object AutoSleepGuard {
     private const val NOTIFICATION_CHANNEL_ID = "aurum_auto_sleep_guard"
     private const val NOTIFICATION_ID = 1002
 
-    private const val DEFAULT_FREE_HOURS = 5
+    // Feature is always active for every signed-in user (no on/off
+    // toggle) — but the inactivity window is still user-choosable between
+    // 3h and 5h via the settings sheet. Defaults to 3h until changed.
+    private const val DEFAULT_GUARD_HOURS = 3
 
     enum class DurationHours(val hours: Int) { THREE(3), FIVE(5) }
 
@@ -123,25 +126,24 @@ object AutoSleepGuard {
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    /** Effective duration: free users are hardcoded to 5h with no choice;
-     *  signed-in users who've picked 3h keep that until they change it. */
+    /** Effective duration for a signed-in user: 3h by default, 5h if the
+     *  user has explicitly picked it via the settings sheet — persists
+     *  until changed again. Signed-out users get the same default. */
     fun durationHours(context: Context, isSignedIn: Boolean): Int {
-        if (!isSignedIn) return DEFAULT_FREE_HOURS
-        val stored = prefs(context).getInt(KEY_DURATION_HOURS, DEFAULT_FREE_HOURS)
-        return if (stored == DurationHours.THREE.hours) DurationHours.THREE.hours else DurationHours.FIVE.hours
+        if (!isSignedIn) return DEFAULT_GUARD_HOURS
+        val stored = prefs(context).getInt(KEY_DURATION_HOURS, DEFAULT_GUARD_HOURS)
+        return if (stored == DurationHours.FIVE.hours) DurationHours.FIVE.hours else DurationHours.THREE.hours
     }
 
     fun setDurationHours(context: Context, hours: Int) {
-        val clamped = if (hours == DurationHours.THREE.hours) DurationHours.THREE.hours else DurationHours.FIVE.hours
+        val clamped = if (hours == DurationHours.FIVE.hours) DurationHours.FIVE.hours else DurationHours.THREE.hours
         prefs(context).edit().putInt(KEY_DURATION_HOURS, clamped).apply()
     }
 
-    fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, true)
-
-    fun setEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
-        if (!enabled) cancelScheduledCheck(context)
-    }
+    // Always on for every signed-in user — no user-facing toggle anymore.
+    // Kept as a function (not a val) so every existing call site
+    // (scheduleNextCheck, onAlarmFired) keeps working unchanged.
+    fun isEnabled(context: Context): Boolean = true
 
     /** Returns the epoch-millis timestamp of the last auto-pause if it
      *  hasn't been shown/consumed yet (for the "Paused after inactivity at
@@ -317,6 +319,11 @@ object AutoSleepGuard {
     }
 
     private fun postPauseNotification(context: Context) {
+        // Notification.Builder(context, channelId) is an API 26+
+        // constructor — on older devices it doesn't exist and calling it
+        // would crash. We target Android 10+ (API 29) in practice, but
+        // this stays defensive for any lower minSdk build variant.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -361,6 +368,14 @@ object AutoSleepGuard {
     private const val ACTION_CONFIRM_ASLEEP = "com.aurum.music.action.AUTO_SLEEP_GUARD_NO"
 
     private fun postConfirmationPrompt(context: Context) {
+        // Same API 26+ constraint as postPauseNotification — below that,
+        // there is no way to show the "Still there?" prompt at all, so
+        // fall back to pausing directly rather than waiting out a grace
+        // window the user has no visible way to respond to.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            pauseNow(context)
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED

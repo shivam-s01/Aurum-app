@@ -215,17 +215,9 @@
     }
   },
   "asgTileSubtitleSignedOut": "Sign in to use Auto Sleep Guard",
-  "asgTileSubtitleOff": "Off",
+  "asgTileAutomaticBadge": "Automatic",
   "asgSheetTitle": "Auto Sleep Guard",
-  "asgSheetBody": "Aurum will pause playback after {hours} of inactivity to save your battery.",
-  "@asgSheetBody": {
-    "description": "First-time explainer body text, e.g. 'Aurum will pause playback after 3 or 5 hours of inactivity to save your battery.'",
-    "placeholders": {
-      "hours": {
-        "type": "String"
-      }
-    }
-  },
+  "asgSheetBody": "Aurum automatically pauses playback after a period of inactivity to save your battery. Choose how long it waits.",
   "asgSheetDurationLabel": "Pause after",
   "asgSheetHours": "{count}h",
   "@asgSheetHours": {
