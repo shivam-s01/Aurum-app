@@ -695,6 +695,13 @@ class AurumAudioEngine(
 
     private fun startPositionTicker() {
         if (tickerJob?.isActive == true) return
+        // Push once immediately — without this, Dart's mirrored position/
+        // duration could sit at whatever the last event happened to be
+        // (possibly 0/null right at playback start) for up to a full
+        // second before the loop below's first tick, which is the exact
+        // "seek bar frozen at 00:00 for a beat" gap this ticker exists to
+        // prevent in the first place.
+        pushState()
         tickerJob = scope.launch {
             var last = -1L
             while (isActive) {

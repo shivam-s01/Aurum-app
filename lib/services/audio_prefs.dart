@@ -168,6 +168,51 @@ class AudioPrefs {
   static final ValueNotifier<bool> showBlurredBgNotifier =
       ValueNotifier<bool>(true);
 
+  // ── Battery Saver Mode ───────────────────────────────────────────────
+  // A separate feature from the individual animation/background toggles
+  // above — those stay exactly as the user set them. Battery Saver Mode
+  // is a live, automatic OVERRIDE on top: when active, every consumer of
+  // AurumMotion.enabled / the background-effect notifiers sees motion
+  // and heavy rendering suppressed, without touching (or forgetting) the
+  // user's actual saved preferences underneath. The moment battery
+  // recovers above the threshold, everything reads through to exactly
+  // what it was before — nothing was overwritten, only masked.
+  //
+  // Toggle here has no "on/off" wording — the feature always watches
+  // battery level once enabled ("Automatic"); there's no manual trigger,
+  // only enabled/disabled and a chosen threshold.
+
+  /// If true, Battery Saver Mode automatically activates once the device
+  /// battery drops to/below [batterySaverThresholdNotifier]. If false,
+  /// the feature is fully off — [batterySaverActiveNotifier] never
+  /// becomes true regardless of battery level. Default true so the
+  /// protection is on out of the box, matching how most OS-level battery
+  /// savers ship enabled-by-default at a sensible threshold.
+  static final ValueNotifier<bool> batterySaverEnabledNotifier =
+      ValueNotifier<bool>(true);
+
+  /// 15 or 20 — battery percentage at/below which Battery Saver Mode
+  /// engages. Default 20. Set from Settings → Player & Audio → "Battery
+  /// Saver Mode".
+  static final ValueNotifier<int> batterySaverThresholdNotifier =
+      ValueNotifier<int>(20);
+
+  /// Live computed state — true while Battery Saver Mode is enabled AND
+  /// the last-reported battery level is at/below the threshold. Written
+  /// only by BatterySaverController (lib/services/battery_saver_controller.dart),
+  /// which owns the native battery-level stream subscription; never set
+  /// directly from UI code. UI/animation code should treat this as
+  /// read-only.
+  static final ValueNotifier<bool> batterySaverActiveNotifier =
+      ValueNotifier<bool>(false);
+
+  /// Most recently reported battery percentage (0-100), or null before
+  /// the first native battery event has arrived. Purely informational —
+  /// drives the settings subtitle ("Active — battery at 14%"), not used
+  /// for the activation decision itself (that's batterySaverActiveNotifier).
+  static final ValueNotifier<int?> batteryLevelNotifier =
+      ValueNotifier<int?>(null);
+
   /// If true, play counts / time-listened are not tracked. Set from
   /// Settings → Privacy.
   static bool hideListenStats = false;
@@ -214,6 +259,8 @@ class AudioPrefs {
   static const _kShowArtworkNotif = 'show_artwork_notif';
   static const _kGapless          = 'gapless';
   static const _kCastIconVisibility = 'cast_icon_visibility';
+  static const _kBatterySaverEnabled   = 'battery_saver_enabled';
+  static const _kBatterySaverThreshold = 'battery_saver_threshold';
 
   /// Restore all values from disk. Call once at startup (from the audio
   /// handler's _init()).
@@ -254,6 +301,10 @@ class AudioPrefs {
     miniPlayerBgStyleNotifier.value = p.getString(_kMiniPlayerBg) ?? miniPlayerBgStyleNotifier.value;
     bgGradientAnimationNotifier.value = p.getBool(_kBgGradAnim) ?? bgGradientAnimationNotifier.value;
     enableAnimationsNotifier.value = p.getBool(_kEnableAnim) ?? enableAnimationsNotifier.value;
+    batterySaverEnabledNotifier.value =
+        p.getBool(_kBatterySaverEnabled) ?? batterySaverEnabledNotifier.value;
+    batterySaverThresholdNotifier.value =
+        p.getInt(_kBatterySaverThreshold) ?? batterySaverThresholdNotifier.value;
     hideListenStats     = p.getBool(_kHideStats) ?? hideListenStats;
     notifShowPrev       = p.getBool(_kNotifShowPrev) ?? notifShowPrev;
     notifCompact        = (p.getString(_kNotifStyle) ?? 'Expanded') == 'Compact';
@@ -403,6 +454,16 @@ class AudioPrefs {
     await p.setString(_kPlayerBgStyle, v);
   }
 
+  /// Effective full-player background style after Battery Saver Mode is
+  /// factored in — 'Solid' whenever Battery Saver is active, regardless
+  /// of the user's saved [playerBgStyleNotifier] choice, since 'Solid' is
+  /// the cheapest of the three to render (no Ken Burns blur, no
+  /// breathing gradient). The saved preference itself is untouched, so
+  /// once battery recovers this reads back through to exactly what the
+  /// user had chosen.
+  static String get effectivePlayerBgStyle =>
+      batterySaverActiveNotifier.value ? 'Solid' : playerBgStyleNotifier.value;
+
   /// 'Follow Theme' (default) | 'Blur' | 'Solid' — collapsed mini player
   /// background. 'Solid' renders an opaque flat surface instead of the
   /// glass/blur capsule. Set from Settings → Appearance.
@@ -442,6 +503,38 @@ class AudioPrefs {
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kEnableAnim, v);
   }
+
+  static Future<void> setBatterySaverEnabled(bool v) async {
+    batterySaverEnabledNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kBatterySaverEnabled, v);
+    // Turning the feature off should immediately drop any active override
+    // too — otherwise a user disabling it mid-low-battery would still see
+    // animations suppressed until the next battery event happened to fire.
+    if (!v) {
+      batterySaverActiveNotifier.value = false;
+    } else {
+      _reevaluateBatterySaver();
+    }
+  }
+
+  static Future<void> setBatterySaverThreshold(int v) async {
+    final clamped = v == 15 ? 15 : 20;
+    batterySaverThresholdNotifier.value = clamped;
+    final p = await SharedPreferences.getInstance();
+    await p.setInt(_kBatterySaverThreshold, clamped);
+    _reevaluateBatterySaver();
+  }
+
+  /// Set by BatterySaverController.start() so AudioPrefs (which has no
+  /// dependency on that controller) can trigger an immediate
+  /// re-evaluation right after a Settings change, without either file
+  /// needing to import the other circularly.
+  static void Function()? _batterySaverReevaluateHook;
+  static void registerBatterySaverReevaluateHook(void Function() hook) {
+    _batterySaverReevaluateHook = hook;
+  }
+  static void _reevaluateBatterySaver() => _batterySaverReevaluateHook?.call();
 
   static Future<void> setHideListenStats(bool v) async {
     hideListenStats = v;

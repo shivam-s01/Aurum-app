@@ -117,6 +117,49 @@ class PlayerProvider extends ChangeNotifier {
   bool     _shuffle        = false;
   bool     _showFullPlayer = false;
 
+  // FIX ("full player UI stuck at 00:00 while audio genuinely plays in
+  // background — notification/lock-screen show the correct playing
+  // state, only the in-app seek bar is frozen"): the native position
+  // ticker (AurumAudioEngine.startPositionTicker) polls on a 1s
+  // Dispatchers.Main coroutine delay — a main-thread-tied timer that
+  // some OEM battery managers (this was reported on a realme/ColorOS
+  // device) are known to throttle or deprioritize once there's no
+  // foreground Activity, even though the Service itself and actual
+  // ExoPlayer playback keep running completely normally (which is
+  // exactly why the notification — driven independently by Media3, not
+  // by this ticker — stayed correct while Dart's mirrored position sat
+  // stale). Rather than trying to fight OEM Doze/battery-throttling
+  // heuristics from the native side, this local Dart ticker makes the
+  // in-app UI self-sufficient: while _isPlaying is true, it advances
+  // _position by 500ms locally and notifies listeners, entirely
+  // independent of whether a fresh native push has arrived recently.
+  // Every genuine _onEngineState event (native pushState(), which still
+  // fires reliably on song-change/seek/buffering/etc. even if the 1s
+  // ticker itself gets throttled) remains authoritative and simply
+  // overwrites/resyncs _position — so this can never drift permanently,
+  // only smooths the seconds between real updates and, critically,
+  // guarantees the seek bar is never simply stuck at zero.
+  Timer? _localPositionTicker;
+
+  void _startLocalPositionTicker() {
+    if (_localPositionTicker?.isActive == true) return;
+    _localPositionTicker = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (!_isPlaying) return;
+      final next = _position + const Duration(milliseconds: 500);
+      // Never let the local interpolation run past the known duration —
+      // the next real native event (song-end/auto-advance) will correct
+      // this properly; this just avoids a visibly wrong "position >
+      // duration" state for the ~1s window before that event arrives.
+      _position = (_duration > Duration.zero && next > _duration) ? _duration : next;
+      notifyListeners();
+    });
+  }
+
+  void _stopLocalPositionTicker() {
+    _localPositionTicker?.cancel();
+    _localPositionTicker = null;
+  }
+
   bool _isBuildingInitialQueue = false;
   // Lets the Queue UI show "finding songs for you" instead of a blank Up
   // Next while the background build below is still in flight — a user
@@ -426,6 +469,11 @@ class PlayerProvider extends ChangeNotifier {
       _expectedSongIdSetAt = null;
     }
     _isPlaying = state.playing;
+    if (_isPlaying) {
+      _startLocalPositionTicker();
+    } else {
+      _stopLocalPositionTicker();
+    }
     // BUG: _isLoading was assigned here unconditionally, BEFORE the
     // isConfirmedSwitch guard further down that protects _currentSong from
     // stale/in-flight events describing the OLD song while a new song is
@@ -1857,6 +1905,7 @@ class PlayerProvider extends ChangeNotifier {
   void dispose() {
     _indexDebounce?.cancel();
     _skipDebounce?.cancel();
+    _stopLocalPositionTicker();
     for (final sub in _subs) sub.cancel();
     _favoritesSub?.cancel();
     _engine.onLikeToggleRequested = null;

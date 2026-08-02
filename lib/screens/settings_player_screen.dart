@@ -11,6 +11,7 @@ import '../providers/premium_provider.dart';
 import '../widgets/premium_gate.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/auto_sleep_guard_tile.dart';
+import '../widgets/battery_saver_mode_tile.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 
@@ -505,6 +506,14 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
           // accented card, not a plain switch tile) so it reads as a
           // standalone premium-feeling feature, not a minor toggle.
           const AutoSleepGuardTile(),
+
+          // Battery Saver Mode — right below Auto Sleep Guard since both
+          // are battery-focused features sharing the same premium card
+          // treatment. Distinct from Auto Sleep Guard: this one never
+          // touches playback, only visual effects (animations, blur,
+          // breathing background), and reacts live to actual battery %
+          // rather than inactivity time.
+          const BatterySaverModeTile(),
 
           _switchTile(context,
               icon: Icons.remove_done_rounded,

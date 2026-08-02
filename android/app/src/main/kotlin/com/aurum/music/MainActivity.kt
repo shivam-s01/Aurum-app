@@ -49,6 +49,10 @@ class MainActivity : FlutterFragmentActivity() {
     // AurumRelatedChannelHandler's doc comment for why.
     private var relatedChannelHandler: AurumRelatedChannelHandler? = null
 
+    // Live battery-percentage stream powering Settings → Player & Audio →
+    // "Battery Saver Mode" — see AurumBatteryChannelHandler's doc comment.
+    private var batteryChannelHandler: AurumBatteryChannelHandler? = null
+
     // THE fix for "background/lock-screen kuch nahi ho raha": previously
     // nothing ever bound to or started AurumMediaSessionService, so its
     // onCreate()/onGetSession() never ran and no MediaSession was ever
@@ -99,6 +103,8 @@ class MainActivity : FlutterFragmentActivity() {
         shortsChannelHandler = shortsHandler
 
         relatedChannelHandler = AurumRelatedChannelHandler(flutterEngine.dartExecutor.binaryMessenger)
+
+        batteryChannelHandler = AurumBatteryChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -478,6 +484,8 @@ class MainActivity : FlutterFragmentActivity() {
         audioEngineChannelHandler = null
         shortsChannelHandler?.engine?.release()
         shortsChannelHandler = null
+        batteryChannelHandler?.release()
+        batteryChannelHandler = null
         super.onDestroy()
     }
 }

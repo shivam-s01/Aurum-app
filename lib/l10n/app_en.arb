@@ -250,6 +250,48 @@
   },
   "asgResumePromptResume": "Resume",
   "asgResumePromptDismiss": "Dismiss",
+  "bsmTileTitle": "Battery Saver Mode",
+  "bsmTileSubtitleActive": "Active — battery at {level}%",
+  "@bsmTileSubtitleActive": {
+    "description": "Shown while Battery Saver Mode is currently suppressing animations, e.g. 'Active — battery at 14%'",
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleWatching": "Activates automatically below {threshold}%",
+  "@bsmTileSubtitleWatching": {
+    "description": "Shown when enabled but not yet triggered, e.g. 'Activates automatically below 20%'",
+    "placeholders": {
+      "threshold": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmTileSubtitleOff": "Off",
+  "bsmTileAutomaticBadge": "Automatic",
+  "bsmTileOffBadge": "Off",
+  "bsmSheetTitle": "Battery Saver Mode",
+  "bsmSheetBody": "When your battery gets low, Aurum automatically turns off background animations, blur, and other visual effects — playback keeps going exactly as normal.",
+  "bsmSheetPremiumHint": "Runs quietly in the background — playback is never affected, only visuals",
+  "bsmSheetModeLabel": "Mode",
+  "bsmSheetModeAutomatic": "Automatic",
+  "bsmSheetModeAutomaticDesc": "Watches battery level and saves power when it's low",
+  "bsmSheetModeOff": "Off",
+  "bsmSheetModeOffDesc": "Never activates automatically",
+  "bsmSheetThresholdLabel": "Activate below",
+  "bsmSheetPercent": "{value}%",
+  "@bsmSheetPercent": {
+    "description": "Threshold option label, e.g. '15%'",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "bsmSheetSaved": "Saved",
+  "bsmSheetDone": "Done",
   "spEqualizerTitle": "Equalizer",
   "spEqualizerSubtitle": "10-band EQ with presets",
   "spKeepQueue": "Keep Player Queue on Reopen",

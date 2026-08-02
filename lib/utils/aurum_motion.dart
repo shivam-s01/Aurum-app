@@ -98,7 +98,14 @@ class AurumMotion {
   // Every call site that guards on AudioPrefs.enableAnimationsNotifier
   // today keeps doing so — this doesn't change that behavior, just gives
   // it one shared helper so the check itself is also consistent.
-  static bool get enabled => AudioPrefs.enableAnimationsNotifier.value;
+  //
+  // Battery Saver Mode is layered in here too: while active, motion is
+  // suppressed regardless of the user's saved "Enable Animations" value —
+  // the underlying preference itself is left untouched, so everything
+  // resumes exactly as it was the moment the battery recovers.
+  static bool get enabled =>
+      AudioPrefs.enableAnimationsNotifier.value &&
+      !AudioPrefs.batterySaverActiveNotifier.value;
 
   /// Returns [duration] normally, or Duration.zero if animations are
   /// disabled in settings — the same pattern already used ad-hoc in

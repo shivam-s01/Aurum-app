@@ -44,7 +44,7 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> {
   bool _dragging = false;
 
   bool get _enabled =>
-      AudioPrefs.enableAnimationsNotifier.value && AudioPrefs.backAnimations;
+      AurumMotion.enabled && AudioPrefs.backAnimations;
 
   void _onDragStart(DragStartDetails details) {
     if (!_enabled) return;
@@ -236,7 +236,7 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
 
   // "Enable Animations" (master) AND "Back Animations" must both be on.
   static bool _animsOn() =>
-      AudioPrefs.enableAnimationsNotifier.value && AudioPrefs.backAnimations;
+      AurumMotion.enabled && AudioPrefs.backAnimations;
 
   /// Shortest path: AurumPageRoute.to(context, const SomeScreen());
   static Future<T?> to<T extends Object?>(
@@ -349,7 +349,7 @@ class AurumSlidePageRoute<T> extends PageRouteBuilder<T> {
         );
 
   static bool _animsOn() =>
-      AudioPrefs.enableAnimationsNotifier.value && AudioPrefs.backAnimations;
+      AurumMotion.enabled && AudioPrefs.backAnimations;
 
   /// AurumSlidePageRoute.to(context, const SomeScreen());
   static Future<T?> to<T extends Object?>(
@@ -418,7 +418,7 @@ class AurumModalRoute<T> extends PageRouteBuilder<T> {
   // Same "Enable Animations" (master) AND "Back Animations" gate as
   // AurumPageRoute/AurumSlidePageRoute.
   static bool _animsOn() =>
-      AudioPrefs.enableAnimationsNotifier.value && AudioPrefs.backAnimations;
+      AurumMotion.enabled && AudioPrefs.backAnimations;
 
   static Future<T?> to<T extends Object?>(BuildContext context, Widget screen) {
     return Navigator.of(context).push<T>(

@@ -13,6 +13,7 @@ import 'services/notification_service.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
 import 'services/audio_prefs.dart';
+import 'services/battery_saver_controller.dart';
 import 'services/sync_service.dart';
 import 'providers/player_provider.dart';
 import 'providers/library_provider.dart';
@@ -163,6 +164,16 @@ Future<void> main() async {
   // failure can never block app startup.
   try {
     await AudioPrefs.load();
+  } catch (_) {}
+
+  // Battery Saver Mode: begin listening for live battery-percentage
+  // updates immediately after prefs are loaded, so the enabled/threshold
+  // values it reads are already correct from the very first native
+  // battery event, not the hardcoded defaults. Fully synchronous/
+  // fire-and-forget internally — never blocks startup (see
+  // BatterySaverController.start()'s doc comment).
+  try {
+    BatterySaverController.instance.start();
   } catch (_) {}
 
   // NativeAudioEngine just wires up MethodChannel/EventChannel listeners —

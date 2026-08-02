@@ -4889,7 +4889,7 @@ class _BgLayer extends StatelessWidget {
   // a single paint call, with no per-frame rebuild at all.
   Widget _buildLight(Color bg1, Color bg2, Color bg3, Color bg4, Widget staticBlur) {
     final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
-    final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
+    final bgStyle = AudioPrefs.effectivePlayerBgStyle;
     if (!dynamicColor) {
       bg1 = Color.lerp(AurumTheme.gold, Colors.white, 0.52)!;
       bg2 = Color.lerp(AurumTheme.goldDark, Colors.white, 0.44)!;
@@ -4939,7 +4939,7 @@ class _BgLayer extends StatelessWidget {
   // Burns drift already living inside `staticBlur` itself.
   Widget _buildDark(Color bg1, Color bg2, Color bg3, Color bg4, Widget staticBlur) {
     final dynamicColor = AudioPrefs.dynamicPlayerColorNotifier.value;
-    final bgStyle = AudioPrefs.playerBgStyleNotifier.value;
+    final bgStyle = AudioPrefs.effectivePlayerBgStyle;
     if (!dynamicColor) {
       bg1 = Color.lerp(AurumTheme.gold, Colors.black, 0.35)!;
       bg2 = Color.lerp(AurumTheme.goldDark, Colors.black, 0.58)!;
