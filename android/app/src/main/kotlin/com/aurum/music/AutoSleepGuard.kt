@@ -28,11 +28,12 @@ import android.util.Log
  * see [DurationHours]), playback is paused automatically to save battery.
  *
  * ACCESS: available to every signed-in user (free or premium) — gated by
- * Google/Supabase sign-in only, not by PremiumProvider. Always active,
- * with no on/off switch — there's nothing to turn off. Defaults to a 3h
- * inactivity window; any signed-in user who opens the dedicated settings
- * card can switch to 5h, saved permanently in SharedPreferences until
- * they change it again.
+ * Google/Supabase sign-in only, not by PremiumProvider. On ("Automatic")
+ * by default; the settings card lets a signed-in user flip it fully Off,
+ * saved permanently in SharedPreferences until they change it again — see
+ * [isEnabled] / [setEnabled]. While on, defaults to a 3h inactivity
+ * window; the same settings card can switch that to 5h, independently of
+ * the on/off state.
  *
  * IMPLEMENTATION: intentionally has NO Dart Timer, NO polling loop, and NO
  * WorkManager dependency (not present in this project's build.gradle, and
@@ -57,6 +58,7 @@ object AutoSleepGuard {
     private const val KEY_DURATION_HOURS = "flutter.auto_sleep_guard_hours"
     private const val KEY_LAST_AUTO_PAUSE_AT = "flutter.auto_sleep_guard_last_pause_at"
     private const val KEY_LAST_AUTO_PAUSE_CONSUMED = "flutter.auto_sleep_guard_last_pause_consumed"
+    private const val KEY_ENABLED = "flutter.auto_sleep_guard_enabled"
 
     private const val ACTION_CHECK = "com.aurum.music.action.AUTO_SLEEP_GUARD_CHECK"
     private const val REQUEST_CODE = 7742
@@ -140,10 +142,32 @@ object AutoSleepGuard {
         prefs(context).edit().putInt(KEY_DURATION_HOURS, clamped).apply()
     }
 
-    // Always on for every signed-in user — no user-facing toggle anymore.
-    // Kept as a function (not a val) so every existing call site
-    // (scheduleNextCheck, onAlarmFired) keeps working unchanged.
-    fun isEnabled(context: Context): Boolean = true
+    // User-facing toggle: "Automatic" (on, default) vs "Off". Defaults to
+    // true so existing users who upgrade into this version keep the
+    // behavior they already had, and only see it change if they
+    // deliberately pick "Off" in the settings sheet.
+    fun isEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ENABLED, true)
+
+    /** Flips the feature fully on/off. Off means a complete shutdown, not
+     *  a paused state: any in-flight alarm (next check OR an outstanding
+     *  grace-window timeout) is cancelled immediately, any "Still there?"
+     *  prompt on screen is dismissed, and nothing further is scheduled
+     *  until the user switches it back to Automatic. On means it goes
+     *  straight back to working exactly as before — [recordActivity]
+     *  reschedules from right now, so there's no waiting for the next
+     *  play/pause tap. */
+    fun setEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
+        if (!enabled) {
+            awaitingConfirmation = false
+            dismissConfirmationPrompt(context)
+            dismissPauseNotification(context)
+            cancelScheduledCheck(context)
+        } else {
+            recordActivity(context)
+        }
+    }
 
     /** Returns the epoch-millis timestamp of the last auto-pause if it
      *  hasn't been shown/consumed yet (for the "Paused after inactivity at
@@ -442,6 +466,19 @@ object AutoSleepGuard {
             manager.cancel(CONFIRM_NOTIFICATION_ID)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to dismiss Auto Sleep Guard confirmation prompt: ${e.message}", e)
+        }
+    }
+
+    /** Clears the "Playback paused" notification if one is showing —
+     *  used when switching to Off so a stale notification from before the
+     *  toggle doesn't linger on screen for a feature the user just turned
+     *  off. */
+    private fun dismissPauseNotification(context: Context) {
+        try {
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return
+            manager.cancel(NOTIFICATION_ID)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to dismiss Auto Sleep Guard pause notification: ${e.message}", e)
         }
     }
 

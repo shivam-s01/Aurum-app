@@ -360,6 +360,13 @@ class NativeAudioEngine {
   Future<void> autoSleepGuardSetDurationHours(int hours) =>
       _method.invokeMethod('autoSleepGuardSetDurationHours', {'hours': hours});
 
+  /// Automatic ([enabled] = true, default) vs fully Off. Off cancels any
+  /// pending native alarm/grace-timeout immediately and dismisses an
+  /// outstanding "Still there?" prompt — a real shutdown, not a pause.
+  /// Switching back to Automatic resumes normal guarding right away.
+  Future<void> autoSleepGuardSetEnabled(bool enabled) =>
+      _method.invokeMethod('autoSleepGuardSetEnabled', {'enabled': enabled});
+
   /// Call whenever [SleepTimerService]'s active state changes (start,
   /// cancel, or natural expiry) so the native guard knows to stay
   /// completely out of the way while a Sleep Timer is running.

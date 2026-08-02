@@ -215,9 +215,17 @@
     }
   },
   "asgTileSubtitleSignedOut": "Sign in to use Auto Sleep Guard",
+  "asgTileSubtitleOff": "Off",
   "asgTileAutomaticBadge": "Automatic",
+  "asgTileOffBadge": "Off",
   "asgSheetTitle": "Auto Sleep Guard",
   "asgSheetBody": "Aurum automatically pauses playback after a period of inactivity to save your battery. Choose how long it waits.",
+  "asgSheetModeLabel": "Mode",
+  "asgSheetModeAutomatic": "Automatic",
+  "asgSheetModeAutomaticDesc": "Watches for inactivity and pauses to save battery",
+  "asgSheetModeOff": "Off",
+  "asgSheetModeOffDesc": "Never pauses automatically",
+  "asgSheetPremiumHint": "Runs quietly in the background — tuned so it never gets in your way",
   "asgSheetDurationLabel": "Pause after",
   "asgSheetHours": "{count}h",
   "@asgSheetHours": {
