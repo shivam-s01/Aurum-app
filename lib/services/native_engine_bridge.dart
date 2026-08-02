@@ -19,6 +19,7 @@
 // =============================================================================
 
 import 'dart:async';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 import 'package:rxdart/rxdart.dart';
 import '../models/song.dart';
@@ -120,6 +121,19 @@ class NativeAudioEngine {
 
     _resolverChannel.setMethodCallHandler(_handleResolverCall);
 
+    // FIX ("song plays fine in background but UI stays stuck/loading
+    // forever"): none of these .listen() calls had an onError handler.
+    // If a single malformed event ever threw during parsing, that became
+    // an uncaught async error and this subscription stopped being driven
+    // by fresh events — while ExoPlayer/Media3 kept playing audio
+    // completely independently on the native side (that's why the
+    // notification/lock-screen player always still showed correct,
+    // playing state). PlayerProvider._onEngineState (and therefore
+    // _isLoading, the 3s _expectedSongId self-heal, and every other bit
+    // of UI state derived from this stream) never got its next tick, so
+    // the UI froze permanently. Adding onError logs and drops the bad
+    // event instead of killing the listener; the stream keeps delivering
+    // subsequent events normally.
     _stateSub = _stateEvents.receiveBroadcastStream().listen((raw) {
       final m = Map<String, dynamic>.from(raw as Map);
       _state.add(NativeEngineState(
@@ -136,6 +150,8 @@ class NativeAudioEngine {
         currentSongId: m['currentSongId'] as String?,
         liked: m['liked'] as bool? ?? false,
       ));
+    }, onError: (Object e, StackTrace st) {
+      debugPrint('[NativeAudioEngine] state event error (ignored, stream stays alive): $e');
     });
 
     _errorSub = _errorEvents.receiveBroadcastStream().listen((raw) {
@@ -144,15 +160,21 @@ class NativeAudioEngine {
         m['message'] as String? ?? 'Unknown playback error',
         m['silent'] as bool? ?? false,
       ));
+    }, onError: (Object e, StackTrace st) {
+      debugPrint('[NativeAudioEngine] error-event stream error (ignored): $e');
     });
 
     _outputDevicesSub =
         _outputDeviceEvents.receiveBroadcastStream().listen((raw) {
       _outputDevices.add(_parseOutputDevices(raw));
+    }, onError: (Object e, StackTrace st) {
+      debugPrint('[NativeAudioEngine] output-device stream error (ignored): $e');
     });
 
     _castStateSub = _castStateEvents.receiveBroadcastStream().listen((raw) {
       _castState.add(_parseCastState(raw));
+    }, onError: (Object e, StackTrace st) {
+      debugPrint('[NativeAudioEngine] cast-state stream error (ignored): $e');
     });
   }
 

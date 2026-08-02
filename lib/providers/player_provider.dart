@@ -142,10 +142,56 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // guarantees the seek bar is never simply stuck at zero.
   Timer? _localPositionTicker;
 
+  // FIX (compile-time bug + root cause of the permanent "stuck UI, audio
+  // plays fine" symptom): this called _engine.forceStateResync(), a method
+  // that doesn't exist anywhere on NativeAudioEngine — there's no native
+  // "pull current state" call, only the push-based EventChannel stream
+  // (see native_engine_bridge.dart _stateSub). So resuming the app never
+  // actually resynced anything here even when it looked like it should.
+  // Real fix has two parts: (1) native_engine_bridge.dart's _stateSub now
+  // has an onError handler so one malformed event can no longer silently
+  // kill the whole listener and starve _onEngineState of further ticks —
+  // that was the actual mechanism that left _isLoading/_expectedSongId
+  // stuck forever while ExoPlayer/Media3 kept playing in the background.
+  // (2) as a pure-Dart safety net that needs no native support, a
+  // watchdog timer below force-clears a stuck loading flag if it's been
+  // true for way longer than any real load should take, using the same
+  // _expectedSongIdSetAt timestamp _onEngineState already relies on.
+  Timer? _loadingWatchdog;
+
+  void _startLoadingWatchdog() {
+    _loadingWatchdog ??= Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!_isLoading) return;
+      final setAt = _expectedSongIdSetAt;
+      if (setAt == null) return;
+      // Generous margin over the 8s engine-call timeout already enforced
+      // in playSong()/skip*() — if we're still "loading" this long after
+      // the tap, either that timeout's catch block somehow never ran, or
+      // (the real-world case) the state stream stopped delivering events
+      // entirely, so nothing else in the app will ever clear this.
+      if (DateTime.now().difference(setAt) > const Duration(seconds: 10)) {
+        _isLoading = false;
+        _expectedSongId = null;
+        _expectedSongIdSetAt = null;
+        notifyListeners();
+      }
+    });
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _engine.forceStateResync();
+    // Resuming the app is exactly when a dead event stream would
+    // otherwise go unnoticed the longest (user was away, came back to a
+    // frozen player). Checking here too catches that case immediately
+    // instead of waiting for the next 2s watchdog tick.
+    if (state == AppLifecycleState.resumed && _isLoading) {
+      final setAt = _expectedSongIdSetAt;
+      if (setAt != null && DateTime.now().difference(setAt) > const Duration(seconds: 10)) {
+        _isLoading = false;
+        _expectedSongId = null;
+        _expectedSongIdSetAt = null;
+        notifyListeners();
+      }
     }
   }
 
@@ -441,6 +487,12 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }));
 
     _subs.add(_engine.stateStream.listen(_onEngineState));
+
+    // See _loadingWatchdog doc comment above didChangeAppLifecycleState:
+    // pure-Dart safety net for the "stuck UI, audio plays fine" bug —
+    // force-clears isLoading if no confirming state event arrives for far
+    // longer than any real load should take.
+    _startLoadingWatchdog();
 
     // Lock screen / notification heart tap → resolve songId against our
     // local queue mirror → FavoritesProvider.toggleFavorite() (via
@@ -1934,6 +1986,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _indexDebounce?.cancel();
     _skipDebounce?.cancel();
+    _loadingWatchdog?.cancel();
     _stopLocalPositionTicker();
     for (final sub in _subs) sub.cancel();
     _favoritesSub?.cancel();
