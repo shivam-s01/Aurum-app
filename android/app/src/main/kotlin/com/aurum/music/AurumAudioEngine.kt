@@ -1186,6 +1186,7 @@ class AurumAudioEngine(
                     try {
                         player.prepare()
                         player.play()
+                        pushState()
                     } catch (_: Exception) { /* falls through to advancePastDeadSong below */ }
                 }
                 return
@@ -1239,6 +1240,11 @@ class AurumAudioEngine(
                 return
             }
             player.play()
+            // FIX (same spinner-stuck fix as handleMidStreamIdle's success
+            // path below): explicit push instead of relying solely on the
+            // player listener's own callbacks for this recovery-specific
+            // state transition.
+            pushState()
         } catch (e: Exception) {
             if (sessionAtIdle == playSessionId) {
                 emitError("Playback failed for \"${songNow.title}\" after retry — ${e.message}. Skipping to next song.", true)
@@ -1282,6 +1288,7 @@ class AurumAudioEngine(
                         player.prepare()
                         player.seekTo(pos)
                         player.play()
+                        pushState()
                     } catch (_: Exception) { /* falls through to advancePastDeadSong below */ }
                 }
                 return
@@ -1330,6 +1337,27 @@ class AurumAudioEngine(
                     player.replaceMediaItem(idx, item)
                     player.seekTo(idx, pos)
                     player.play()
+                    // FIX (spinner stuck forever after a successful
+                    // expired-URL recovery — the one case this whole
+                    // function exists for): every other exit path here
+                    // either calls emitError (which pushes state via the
+                    // error stream) or falls all the way through to the
+                    // emitError call below. This success path was the
+                    // only one with no explicit pushState() of its own,
+                    // relying entirely on the player's own onIsPlaying/
+                    // onPlaybackStateChanged listener callbacks to notice
+                    // the IDLE→BUFFERING→READY cycle and push fresh state
+                    // to Dart. That's usually true, but isn't guaranteed
+                    // for every device/ExoPlayer version's exact callback
+                    // timing on this specific replaceMediaItem+seek+play
+                    // sequence — and when it doesn't fire, Dart's
+                    // optimistic isLoading (set right before the play()
+                    // call that triggered this whole recovery) never
+                    // receives the state event that would close it, even
+                    // though audio has genuinely resumed playing in the
+                    // background. Pushing explicitly here costs nothing
+                    // and removes that dependency entirely.
+                    pushState()
                     return
                 }
             } catch (e: Exception) { /* fall through to error below */ }

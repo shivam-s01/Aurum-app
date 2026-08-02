@@ -1377,7 +1377,25 @@ class PlayerProvider extends ChangeNotifier {
       // already does for every other loading transition in this file.
       _isLoading = true;
       notifyListeners();
-      await _engine.play();
+      // FIX (spinner stuck forever on resume after a long idle period —
+      // e.g. tapping Auto Sleep Guard's "Resume" action, or any resume
+      // where the loaded stream URL has since expired, JioSaavn/YouTube
+      // URLs commonly do after several hours): unlike playSong()/
+      // playQueue(), this call had no timeout and no catch — if the
+      // native play() hangs or the resulting failure is a player error
+      // event that, for whatever reason, doesn't cleanly round-trip back
+      // to _isLoading via _onEngineState, nothing here ever closes the
+      // optimistic spinner set two lines up. Same belt-and-suspenders
+      // pattern as playSong/playQueue: a bounded wait, with the loading
+      // state force-cleared in the catch so a stuck native call can never
+      // leave the UI spinning with no way out.
+      try {
+        await _engine.play().timeout(const Duration(seconds: 8));
+      } catch (e) {
+        _isLoading = false;
+        _playbackError = 'Couldn\'t resume playback. Tap to retry.';
+        notifyListeners();
+      }
       // Auto Sleep Guard: an explicit in-app play tap is real activity —
       // resets its inactivity window the same as a screen unlock would.
       // Native-originated play (lock-screen/notification/widget buttons)
