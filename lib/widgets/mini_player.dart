@@ -239,11 +239,21 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                       ? Container(
                           height: 68,
                           decoration: BoxDecoration(
-                            // Same visual color as the blurred version,
-                            // just without the per-frame blur recompute —
-                            // close enough over ~380ms that the eye can't
-                            // tell the difference mid-transition, and it's
-                            // gone the instant the transition settles.
+                            // FIX ("glass flash for ~0.1s on full player
+                            // swipe-down close"): this fallback tint's alpha
+                            // (0.62 dark / 0.82 light) was noticeably more
+                            // opaque than the real blurred mini player's
+                            // steady-state alpha (0.42 dark / 0.62 light,
+                            // see the ValueListenableBuilder branch below).
+                            // For ~410ms after didPopNext() fires, the mini
+                            // player shows THIS more-opaque flat tint, then
+                            // the instant _routeAnimating flips back to
+                            // false it snaps to the lighter, more
+                            // translucent blurred version — that mismatch
+                            // is exactly what read as a brief "glass"
+                            // flash. Matched to the same alpha as the real
+                            // blurred state so the switch between the two
+                            // is visually seamless.
                             color: (Theme.of(context).brightness ==
                                         Brightness.dark
                                     ? Colors.black
@@ -251,8 +261,8 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                                 .withValues(
                               alpha: Theme.of(context).brightness ==
                                       Brightness.dark
-                                  ? 0.62
-                                  : 0.82,
+                                  ? 0.42
+                                  : 0.62,
                             ),
                             borderRadius: BorderRadius.circular(28),
                             border: Border.all(
@@ -269,19 +279,30 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                       : ValueListenableBuilder<double>(
                           valueListenable: AudioPrefs.miniPlayerBlurSigmaNotifier,
                           builder: (context, blurSigma, _) {
+                            // blurSigma <= 0 means the user explicitly
+                            // turned blur OFF (Settings → Appearance →
+                            // "Mini Player Blur" dragged to 0). That should
+                            // read as a fully solid, opaque bar — not a
+                            // translucent "glass without the blur" look —
+                            // so nothing behind it shows through at all.
+                            // Only the blurred variant keeps the
+                            // semi-transparent tint that lets
+                            // BackdropFilter's blur actually be visible.
                             final content = Container(
                               height: 68,
                               decoration: BoxDecoration(
-                                color: (Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? Colors.black
-                                        : Colors.white)
-                                    .withValues(
-                                  alpha: Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? 0.42
-                                      : 0.62,
-                                ),
+                                color: blurSigma <= 0
+                                    ? AurumTheme.bgCardOf(context)
+                                    : (Theme.of(context).brightness ==
+                                                Brightness.dark
+                                            ? Colors.black
+                                            : Colors.white)
+                                        .withValues(
+                                        alpha: Theme.of(context).brightness ==
+                                                Brightness.dark
+                                            ? 0.42
+                                            : 0.62,
+                                      ),
                                 borderRadius: BorderRadius.circular(28),
                                 border: Border.all(
                                   color: (Theme.of(context).brightness ==

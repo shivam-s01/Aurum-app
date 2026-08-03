@@ -614,11 +614,20 @@ class _AurumBottomNavBar extends StatelessWidget {
           child: ValueListenableBuilder<double>(
             valueListenable: AudioPrefs.navBarBlurSigmaNotifier,
             builder: (context, blurSigma, navBarContent) {
+              // blurSigma <= 0 means the user explicitly turned blur OFF
+              // (Settings → Appearance → "Nav Bar Blur" dragged to 0).
+              // That should read as a fully solid, opaque bar — not a
+              // translucent "glass without the blur" look — so nothing
+              // behind it shows through at all. Only the blurred variant
+              // keeps the semi-transparent tint that lets BackdropFilter's
+              // blur actually be visible underneath.
               final bar = Container(
                 height: _barHeight,
                 decoration: BoxDecoration(
-                  color: (isDark ? Colors.black : Colors.white)
-                      .withValues(alpha: isDark ? 0.45 : 0.65),
+                  color: blurSigma <= 0
+                      ? AurumTheme.bgCardOf(context)
+                      : (isDark ? Colors.black : Colors.white)
+                          .withValues(alpha: isDark ? 0.45 : 0.65),
                   borderRadius: BorderRadius.circular(28),
                   border: Border.all(
                     color: (isDark ? Colors.white : Colors.black)

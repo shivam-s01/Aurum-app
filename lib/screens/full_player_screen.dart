@@ -1122,6 +1122,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                       song: song,
                       hPad: hPad,
                       isTablet: isTablet,
+                      bgLuma: _currentBg2.computeLuminance(),
                       // FIX — "like button not wired, doesn't actually
                       // save/count as liked": this used to read/write a
                       // local `_isFav` bool that had NO connection to
@@ -1583,6 +1584,7 @@ class _SongInfo extends StatelessWidget {
   final double hPad;
   final bool isTablet, isFav;
   final VoidCallback onFavTap;
+  final double bgLuma;
 
   const _SongInfo({
     required this.song,
@@ -1590,50 +1592,34 @@ class _SongInfo extends StatelessWidget {
     required this.isTablet,
     required this.isFav,
     required this.onFavTap,
+    required this.bgLuma,
   });
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // App theme flag — used only for the cast/output pill's surface color
+    // below, which is a UI chrome element that should follow the app theme
+    // (like every other pill/card in the screen), not the artwork.
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
-    // FIX ("artist name goes white-on-white / invisible over bright
-    // artwork"): this was Colors.white.withAlpha(128) — only 50% opacity.
-    // Over a light/bright section of the blurred artwork background
-    // (_BgLayer), that alpha plus the thin shadow below wasn't enough
-    // contrast, so the artist line visually disappeared. Raised to a much
-    // higher, near-solid alpha so it reads clearly no matter what artwork
-    // is behind it — matching the title's own full-opacity treatment.
-    final textSecondary = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(215);
+    // Background-luma-driven (not theme-driven): keeps title/artist legible
+    // against the actual rendered artwork background in either app theme.
+    final bgIsLight = bgLuma >= 0.5;
+    final textPrimary = bgIsLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final textSecondary =
+        bgIsLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(215);
     final titleSize = isTablet ? 26.0 : 22.0;
-    // Text sits on top of dynamic, artwork-derived background (_BgLayer),
-    // whose color varies per song. A single static text color can't
-    // guarantee contrast against every possible artwork — a soft shadow
-    // (opposite tone from the text) keeps title/artist legible no matter
-    // how light or dark the underlying art is, in both themes.
-    //
-    // BUGFIX (light mode "broken white patch" behind title): the light
-    // shadow was Colors.white at alpha 200/255 (~78% opaque) with a 16px
-    // blur, applied twice. On a large bold 22px title, that's strong and
-    // wide enough that neighboring letters' shadows visibly merge into
-    // one solid soft-white rectangle sitting behind the whole line,
-    // rather than reading as a subtle per-glyph contrast edge — exactly
-    // the smudged/"tuta hua" look reported. Dropped to a much lower
-    // alpha (70/255) and a tighter blur (8px), which is enough to keep
-    // the title readable over any artwork color without ever becoming
-    // visible as its own shape.
-    // FIX: shadow alpha/blur bumped up slightly (was tuned only against
-    // dark artwork) so title+artist stay readable over light/bright
-    // sections of the blurred background too, without the shadow itself
-    // becoming a visible smudge.
-    final shadowColor = isLight
-        ? Colors.white.withAlpha(70)
-        : Colors.black.withAlpha(190);
-    final textShadows = isLight
-        ? [Shadow(color: shadowColor, blurRadius: 8)]
+    final proximityToEdge = 1.0 - (2.0 * (bgLuma - 0.5).abs()).clamp(0.0, 1.0);
+    final shadowColor = bgIsLight
+        ? Colors.white.withAlpha((55 + proximityToEdge * 35).round())
+        : Colors.black.withAlpha((160 + proximityToEdge * 40).round());
+    final shadowBlur1 = bgIsLight ? 7.0 + proximityToEdge * 4 : 16.0 + proximityToEdge * 6;
+    const shadowBlur2 = 7.0;
+    final textShadows = bgIsLight
+        ? [Shadow(color: shadowColor, blurRadius: shadowBlur1)]
         : [
-            Shadow(color: shadowColor, blurRadius: 18),
-            Shadow(color: shadowColor, blurRadius: 8),
+            Shadow(color: shadowColor, blurRadius: shadowBlur1),
+            Shadow(color: shadowColor, blurRadius: shadowBlur2),
           ];
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad),
@@ -3166,7 +3152,16 @@ class _PremiumContentPanel extends StatefulWidget {
 class _PremiumContentPanelState extends State<_PremiumContentPanel>
     with TickerProviderStateMixin {
   late int _activeTab = widget.initialTab;
-  double _dragY = 0;
+  // PERF FIX: was a plain `double _dragY = 0` driven by setState() on
+  // every onVerticalDragUpdate callback — that reran this entire State's
+  // build() (BackdropFilter blur, tab content list, tab bar, everything)
+  // on every touch-move frame during the handle drag. Same bug the main
+  // full-player screen already had fixed via _dragYNotifier; applying the
+  // identical fix here so only the thin Transform wrapper around the
+  // panel rebuilds on drag, not the blur/list/tabs underneath it.
+  final ValueNotifier<double> _dragYNotifier = ValueNotifier(0.0);
+  double get _dragY => _dragYNotifier.value;
+  set _dragY(double v) => _dragYNotifier.value = v;
 
   late final AnimationController _tabCtrl;
   late final Animation<double> _tabFade;
@@ -3194,7 +3189,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
         vsync: this, duration: const Duration(milliseconds: 420));
     _springBackCtrl.addListener(() {
       if (_springBackAnim != null) {
-        setState(() => _dragY = _springBackAnim!.value);
+        _dragY = _springBackAnim!.value;
       }
     });
 
@@ -3211,6 +3206,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     _tabCtrl.dispose();
     _springBackCtrl.dispose();
     _exitCtrl.dispose();
+    _dragYNotifier.dispose();
     super.dispose();
   }
 
@@ -3296,15 +3292,34 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     return AnimatedBuilder(
       animation: _exitCtrl,
       builder: (context, _) {
-        return Transform.translate(
-          offset: Offset(
-              0, _dragY.clamp(0.0, screenH * 0.5) + exitOffsetY),
-          child: Transform.scale(
-            scale: scale,
-            alignment: Alignment.topCenter,
-            child: Opacity(
-              opacity: opacity,
-              child: SizedBox(
+        // PERF: dragFraction/dragOpacity/scale depend on _dragY, which now
+        // changes every drag-update frame via the ValueNotifier above
+        // (not setState). Wrapping just the Transform/Opacity chain in a
+        // ValueListenableBuilder — with the actual panel content (blur,
+        // tab bar, tab content list) passed through as its static `child`
+        // — means only this thin transform math reruns per drag frame.
+        // The heavy subtree below is built once and reused untouched,
+        // exactly like the main full-player screen's _DragTransform fix.
+        return ValueListenableBuilder<double>(
+          valueListenable: _dragYNotifier,
+          builder: (context, dragY, panelChild) {
+            final dragFraction = (dragY / screenH).clamp(0.0, 1.0);
+            final dragOpacity = (1.0 - dragFraction * 2.5).clamp(0.0, 1.0);
+            final scale = (1.0 - dragFraction * 0.06).clamp(0.88, 1.0);
+            final opacity = (dragOpacity * _exitFade.value).clamp(0.0, 1.0);
+            return Transform.translate(
+              offset: Offset(0, dragY.clamp(0.0, screenH * 0.5) + exitOffsetY),
+              child: Transform.scale(
+                scale: scale,
+                alignment: Alignment.topCenter,
+                child: Opacity(
+                  opacity: opacity,
+                  child: panelChild,
+                ),
+              ),
+            );
+          },
+          child: SizedBox(
                 height: panelHeight,
                 child: ClipRRect(
                   borderRadius:
@@ -3349,7 +3364,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                                 onVerticalDragUpdate: (d) {
                                   if (d.delta.dy > 0) {
                                     _springBackCtrl.stop();
-                                    setState(() => _dragY += d.delta.dy);
+                                    _dragY += d.delta.dy;
                                   }
                                 },
                                 onVerticalDragEnd: (d) {
@@ -3410,8 +3425,6 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                   ),
                 ),
               ),
-            ),
-          ),
         );
       },
     );
@@ -4846,7 +4859,9 @@ class _BgLayer extends StatelessWidget {
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
 
-    return AnimatedBuilder(
+    return ValueListenableBuilder<bool>(
+      valueListenable: AudioPrefs.showBlurredBgNotifier,
+      builder: (context, showBlur, _) => AnimatedBuilder(
       animation: bgCtrl,
       builder: (context, _) {
         final t = bgCtrl.value; // 0→1: song change morph
@@ -4868,26 +4883,37 @@ class _BgLayer extends StatelessWidget {
         // window the incoming one fades in, so there's always a blurred
         // image on screen during the transition — a proper dissolve
         // between covers instead of a flash to bare background.
-        final staticBlur = AnimatedSwitcher(
-          duration: const Duration(milliseconds: 320),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          layoutBuilder: (currentChild, previousChildren) => Stack(
-            fit: StackFit.expand,
-            children: [...previousChildren, if (currentChild != null) currentChild],
-          ),
-          child: _StaticBlurArtwork(
-            key: ValueKey('${song.id}_${song.artworkUrl}'),
-            song: song,
-            isLight: isLight,
-            breatheCtrl: breatheCtrl,
-          ),
-        );
+        //
+        // Settings → Appearance → "Show Blurred Background" (showBlur,
+        // from the ValueListenableBuilder above). When off, skip the
+        // blurred-artwork layer entirely — no ImageFiltered blur render,
+        // no Ken Burns Transform/AnimatedBuilder tick, none of it. What's
+        // left underneath (L0 base + L2 palette tint/vignette) already
+        // reads as a clean, intentional gradient background on its own
+        // — this is the true zero-blur-cost path, not just a cheaper blur.
+        final staticBlur = !showBlur
+            ? const SizedBox.expand()
+            : AnimatedSwitcher(
+                duration: const Duration(milliseconds: 320),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                layoutBuilder: (currentChild, previousChildren) => Stack(
+                  fit: StackFit.expand,
+                  children: [...previousChildren, if (currentChild != null) currentChild],
+                ),
+                child: _StaticBlurArtwork(
+                  key: ValueKey('${song.id}_${song.artworkUrl}'),
+                  song: song,
+                  isLight: isLight,
+                  breatheCtrl: breatheCtrl,
+                ),
+              );
 
         return isLight
             ? _buildLight(bg1, bg2, bg3, bg4, staticBlur)
             : _buildDark(bg1, bg2, bg3, bg4, staticBlur);
       },
+      ),
     );
   }
 
