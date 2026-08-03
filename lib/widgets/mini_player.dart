@@ -184,7 +184,13 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
     Navigator.of(context)
         .push(
       PageRouteBuilder(
-        opaque: true,
+        // FIX (background screen glitches/blinks during swipe-down-to-
+        // dismiss): see the full explanation in home_screen.dart's
+        // pushFullPlayer() — opaque:true stopped Flutter from actively
+        // repainting whatever's underneath while FullPlayerScreen sits on
+        // top, so its drag-to-dismiss fade briefly exposed a frozen frame
+        // instead of a live one on every drag update.
+        opaque: false,
         pageBuilder: (_, __, ___) => const FullPlayerScreen(),
         // FIX ("full player looks like a flat theme-colored screen for
         // 1-2s on open AND on swipe-down-close"): see the matching fix

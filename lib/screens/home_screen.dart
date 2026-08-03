@@ -71,7 +71,26 @@ void pushFullPlayer(BuildContext context) {
   AurumHaptics.light();
   Navigator.of(context).push(
     PageRouteBuilder(
-      opaque: true,
+      // FIX (background screen visibly glitches/blinks during swipe-
+      // down-to-dismiss): this was `opaque: true`. Flutter's routing
+      // treats an opaque route as fully covering everything behind it,
+      // so it stops actively rendering/repainting the previous route
+      // for the duration the opaque route is on top — it just keeps the
+      // last frame around, since (by the opaque contract) nothing behind
+      // it should ever be visible anyway. FullPlayerScreen's swipe-to-
+      // dismiss (_DragTransform, see full_player_screen.dart) fades its
+      // own Opacity down toward 0 while dragging, which — being opaque
+      // — briefly exposes that frozen, non-updating previous frame
+      // underneath instead of a live one. Every drag frame recomposites
+      // a moving translucent player over a static background, which is
+      // exactly what reads as the background "blinking"/glitching during
+      // the drag. `opaque: false` tells Flutter this route may show the
+      // one behind it, so that previous route keeps rendering live frames
+      // the whole time — confirmed safe here since the screen-behind-
+      // freeze this was originally set to prevent only ever showed up
+      // while the player was fully static/open (unaffected by this
+      // change), never during the drag itself.
+      opaque: false,
       pageBuilder: (_, __, ___) => const FullPlayerScreen(),
       // FIX ("full player looks like a flat theme-colored screen for 1-2s
       // on open AND on swipe-down-close, instead of Spotify-style instant

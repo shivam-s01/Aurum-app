@@ -92,19 +92,25 @@ class _SongTileState extends State<SongTile> {
       if (mounted) {
         Navigator.of(context).push(
           PageRouteBuilder(
-            // FIX: opaque:false told Flutter that SearchScreen (or whatever
-            // screen this tile lives on — Home, Library, Search results,
-            // live search) might still be partially visible underneath,
-            // so Flutter stopped fully repainting it while FullPlayerScreen
-            // was open. On pop, the screen's last (stale) frame stayed
-            // frozen on screen — showing as a blank white/black page until
-            // some unrelated state change forced a rebuild. This is the
-            // exact bug that made the search screen go blank after tapping
-            // a live/normal search result. FullPlayerScreen already paints
-            // its own full opaque background (_BgLayer in
-            // full_player_screen.dart), so opaque:true changes nothing
-            // visually and fully fixes the freeze.
-            opaque: true,
+            // FIX (background screen glitches/blinks during swipe-down-to-
+            // dismiss): opaque:true (previous value) stopped Flutter from
+            // actively repainting whatever screen this tile lives on —
+            // Home, Library, Search results — while FullPlayerScreen sat
+            // on top, so its drag-to-dismiss fade briefly exposed a
+            // frozen frame instead of a live one on every drag update,
+            // reading as a glitch.
+            //
+            // This was set to opaque:true specifically to fix a separate
+            // bug: opaque:false previously left SearchScreen's last frame
+            // stale/frozen after FullPlayerScreen was popped (SearchScreen
+            // builds its results list from local setState, not a
+            // Provider/Consumer that repaints on its own). That's now
+            // fixed directly in search_screen.dart's own push call, with
+            // an explicit setState() in its .then() — so opaque:true is no
+            // longer needed here to route around it, and Home/Library
+            // (which are Provider/Consumer-driven and repaint naturally)
+            // never needed it in the first place.
+            opaque: false,
             pageBuilder: (_, __, ___) => const FullPlayerScreen(),
             // FIX ("tap a song → the PREVIOUS screen stays visible for a
             // beat, THEN artwork/full player appears" / same flat-color

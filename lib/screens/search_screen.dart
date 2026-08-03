@@ -638,15 +638,27 @@ class _SearchScreenState extends State<SearchScreen>
       context.read<PlayerProvider>().playSong(song, queue: [song], index: 0);
       Navigator.of(context).push(
         PageRouteBuilder(
-          // FIX: opaque:false made Flutter treat SearchScreen as possibly
-          // still visible underneath, so it stopped fully repainting this
-          // route while FullPlayerScreen was open. On pop, SearchScreen's
-          // last (stale) frame stayed frozen — showing as a blank
-          // white/black screen until some other state change forced a
-          // rebuild. FullPlayerScreen already paints its own full opaque
-          // background (_BgLayer), so marking this route opaque:true loses
-          // no visual effect and fixes the freeze.
-          opaque: true,
+          // FIX (background screen visibly glitches/blinks during swipe-
+          // down-to-dismiss): opaque:true (the previous value) stops
+          // Flutter from actively repainting this route while
+          // FullPlayerScreen sits on top, on the assumption nothing
+          // behind an opaque route is ever visible. But FullPlayerScreen's
+          // drag-to-dismiss fades its own Opacity toward 0 while dragging
+          // — which briefly DOES expose what's behind it — so every drag
+          // frame was compositing a moving translucent player over a
+          // frozen, non-repainting background, reading as a glitch/blink.
+          // opaque:false fixes that by letting this route keep rendering
+          // live frames the whole time.
+          //
+          // This was set to opaque:true specifically to fix a DIFFERENT
+          // bug: opaque:false previously left SearchScreen's last frame
+          // frozen after FullPlayerScreen was popped, until some unrelated
+          // state change forced a rebuild. That freeze is handled below
+          // instead, via a explicit setState() in this push's .then() —
+          // rather than opaque:true, which only masked it by stopping
+          // SearchScreen from being treated as "possibly visible" at all
+          // (which is what caused the swipe-glitch here).
+          opaque: false,
           pageBuilder: (_, __, ___) => const FullPlayerScreen(),
           // FIX (flat theme-colored screen for 1-2s on open/swipe-down-
           // close instead of instant artwork): see the matching fix in
@@ -668,7 +680,13 @@ class _SearchScreenState extends State<SearchScreen>
           // as aurum_transitions.dart).
           reverseTransitionDuration: const Duration(milliseconds: 380),
         ),
-      );
+      ).then((_) {
+        // Companion to the opaque:false fix above — force one rebuild once
+        // FullPlayerScreen is popped, so this screen repaints a fresh
+        // frame instead of potentially showing whatever its last frame
+        // was before FullPlayerScreen covered it.
+        if (mounted) setState(() {});
+      });
     }
   }
 

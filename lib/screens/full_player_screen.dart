@@ -1092,7 +1092,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _DragHandle(isDragging: _isDragging),
-            TopBarWithCastBanner(song: song, onMore: () => _showOptions(context)),
+            TopBarWithCastBanner(song: song, bgLuma: _currentBg2.computeLuminance(), onMore: () => _showOptions(context)),
             SizedBox(height: (vGapMd - 15).clamp(0.0, vGapMd)),
             // Artwork — enters with the screen slide (no extra delay)
             _Artwork(
@@ -1101,6 +1101,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               hPad: hPad,
               h: h,
               w: w,
+              bgLuma: _currentBg2.computeLuminance(),
               artworkAnim: _artworkAnim,
               breatheCtrl: _artworkFloatCtrl,
             ),
@@ -1164,6 +1165,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 if (!show) return const SizedBox.shrink();
                 return _InlineLyricsStrip(
                   hPad: hPad,
+                  bgLuma: _currentBg2.computeLuminance(),
                   onTap: () => _openPanel(initialTab: 1),
                 );
               },
@@ -1178,7 +1180,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                     .animate(CurvedAnimation(
                         parent: _staggerCtrl,
                         curve: const Interval(0.30, 0.85, curve: Curves.easeOutCubic))),
-                child: _SeekBar(player: player, hPad: hPad),
+                child: _SeekBar(player: player, hPad: hPad, bgLuma: _currentBg2.computeLuminance()),
               ),
             ),
             SizedBox(height: vGapSm),
@@ -1196,6 +1198,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   hPad: hPad,
                   playBtnAnim: _playBtnAnim,
                   bg1: _currentBg1,
+                  bgLuma: _currentBg2.computeLuminance(),
                   onPlayTap: () => _onPlayTap(player),
                 ),
               ),
@@ -1203,10 +1206,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             SizedBox(height: isCompact ? 8.0 : 12.0),
             SizedBox(
               height: 28,
-              child: Center(child: _QualityPills(song: song, hPad: hPad)),
+              child: Center(child: _QualityPills(song: song, hPad: hPad, bgLuma: _currentBg2.computeLuminance())),
             ),
             const Spacer(),
-            _BottomPill(hPad: hPad, onTap: _openPanel),
+            _BottomPill(hPad: hPad, bgLuma: _currentBg2.computeLuminance(), onTap: _openPanel),
             SizedBox(height: isCompact ? 8.0 : 12.0),
           ],
         );
@@ -1251,6 +1254,18 @@ class _DragTransform extends StatelessWidget {
     // actual screen height (so the completion animation can carry it
     // all the way to fully off-screen) and opacity now reaches 0 at that
     // same point, instead of bottoming out at 0.45.
+    //
+    // PERF FIX (smoothness during the drag itself): this used to stack
+    // Transform.translate → Transform.scale → Opacity as three separate
+    // widgets, each of which asks the engine for its own compositing
+    // layer. Three layers being resized/repositioned/faded every single
+    // touch-move frame is exactly the kind of thing that reads as
+    // stutter on lower-end devices even though nothing here is logically
+    // expensive. Folding translate+scale into one Matrix4 collapses that
+    // to a single transform layer, and RepaintBoundary below pins the
+    // (static, unchanging) child to its own layer once so the transform
+    // layer is compositing a cached bitmap instead of re-walking the
+    // whole Scaffold subtree's paint on every frame.
     final screenH = MediaQuery.of(context).size.height;
     return ValueListenableBuilder<double>(
       valueListenable: dragYListenable,
@@ -1259,15 +1274,20 @@ class _DragTransform extends StatelessWidget {
             (1.0 - (dragY / screenH)).clamp(0.0, 1.0);
         final dragScale =
             (1.0 - (dragY / 2200).clamp(0.0, 0.06)).clamp(0.0, 1.0);
-        return Transform.translate(
-          offset: Offset(0, dragY.clamp(0.0, screenH)),
-          child: Transform.scale(
-            scale: dragScale,
-            child: Opacity(opacity: dragOpacity, child: child),
+        final ty = dragY.clamp(0.0, screenH);
+        final matrix = Matrix4.identity()
+          ..translate(0.0, ty)
+          ..scale(dragScale, dragScale);
+        return Opacity(
+          opacity: dragOpacity,
+          child: Transform(
+            transform: matrix,
+            alignment: Alignment.center,
+            child: child,
           ),
         );
       },
-      child: child,
+      child: RepaintBoundary(child: child),
     );
   }
 }
@@ -1301,18 +1321,26 @@ class _DragHandle extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _TopBar extends StatelessWidget {
   final Song song;
+  final double bgLuma;
   final VoidCallback onMore;
-  const _TopBar({required this.song, required this.onMore});
+  const _TopBar({required this.song, required this.bgLuma, required this.onMore});
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final textPrimary = isLight ? AurumTheme.lightTextPrimary : Colors.white;
-    final textMuted = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(72);
-    final pillBg = isLight ? AurumTheme.lightBgSurface.withAlpha(180) : Colors.white.withAlpha(8);
-    final pillBorder = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(12);
-    final iconColor = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(200);
+    // FIX (same class of bug as buttons/lyrics strip below): this bar
+    // sits directly over the artwork/background (no opaque surface
+    // behind it besides its own translucent pill), so it needs to react
+    // to the actual artwork luminance, not the app's light/dark theme
+    // setting — those are unrelated, and a dark-mode user with bright
+    // artwork (like a light-colored album cover) got near-invisible
+    // chevron/menu icons and a washed-out pill exactly like this.
+    final bgIsLight = bgLuma >= 0.5;
+    final textPrimary = bgIsLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final textMuted = bgIsLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(170);
+    final pillBg = bgIsLight ? AurumTheme.lightBgSurface.withAlpha(200) : Colors.black.withAlpha(70);
+    final pillBorder = bgIsLight ? AurumTheme.lightDivider : Colors.white.withAlpha(30);
+    final iconColor = bgIsLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(230);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1377,13 +1405,14 @@ class _TopBar extends StatelessWidget {
 /// beyond what it already reads).
 class TopBarWithCastBanner extends StatelessWidget {
   final Song song;
+  final double bgLuma;
   final VoidCallback onMore;
-  const TopBarWithCastBanner({super.key, required this.song, required this.onMore});
+  const TopBarWithCastBanner({super.key, required this.song, required this.bgLuma, required this.onMore});
 
   @override
   Widget build(BuildContext context) {
     return Column(children: [
-      _TopBar(song: song, onMore: onMore),
+      _TopBar(song: song, bgLuma: bgLuma, onMore: onMore),
       const CastingBanner(),
     ]);
   }
@@ -1396,6 +1425,7 @@ class _Artwork extends StatefulWidget {
   final Song song;
   final PlayerProvider player;
   final double hPad, h, w;
+  final double bgLuma;
   final Animation<double> artworkAnim;
   final Animation<double> breatheCtrl;
 
@@ -1405,6 +1435,7 @@ class _Artwork extends StatefulWidget {
     required this.hPad,
     required this.h,
     required this.w,
+    required this.bgLuma,
     required this.artworkAnim,
     required this.breatheCtrl,
   });
@@ -1453,9 +1484,14 @@ class _ArtworkState extends State<_Artwork> {
   @override
   Widget build(BuildContext context) {
     final maxArtSize = (widget.w - widget.hPad * 2).clamp(0.0, widget.h * 0.42);
-    // Needed below to soften the artwork's drop shadow on light theme —
-    // see the boxShadow FIX comment further down.
-    final isLight = Theme.of(context).brightness == Brightness.light;
+    // FIX (shadow direction wrong depending on artwork, not app theme):
+    // this softened the artwork's drop shadow on Theme.of(context).
+    // brightness — but this shadow's job is to lift the artwork off the
+    // BACKGROUND behind it (which is itself artwork-luma-driven, see
+    // _BgLayer), not off the app's theme. A dark-mode user with light
+    // artwork (bright background) needs the SOFT/light-background shadow
+    // treatment, not the dark-theme one, and vice versa.
+    final bgIsLight = widget.bgLuma >= 0.5;
     return ValueListenableBuilder<bool>(
       valueListenable: AudioPrefs.swipeToChangeNotifier,
       builder: (context, swipeEnabled, _) {
@@ -1536,18 +1572,18 @@ class _ArtworkState extends State<_Artwork> {
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withAlpha(
-                                      isLight
+                                      bgIsLight
                                           ? (widget.player.isPlaying ? 60 : 38)
                                           : (widget.player.isPlaying ? 180 : 110)),
-                                  blurRadius: isLight
+                                  blurRadius: bgIsLight
                                       ? (widget.player.isPlaying ? 36 : 22)
                                       : (widget.player.isPlaying ? 64 : 40),
                                   offset: const Offset(0, 16),
-                                  spreadRadius: (!isLight && widget.player.isPlaying) ? 4 : 0,
+                                  spreadRadius: (!bgIsLight && widget.player.isPlaying) ? 4 : 0,
                                 ),
                                 BoxShadow(
-                                  color: Colors.black.withAlpha(isLight ? 28 : 90),
-                                  blurRadius: isLight ? 10 : 18,
+                                  color: Colors.black.withAlpha(bgIsLight ? 28 : 90),
+                                  blurRadius: bgIsLight ? 10 : 18,
                                   offset: const Offset(0, 4),
                                 ),
                               ],
@@ -1729,9 +1765,11 @@ class _SongInfo extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _InlineLyricsStrip extends StatefulWidget {
   final double hPad;
+  final double bgLuma;
   final VoidCallback onTap;
   const _InlineLyricsStrip({
     required this.hPad,
+    required this.bgLuma,
     required this.onTap,
   });
 
@@ -1772,9 +1810,18 @@ class _InlineLyricsStripState extends State<_InlineLyricsStrip> {
       });
     }
 
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final activeColor = isLight ? AurumTheme.lightTextPrimary : Colors.white;
-    final mutedColor = isLight
+    // FIX ("lyrics line / buttons illegible depending on artwork
+    // brightness"): this was Theme.of(context).brightness, which reflects
+    // the app's light/dark MODE setting, not the actual artwork behind
+    // this text. A dark-mode user with a bright/light-colored album cover
+    // (or vice versa) got near-invisible text, since the color branch was
+    // keyed to the wrong signal entirely. Now driven by widget.bgLuma —
+    // the real rendered background luminance behind this strip (same
+    // value already computed for and used by _SongInfo above it) — so
+    // this reads correctly against the actual artwork in either app theme.
+    final bgIsLight = widget.bgLuma >= 0.5;
+    final activeColor = bgIsLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final mutedColor = bgIsLight
         ? AurumTheme.lightTextSecondary
         : Colors.white.withAlpha(150);
 
@@ -1961,7 +2008,8 @@ class _PlainLineTeaser extends StatelessWidget {
 class _SeekBar extends StatefulWidget {
   final PlayerProvider player;
   final double hPad;
-  const _SeekBar({required this.player, required this.hPad});
+  final double bgLuma;
+  const _SeekBar({required this.player, required this.hPad, required this.bgLuma});
 
   @override
   State<_SeekBar> createState() => _SeekBarState();
@@ -2020,10 +2068,14 @@ class _SeekBarState extends State<_SeekBar> {
   }
 
   Widget _buildSeekBar(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final trackActive = isLight ? AurumTheme.lightTextPrimary : Colors.white;
-    final trackInactive = isLight ? AurumTheme.lightBgSurface : Colors.white.withAlpha(28);
-    final timeColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(92);
+    // FIX (same class of bug as the lyrics strip/buttons above): was
+    // Theme.of(context).brightness (app theme mode), now driven by the
+    // real artwork background luminance so the track/time text stays
+    // legible against the actual artwork colors in either app theme.
+    final bgIsLight = widget.bgLuma >= 0.5;
+    final trackActive = bgIsLight ? AurumTheme.lightTextPrimary : Colors.white;
+    final trackInactive = bgIsLight ? AurumTheme.lightBgSurface : Colors.white.withAlpha(28);
+    final timeColor = bgIsLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(160);
 
     // Settings → Appearance → "Player Slider Style"
     final sliderStyle = context.watch<ThemeProvider>().playerSliderStyle;
@@ -2285,6 +2337,7 @@ class _Controls extends StatelessWidget {
   final double hPad;
   final Animation<double> playBtnAnim;
   final Color bg1;
+  final double bgLuma;
   final VoidCallback onPlayTap;
 
   const _Controls({
@@ -2292,6 +2345,7 @@ class _Controls extends StatelessWidget {
     required this.hPad,
     required this.playBtnAnim,
     required this.bg1,
+    required this.bgLuma,
     required this.onPlayTap,
   });
 
@@ -2300,14 +2354,22 @@ class _Controls extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final isLoopOne = player.loopMode == LoopMode.one;
     final isLoopAll = player.loopMode == LoopMode.all;
-    // FIX ("prev/next buttons invisible in light mode"): these were
-    // hardcoded Colors.white with no light-mode branch at all — nearly
-    // invisible against the light theme's own pale background/artwork
-    // treatment. Now theme-aware like every other control on this screen.
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final prevNextColor = isLight
+    // FIX ("prev/next buttons invisible depending on artwork"): this was
+    // Theme.of(context).brightness (app theme mode) — a dark-mode user
+    // with bright/light-colored artwork (or a light-mode user with dark
+    // artwork) got the wrong color branch, since app theme and artwork
+    // color are two unrelated things. Now driven by bgLuma, the real
+    // rendered background luminance behind these controls.
+    final bgIsLight = bgLuma >= 0.5;
+    final prevNextColor = bgIsLight
         ? AurumTheme.lightTextPrimary
         : Colors.white.withAlpha(220);
+    // Same artwork-driven signal for shuffle/repeat's inactive color —
+    // passed explicitly so _CtrlBtn never falls back to its own
+    // theme-brightness default for these two buttons.
+    final inactiveToggleColor = bgIsLight
+        ? AurumTheme.lightTextMuted
+        : Colors.white.withAlpha(190);
 
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad - 8),
@@ -2319,6 +2381,7 @@ class _Controls extends StatelessWidget {
             icon: Icons.shuffle_rounded,
             size: 20,
             active: player.shuffle,
+            inactiveColor: inactiveToggleColor,
             semanticLabel: l10n.fpShuffle,
             onTap: () {
               AurumHaptics.selection();
@@ -2329,6 +2392,7 @@ class _Controls extends StatelessWidget {
             icon: Icons.skip_previous_rounded,
             size: 38,
             color: prevNextColor,
+            inactiveColor: prevNextColor,
             semanticLabel: l10n.fpPrevious,
             onTap: () {
               AurumHaptics.medium();
@@ -2348,6 +2412,7 @@ class _Controls extends StatelessWidget {
             icon: Icons.skip_next_rounded,
             size: 38,
             color: prevNextColor,
+            inactiveColor: prevNextColor,
             semanticLabel: l10n.fpNext,
             onTap: () {
               AurumHaptics.medium();
@@ -2369,6 +2434,7 @@ class _Controls extends StatelessWidget {
                 : Icons.repeat_rounded,
             size: 20,
             active: isLoopAll || isLoopOne,
+            inactiveColor: inactiveToggleColor,
             semanticLabel: l10n.fpRepeat,
             onTap: () {
               AurumHaptics.selection();
@@ -2387,7 +2453,8 @@ class _Controls extends StatelessWidget {
 class _QualityPills extends StatelessWidget {
   final Song song;
   final double hPad;
-  const _QualityPills({required this.song, required this.hPad});
+  final double bgLuma;
+  const _QualityPills({required this.song, required this.hPad, required this.bgLuma});
 
   @override
   Widget build(BuildContext context) {
@@ -2405,7 +2472,7 @@ class _QualityPills extends StatelessWidget {
       child: Wrap(
         alignment: WrapAlignment.center,
         spacing: 6,
-        children: parts.map((p) => _QualityPill(label: p)).toList(),
+        children: parts.map((p) => _QualityPill(label: p, bgLuma: bgLuma)).toList(),
       ),
     );
   }
@@ -2416,17 +2483,22 @@ class _QualityPills extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _BottomPill extends StatelessWidget {
   final double hPad;
+  final double bgLuma;
   final VoidCallback onTap;
-  const _BottomPill({required this.hPad, required this.onTap});
+  const _BottomPill({required this.hPad, required this.bgLuma, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final pillBg = isLight ? AurumTheme.lightBgSurface.withAlpha(200) : Colors.white.withAlpha(10);
-    final pillBorder = isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(18);
-    final iconColor = isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(96);
-    final textColor = isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(112);
+    // FIX (same class of bug as buttons/lyrics strip above): was
+    // Theme.of(context).brightness (app theme mode), now driven by the
+    // real artwork background luminance so this pill stays legible
+    // against the actual artwork in either app theme.
+    final bgIsLight = bgLuma >= 0.5;
+    final pillBg = bgIsLight ? AurumTheme.lightBgSurface.withAlpha(200) : Colors.white.withAlpha(18);
+    final pillBorder = bgIsLight ? AurumTheme.lightDivider : Colors.white.withAlpha(28);
+    final iconColor = bgIsLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(180);
+    final textColor = bgIsLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(200);
 
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: hPad),
@@ -2574,26 +2646,24 @@ class _FavButton extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _QualityPill extends StatelessWidget {
   final String label;
-  const _QualityPill({required this.label});
+  final double bgLuma;
+  const _QualityPill({required this.label, required this.bgLuma});
 
   @override
   Widget build(BuildContext context) {
-    // FIX ("year/language chip below play button washes out"): this
-    // previously hardcoded Colors.white with no isLight branch at all —
-    // broken outright in light mode, and even in dark mode the fill
-    // (12/255), border (20/255), and text (88/255 ≈ 35%) alphas were so
-    // low the pill had almost no boundary or legible text over bright
-    // artwork. Mirrors the same solid-chip treatment used elsewhere in
-    // this screen (e.g. _BottomPill) instead of relying on near-zero
-    // alpha white to "just work" against any artwork color.
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final fill = isLight
+    // FIX ("year/language chip below play button washes out depending on
+    // artwork"): this was Theme.of(context).brightness (app theme mode),
+    // but this pill sits directly over the artwork/background, not on
+    // any surface of its own — needs the real background luminance,
+    // same as every other on-artwork control in this file.
+    final bgIsLight = bgLuma >= 0.5;
+    final fill = bgIsLight
         ? AurumTheme.lightBgSurface.withAlpha(210)
         : Colors.white.withAlpha(24);
-    final border = isLight
+    final border = bgIsLight
         ? AurumTheme.lightDivider
         : Colors.white.withAlpha(45);
-    final textColor = isLight
+    final textColor = bgIsLight
         ? AurumTheme.lightTextSecondary
         : Colors.white.withAlpha(220);
 
@@ -5545,21 +5615,25 @@ class _IconBtn extends StatelessWidget {
   final IconData icon;
   final double size;
   final VoidCallback onTap;
-  final Color? color;
+  // FIX: color used to be optional with a Theme.of(context).brightness
+  // fallback (app theme mode) — but every caller of this shared button
+  // sits directly over the artwork/background and needs an artwork-
+  // luma-derived color, not a theme-derived one. Making it required
+  // forces every call site to make that choice explicitly instead of
+  // silently getting the wrong contrast source.
+  final Color color;
   final String? semanticLabel;
 
   const _IconBtn({
     required this.icon,
     required this.size,
     required this.onTap,
-    this.color,
+    required this.color,
     this.semanticLabel,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final c = color ?? (isLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(200));
     return Semantics(
       label: semanticLabel,
       button: true,
@@ -5569,7 +5643,7 @@ class _IconBtn extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Icon(icon, size: size, color: c),
+          child: Icon(icon, size: size, color: color),
         ),
       ),
     );
@@ -5584,12 +5658,23 @@ class _CtrlBtn extends StatelessWidget {
   final double size;
   final bool active;
   final Color? color;
+  // FIX ("buttons illegible depending on artwork brightness"): this
+  // widget used to compute its own inactive-state fallback from
+  // Theme.of(context).brightness (app light/dark MODE) whenever a caller
+  // didn't pass `color` — but app theme and artwork color are unrelated,
+  // so a dark-mode user with bright artwork (or the reverse) got the
+  // wrong contrast. Every current call site now passes an explicit,
+  // artwork-luminance-derived inactiveColor (see _Controls above), so
+  // this is required rather than optional — there's no theme-based
+  // fallback left to silently do the wrong thing.
+  final Color inactiveColor;
   final String? semanticLabel;
   final VoidCallback onTap;
 
   const _CtrlBtn({
     required this.icon,
     required this.onTap,
+    required this.inactiveColor,
     this.size = 24,
     this.active = false,
     this.color,
@@ -5598,16 +5683,6 @@ class _CtrlBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    // FIX ("buttons wash out over bright artwork"): inactive shuffle/repeat
-    // was Colors.white.withAlpha(100) — ~40% opacity, same washed-out
-    // pattern as the artist text and year/language pill bugs. Raised so
-    // the icon stays clearly visible no matter what artwork color sits
-    // behind it, while still reading as visually "inactive" relative to
-    // the solid gold active state.
-    final inactiveColor = isLight
-        ? AurumTheme.lightTextMuted
-        : Colors.white.withAlpha(190);
     final c = color ?? (active ? AurumTheme.gold : inactiveColor);
 
     // PREMIUM POLISH PASS: keeps the same restrained language as before

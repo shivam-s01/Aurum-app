@@ -2721,7 +2721,13 @@ class _DownloadTile extends StatelessWidget {
 
           Navigator.of(context).push(
             PageRouteBuilder(
-              opaque: true,
+              // FIX (background screen glitches/blinks during swipe-down-
+              // to-dismiss): see the full explanation in home_screen.dart's
+              // pushFullPlayer() — opaque:true stops Flutter from actively
+              // repainting this route while FullPlayerScreen sits on top,
+              // so its own drag-to-dismiss fade briefly exposes a frozen
+              // frame instead of a live one on every drag update.
+              opaque: false,
               pageBuilder: (_, __, ___) => const FullPlayerScreen(),
               // FIX (flat theme-colored screen for 1-2s on open/swipe-down-
               // close instead of instant artwork): see the matching fix in
