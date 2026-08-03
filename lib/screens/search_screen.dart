@@ -1073,6 +1073,10 @@ class _SearchScreenState extends State<SearchScreen>
             idx--;
           }
           if (hasSuggestions) {
+            // CRASH FIX: _suggestions can be updated mid-scroll
+            if (idx < 0 || idx >= _suggestions.length + (hasLive ? _liveResults.length + 2 : 0) + (hasLive ? 1 : 0)) {
+              return const SizedBox.shrink();
+            }
             if (idx < _suggestions.length) return _suggestionTile(context, _suggestions[idx]);
             idx -= _suggestions.length;
             if (hasLive) {
@@ -1085,6 +1089,8 @@ class _SearchScreenState extends State<SearchScreen>
           if (hasLive) {
             if (idx == 0) return _sectionLabel(context, AppLocalizations.of(context)!.librarySongs);
             idx--;
+            // CRASH FIX: _liveResults setState() mid-scroll se idx out of bounds
+            if (idx < 0 || idx >= _liveResults.length) return const SizedBox.shrink();
             if (idx < _liveResults.length) {
               final song = _liveResults[idx];
               // PERF: fixed height matches SongTile's actual rendered
@@ -1220,6 +1226,13 @@ class _SearchScreenState extends State<SearchScreen>
           itemCount: itemCount,
           padding: const EdgeInsets.only(bottom: 80),
           itemBuilder: (_, i) {
+            // CRASH FIX: _results/itemCount mismatch during scroll+update
+            // race. itemCount was computed from _results.length at build()
+            // time, but setState() can update _results mid-scroll — i can
+            // exceed new _results.length. Bounds check prevents RangeError.
+            if (i >= _results.length + (showRelatedHeader ? 1 : 0) + _relatedResults.length) {
+              return const SizedBox.shrink();
+            }
             if (i < _results.length) {
               return SizedBox(
                 height: 66,
@@ -1396,7 +1409,8 @@ class _BrowseTabState extends State<_BrowseTab> {
 
   Future<void> _openAlbum(BrowseAlbum album) async {
     setState(() { _openAlbumId = album.collectionId; _openAlbumName = album.name; _albumLoading = true; _albumTracks = []; _openArtistName = null; });
-    final tracks = await BrowseService.albumTracks(album.collectionId, isFromYoutube: album.isFromYoutube);
+    // FIX: albumTitle pass karo — ab specific movie/album ke songs aayenge
+    final tracks = await BrowseService.albumTracks(album.collectionId, isFromYoutube: album.isFromYoutube, albumTitle: album.name);
     if (mounted) setState(() { _albumTracks = tracks; _albumLoading = false; });
   }
 

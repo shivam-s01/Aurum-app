@@ -638,17 +638,27 @@ class BrowseService {
     return true;
   }
 
-  // Fetch tracks for a Browse album card — always YouTube now, since every
-  // album in Browse is YT-sourced (see search() above). Kept the
-  // isFromYoutube param for call-site compatibility with search_screen.dart.
-  static Future<List<BrowseTrack>> albumTracks(String collectionId, {bool isFromYoutube = true}) async {
-    return _ytTracksFor('$collectionId songs');
+  // Fetch tracks for a Browse album card.
+  // FIX ("thumbnail click karo toh alag song aata hai"): pehle collectionId
+  // (jo actually channel name hai — e.g. "T-Series") se '$collectionId songs'
+  // search hota tha → T-Series ke koi bhi random songs aate the, us specific
+  // album/movie ke nahi. Ab albumTitle bhi pass karo aur specific query banao.
+  static Future<List<BrowseTrack>> albumTracks(
+    String collectionId, {
+    bool isFromYoutube = true,
+    String? albumTitle, // album/movie name — specific query ke liye
+  }) async {
+    // albumTitle mile toh specific query: "Movie Name full album songs"
+    // nahi mila toh channel name se best effort
+    final query = (albumTitle != null && albumTitle.isNotEmpty)
+        ? '$albumTitle all songs'  // specific movie/album ke saare songs
+        : '$collectionId songs';
+    return _ytTracksFor(query);
   }
 
-  // Fetch top songs for a Browse artist chip — always YouTube now, since
-  // every artist in Browse is YT-sourced (see search() above).
+  // Fetch top songs for a Browse artist chip.
   static Future<List<BrowseTrack>> artistTopSongs(String artistName, {bool isFromYoutube = true}) async {
-    return _ytTracksFor('$artistName songs');
+    return _ytTracksFor('$artistName top songs');
   }
 
   static void dispose() => _client.close();

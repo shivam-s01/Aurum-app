@@ -1382,9 +1382,10 @@ class _OnlineContent extends StatelessWidget {
             // ~20 back-to-back rebuilds while cached content is already
             // on screen). Each streamed-in section now only touches its
             // own subtree.
-            key: ValueKey(sections[i].id),
-            sectionId: sections[i].id,
-            child: _buildSection(context, sections[i]),
+            // CRASH FIX: sections list can update mid-scroll
+            key: ValueKey(i < sections.length ? sections[i].id : 'empty_$i'),
+            sectionId: i < sections.length ? sections[i].id : '',
+            child: i < sections.length ? _buildSection(context, sections[i]) : const SizedBox.shrink(),
           ),
       ],
     );
@@ -1582,11 +1583,15 @@ class _SongSectionRowState extends State<_SongSectionRow> {
               // has. Bumping this to 16 mirrors the left inset exactly.
               padding: const EdgeInsets.only(right: 16),
               itemCount: section.songs.length.clamp(0, 12),
-              itemBuilder: (_, i) => _SongGridCard(
-                song: section.songs[i],
-                queue: section.songs,
-                index: i,
-              ),
+              itemBuilder: (_, i) {
+                // CRASH FIX: section.songs can be replaced mid-scroll
+                if (i >= section.songs.length) return const SizedBox.shrink();
+                return _SongGridCard(
+                  song: section.songs[i],
+                  queue: section.songs,
+                  index: i,
+                );
+              },
             ),
           ),
         ],

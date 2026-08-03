@@ -1990,33 +1990,8 @@ class _SeekBarState extends State<_SeekBar> {
   // DEBUG ONLY — temporary freeze detector for the "seek bar stuck at
   // 00:00" report. Watches whether duration/position ever become
   // non-zero within 4s of a song becoming current; if not, shows a red
-  // banner with the internal state snapshot so we know exactly which
-  // piece never arrived. Remove once root-caused.
-  Timer? _freezeCheckTimer;
-  String? _lastCheckedSongId;
-  String? _debugBanner;
-
-  void _armFreezeCheck(String? songId) {
-    if (songId == null || songId == _lastCheckedSongId) return;
-    _lastCheckedSongId = songId;
-    _freezeCheckTimer?.cancel();
-    setState(() => _debugBanner = null);
-    _freezeCheckTimer = Timer(const Duration(seconds: 4), () {
-      if (!mounted) return;
-      final player = widget.player;
-      if (player.currentSong?.id == songId &&
-          player.duration.inMilliseconds == 0 &&
-          player.position.inMilliseconds == 0) {
-        setState(() {
-          _debugBanner = 'SEEK BAR FROZEN — ${player.debugSeekBarState}';
-        });
-      }
-    });
-  }
-
   @override
   void dispose() {
-    _freezeCheckTimer?.cancel();
     super.dispose();
   }
 
@@ -2053,28 +2028,7 @@ class _SeekBarState extends State<_SeekBar> {
         player.currentSong?.id,
       ),
       builder: (context, data, __) {
-        // DEBUG ONLY — arm the freeze-check watcher whenever the current
-        // song changes. Remove once root-caused.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _armFreezeCheck(data.$6);
-        });
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_debugBanner != null)
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                padding: const EdgeInsets.all(8),
-                color: Colors.red.withAlpha(230),
-                child: Text(
-                  _debugBanner!,
-                  style: const TextStyle(color: Colors.white, fontSize: 10),
-                ),
-              ),
-            _buildSeekBar(context),
-          ],
-        );
+        return _buildSeekBar(context);
       },
     );
   }

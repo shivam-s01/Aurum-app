@@ -293,7 +293,7 @@ class ApiService {
 
   // Search cache
   static final Map<String, _CachedSearch> _searchCache = {};
-  static const Duration _searchTtl     = Duration(minutes: 10);
+  static const Duration _searchTtl     = Duration(minutes: 5); // FIX: cache jaldi expire ho taaki fresh Saavn results milein
   static const int      _maxSearchCache = 100;
 
   // LIGHTWEIGHT FIX ("ekdam lightweight aur fast, hang na ho"): quickSearch
@@ -786,7 +786,7 @@ class ApiService {
   // when page 1 is already "full") — used where we deliberately want a large,
   // varied pool (e.g. home feed sections) so shuffling/filtering still leaves
   // 50-80 songs instead of collapsing to whatever a single page returned.
-  static Future<List<Song>> _searchSaavnDeep(String query, {int limit = 40}) async {
+  static Future<List<Song>> _searchSaavnDeep(String query, {int limit = 80}) async {
     // FIX: pages were fetched sequentially (page1, then page2, then page3),
     // tripling latency for every section that needed deep results. Fetching
     // all three in parallel cuts this to roughly one request's round-trip
@@ -805,8 +805,8 @@ class ApiService {
     // Rotating the starting page (still 4 consecutive pages from there)
     // means each refresh has a real chance of pulling a different slice
     // of Saavn's catalog for the same query.
-    final startPage = 1 + math.Random().nextInt(5); // 1..5
-    final pages = List.generate(4, (i) => startPage + i);
+    final startPage = 1 + math.Random().nextInt(4); // 1..4
+    final pages = List.generate(3, (i) => startPage + i); // 3 pages
     final futures = pages.map((p) => _fetchSaavnPage(
           '$_saavnPrimary/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit&page=$p',
           limit,
@@ -837,7 +837,7 @@ class ApiService {
     // asking for more here now actually pays off downstream instead of
     // being a no-op.
     final results = await Future.wait([
-      _searchSaavnDeep(query, limit: 90),
+      _searchSaavnDeep(query, limit: 120),
       _searchYt(query, limit: 90),
     ]);
     final rawSaavn = results[0];
@@ -1079,6 +1079,218 @@ class ApiService {
     }
 
     await Future.wait(pending);
+
+    // SAAVN CHARTS — language-wise featured playlists parallel fire
+    // Ye search se alag hai: Saavn ke curated Top 50 playlists directly
+    // fetch karta hai — Hindi, Punjabi, Tamil, Telugu etc. sab languages.
+    // fetchHomeStreaming ke baad fire hota hai taaki main feed pehle
+    // load ho, charts sections baad mein aayein (same as YT sections).
+    await fetchSaavnChartsStreaming(
+      onSection: onSection,
+      languages: const ['hindi', 'punjabi', 'tamil', 'telugu', 'kannada', 'malayalam', 'marathi', 'bengali', 'bhojpuri', 'gujarati'],
+    );
+  }
+
+  // ===========================================================================
+  // SAAVN FEATURED PLAYLISTS + CHARTS — Direct Saavn catalog access
+  // ===========================================================================
+  // Saavn ka internal API — featured playlists per language fetch karta hai.
+  // Ye search se bilkul alag hai: search query-based hai, ye Saavn ke
+  // curated/editorial playlists directly laata hai — "Top 50 Hindi",
+  // "Top 50 Punjabi" etc. 100M songs tak pahunchne ka real rasta.
+  // ===========================================================================
+
+  static const String _saavnInternalApi = 'https://www.jiosaavn.com/api.php';
+
+  // Language codes Saavn ke internal API ke liye
+  static const List<String> _saavnLanguages = [
+    'hindi', 'punjabi', 'tamil', 'telugu', 'kannada',
+    'malayalam', 'marathi', 'bengali', 'bhojpuri', 'gujarati',
+    'english', 'rajasthani', 'odia', 'haryanvi', 'assamese',
+  ];
+
+  static const Map<String, String> _languageLabels = {
+    'hindi':      '🇮🇳 Hindi Top 50',
+    'punjabi':    '🎵 Punjabi Top 50',
+    'tamil':      '🎶 Tamil Top 50',
+    'telugu':     '🎸 Telugu Top 50',
+    'kannada':    '🥁 Kannada Top 50',
+    'malayalam':  '🎺 Malayalam Top 50',
+    'marathi':    '🪘 Marathi Top 50',
+    'bengali':    '🎻 Bengali Top 50',
+    'bhojpuri':   '🎤 Bhojpuri Top 50',
+    'gujarati':   '🪗 Gujarati Top 50',
+    'english':    '🌍 English Top 50',
+    'rajasthani': '🎵 Rajasthani Hits',
+    'odia':       '🎶 Odia Hits',
+    'haryanvi':   '🎤 Haryanvi Hits',
+    'assamese':   '🎵 Assamese Hits',
+  };
+
+  /// Saavn ke featured playlists fetch karo ek language ke liye.
+  /// Returns list of {id, name, image, songCount} maps.
+  static Future<List<Map<String, dynamic>>> fetchSaavnFeaturedPlaylists({
+    String language = 'hindi',
+    int limit = 10,
+  }) async {
+    try {
+      final url = Uri.parse(_saavnInternalApi).replace(queryParameters: {
+        '__call': 'playlist.getFeaturedPlaylists',
+        '_format': 'json',
+        '_marker': 'false',
+        'language': language,
+        'offset': '0',
+        'size': '$limit',
+      });
+      final res = await _client.get(url, headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      }).timeout(const Duration(seconds: 8));
+      if (res.statusCode != 200) return [];
+      final data = jsonDecode(res.body);
+      final playlists = data is Map
+          ? (data['featuredPlaylists'] ?? data['playlist'] ?? data['data'] ?? [])
+          : (data is List ? data : []);
+      if (playlists is! List) return [];
+      return playlists.whereType<Map<String, dynamic>>().map((p) => {
+        'id': (p['listid'] ?? p['id'] ?? '').toString(),
+        'name': _cleanText((p['listname'] ?? p['name'] ?? p['title'] ?? '').toString()),
+        'image': _cleanText((p['image'] ?? '').toString()),
+        'songCount': int.tryParse((p['numsongs'] ?? p['song_count'] ?? p['songCount'] ?? '0').toString()) ?? 0,
+        'language': language,
+      }).where((p) => p['id']!.toString().isNotEmpty).toList();
+    } catch (e) {
+      _log('[fetchSaavnFeaturedPlaylists] $language error: $e');
+      return [];
+    }
+  }
+
+  /// Saavn playlist ke songs fetch karo by playlist ID.
+  /// Node API: /api/playlists?id=ID&limit=N
+  static Future<List<Song>> fetchSaavnPlaylistById(String playlistId, {int limit = 50}) async {
+    if (playlistId.isEmpty) return [];
+    try {
+      final path = '/api/playlists?id=${Uri.encodeQueryComponent(playlistId)}&limit=$limit';
+      for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
+        final body = await _getFromHosts(hosts, path,
+            timeout: const Duration(seconds: 10),
+            isValid: (b) => b['success'] == true && b['data'] != null);
+        if (body == null) continue;
+        final data = body['data'];
+        if (data is! Map) continue;
+        // Songs can be under data.songs or data directly
+        final rawSongs = (data['songs'] as List?) ??
+            (data['list'] as List?) ??
+            (data['data'] as List?) ?? [];
+        if (rawSongs.isEmpty) continue;
+        final songs = rawSongs
+            .whereType<Map>()
+            .map((s) => _songFromSaavn(Map<String, dynamic>.from(s)))
+            .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+            .toList();
+        if (songs.isNotEmpty) return songs;
+      }
+      // Fallback: Saavn internal API direct
+      return await _fetchSaavnPlaylistInternal(playlistId, limit: limit);
+    } catch (e) {
+      _log('[fetchSaavnPlaylistById] $playlistId error: $e');
+      return [];
+    }
+  }
+
+  /// Saavn internal API se playlist songs fetch — Node API fail ho toh
+  static Future<List<Song>> _fetchSaavnPlaylistInternal(String listId, {int limit = 50}) async {
+    try {
+      final url = Uri.parse(_saavnInternalApi).replace(queryParameters: {
+        '__call': 'playlist.getDetails',
+        '_format': 'json',
+        '_marker': 'false',
+        'listid': listId,
+        'limit': '$limit',
+      });
+      final res = await _client.get(url, headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36',
+      }).timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return [];
+      final data = jsonDecode(res.body);
+      final rawSongs = (data is Map)
+          ? ((data['list'] as List?) ?? (data['songs'] as List?) ?? [])
+          : [];
+      if (rawSongs is! List || rawSongs.isEmpty) return [];
+      return rawSongs
+          .whereType<Map>()
+          .map((s) => _songFromSaavn(Map<String, dynamic>.from(s)))
+          .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+          .toList();
+    } catch (e) {
+      _log('[_fetchSaavnPlaylistInternal] $listId error: $e');
+      return [];
+    }
+  }
+
+  /// Home feed ke liye: ek language ke featured playlists fetch karo
+  /// aur unke songs ko ek SongSection mein merge karo.
+  static Future<SongSection?> fetchSaavnLanguageSection(String language) async {
+    final label = _languageLabels[language] ?? '$language Hits';
+    try {
+      // Step 1: Featured playlists list lo
+      final playlists = await fetchSaavnFeaturedPlaylists(language: language, limit: 5);
+      if (playlists.isEmpty) {
+        // Fallback: direct search from Saavn
+        final songs = await _searchSaavnDeep('$language superhits top songs', limit: 80);
+        if (songs.isEmpty) return null;
+        return SongSection(title: label, songs: songs.take(80).toList());
+      }
+
+      // Step 2: Top 3 playlists ke songs parallel fetch karo
+      final topPlaylists = playlists.take(3).toList();
+      final songBatches = await Future.wait(
+        topPlaylists.map((p) => fetchSaavnPlaylistById(p['id']!.toString(), limit: 50)
+            .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[])),
+      );
+
+      // Step 3: Merge + dedup
+      final seenIds = <String>{};
+      final seenTitles = <String>[];
+      final merged = <Song>[];
+      for (final batch in songBatches) {
+        for (final s in batch) {
+          if (merged.length >= 80) break;
+          if (!seenIds.add(s.id)) continue;
+          if (RecommendationEngine.isInherentVariant(s.title)) continue;
+          var isDup = false;
+          for (final seen in seenTitles) {
+            if (RecommendationEngine.isSameSongSmart(s.title, seen)) { isDup = true; break; }
+          }
+          if (isDup) continue;
+          seenTitles.add(s.title);
+          merged.add(s);
+        }
+      }
+      if (merged.isEmpty) return null;
+      return SongSection(title: label, songs: merged);
+    } catch (e) {
+      _log('[fetchSaavnLanguageSection] $language error: $e');
+      return null;
+    }
+  }
+
+  /// Saavn ke ALL languages ke charts ek saath stream karo —
+  /// home feed mein call karo for maximum Saavn coverage.
+  static Future<void> fetchSaavnChartsStreaming({
+    required void Function(SongSection section) onSection,
+    List<String> languages = _saavnLanguages,
+  }) async {
+    // Parallel fire with overall timeout — agar sab languages hang karein
+    // toh home feed forever nahi rukegi
+    await Future.wait(languages.map((lang) async {
+      try {
+        final section = await fetchSaavnLanguageSection(lang)
+            .timeout(const Duration(seconds: 12), onTimeout: () => null);
+        if (section != null) onSection(section);
+      } catch (_) {}
+    }));
   }
 
   // ===========================================================================
@@ -1102,7 +1314,7 @@ class ApiService {
   //
   // Fix: shuffle the merged/deduped results with a genuinely random seed
   // before slicing to `limit`, exactly like _saavnSectionV4 already does.
-  static Future<List<Song>> fetchPlaylistSongs(String query, {int limit = 30}) async {
+  static Future<List<Song>> fetchPlaylistSongs(String query, {int limit = 79}) async {
     final songs = await _searchSaavn(query, limit: limit);
     if (songs.isEmpty) return [];
     final seed = query.hashCode ^ DateTime.now().millisecondsSinceEpoch ^ math.Random().nextInt(1000000);
@@ -1141,7 +1353,7 @@ class ApiService {
   // instead of shuffling. Songs with an unparseable/missing year sort
   // last rather than being dropped, so a thin result set never goes empty
   // just because some entries lack metadata.
-  static Future<List<Song>> fetchNewReleaseSongs({int limit = 30}) async {
+  static Future<List<Song>> fetchNewReleaseSongs({int limit = 80}) async {
     final songs = await _searchSaavn('new bollywood songs 2026', limit: limit * 2);
     if (songs.isEmpty) return [];
 
@@ -1373,7 +1585,7 @@ class ApiService {
           .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[]),
       // Signal 2: Same-artist catalog search
-      _searchSaavn('${currentSong.artist} songs', limit: limit * 2)
+      _searchSaavn('${currentSong.artist} songs', limit: limit * 2) // 2x->4x)
           .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[]),
       // Signal 1.5: YouTube's own related-videos graph (YT-sourced songs
@@ -1411,8 +1623,8 @@ class ApiService {
       // rejected as unneeded duplicates-of-nothing-new, which costs
       // nothing but the parallel network call itself).
       Future.wait(fallbackQueries.map((q) =>
-          _searchYt(q.query, limit: limit)
-              .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+          _searchYt(q.query, limit: limit * 2) // limit->limit*2 pro YT
+              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
               .catchError((_) => <Song>[])))
           .then((lists) => [for (final l in lists) ...l]),
     ]);
@@ -1557,9 +1769,9 @@ class ApiService {
     // a raw, unfiltered YT dump.
     final saavnFutures = [
       _searchSaavn(q, limit: 50)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+          .timeout(const Duration(seconds: 7), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[]),
-      ...lyricVariants.map((v) => _searchSaavn(v, limit: 20)
+      ...lyricVariants.map((v) => _searchSaavn(v, limit: 30)
           .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[])),
     ];
@@ -1571,7 +1783,7 @@ class ApiService {
     if (saavnCombined.length < 15 && typoVariants.isNotEmpty) {
       final typoBatches = await Future.wait([
         for (final v in typoVariants)
-          _searchSaavn(v, limit: 20)
+          _searchSaavn(v, limit: 30)
               .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
               .catchError((_) => <Song>[]),
       ]);
@@ -1599,7 +1811,7 @@ class ApiService {
     // matched on stray fragments — completely unrelated songs like
     // "Emitemitemo" — because every result was kept and shown regardless
     // of how weak its match score was.
-    const minRelevanceScore = 15.0;
+    const minRelevanceScore = 5.0; // FIX: 15 se 5 kiya — Saavn pe song hai lekin score low tha toh drop ho raha tha
     for (final song in saavnCombined) {
       final score = _scoreSearchResult(song, q, wantsVariant);
       if (score < minRelevanceScore) continue;
@@ -1625,8 +1837,8 @@ class ApiService {
     // the gap through the SAME quality pipeline _searchYt already applies
     // (official-label-channel sort, real videos only), plus the search
     // relevance floor and smart dedup against Saavn so nothing doubles up.
-    if (saavnScored.length < 8) {
-      final ytResults = await _searchYt(q, limit: 20)
+    if (saavnScored.length < 8) { // YT: Saavn pe 8 se kam mila toh YT bhi check karo
+      final ytResults = await _searchYt(q, limit: 40) // 20->40 pro level YT
           .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
       for (final song in ytResults) {
         final norm = _normTitle(song.title);
@@ -1671,7 +1883,7 @@ class ApiService {
     // second wave of requests just to pad the list with "vibe" filler.
     // Now it only runs when direct results are thin, so a query that
     // already lands a clean, complete Saavn match returns immediately.
-    if (directResults.isNotEmpty && directResults.length < 12) {
+    if (directResults.isNotEmpty && directResults.length < 30) { // FIX: 12 se 30 — ab properly Saavn related songs bhi aayenge
       final topMatch = directResults.first;
       final directIds    = <String>{for (final s in directResults) s.id};
       final directTitles = <String>{for (final s in directResults) _normTitle(s.title)};
@@ -1707,7 +1919,7 @@ class ApiService {
       // song is smart-compared against everything already in the pool,
       // not just exact-matched.
       final seenRelatedRawTitles = <String>[];
-      const relatedCap = 55;
+      const relatedCap = 50;
 
       // FIX ("har baar ekdam same category but NEW songs aaye"): exclude
       // songs already played this session from the DISCOVERY expansion
@@ -1716,11 +1928,11 @@ class ApiService {
       final sessionPlayedIds = RecommendationEngine.sessionRecentIds;
 
       final combinedRelated = await Future.wait([
-        ...relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 25)
-            .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
+        ...relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 30)
+            .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[])),
-        ...relatedQueries.map((rq) => _searchYt(rq.query, limit: 20)
-            .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
+        ...relatedQueries.map((rq) => _searchYt(rq.query, limit: 40) // 20->40 pro YT
+            .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[])),
       ]);
       for (final list in combinedRelated) {
@@ -2009,7 +2221,7 @@ class ApiService {
   // through, and stop there. No YT gap-fill — typed search is Saavn-only
   // by design so results are always proper JioSaavn tracks, arriving fast.
   // ===========================================================================
-  static Future<List<Song>> quickSearch(String query, {int limit = 15}) async {
+  static Future<List<Song>> quickSearch(String query, {int limit = 20}) async {
     final q = query.trim();
     if (q.isEmpty) return [];
 
@@ -2032,9 +2244,7 @@ class ApiService {
     RecommendationEngine.load();
 
     final wantsVariant = _wantsVariantQuery(q);
-    const minLiveRelevanceScore = 12.0; // slightly more permissive than full
-                                         // search's 15.0 — live typing is
-                                         // often a partial/incomplete query.
+    const minLiveRelevanceScore = 5.0; // FIX: live typing mein bhi Saavn ke songs miss ho rahe the
 
     // LIGHTWEIGHT FIX ("battery/data pe load na pade, ekdam lightweight
     // rahe"): typo-variants used to fire UNCONDITIONALLY on every single
@@ -2102,7 +2312,35 @@ class ApiService {
       saavnScored.add(_ScoredSong(song, score));
     }
     saavnScored.sort((a, b) => b.score.compareTo(a.score));
-    final quickResult = saavnScored.map((s) => s.song).take(limit).toList();
+
+    // YT PRO LEVEL: agar Saavn se limit ka 50% se kam aaya toh YT bhi
+    // parallel fire karo. Live typing mein YT se bhi results aayenge —
+    // woh songs jo Saavn pe genuinely nahi hain (English, rare tracks).
+    // Saavn songs hamesha pehle, YT sirf gap fill karta hai.
+    List<Song> ytQuickResults = [];
+    if (saavnScored.length < (limit * 0.5).ceil()) {
+      ytQuickResults = await _searchYt(q, limit: 15)
+          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
+          .catchError((_) => <Song>[]);
+      // Safety: if YT throws any sync exception
+      if (ytQuickResults.isEmpty && q.length > 2) {
+        ytQuickResults = [];
+      }
+    }
+
+    // Saavn songs pehle, phir YT (gap fill only, no duplicates)
+    final saavnNormsQuick = <String>{for (final s in saavnScored) _normTitle(s.song.title)};
+    final mergedQuick = <Song>[...saavnScored.map((s) => s.song)];
+    for (final ys in ytQuickResults) {
+      if (mergedQuick.length >= limit) break;
+      if (saavnNormsQuick.contains(_normTitle(ys.title))) continue;
+      if (!RecommendationEngine.isPremiumQuality(ys)) continue;
+      final score = _scoreSearchResult(ys, q, wantsVariant);
+      if (score < minLiveRelevanceScore) continue;
+      mergedQuick.add(ys);
+    }
+
+    final quickResult = mergedQuick.take(limit).toList();
     _writeQuickSearchCache(quickCacheKey, quickResult);
     return quickResult;
   }
@@ -2113,7 +2351,9 @@ class ApiService {
   static Future<List<String>> suggest(String query) async {
     final q = query.trim();
     final results = await _suggestSaavn(q);
-    if (results.isEmpty || q.isEmpty) return results.take(8).toList();
+    // Dedup: Saavn kabhi kabhi duplicate suggestions return karta hai
+    final deduped = results.toSet().toList();
+    if (deduped.isEmpty || q.isEmpty) return deduped.take(10).toList();
 
     // FIX (live-search dropdown showing suggestions unrelated to what was
     // typed, e.g. typo'd queries): _suggestSaavn returns the backend's own
@@ -2151,7 +2391,7 @@ class ApiService {
     }).where((e) => e.value > 0).toList();
 
     scored.sort((a, b) => b.value.compareTo(a.value));
-    return scored.map((e) => e.key).take(8).toList();
+    return scored.map((e) => e.key).take(10).toList();
   }
 
   static Future<List<String>> _suggestSaavn(String query) async {
@@ -2159,7 +2399,7 @@ class ApiService {
     for (final base in [_saavnPrimary, _saavnSecondary, _saavn]) {
       try {
         final url = Uri.parse(
-          '$base/result/?query=${Uri.encodeQueryComponent(query)}&limit=5',
+          '$base/result/?query=${Uri.encodeQueryComponent(query)}&limit=10', // FIX: suggestions zyada
         );
         final res = await _client.get(url).timeout(const Duration(seconds: 3));
         if (res.statusCode == 200) {
@@ -2171,6 +2411,10 @@ class ApiService {
                 .map((j) => _cleanText(
                       (j['song'] ?? j['name'] ?? j['title'] ?? '').toString()))
                 .where((s) => s.isNotEmpty)
+                // FIX ("Not Ramaiya Vastavaiya" suggestions): Saavn ka
+                // autocomplete kabhi kabhi "Not <query>" prefix wali entries
+                // return karta hai — filter kar do
+                .where((s) => !s.toLowerCase().startsWith('not '))
                 .take(5)
                 .toList();
           }
@@ -2261,31 +2505,23 @@ class ApiService {
     // one returns usable results — no waiting on stragglers. Every host
     // is still fired and still gets a chance to answer; only the wait is
     // removed. If every host comes back empty/failed, resolves to [].
-    final futures = <Future<List<Song>?>>[
+    // FIX ("Saavn pe song hai lekin search mein nahi aata"): pehle sirf
+    // pehle winner ki results use hoti thi — agar Node host ne 3 songs
+    // diye aur Flask host ne 40 diye, toh sirf 3 milte the. Ab SAARE
+    // parallel hosts ke results merge hote hain — koi bhi song miss
+    // nahi hoga. Speed same rahegi kyunki sab parallel fire hote hain.
+    // Duplicate dedup search() mein isSameSongSmart se hoti hai.
+    final allResults = await Future.wait(<Future<List<Song>?>>[
       for (final host in _saavnNodeHosts) tryNodeHost(host),
       tryResultRoute(_saavnPrimary),
       tryResultRoute(_saavnSecondary),
       tryResultRoute(_saavn),
-    ];
-    final completer = Completer<List<Song>>();
-    var remaining = futures.length;
-
-    void onDone(List<Song>? r) {
-      if (completer.isCompleted) return;
-      if (r != null && r.isNotEmpty) {
-        completer.complete(r);
-        return;
-      }
-      remaining--;
-      if (remaining == 0 && !completer.isCompleted) {
-        completer.complete(<Song>[]);
-      }
+    ]);
+    final merged = <Song>[];
+    for (final r in allResults) {
+      if (r != null) merged.addAll(r);
     }
-
-    for (final f in futures) {
-      f.then(onDone).catchError((_) => onDone(null));
-    }
-    return completer.future;
+    return merged;
   }
 
   // Shared single-page fetch helper used by _searchSaavn's pagination logic.
@@ -2331,7 +2567,7 @@ class ApiService {
     return _officialChannelMarkers.any((m) => c.contains(m));
   }
 
-  static Future<List<Song>> _searchYt(String query, {int limit = 15}) async {
+  static Future<List<Song>> _searchYt(String query, {int limit = 30}) async { // 15->30 pro level
     try {
       final videos = await Future.any<List<Video>>([
         _searchYtPaged(query, limit),
@@ -2365,7 +2601,7 @@ class ApiService {
         if (seen.add(v.id.value)) videos.add(v);
       }
       var pagesFetched = 1;
-      while (videos.length < limit * 2 && pagesFetched < 4) {
+      while (videos.length < limit * 2 && pagesFetched < 6) { // 4->6 pages pro level
         final next = await page.nextPage();
         if (next == null || next.isEmpty) break;
         page = next;
@@ -2392,8 +2628,10 @@ class ApiService {
   static Future<SongSection?> _ytSectionV1(String query, String label) async {
     final variants = <String>{
       query,
-      '$query audio',
-      '$query official',
+      '\$query audio',
+      '\$query official',
+      '\$query lyrics',   // zyada YT results
+      '\$query hd songs', // high quality uploads
     };
     final results = await Future.wait(
       variants.map((q) => _searchYt(q, limit: 60)),
@@ -3296,6 +3534,7 @@ class ApiService {
     final cached = _streamCache[cacheKey];
     if (cached != null && !cached.isExpired) return;
 
+    if (_prewarmedIds.length > 1000) _prewarmedIds.clear(); // prevent unbounded growth
     _prewarmedIds.add(song.id);
     _client
         .get(Uri.parse('$_worker/api/prewarm?id=${song.id}'))
@@ -3799,6 +4038,7 @@ class ApiService {
   /// closest matching track's ID purely as a lyrics lookup key. Cached so
   /// repeated lyric fetches for the same song don't re-search.
   static final Map<String, String?> _saavnIdForLyricsCache = {};
+  static const int _maxSaavnIdCache = 500;
 
   static Future<String?> _resolveSaavnIdForLyrics(String title, String artist) async {
     final key = '$title|$artist';
@@ -3836,6 +4076,10 @@ class ApiService {
       // wrong lyrics.
       if (best != null && bestScore >= 0.48) foundId = best!.id;
     } catch (_) {}
+    // Cap unbounded growth
+    if (_saavnIdForLyricsCache.length >= _maxSaavnIdCache) {
+      _saavnIdForLyricsCache.remove(_saavnIdForLyricsCache.keys.first);
+    }
     _saavnIdForLyricsCache[key] = foundId;
     return foundId;
   }
