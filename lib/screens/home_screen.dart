@@ -513,7 +513,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               slivers: [
                 _buildAppBar(context, src),
-                const SliverToBoxAdapter(child: _HeroNowPlaying()),
+                SliverToBoxAdapter(child: _HeroNowPlaying(isActive: widget.isActive)),
                 SliverToBoxAdapter(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 380),
@@ -704,7 +704,8 @@ class _HomeScreenState extends State<HomeScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _HeroNowPlaying extends StatefulWidget {
-  const _HeroNowPlaying();
+  final bool isActive;
+  const _HeroNowPlaying({this.isActive = true});
 
   @override
   State<_HeroNowPlaying> createState() => _HeroNowPlayingState();
@@ -802,7 +803,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   }
 
   @override
-  void didUpdateWidget(HomeScreen old) {
+  void didUpdateWidget(_HeroNowPlaying old) {
     super.didUpdateWidget(old);
     // See widget.isActive doc comment — stop the breathe glow the instant
     // this tab is switched away from, rather than leaving it ticking
