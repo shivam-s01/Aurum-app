@@ -11,6 +11,7 @@ import 'aurum_pressable.dart';
 import '../screens/full_player_screen.dart';
 import '../main.dart' show aurumRouteObserver;
 import '../utils/aurum_haptics.dart';
+import '../services/audio_prefs.dart';
 
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
@@ -265,33 +266,48 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                           ),
                           child: _miniPlayerContent(context, player),
                         )
-                      : BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                          child: Container(
-                            height: 68,
-                            decoration: BoxDecoration(
-                              color: (Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? Colors.black
-                                      : Colors.white)
-                                  .withValues(
-                                alpha: Theme.of(context).brightness ==
-                                        Brightness.dark
-                                    ? 0.42
-                                    : 0.62,
-                              ),
-                              borderRadius: BorderRadius.circular(28),
-                              border: Border.all(
+                      : ValueListenableBuilder<double>(
+                          valueListenable: AudioPrefs.miniPlayerBlurSigmaNotifier,
+                          builder: (context, blurSigma, _) {
+                            final content = Container(
+                              height: 68,
+                              decoration: BoxDecoration(
                                 color: (Theme.of(context).brightness ==
                                             Brightness.dark
-                                        ? Colors.white
-                                        : Colors.black)
-                                    .withValues(alpha: 0.08),
-                                width: 1,
+                                        ? Colors.black
+                                        : Colors.white)
+                                    .withValues(
+                                  alpha: Theme.of(context).brightness ==
+                                          Brightness.dark
+                                      ? 0.42
+                                      : 0.62,
+                                ),
+                                borderRadius: BorderRadius.circular(28),
+                                border: Border.all(
+                                  color: (Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.white
+                                          : Colors.black)
+                                      .withValues(alpha: 0.08),
+                                  width: 1,
+                                ),
                               ),
-                            ),
-                            child: _miniPlayerContent(context, player),
-                          ),
+                              child: _miniPlayerContent(context, player),
+                            );
+                            // PERF/HEAT SETTING: mini player is a persistent
+                            // overlay on every screen, so its BackdropFilter
+                            // blur runs on every frame it's visible — real,
+                            // continuous GPU cost. sigma == 0 (user set via
+                            // Settings → Appearance → "Mini Player Blur")
+                            // skips BackdropFilter entirely for the cheapest
+                            // possible steady-state render.
+                            if (blurSigma <= 0) return content;
+                            return BackdropFilter(
+                              filter: ImageFilter.blur(
+                                  sigmaX: blurSigma, sigmaY: blurSigma),
+                              child: content,
+                            );
+                          },
                         ),
                 ),
               ),

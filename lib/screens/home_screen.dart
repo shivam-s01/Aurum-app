@@ -107,7 +107,17 @@ void pushFullPlayer(BuildContext context) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  // PERF FIX (heat while on another tab): MainShell keeps all 4 tabs alive
+  // simultaneously via IndexedStack (see main_shell.dart) — it only hides
+  // the inactive ones, it doesn't unmount them. Without a visibility
+  // signal, Home's ambient "breathe" glow animation (_breatheCtrl, gated
+  // only on isPlaying/appInForeground) kept running at 60fps even while
+  // the user was sitting on Search/Library/Shorts with Home completely
+  // off-screen — pure wasted GPU/CPU work with zero visible effect,
+  // showing up as unnecessary device heat during normal use. Mirrors
+  // SearchScreen's existing `isActive` param/pattern exactly.
+  final bool isActive;
+  const HomeScreen({super.key, this.isActive = true});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -529,7 +539,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               // ── Curated Playlists ──
                               _CuratedPlaylistsSection(refreshKey: _playlistRefreshKey),
                               // ── Premium upsell banner (free users only) ──
-                              const _HomePremiumBanner(),
+                              _HomePremiumBanner(isActive: widget.isActive),
                               // ── Song sections ──
                               _OnlineContent(
                                 sections: _onlineSections,
@@ -785,10 +795,26 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     // actually ticked. .stop() first guarantees a clean, real restart.
     _breatheCtrl.stop();
     final player = context.read<PlayerProvider>();
-    if (player.isPlaying && _appInForeground) {
+    if (player.isPlaying && _appInForeground && widget.isActive) {
       _breatheCtrl.repeat(reverse: true);
     }
     setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(HomeScreen old) {
+    super.didUpdateWidget(old);
+    // See widget.isActive doc comment — stop the breathe glow the instant
+    // this tab is switched away from, rather than leaving it ticking
+    // off-screen until some unrelated rebuild happens to re-evaluate
+    // build()'s gate. Switching back TO this tab lets build()'s own gate
+    // (which already re-checks isPlaying/appInForeground) resume it
+    // naturally on the next build — no special-case restart needed here,
+    // only the stop needs to be immediate.
+    if (old.isActive == widget.isActive) return;
+    if (!widget.isActive && _breatheCtrl.isAnimating) {
+      _breatheCtrl.stop();
+    }
   }
 
   @override
@@ -900,7 +926,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     // was loaded — pure wasted GPU/CPU work sitting on the home screen.
     final isPlayingNow =
         context.select<PlayerProvider, bool>((p) => p.isPlaying);
-    final shouldBreathe = isPlayingNow && _appInForeground;
+    final shouldBreathe = isPlayingNow && _appInForeground && widget.isActive;
     if (shouldBreathe && !_breatheCtrl.isAnimating) {
       _breatheCtrl.repeat(reverse: true);
     } else if (!shouldBreathe && _breatheCtrl.isAnimating) {
@@ -2801,7 +2827,8 @@ class _PlaylistCardState extends State<_PlaylistCard> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _HomePremiumBanner extends StatefulWidget {
-  const _HomePremiumBanner();
+  final bool isActive;
+  const _HomePremiumBanner({this.isActive = true});
 
   @override
   State<_HomePremiumBanner> createState() => _HomePremiumBannerState();
@@ -2830,7 +2857,25 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
     );
     _shimmer =
         CurvedAnimation(parent: _shimmerCtrl, curve: Curves.easeInOutSine);
-    if (AudioPrefs.enableAnimationsNotifier.value) {
+    if (AudioPrefs.enableAnimationsNotifier.value && widget.isActive) {
+      _shimmerCtrl.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_HomePremiumBanner old) {
+    super.didUpdateWidget(old);
+    // See the PERF comment above this class — same IndexedStack-visibility
+    // gap as home_screen.dart's own _breatheCtrl, fixed the same way:
+    // stop immediately when this tab is switched away from; resume is
+    // left to whatever triggers a rebuild once active again (matches
+    // build()'s AnimatedBuilder, which just reads current _shimmerCtrl
+    // state — no separate restart path needed here).
+    if (old.isActive == widget.isActive) return;
+    if (!widget.isActive) {
+      _shimmerCtrl.stop();
+    } else if (AudioPrefs.enableAnimationsNotifier.value &&
+        !_shimmerCtrl.isAnimating) {
       _shimmerCtrl.repeat();
     }
   }
@@ -2838,7 +2883,9 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (AudioPrefs.enableAnimationsNotifier.value && !_shimmerCtrl.isAnimating) {
+      if (AudioPrefs.enableAnimationsNotifier.value &&
+          widget.isActive &&
+          !_shimmerCtrl.isAnimating) {
         _shimmerCtrl.repeat();
       }
     } else {

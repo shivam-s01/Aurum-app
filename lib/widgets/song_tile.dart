@@ -41,6 +41,39 @@ class _SongTileState extends State<SongTile> {
   // FIX: per-instance debounce (was static — one tile blocked ALL tiles)
   bool _isTapping = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // PERF FIX ("first YT song tap always takes 2-8s"): prewarmYtStream()
+    // already existed but only ever fired for the next 3-5 songs in an
+    // ACTIVE queue — a song sitting on Home/Search/Library that the user
+    // hasn't tapped yet got zero head start. ListView/SliverList builders
+    // only construct tiles that are actually near-visible (visible +
+    // cacheExtent), so this tile's own initState firing is already a
+    // reliable, zero-extra-dependency signal that it's about to be seen —
+    // no need for a separate VisibilityDetector package.
+    //
+    // This calls the Worker's /api/prewarm endpoint, which resolves the
+    // YouTube stream URL and caches it server-side (KV) — the actual CPU-
+    // heavy work (InnerTube page fetch + cipher/nsig deobfuscation) runs
+    // on Cloudflare's infra, NOT on-device. So this costs the phone
+    // nothing but one fire-and-forget HTTP call — zero local CPU, zero
+    // heat contribution — while still turning a cold tap-to-play resolve
+    // into a fast KV-HIT by the time the user actually taps.
+    //
+    // Staggered by a small per-tile delay so a fast scroll through many
+    // tiles doesn't fire a burst of simultaneous Worker requests in the
+    // same frame — the delay only spaces out the fire-and-forget HTTP
+    // calls, no extra work happens on-device either way.
+    if (widget.song.source == SongSource.youtube) {
+      final delayMs = 120 + (widget.song.id.hashCode.abs() % 280);
+      Future.delayed(Duration(milliseconds: delayMs), () {
+        if (!mounted) return;
+        ApiService.prewarmYtStream(widget.song);
+      });
+    }
+  }
+
   Future<void> _handleTap(BuildContext context) async {
     if (_isTapping) return;
     _isTapping = true;

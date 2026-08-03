@@ -168,6 +168,29 @@ class AudioPrefs {
   static final ValueNotifier<bool> showBlurredBgNotifier =
       ValueNotifier<bool>(true);
 
+  /// 0–24 (default 24) — blur sigma for the bottom nav bar's frosted-glass
+  /// BackdropFilter. This bar is on screen on every tab, so its blur runs
+  /// on every single frame it's visible — a real, continuous GPU/battery
+  /// cost, most noticeable as device heat during long listening sessions
+  /// on weaker GPUs. Set from Settings → Appearance → "Nav Bar Blur". 0
+  /// disables the BackdropFilter entirely (falls back to a flat tinted
+  /// bar, matching FullPlayerScreen's own _routeAnimating flat-color
+  /// fallback pattern) — the cheapest possible option for users who'd
+  /// rather trade the frosted look for cooler/longer battery life.
+  static final ValueNotifier<double> navBarBlurSigmaNotifier =
+      ValueNotifier<double>(24.0);
+
+  /// 0–14 (default 14) — blur sigma for the mini player's frosted-glass
+  /// BackdropFilter. Same reasoning/tradeoff as [navBarBlurSigmaNotifier]
+  /// above; kept as a separate setting since the mini player and nav bar
+  /// are independent widgets a user may want tuned differently (e.g. mini
+  /// player blur is already suppressed during route transitions — see
+  /// mini_player.dart's _routeAnimating — so its steady-state cost is
+  /// lower to begin with). Set from Settings → Appearance → "Mini Player
+  /// Blur". 0 disables the BackdropFilter entirely.
+  static final ValueNotifier<double> miniPlayerBlurSigmaNotifier =
+      ValueNotifier<double>(14.0);
+
   // ── Battery Saver Mode ───────────────────────────────────────────────
   // A separate feature from the individual animation/background toggles
   // above — those stay exactly as the user set them. Battery Saver Mode
@@ -248,6 +271,8 @@ class AudioPrefs {
   static const _kSwipeSens     = 'swipe_sensitivity';
   static const _kDynamicColor  = 'dynamic_player_color';
   static const _kShowBlurBg    = 'show_blurred_bg';
+  static const _kNavBarBlur    = 'nav_bar_blur_sigma';
+  static const _kMiniPlayerBlur = 'mini_player_blur_sigma';
   static const _kPlayerBgStyle = 'player_bg_style';
   static const _kMiniPlayerBg  = 'mini_player_bg_style';
   static const _kBgGradAnim    = 'bg_gradient_animation';
@@ -297,6 +322,9 @@ class AudioPrefs {
     swipeSensitivity = p.getDouble(_kSwipeSens) ?? swipeSensitivity;
     dynamicPlayerColorNotifier.value = p.getBool(_kDynamicColor) ?? dynamicPlayerColorNotifier.value;
     showBlurredBgNotifier.value = p.getBool(_kShowBlurBg) ?? showBlurredBgNotifier.value;
+    navBarBlurSigmaNotifier.value = p.getDouble(_kNavBarBlur) ?? navBarBlurSigmaNotifier.value;
+    miniPlayerBlurSigmaNotifier.value =
+        p.getDouble(_kMiniPlayerBlur) ?? miniPlayerBlurSigmaNotifier.value;
     playerBgStyleNotifier.value = p.getString(_kPlayerBgStyle) ?? playerBgStyleNotifier.value;
     miniPlayerBgStyleNotifier.value = p.getString(_kMiniPlayerBg) ?? miniPlayerBgStyleNotifier.value;
     bgGradientAnimationNotifier.value = p.getBool(_kBgGradAnim) ?? bgGradientAnimationNotifier.value;
@@ -446,6 +474,18 @@ class AudioPrefs {
     showBlurredBgNotifier.value = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kShowBlurBg, v);
+  }
+
+  static Future<void> setNavBarBlurSigma(double v) async {
+    navBarBlurSigmaNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setDouble(_kNavBarBlur, v);
+  }
+
+  static Future<void> setMiniPlayerBlurSigma(double v) async {
+    miniPlayerBlurSigmaNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setDouble(_kMiniPlayerBlur, v);
   }
 
   static Future<void> setPlayerBgStyle(String v) async {

@@ -27,6 +27,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   String _playerButtonColors = 'Primary';
   String _playerSliderStyle = 'Rounded';
   bool _showBlurredBg = true;
+  double _navBarBlurSigma = 24.0;
+  double _miniPlayerBlurSigma = 14.0;
   // Lyrics
   String _lyricsTextPosition = 'Centre';
   double _lyricsTextSize = 16.0;
@@ -85,6 +87,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _playerButtonColors = p.getString('player_button_colors') ?? 'Primary';
       _playerSliderStyle = p.getString('player_slider_style') ?? 'Rounded';
       _showBlurredBg = p.getBool('show_blurred_bg') ?? true;
+      _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 24.0;
+      _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 14.0;
       _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';
       _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;
       _lyricsLineSpacing = p.getDouble('lyrics_line_spacing') ?? 1.5;
@@ -285,6 +289,27 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             subtitle: l10n.saShowBlurredBgSubtitle,
             value: _showBlurredBg,
             onChanged: (v) { setState(() => _showBlurredBg = v); _save('show_blurred_bg', v); AudioPrefs.setShowBlurredBg(v); },
+          ),
+          // Blur intensity controls for the two persistent frosted-glass
+          // surfaces (nav bar, mini player) — both run their BackdropFilter
+          // blur on every frame they're visible, which is real ongoing
+          // GPU/battery cost on weaker devices. Letting users dial this
+          // down (or to 0 — fully flat, cheapest possible) trades the
+          // frosted look for cooler/longer-lasting playback, without
+          // forcing that tradeoff on everyone.
+          _sliderTile(context,
+            title: l10n.saNavBarBlur,
+            value: _navBarBlurSigma,
+            min: 0, max: 24, divisions: 24,
+            displayValue: _navBarBlurSigma <= 0 ? 'Off' : _navBarBlurSigma.toInt().toString(),
+            onChanged: (v) { setState(() => _navBarBlurSigma = v); AudioPrefs.setNavBarBlurSigma(v); },
+          ),
+          _sliderTile(context,
+            title: l10n.saMiniPlayerBlur,
+            value: _miniPlayerBlurSigma,
+            min: 0, max: 14, divisions: 14,
+            displayValue: _miniPlayerBlurSigma <= 0 ? 'Off' : _miniPlayerBlurSigma.toInt().toString(),
+            onChanged: (v) { setState(() => _miniPlayerBlurSigma = v); AudioPrefs.setMiniPlayerBlurSigma(v); },
           ),
           // ── Mini Player ──
           // Mini player settings removed — the widget was rewritten to a

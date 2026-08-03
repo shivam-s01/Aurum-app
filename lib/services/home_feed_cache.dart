@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import 'api_service.dart';
@@ -47,6 +48,46 @@ import 'api_service.dart';
 /// mid-load" or "genuinely offline for a while" edge cases — the common
 /// path (open app, see cache, fresh data silently arrives 1-3s later) is
 /// unaffected by this ceiling.
+/// Runs on a background isolate via compute() — see loadSections() below
+/// for why this was pulled out of the main isolate for LARGE payloads.
+/// Must be a top-level function (not a closure/instance method) for
+/// compute() to send it across the isolate boundary.
+List<SongSection> _decodeSections(String raw) {
+  final decoded = jsonDecode(raw) as List;
+  return decoded
+      .map((e) => SongSection.fromJson(e as Map<String, dynamic>))
+      // Defensive: a section that round-tripped with no songs (should be
+      // impossible given the save-side guard in saveSections, but a future
+      // format change or partial write shouldn't be able to put an empty
+      // shelf on screen either) is dropped rather than shown.
+      .where((s) => s.songs.isNotEmpty)
+      .toList();
+}
+
+// PERF: compute() itself isn't free — spinning up a background isolate has
+// its own fixed cost (isolate spawn + message-passing serialization), which
+// on a weak/2GB-RAM device can run 10-30ms+. For the common case (a modest
+// cache — a handful of home sections, maybe 60-150 songs total, well under
+// this threshold) that spawn cost is actually MORE overhead than just
+// decoding inline ever was — inline JSON decode of a small string is
+// microseconds, nowhere near enough to drop a frame. compute() is only
+// worth paying for once the payload is large enough that an inline decode
+// would itself risk blocking a frame during the splash/cold-start window.
+// 40 KB of JSON is comfortably past that point (multiple sections' worth
+// of full song metadata) while staying well under what a normal cache
+// actually reaches in practice — this keeps the common path as light and
+// fast as inline decode always was, and only pays the isolate cost on the
+// rarer large-cache case where it's actually a net win.
+const int _computeThresholdBytes = 40 * 1024;
+
+/// Top-level counterpart to _decodeSections — same compute()-eligibility
+/// reasoning applies to the write path (saveSections runs after every
+/// background feed refresh, which can land while the user is actively
+/// scrolling Home; a large jsonEncode inline right then is exactly the
+/// kind of single-frame jank that reads as "stutter while scrolling").
+String _encodeSections(List<Map<String, dynamic>> sectionsJson) =>
+    jsonEncode(sectionsJson);
+
 class HomeFeedCache {
   static const _sectionsKey = 'home_feed_cache_sections_v1';
   static const _artistsKey = 'home_feed_cache_artists_v1';
@@ -73,7 +114,18 @@ class HomeFeedCache {
     if (usable.isEmpty) return;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final encoded = jsonEncode(usable.map((s) => s.toJson()).toList());
+      final sectionsJson = usable.map((s) => s.toJson()).toList();
+      // Size-aware, same reasoning as loadSections()'s decode dispatch —
+      // .toJson() itself (building the plain Map list) is cheap regardless
+      // of size, so only the actual string-encode step is size-gated here.
+      // A rough pre-check on section/song count avoids fully building the
+      // list twice just to measure it: encode inline unless there's
+      // clearly enough data for it to matter.
+      final approxSongCount =
+          usable.fold<int>(0, (sum, s) => sum + s.songs.length);
+      final encoded = approxSongCount > 200
+          ? await compute(_encodeSections, sectionsJson)
+          : _encodeSections(sectionsJson);
       await prefs.setString(_sectionsKey, encoded);
       await prefs.setInt(_savedAtKey, DateTime.now().millisecondsSinceEpoch);
     } catch (_) {
@@ -97,15 +149,29 @@ class HomeFeedCache {
       if (age > maxFreshAge) return [];
       final raw = prefs.getString(_sectionsKey);
       if (raw == null || raw.isEmpty) return [];
-      final decoded = jsonDecode(raw) as List;
-      return decoded
-          .map((e) => SongSection.fromJson(e as Map<String, dynamic>))
-          // Defensive: a section that round-tripped with no songs (should
-          // be impossible given the save-side guard above, but a future
-          // format change or partial write shouldn't be able to put an
-          // empty shelf on screen either) is dropped rather than shown.
-          .where((s) => s.songs.isNotEmpty)
-          .toList();
+      // PERF FIX ("app freezes right after opening, splash looks skipped"):
+      // this used to run jsonDecode() + SongSection.fromJson() for every
+      // song in every cached section directly here, on the UI isolate,
+      // inside HomeScreen.initState() — i.e. the exact same frame window
+      // splash_screen.dart's AnimationController needs to keep ticking
+      // smoothly at 60fps (widget.child, which contains HomeScreen, is
+      // deliberately mounted underneath the splash from frame 1 — see that
+      // file's comment). A cache with many sections/songs made this decode
+      // heavy enough to drop enough frames that the splash animation read
+      // as "skipped" (it was still running, just too janky/fast-forwarded
+      // to see) and the whole UI felt frozen.
+      //
+      // Size-aware dispatch: only hand this off to compute() (a real
+      // background isolate) once the payload is big enough that decoding
+      // it inline would risk blocking a frame — see _computeThresholdBytes
+      // above for why. A typical/small cache decodes inline, which is both
+      // simpler and actually faster than paying an isolate-spawn cost for
+      // a few KB of JSON — keeping the common case as lightweight as
+      // possible instead of unconditionally paying isolate overhead.
+      if (raw.length < _computeThresholdBytes) {
+        return _decodeSections(raw);
+      }
+      return compute(_decodeSections, raw);
     } catch (_) {
       // Corrupt/incompatible cache (e.g. a future model-shape change) —
       // treat exactly like an empty cache rather than crashing home screen.

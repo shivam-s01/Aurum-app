@@ -56,7 +56,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   // reflects the current _tab so the search keyboard focus logic knows
   // exactly when the Search tab is really visible (see search_screen.dart).
   List<Widget> get _screens => [
-    HomeScreen(key: _homeKey),
+    HomeScreen(key: _homeKey, isActive: _tab == 0),
     SearchScreen(isActive: _tab == 1),
     const LibraryScreen(),
   ];
@@ -601,21 +601,40 @@ class _AurumBottomNavBar extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(28),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-            child: Container(
-              height: _barHeight,
-              decoration: BoxDecoration(
-                color: (isDark ? Colors.black : Colors.white)
-                    .withValues(alpha: isDark ? 0.45 : 0.65),
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(
-                  color: (isDark ? Colors.white : Colors.black)
-                      .withValues(alpha: 0.08),
-                  width: 1,
+          // PERF/HEAT SETTING: nav bar sits on screen on every tab, so its
+          // BackdropFilter blur runs every single frame it's visible — a
+          // real, continuous GPU cost that shows up as device heat on
+          // weaker hardware during long sessions. Wrapping just this shell
+          // in a ValueListenableBuilder (not the whole nav bar) means only
+          // the blur/decoration re-renders when the user changes the
+          // setting in Settings → Appearance — the tab icons/labels Stack
+          // below is completely unaffected. sigma == 0 skips BackdropFilter
+          // entirely (cheapest possible option: flat tinted bar, same look
+          // FullPlayerScreen's own route-transition fallback already uses).
+          child: ValueListenableBuilder<double>(
+            valueListenable: AudioPrefs.navBarBlurSigmaNotifier,
+            builder: (context, blurSigma, navBarContent) {
+              final bar = Container(
+                height: _barHeight,
+                decoration: BoxDecoration(
+                  color: (isDark ? Colors.black : Colors.white)
+                      .withValues(alpha: isDark ? 0.45 : 0.65),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: (isDark ? Colors.white : Colors.black)
+                        .withValues(alpha: 0.08),
+                    width: 1,
+                  ),
                 ),
-              ),
-              child: LayoutBuilder(
+                child: navBarContent,
+              );
+              if (blurSigma <= 0) return bar;
+              return BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+                child: bar,
+              );
+            },
+            child: LayoutBuilder(
                 builder: (context, constraints) {
                   final tabWidth = constraints.maxWidth / items.length;
                   return Stack(
@@ -711,7 +730,6 @@ class _AurumBottomNavBar extends StatelessWidget {
               ],
             );
           },
-              ),
             ),
           ),
         ),
