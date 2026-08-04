@@ -292,16 +292,25 @@ class AurumAudioEngine(
         // both are satisfied here.
         .setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL)
         .build()
-        .apply {
-            // Completes the audio-offload fix above. setEnableAudioOffload on
-            // the renderer factory only makes offload AVAILABLE — the actual
-            // CPU/battery saving only kicks in once offload SCHEDULING is
-            // also turned on here, on the built player itself. Same
-            // automatic-fallback safety as the renderer flag: this is a
-            // request/hint, not a hard requirement, so it never breaks
-            // playback on a track/device that can't use it.
-            experimentalSetOffloadSchedulingEnabled(true)
-        }
+        .also { enableOffloadScheduling(it) }
+
+    // Split out into its own @OptIn-annotated function: Kotlin's @OptIn on
+    // the `player` property initializer above does not propagate into a
+    // trailing .apply{}/.also{} lambda for an UnstableApi member call —
+    // that's what caused the "Unresolved reference:
+    // experimentalSetOffloadSchedulingEnabled" build failure. A dedicated
+    // function with its own @OptIn resolves cleanly.
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun enableOffloadScheduling(p: ExoPlayer) {
+        // Completes the audio-offload fix above. setEnableAudioOffload on
+        // the renderer factory only makes offload AVAILABLE — the actual
+        // CPU/battery saving only kicks in once offload SCHEDULING is
+        // also turned on here, on the built player itself. Same
+        // automatic-fallback safety as the renderer flag: this is a
+        // request/hint, not a hard requirement, so it never breaks
+        // playback on a track/device that can't use it.
+        p.experimentalSetOffloadSchedulingEnabled(true)
+    }
 
     // ─────────────────────────────────────────────────────────────────
     // Custom audio focus handling (replaces ExoPlayer's built-in one —
