@@ -68,6 +68,26 @@ class QueueScreen extends StatelessWidget {
           return ReorderableListView.builder(
             padding: const EdgeInsets.only(bottom: 80),
             itemCount: queue.length,
+            // FIX ("drag sirf white line dikhata hai, actual reorder nahi
+            // hota"): ReorderableListView's default behavior makes the
+            // WHOLE row a long-press drag trigger. Every row here also has
+            // its own tap (skipToIndex) and a close/remove button wrapped
+            // in AurumPressable's own GestureDetector — those compete with
+            // the reorder long-press recognizer in the same gesture arena,
+            // so a drag starting anywhere on the row was actually
+            // ambiguous between "tap this song" and "start reordering",
+            // and mostly lost to the tap recognizer. All that visibly
+            // reached the user was Material's brief lift/elevation shadow
+            // (looks like a thin white line) as the drag recognizer won
+            // for an instant before losing the arena — never a real,
+            // completed drag. buildDefaultDragHandles: false turns off
+            // that whole-row trigger; ReorderableDragStartListener below
+            // wraps ONLY the drag_handle icon as the trigger instead —
+            // same YouTube Music / Spotify pattern (drag only from the
+            // handle, tap/swipe anywhere else on the row behaves
+            // normally, no gesture-arena conflict is possible since only
+            // one recognizer now ever claims the handle's own touch area).
+            buildDefaultDragHandles: false,
             onReorder: (from, to) {
               AurumHaptics.medium();
               final adjustedTo = to > from ? to - 1 : to;
@@ -131,7 +151,13 @@ class QueueScreen extends StatelessWidget {
                           child: Icon(Icons.close_rounded, color: AurumTheme.textMuted, size: 18),
                         ),
                       ),
-                    const Icon(Icons.drag_handle_rounded, color: AurumTheme.textMuted, size: 20),
+                    ReorderableDragStartListener(
+                      index: i,
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.drag_handle_rounded, color: AurumTheme.textMuted, size: 20),
+                      ),
+                    ),
                   ],
                 ),
                 ),

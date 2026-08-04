@@ -1156,6 +1156,49 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       ArtworkPaletteCache.warm(song.artworkUrl);
     }
 
+    // FIX ("Up Next empty after tapping a downloaded song, even with 20+
+    // songs downloaded"): the caller-supplied-queue branch below always
+    // trimmed `_queue` to just the tapped song and rebuilt Up Next from
+    // ApiService.getAutoQueue — a live Saavn/YouTube network call. That's
+    // correct for search/library taps (see the FIX comment further down),
+    // but downloaded songs are frequently played with no network at all —
+    // that's the whole point of downloading them — so getAutoQueue came
+    // back empty and Up Next stayed permanently empty even though the
+    // Downloads screen had already built and passed a full, valid,
+    // fully-offline queue (every entry resolved to its localPath copy).
+    // Detect that case up front — every song in the caller's queue already
+    // has a localPath — and use it as-is, skipping the online smart-queue
+    // rebuild entirely, instead of discarding real offline songs in favor
+    // of a network call that was never going to succeed.
+    final isFullyOfflineQueue =
+        queue != null && queue.isNotEmpty && queue.every((s) => s.isLocal);
+
+    if (isFullyOfflineQueue) {
+      _queue = List<Song>.from(queue);
+      _currentIndex = index!.clamp(0, _queue.length - 1);
+      _currentSong = _queue[_currentIndex];
+      _expectedSongId = _currentSong!.id;
+      _expectedSongIdSetAt = DateTime.now();
+      _position = Duration.zero;
+      _duration = Duration.zero;
+      _isLoading = true;
+      notifyListeners();
+      _prewarmUpcoming(_currentIndex);
+      try {
+        await _engine.playQueue(_queue, _currentIndex).timeout(const Duration(seconds: 8));
+      } catch (e) {
+        if (mySession != _uiPlaySession) return;
+        _isLoading = false;
+        _expectedSongId = null;
+        _expectedSongIdSetAt = null;
+        _lastFailedSong = song;
+        _playbackError = 'Couldn\'t play "${song.title}". Tap to retry.';
+        notifyListeners();
+        return;
+      }
+      return;
+    }
+
     if (queue != null && index != null) {
       // FIX ("Up Next full of unrelated reupload junk after tapping a
       // search result"): a caller-supplied queue (search results, library

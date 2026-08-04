@@ -216,6 +216,17 @@ class _MixScreenState extends State<MixScreen> {
                           ),
                           child: Hero(
                             tag: 'mix_art_${widget.mixId}',
+                            // FIX: see matching comment in library_screen.dart's
+                            // grid tile Hero — same page-slide + default-shuttle
+                            // conflict causes a visible snap/glitch as the
+                            // flight hands off to this (still page-sliding)
+                            // destination. Simple scale-only shuttle avoids it.
+                            flightShuttleBuilder: (context, animation, direction, from, to) {
+                              return Material(
+                                color: Colors.transparent,
+                                child: ScaleTransition(scale: animation, child: to.widget),
+                              );
+                            },
                             child: Material(
                               color: Colors.transparent,
                               borderRadius: BorderRadius.circular(14),

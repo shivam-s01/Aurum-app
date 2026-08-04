@@ -1775,6 +1775,15 @@ class ApiService {
           .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[])),
     ];
+    // SPEED FIX ("Saavn ke sab songs fast aane chahiye"): this is a
+    // submit-triggered search (not per-keystroke like quickSearch), so
+    // there's no lightweight/battery concern here — firing YT in parallel
+    // with Saavn always makes sense. Previously YT was only started AFTER
+    // Saavn (+ variants) fully finished, stacking its own 10s on top of
+    // Saavn's up to 12s. Racing them means the total wait is bounded by
+    // whichever is slower, not by their sum.
+    final earlySearchYtFuture = _searchYt(q, limit: 40)
+        .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[]);
     var saavnAll = await Future.wait(saavnFutures);
     var saavnCombined = [for (final list in saavnAll) ...list];
 
@@ -1838,8 +1847,7 @@ class ApiService {
     // (official-label-channel sort, real videos only), plus the search
     // relevance floor and smart dedup against Saavn so nothing doubles up.
     if (saavnScored.length < 8) { // YT: Saavn pe 8 se kam mila toh YT bhi check karo
-      final ytResults = await _searchYt(q, limit: 40) // 20->40 pro level YT
-          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+      final ytResults = await earlySearchYtFuture; // already firing in parallel since above
       for (final song in ytResults) {
         final norm = _normTitle(song.title);
         if (saavnNorms.contains(norm)) continue;
@@ -2260,9 +2268,31 @@ class ApiService {
     // the extra variant calls when that alone wasn't enough — exactly the
     // same "only escalate when needed" pattern the lyric-variant fallback
     // below already uses.
+    // PREMIUM SPEED FIX ("Saavn ke sab songs fast aane chahiye") + LIGHTWEIGHT
+    // FIX ("battery/data pe load na pade") together: firing YT unconditionally
+    // on every keystroke would undo the lightweight fix above (this fires on
+    // every keystroke, not just on submit). Firing YT only AFTER Saavn is
+    // known to be short would keep paying the old sequential latency on a
+    // cold host. Compromise: race the main Saavn call against a short 1.2s
+    // timer — if Saavn hasn't answered by then (cold host, the only case
+    // that actually needs the speed fix), start the YT probe now, in
+    // parallel with Saavn's remaining wait, instead of only after. A warm
+    // Saavn host (the common case, every keystroke after the first) answers
+    // well inside 1.2s, so the YT probe never fires at all — zero extra
+    // battery/data cost for the normal case the lightweight fix protects.
     final qWordsForVariants = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-    final saavnResults = await _searchSaavn(q, limit: limit + 15)
-        .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[]);
+    final saavnFuture = _searchSaavn(q, limit: limit + 15)
+        .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[]);
+    Future<List<Song>>? earlyYtFuture;
+    final saavnResults = await saavnFuture.timeout(
+      const Duration(milliseconds: 1200),
+      onTimeout: () {
+        earlyYtFuture = _searchYt(q, limit: 15)
+            .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[]);
+        return saavnFuture;
+      },
+    );
 
     List<Song> variantResults = [];
     if (saavnResults.length < (limit * 0.6).ceil()) {
@@ -2271,7 +2301,7 @@ class ApiService {
         final typoBatches = await Future.wait([
           for (final v in typoVariants)
             _searchSaavn(v, limit: 15)
-                .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
+                .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
                 .catchError((_) => <Song>[]),
         ]);
         for (final l in typoBatches) variantResults.addAll(l);
@@ -2317,15 +2347,16 @@ class ApiService {
     // parallel fire karo. Live typing mein YT se bhi results aayenge —
     // woh songs jo Saavn pe genuinely nahi hain (English, rare tracks).
     // Saavn songs hamesha pehle, YT sirf gap fill karta hai.
+    // SPEED FIX: if the 1.2s cold-host probe above already started a YT
+    // search (Saavn was slow), reuse that in-flight/completed future
+    // instead of firing a brand-new one and waiting on it sequentially.
     List<Song> ytQuickResults = [];
     if (saavnScored.length < (limit * 0.5).ceil()) {
-      ytQuickResults = await _searchYt(q, limit: 15)
-          .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
-          .catchError((_) => <Song>[]);
-      // Safety: if YT throws any sync exception
-      if (ytQuickResults.isEmpty && q.length > 2) {
-        ytQuickResults = [];
-      }
+      ytQuickResults = earlyYtFuture != null
+          ? await earlyYtFuture!
+          : await _searchYt(q, limit: 15)
+              .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
+              .catchError((_) => <Song>[]);
     }
 
     // Saavn songs pehle, phir YT (gap fill only, no duplicates)

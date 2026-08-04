@@ -1825,38 +1825,54 @@ class AurumAudioEngine(
         }
     }
 
-    fun skipToQueueItem(index: Int) {
+    // FIX (Up Next "plays the wrong song"): this used to be fire-and-forget
+    // — the MethodChannel handler called it and replied success() to Dart
+    // IMMEDIATELY, before the queueMutex-protected seek below ever ran.
+    // Dart's `await` on skipToQueueItem therefore resolved before the
+    // native engine had actually moved, so a fast next tap (or a queue
+    // read) could land while the real seek was still in flight against a
+    // stale/mid-mutation queue snapshot — the same class of race that
+    // addToQueue/removeFromQueue/moveQueueItem were already fixed for by
+    // being made suspend + queueMutex-serialized. Now suspend, so the
+    // channel handler's coroutine — and therefore Dart's await — only
+    // completes once the seek has genuinely happened.
+    suspend fun skipToQueueItemAwaitable(index: Int) {
         val cp = activeCastPlayer
         if (cp != null) {
-            if (index < cp.mediaItemCount) {
-                currentIndex = index
-                pushState()
-                cp.seekTo(index, 0)
-                cp.play()
+            // FIX: this cast branch used to run outside queueMutex entirely
+            // — a queue mutation (addToQueue/moveQueueItem) firing while
+            // casting could still race this seekTo the same way the local
+            // ExoPlayer path below was already fixed for. Wrapping it in
+            // the same queueMutex closes that gap for casting too.
+            queueMutex.withLock {
+                if (index < cp.mediaItemCount) {
+                    currentIndex = index
+                    pushState()
+                    cp.seekTo(index, 0)
+                    cp.play()
+                }
             }
             return
         }
         val gen = ++skipGen
-        scope.launch {
-            // FIX: also serialize against queueMutex — without this, a
-            // skipToQueueItem could still run its seekTo(index, 0) WHILE
-            // an addToQueue/moveQueueItem from the same burst of taps
-            // (e.g. Up Next "play this now") was mid-mutation on the
-            // native media-item list, seeking to an index whose meaning
-            // was about to change underneath it.
-            queueMutex.withLock {
-                skipMutex.withLock {
-                    if (gen != skipGen) return@withLock
-                    if (index < player.mediaItemCount && !splicingInProgress) {
-                        if (index < queueSongs.size) {
-                            currentIndex = index
-                            pushState()
-                        }
-                        player.seekTo(index, 0)
-                        player.play()
-                    } else if (index < queueSongs.size) {
-                        playQueueInternal(queueSongs, index)
+        // FIX: also serialize against queueMutex — without this, a
+        // skipToQueueItem could still run its seekTo(index, 0) WHILE
+        // an addToQueue/moveQueueItem from the same burst of taps
+        // (e.g. Up Next "play this now") was mid-mutation on the
+        // native media-item list, seeking to an index whose meaning
+        // was about to change underneath it.
+        queueMutex.withLock {
+            skipMutex.withLock {
+                if (gen != skipGen) return@withLock
+                if (index < player.mediaItemCount && !splicingInProgress) {
+                    if (index < queueSongs.size) {
+                        currentIndex = index
+                        pushState()
                     }
+                    player.seekTo(index, 0)
+                    player.play()
+                } else if (index < queueSongs.size) {
+                    playQueueInternal(queueSongs, index)
                 }
             }
         }

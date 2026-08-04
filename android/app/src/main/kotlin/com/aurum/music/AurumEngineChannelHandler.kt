@@ -331,8 +331,20 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                 "skipToNext" -> { engine.skipToNext(); result.success(null) }
                 "skipToPrevious" -> { engine.skipToPrevious(); result.success(null) }
                 "skipToQueueItem" -> {
-                    engine.skipToQueueItem(call.argument<Int>("index") ?: 0)
-                    result.success(null)
+                    // FIX: previously called engine.skipToQueueItem() (a
+                    // fire-and-forget fun that launches its own internal
+                    // coroutine under queueMutex) and replied success
+                    // IMMEDIATELY — Dart's await resolved before the native
+                    // seek/queueMutex-protected mutation actually finished.
+                    // That meant Dart could treat a skip as "done" and let
+                    // the NEXT tap/state-read race in while the real engine
+                    // was still mid-seek on the OLD queue snapshot, landing
+                    // on the wrong song. Now awaits full completion the
+                    // same way addToQueue/removeFromQueue/moveQueueItem do.
+                    scope.launch {
+                        engine.skipToQueueItemAwaitable(call.argument<Int>("index") ?: 0)
+                        result.success(null)
+                    }
                 }
                 "setRepeatMode" -> {
                     engine.setRepeatMode(call.argument<String>("mode") ?: "none")

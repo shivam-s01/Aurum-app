@@ -727,9 +727,25 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                       child: tile,
                     );
                   }
-                  return ReorderableDelayedDragStartListener(
+                  // FIX ("playlist reorder galat/sahi se nahi hota"): this
+                  // used to wrap the ENTIRE tile in
+                  // ReorderableDelayedDragStartListener — but the tile's
+                  // own ListTile already has its own onTap (play song) AND
+                  // onLongPress (enter select mode), both competing with
+                  // the reorder drag's long-press-and-hold in the exact
+                  // same touch area/gesture arena. onLongPress in
+                  // particular almost always won or interfered, so a
+                  // press-and-hold-to-drag anywhere on the row read as
+                  // "enter select mode" (or nothing coherent) instead of
+                  // actually starting a reorder. Restricting the drag
+                  // trigger to ONLY the drag_handle icon inside the tile
+                  // (same YouTube Music / Spotify pattern already applied
+                  // to Queue screen) removes the ambiguity entirely — tap
+                  // and long-press elsewhere on the row behave exactly as
+                  // before, and the handle is the sole, unambiguous way to
+                  // start a drag.
+                  return KeyedSubtree(
                     key: ValueKey('${pl.id}_${song.id}_$i'),
-                    index: i,
                     child: tile,
                   );
                 },
@@ -1305,10 +1321,18 @@ class _PlaylistSongTile extends StatelessWidget {
                     ],
                   ),
                   // Drag handle
-                  Icon(Icons.drag_handle_rounded,
-                      color:
-                          AurumTheme.textMutedOf(context).withOpacity(0.5),
-                      size: 20),
+                  selecting
+                      ? const SizedBox.shrink()
+                      : ReorderableDragStartListener(
+                          index: index,
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Icon(Icons.drag_handle_rounded,
+                                color: AurumTheme.textMutedOf(context)
+                                    .withOpacity(0.5),
+                                size: 20),
+                          ),
+                        ),
                 ],
               ),
         onTap: () {
@@ -2917,6 +2941,27 @@ class _FollowedAlbumTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               child: Hero(
                 tag: isMix ? 'mix_art_$id' : 'album_art_$id',
+                // FIX (glitch/snap in mix & album grid artwork during
+                // navigation): the default Hero flightShuttleBuilder tries
+                // to morph BOTH the from-widget and to-widget's own
+                // decoration (ClipRRect radius, Material, shadow) across
+                // the flight, WHILE AurumPageRoute's page-level
+                // SlideTransition is simultaneously moving the whole
+                // destination screen underneath it. Those two independent
+                // transforms fighting for the same frames is what reads
+                // as a snap/glitch right as the flight ends and the
+                // artwork hands off to the destination screen's own
+                // (still-sliding) layout. A simple ScaleTransition on just
+                // the destination widget — same fix already applied to
+                // the full player's artwork Hero — sidesteps the double-
+                // animation entirely: one clean scale, no decoration morph
+                // to fight the page slide.
+                flightShuttleBuilder: (context, animation, direction, from, to) {
+                  return Material(
+                    color: Colors.transparent,
+                    child: ScaleTransition(scale: animation, child: to.widget),
+                  );
+                },
                 child: Material(
                   color: Colors.transparent,
                   child: AurumArtwork(url: artworkUrl, size: 300, borderRadius: 12),

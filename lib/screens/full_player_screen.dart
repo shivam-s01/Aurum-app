@@ -3725,14 +3725,28 @@ class _QueuePage extends StatelessWidget {
                 itemBuilder: (context, listIdx) {
                   final queueIdx = upNext[listIdx];
                   final isNextUp = listIdx == 0;
-                  return ReorderableDelayedDragStartListener(
+                  // FIX ("full player queue reorder galat/sahi se nahi
+                  // hota"): this used to wrap the ENTIRE tile in
+                  // ReorderableDelayedDragStartListener, but _QueueTile
+                  // has its own onTap, onLongPress (quick actions sheet),
+                  // AND a horizontal swipe-to-delete gesture — all
+                  // competing with the reorder drag's long-press in the
+                  // same gesture arena. onLongPress especially interfered,
+                  // so press-and-hold on the row read as "open quick
+                  // actions" instead of starting a reorder. The drag
+                  // trigger now lives ONLY on the drag_handle icon inside
+                  // _QueueTile (via reorderIndex below), same fix already
+                  // applied to Queue screen and the playlist tile — tap,
+                  // long-press, and swipe elsewhere on the row are
+                  // unaffected, and the handle is the sole way to drag.
+                  return KeyedSubtree(
                     key: ValueKey('${queue[queueIdx].id}_$queueIdx'),
-                    index: listIdx,
                     child: _QueueTile(
                       song: queue[queueIdx],
                       isCurrent: false,
                       isNextUp: isNextUp,
                       index: listIdx + 1,
+                      reorderIndex: listIdx,
                       onTap: () {
                         AurumHaptics.selection();
                         context.read<PlayerProvider>().skipToIndex(queueIdx);
@@ -3921,6 +3935,12 @@ class _QueueTile extends StatefulWidget {
   final bool isCurrent;
   final bool isNextUp;
   final int index;
+  // FIX: separate from `index` (the 1-based display number shown in the
+  // tile) — this is the raw SliverReorderableList position needed by
+  // ReorderableDragStartListener below to correctly identify which item
+  // is being dragged. Reusing `index` directly would pass the display
+  // number (already +1'd) instead of the real list position.
+  final int reorderIndex;
   final VoidCallback onTap;
   final VoidCallback onRemove;
   final VoidCallback onPlayNext;
@@ -3931,6 +3951,7 @@ class _QueueTile extends StatefulWidget {
     required this.isCurrent,
     this.isNextUp = false,
     required this.index,
+    required this.reorderIndex,
     required this.onTap,
     required this.onRemove,
     required this.onPlayNext,
@@ -4195,7 +4216,13 @@ class _QueueTileState extends State<_QueueTile>
                   ],
                 )),
                 const SizedBox(width: 8),
-                Icon(Icons.drag_handle_rounded, color: dragColor, size: 18),
+                ReorderableDragStartListener(
+                  index: widget.reorderIndex,
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(Icons.drag_handle_rounded, color: dragColor, size: 18),
+                  ),
+                ),
               ]),
             );
           }),
