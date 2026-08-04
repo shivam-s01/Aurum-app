@@ -15,7 +15,6 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -209,17 +208,6 @@ class AurumAudioEngine(
 
     private fun createUpstreamFactory() = DefaultDataSource.Factory(context, createHttpFactory())
 
-    // Split out into its own @OptIn-annotated function for the same
-    // reason as enableOffloadScheduling below: @OptIn on the `player`
-    // property initializer does not reliably propagate into nested
-    // builder-argument calls (as opposed to trailing .apply{}/.also{}
-    // lambdas), which caused the "Unresolved reference:
-    // setEnableAudioOffload" build failure.
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private fun createOffloadRenderersFactory(): DefaultRenderersFactory =
-        DefaultRenderersFactory(context)
-            .setEnableAudioOffload(true)
-
     // Wraps the upstream factory with the disk cache. Every read first
     // checks streamCache; only genuinely missing bytes hit the network.
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -229,28 +217,24 @@ class AurumAudioEngine(
 
     private val cachedMediaSourceFactory = DefaultMediaSourceFactory(createCacheDataSourceFactory())
 
+    // Split out into its own @OptIn-annotated function: @OptIn on the
+    // `player` property initializer does not reliably propagate into
+    // nested builder-argument calls for an UnstableApi member — that
+    // causes an "Unresolved reference: setEnableAudioOffload" build
+    // failure if inlined directly. A dedicated function with its own
+    // @OptIn resolves cleanly.
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun createOffloadRenderersFactory(): DefaultRenderersFactory =
+        DefaultRenderersFactory(context)
+            .setEnableAudioOffload(true)
+
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     val player: ExoPlayer = ExoPlayer.Builder(context)
         // FIX ("phone heat ho raha hai aur battery jaldi drain ho rahi hai
-        // gaana chalate waqt, chahe screen on ho ya off, chahe Saavn ho ya
-        // YouTube"): ExoPlayer's default renderer path decodes ALL audio
-        // purely in software on the CPU, for the entire duration of every
-        // song, with no offload — this is a well-known, standard cause of
-        // exactly this symptom (constant, source-independent, screen-
-        // state-independent heat) in any ExoPlayer/Media3-based player
-        // that doesn't explicitly opt into offload. Most phones have a
-        // dedicated low-power audio DSP that can decode standard formats
-        // (AAC/MP3, which is what both Saavn and YouTube audio streams
-        // use) entirely in hardware, letting the main CPU go idle/sleep
-        // during playback instead of actively decoding non-stop — this is
-        // exactly what Spotify/YT Music/JioSaavn's own players do, and is
-        // the actual mechanism behind a "paid app doesn't heat my phone"
-        // feel.
-        // setEnableAudioOffload(true) only ever REQUESTS offload — Media3
-        // automatically and safely falls back to normal software decode
-        // per-track if the device or the specific stream's format/sample
-        // rate doesn't support it, so this can never break or degrade
-        // playback; it only takes effect where it can help.
+        // gaana chalate waqt"): requests audio offload so supported
+        // devices decode audio on a low-power DSP instead of the CPU.
+        // Always falls back to normal software decode if unsupported —
+        // never breaks playback, only helps where it can.
         .setRenderersFactory(createOffloadRenderersFactory())
         .setLoadControl(loadControl)
         .setTrackSelector(trackSelector)
@@ -302,21 +286,17 @@ class AurumAudioEngine(
         .build()
         .also { enableOffloadScheduling(it) }
 
-    // Split out into its own @OptIn-annotated function: Kotlin's @OptIn on
-    // the `player` property initializer above does not propagate into a
-    // trailing .apply{}/.also{} lambda for an UnstableApi member call —
-    // that's what caused the "Unresolved reference:
-    // experimentalSetOffloadSchedulingEnabled" build failure. A dedicated
-    // function with its own @OptIn resolves cleanly.
+    // Split out into its own @OptIn-annotated function for the same
+    // reason as createOffloadRenderersFactory above: @OptIn on the
+    // `player` property initializer does not propagate into a trailing
+    // .also{} lambda for an UnstableApi member call.
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun enableOffloadScheduling(p: ExoPlayer) {
         // Completes the audio-offload fix above. setEnableAudioOffload on
         // the renderer factory only makes offload AVAILABLE — the actual
         // CPU/battery saving only kicks in once offload SCHEDULING is
         // also turned on here, on the built player itself. Same
-        // automatic-fallback safety as the renderer flag: this is a
-        // request/hint, not a hard requirement, so it never breaks
-        // playback on a track/device that can't use it.
+        // automatic-fallback safety: request/hint, not a hard requirement.
         p.experimentalSetOffloadSchedulingEnabled(true)
     }
 
