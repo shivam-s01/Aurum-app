@@ -209,6 +209,17 @@ class AurumAudioEngine(
 
     private fun createUpstreamFactory() = DefaultDataSource.Factory(context, createHttpFactory())
 
+    // Split out into its own @OptIn-annotated function for the same
+    // reason as enableOffloadScheduling below: @OptIn on the `player`
+    // property initializer does not reliably propagate into nested
+    // builder-argument calls (as opposed to trailing .apply{}/.also{}
+    // lambdas), which caused the "Unresolved reference:
+    // setEnableAudioOffload" build failure.
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun createOffloadRenderersFactory(): DefaultRenderersFactory =
+        DefaultRenderersFactory(context)
+            .setEnableAudioOffload(true)
+
     // Wraps the upstream factory with the disk cache. Every read first
     // checks streamCache; only genuinely missing bytes hit the network.
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -240,10 +251,7 @@ class AurumAudioEngine(
         // per-track if the device or the specific stream's format/sample
         // rate doesn't support it, so this can never break or degrade
         // playback; it only takes effect where it can help.
-        .setRenderersFactory(
-            DefaultRenderersFactory(context)
-                .setEnableAudioOffload(true)
-        )
+        .setRenderersFactory(createOffloadRenderersFactory())
         .setLoadControl(loadControl)
         .setTrackSelector(trackSelector)
         // Routes every playback through the disk-cache-backed data source
