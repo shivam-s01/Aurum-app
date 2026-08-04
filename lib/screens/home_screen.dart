@@ -358,7 +358,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadOnline({bool clearExisting = true}) async {
     setState(() {
-      _onlineLoading = true;
+      // FIX (shimmer flash-over-cache race): this used to unconditionally
+      // force _onlineLoading = true here, every single call — including
+      // the very first cold-start call, fired on the line right after
+      // _hydrateFromCache() in initState. Neither call is awaited, so
+      // _loadOnline()'s synchronous setState here could easily land
+      // before _hydrateFromCache()'s SharedPreferences read resolved and
+      // set _onlineLoading = false — forcing shimmer to flash in for a
+      // frame (or more) either before the cached content ever painted, or
+      // briefly on top of it right after. On a fast device this could be
+      // a single dropped frame; on a slower one, a visible flicker — the
+      // "looks like a bug" moment. _OnlineContent already source-of-truths
+      // "loading" purely off whether _onlineSections is empty (see its
+      // `if (loading) return _buildShimmer` check) — so _onlineLoading
+      // only needs to be true when there's genuinely nothing to show yet.
+      // Sections already on screen (from cache, or a previous load) mean
+      // real content stays visible the whole time this fetch runs; only a
+      // truly empty start (first-ever launch, or an explicit
+      // clearExisting: true refresh) shows shimmer.
+      final willBeEmpty = clearExisting || _onlineSections.isEmpty;
+      _onlineLoading = willBeEmpty;
       _onlineError = null;
       _playlistRefreshKey++;
       // FIX (cold-start cache, see home_feed_cache.dart / _hydrateFromCache):

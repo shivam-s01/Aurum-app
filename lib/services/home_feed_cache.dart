@@ -88,6 +88,26 @@ const int _computeThresholdBytes = 40 * 1024;
 String _encodeSections(List<Map<String, dynamic>> sectionsJson) =>
     jsonEncode(sectionsJson);
 
+/// Top-level decode for the artists cache — same compute()-eligibility
+/// reasoning as _decodeSections above. Previously loadArtists() ran this
+/// jsonDecode()+map() unconditionally inline, with none of the size-gated
+/// compute() dispatch _decodeSections/loadSections already had — so a
+/// large artists cache (a long "followed/home artists" list building up
+/// over many sessions) could still block the UI isolate during the exact
+/// splash-animation window loadSections() was already fixed for, and read
+/// as the same "splash skipped / frozen open" symptom via this second,
+/// previously-unguarded path.
+List<ArtistSimple> _decodeArtists(String raw) {
+  final decoded = jsonDecode(raw) as List;
+  return decoded
+      .map((e) => ArtistSimple(
+            id: e['id'] as String,
+            name: e['name'] as String,
+            imageUrl: e['imageUrl'] as String,
+          ))
+      .toList();
+}
+
 class HomeFeedCache {
   static const _sectionsKey = 'home_feed_cache_sections_v1';
   static const _artistsKey = 'home_feed_cache_artists_v1';
@@ -203,14 +223,16 @@ class HomeFeedCache {
       if (age > maxFreshAge) return []; // same freshness guarantee as sections
       final raw = prefs.getString(_artistsKey);
       if (raw == null || raw.isEmpty) return [];
-      final decoded = jsonDecode(raw) as List;
-      return decoded
-          .map((e) => ArtistSimple(
-                id: e['id'] as String,
-                name: e['name'] as String,
-                imageUrl: e['imageUrl'] as String,
-              ))
-          .toList();
+      // PERF FIX — same "splash skipped / frozen open" issue loadSections()
+      // was already fixed for (see _decodeArtists doc comment above): only
+      // hand this off to a real background isolate once the payload is
+      // large enough that decoding it inline would risk blocking a frame;
+      // a typical/small artists list decodes inline, which is both simpler
+      // and faster than paying isolate-spawn overhead for a few KB of JSON.
+      if (raw.length < _computeThresholdBytes) {
+        return _decodeArtists(raw);
+      }
+      return compute(_decodeArtists, raw);
     } catch (_) {
       return [];
     }
