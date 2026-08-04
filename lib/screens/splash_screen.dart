@@ -39,6 +39,13 @@ import '../theme/aurum_theme.dart';
 // Single AnimationController drives everything via Interval/Curve — cheap,
 // fully GPU-composited (Transform + Opacity only, no shader passes), each
 // layer behind its own RepaintBoundary.
+//
+// SEQUENCING (2026-08): widget.child (MainShell -> HomeScreen) is not
+// mounted until this animation completes — the splash plays alone, with
+// nothing else on screen competing for the main isolate's frame budget,
+// so it can never visibly skip/drop frames regardless of how much work
+// Home's initState ends up doing once it's finally mounted. See the
+// build() method below for the full reasoning.
 class SplashScreen extends StatefulWidget {
   final Widget child;
   const SplashScreen({super.key, required this.child});
@@ -171,51 +178,64 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     final bg = AurumTheme.bgOf(context);
 
-    // widget.child (MainShell -> HomeScreen) is always in the tree from
-    // frame 1, even while the splash animation is still playing. This is
-    // what makes home-feed API calls (HomeScreen.initState) start loading
-    // the instant the app opens, Spotify-style, instead of waiting 2.7s
-    // for the splash to finish. The splash is just a Stack layer painted
-    // on top; when _showChild flips, that layer is simply not built
-    // anymore — the child underneath is never remounted, so no re-fetch.
-    if (_showChild) return widget.child;
+    // FIX (2026-08 — "splash animation skips / app lags on cold start"):
+    // widget.child (MainShell -> HomeScreen) used to be mounted in the
+    // tree from frame 1, even while only visually hidden behind the
+    // splash overlay above it. Mounting still runs every initState() in
+    // that subtree immediately — HomeScreen firing off cache hydration +
+    // a live network fetch + an artist fetch, MainShell requesting
+    // storage/audio/battery-optimization permissions — all starting on
+    // the exact same frame the splash's AnimationController starts
+    // ticking. On a warm launch there's enough headroom that this mostly
+    // goes unnoticed; on a genuine cold start (Dart engine still warming
+    // up, disk cache cold, Supabase/Hive just initialized) that's a lot
+    // of concurrent CPU/disk/platform-channel work competing with the
+    // splash's own frame-by-frame animation work for the main isolate —
+    // frames get dropped, which reads as the splash "skipping" ahead
+    // rather than playing its full smooth timeline.
+    //
+    // Now widget.child is only built (and only then does its subtree's
+    // initState fire) once the splash's own AnimationController has
+    // actually completed — the splash plays alone, with nothing else
+    // competing for frame time, guaranteeing it's smooth. The tradeoff
+    // is real and intentional: total time-to-interactive is slightly
+    // longer (Home's load now starts after the ~2.7s splash instead of
+    // during it), in exchange for the splash never visibly skipping.
+    if (!_showChild) {
+      return AnimatedBuilder(
+        animation: _ctrl,
+        builder: (context, _) {
+          return Scaffold(
+            backgroundColor: bg,
+            body: Stack(
+              alignment: Alignment.center,
+              children: [
+                Opacity(
+                  opacity: _bgOpacity.value,
+                  child: Container(color: bg),
+                ),
+                Transform.scale(
+                  scale: _markScale.value,
+                  child: Opacity(
+                    opacity: _markOpacity.value,
+                    child: _buildMark(),
+                  ),
+                ),
+                if (_sweep.value > 0)
+                  RepaintBoundary(
+                    child: CustomPaint(
+                      size: const Size(180, 180),
+                      painter: _GlassSweepPainter(progress: _sweep.value),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      );
+    }
 
-    return Stack(
-      children: [
-        widget.child,
-        AnimatedBuilder(
-          animation: _ctrl,
-          builder: (context, _) {
-            return Scaffold(
-              backgroundColor: bg,
-              body: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Opacity(
-                    opacity: _bgOpacity.value,
-                    child: Container(color: bg),
-                  ),
-                  Transform.scale(
-                    scale: _markScale.value,
-                    child: Opacity(
-                      opacity: _markOpacity.value,
-                      child: _buildMark(),
-                    ),
-                  ),
-                  if (_sweep.value > 0)
-                    RepaintBoundary(
-                      child: CustomPaint(
-                        size: const Size(180, 180),
-                        painter: _GlassSweepPainter(progress: _sweep.value),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
-        ),
-      ],
-    );
+    return widget.child;
   }
 
   Widget _buildMark() {

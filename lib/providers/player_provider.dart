@@ -1411,7 +1411,12 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // earlier one that was also waiting.
   ({Song song, Set<String> alreadyInQueue, int sessionId})? _pendingQueueBuild;
 
-  Future<void> _buildInitialSmartQueue(Song song, {required Set<String> alreadyInQueue, required int sessionId}) async {
+  Future<void> _buildInitialSmartQueue(
+    Song song, {
+    required Set<String> alreadyInQueue,
+    required int sessionId,
+    bool isRetry = false,
+  }) async {
     // FIX (permanent missing Up Next queue on rapid song switching): this
     // used to check `_isBuildingInitialQueue` BEFORE checking whether this
     // call's own sessionId had already been superseded. If song A's build
@@ -1535,7 +1540,54 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
         notifyListeners();
       }
-    } catch (_) {
+    } catch (e, st) {
+      // FIX ("Up Next kabhi bhi empty reh jaata hai, koi bhi song play
+      // karo"): this whole build — RecommendationEngine.load(), two
+      // getAutoQueue network calls, enrichWithCleanMetadata, and every
+      // _engine.addToQueue() native call — used to be wrapped in a bare
+      // `catch (_) {}`. ANY single failure anywhere in that chain (a
+      // timed-out host, a bad response, a native MethodChannel hiccup on
+      // one addToQueue call) silently killed the ENTIRE build with zero
+      // log, zero retry, and zero visibility — Up Next simply stayed
+      // empty for that song forever, with nothing telling you why. Now
+      // the failure is at least logged (visible in adb logcat / debug
+      // console) instead of vanishing, and — since most real-world causes
+      // here are transient (a cold/slow API host, a brief native channel
+      // hiccup) rather than permanent — one quick retry is attempted
+      // after a short delay instead of giving up on this song's Up Next
+      // for the rest of the session. Only retries if still the current
+      // song (stale sessionId means the user already moved on, so a retry
+      // would just build a queue nobody will see).
+      debugPrint('[_buildInitialSmartQueue] failed for "${song.title}": $e\n$st');
+      // FIX (bounded retry): capped to exactly ONE retry via isRetry —
+      // without this, a sustained backend outage (not a one-off blip)
+      // would have this catch block re-triggered every ~2s for as long
+      // as the user keeps this song playing, since each retry's own
+      // failure lands back in this same catch and would otherwise
+      // schedule yet another one indefinitely. One retry is enough to
+      // absorb the common transient case (brief timeout, momentary
+      // native-channel hiccup); if it fails twice in a row the issue is
+      // almost certainly not transient, and repeatedly hammering a down
+      // host every 2 seconds for the rest of the session helps nobody.
+      if (sessionId == _uiPlaySession && !isRetry) {
+        Future.delayed(const Duration(seconds: 2), () {
+          if (sessionId != _uiPlaySession) return; // moved on — don't bother
+          // RACE FIX: don't force _isBuildingInitialQueue = false here.
+          // The finally block below (which always runs right after this
+          // catch, same call) may have already replayed a DIFFERENT
+          // pending build (a rapid song-switch that queued up while this
+          // one was in flight) — that replay could still genuinely be
+          // running 2 seconds later. Blindly clearing the flag here would
+          // let this retry start concurrently with that unrelated build,
+          // both appending to `_queue`/the native engine at the same
+          // time. Only retry if the flag is still false on its own —
+          // i.e. nothing else claimed it in the meantime — otherwise
+          // just drop this retry silently; whatever build IS running
+          // will produce a real Up Next regardless.
+          if (_isBuildingInitialQueue) return;
+          unawaited(_buildInitialSmartQueue(song, alreadyInQueue: alreadyInQueue, sessionId: sessionId, isRetry: true));
+        });
+      }
     } finally {
       _isBuildingInitialQueue = false;
       // Always tell the UI the loading flag flipped, even if phase1/phase2

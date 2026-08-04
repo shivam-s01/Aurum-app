@@ -2808,25 +2808,44 @@ class ApiService {
   // later as a silent ExoPlayer idle@0ms failure. A quick HEAD (with ranged
   // GET fallback for CDNs that reject HEAD) catches this before we ever
   // hand the URL to setAudioSource.
+  //
+  // FIX (2026-08 — "Saavn song silently becomes YT a few seconds after
+  // tapping"): this used to be a SINGLE 3s HEAD attempt — any timeout,
+  // even from ordinary network jitter or the proxy's extra hop being
+  // briefly slow to answer HEAD specifically (not GET), was treated
+  // exactly the same as a genuinely dead URL and discarded, sending the
+  // caller straight to the YT fallback even though the Saavn URL itself
+  // was perfectly fine. That single-shot check was too trigger-happy for
+  // a proxied URL, which has one more hop than a direct CDN URL and is
+  // more prone to a one-off slow response, not a broken one. Now: two
+  // attempts (3s, then 5s) before giving up, so one slow/dropped
+  // response doesn't sink an otherwise-good URL.
   static Future<bool> _isUrlAlive(String url) async {
-    try {
-      final uri = Uri.parse(url);
-      final head = await _client
-          .head(uri)
-          .timeout(const Duration(seconds: 3));
-      if (head.statusCode >= 200 && head.statusCode < 400) return true;
-      if (head.statusCode == 405 || head.statusCode == 403) {
-        // PERFORMANCE (2026-07-02): shrunk from 1024→256 bytes — same
-        // liveness check, less wasted transfer per resolve.
-        final ranged = await _client
-            .get(uri, headers: {'Range': 'bytes=0-255'})
-            .timeout(const Duration(seconds: 3));
-        return ranged.statusCode == 200 || ranged.statusCode == 206;
+    Future<bool> attempt(Duration timeout) async {
+      try {
+        final uri = Uri.parse(url);
+        final head = await _client.head(uri).timeout(timeout);
+        if (head.statusCode >= 200 && head.statusCode < 400) return true;
+        if (head.statusCode == 405 || head.statusCode == 403) {
+          // PERFORMANCE (2026-07-02): shrunk from 1024→256 bytes — same
+          // liveness check, less wasted transfer per resolve.
+          final ranged = await _client
+              .get(uri, headers: {'Range': 'bytes=0-255'})
+              .timeout(timeout);
+          return ranged.statusCode == 200 || ranged.statusCode == 206;
+        }
+        return false;
+      } catch (_) {
+        return false;
       }
-      return false;
-    } catch (_) {
-      return false;
     }
+
+    if (await attempt(const Duration(seconds: 3))) return true;
+    // First attempt failed/timed out — could be a one-off network blip
+    // rather than a truly dead URL. Give it one more, slightly longer,
+    // chance before this URL gets discarded and the caller falls back
+    // to a different source entirely.
+    return attempt(const Duration(seconds: 5));
   }
 
   static Future<String?> resolveStreamUrl(Song song, {bool forceRefresh = false}) async {
@@ -2897,8 +2916,25 @@ class ApiService {
             attempts: 2,
           );
           if (url != null && !await _isUrlAlive(url)) {
-            _log('[resolve] Saavn URL for "${song.title}" failed liveness check — discarding');
-            url = null;
+            // FIX (2026-08): previously discarded here immediately and
+            // fell straight to YT even on a one-off slow HEAD response.
+            // But an unconditional fresh retry (new URL + full liveness
+            // recheck) added up to ~15s more in the worst case where
+            // Saavn is genuinely down — the user would sit there far
+            // longer waiting for a song that was never going to play
+            // from Saavn anyway, which is worse than the swap itself.
+            // Bounding the whole "one more try" step to 6s total caps
+            // the worst case at roughly _retry(2)+6s instead of
+            // _retry(2)+~15s, while still giving a real network blip a
+            // fair second chance to land on a different mirror/host via
+            // the parallel race inside _saavnStreamById.
+            _log('[resolve] Saavn URL for "${song.title}" failed liveness check — one bounded retry before YT');
+            url = await () async {
+              final retryUrl = await _saavnStreamById(song.id, title: song.title, artist: song.artist);
+              if (retryUrl != null && await _isUrlAlive(retryUrl)) return retryUrl;
+              return null;
+            }().timeout(const Duration(seconds: 6), onTimeout: () => null);
+            _log('[resolve] Saavn bounded retry for "${song.title}": ${url != null ? "OK" : "FAILED"}');
           }
           _log('[resolve] Saavn by ID "${song.title}": ${url != null ? "OK" : "FAILED"}');
         }

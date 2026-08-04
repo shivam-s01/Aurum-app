@@ -550,15 +550,76 @@ class _SearchScreenState extends State<SearchScreen>
       _relatedQueues = [];
     });
     _saveToHistory(query);
+    // Snapshot the live (quickSearch) results that were already on screen
+    // BEFORE this deep search started.
+    final liveSnapshotBeforeDeepSearch = List<Song>.from(_liveResults);
     _debounce = Timer(const Duration(milliseconds: 150), () async {
+      // FIX ("Saavn se jo results aaye wahi enter dabane ke baad bhi
+      // EXACTLY same rehne chahiye — flip hi nahi hona chahiye — LEKIN
+      // wahi song ki category ke aur related songs bhi neeche aane
+      // chahiye, premium app jaisa"): the direct-match list (_results)
+      // must stay 100% frozen once the live pass already found it — no
+      // flip, no reorder, ever. But ApiService.search() is also the ONLY
+      // thing that builds the "you might also like" expansion (same
+      // movie/album's other songs, same artist, same mood/genre —
+      // RecommendationEngine.generateQueries + the album-tracks query,
+      // see api_service.dart). Skipping the deep call entirely (the
+      // previous version of this fix) killed that expansion for exactly
+      // the healthy case — a query Saavn already covers well — which is
+      // the MOST common case and the one this feature matters most for.
+      // Split responsibility instead: the deep call still always runs,
+      // but it's only ever allowed to fill _relatedResults (the "more
+      // from this category" section below the direct matches).
+      // _results itself only takes the deep pass's direct list when the
+      // live pass came up genuinely short — same 8-real-Saavn-hits bar
+      // as before — otherwise it stays the frozen live snapshot,
+      // untouched, exactly as it looked before enter was pressed.
+      final liveSaavnCount = liveSnapshotBeforeDeepSearch
+          .where((s) => s.source != SongSource.youtube)
+          .length;
+      final keepLiveSnapshot = liveSaavnCount >= 8;
+
+      if (keepLiveSnapshot) {
+        if (!mounted) return;
+        if (_controller.text.trim() != query) return;
+        setState(() {
+          _results = liveSnapshotBeforeDeepSearch;
+          _loading = false;
+        });
+        _precomputeResultQueues();
+      }
+
       final result = await ApiService.search(query);
       if (!mounted) return;
       // Stale-guard: if the user kept typing/searched something else while
       // this was in flight, don't stomp on the newer query's results.
       if (_controller.text.trim() != query) return;
       setState(() {
-        _results        = result.direct;
-        _relatedResults = result.related;
+        if (!keepLiveSnapshot) _results = result.direct;
+        // FIX: when we're keeping the frozen live snapshot, the deep
+        // call's own direct matches that AREN'T already in that snapshot
+        // are real category-mates too (same album/artist run through
+        // generateQueries) that just happened to land in `direct`
+        // instead of `related` this pass — fold them into the related
+        // section instead of discarding them, so nothing found gets lost.
+        // Smart title-comparison (not just ID) keeps reuploads of a song
+        // already showing in _results out of the related section too —
+        // same isSameSongSmart dedup used everywhere else in the app.
+        final liveIds = liveSnapshotBeforeDeepSearch.map((s) => s.id).toSet();
+        final liveRawTitles = liveSnapshotBeforeDeepSearch.map((s) => s.title).toList();
+        bool isDupOfLive(Song s) {
+          if (liveIds.contains(s.id)) return true;
+          for (final t in liveRawTitles) {
+            if (RecommendationEngine.isSameSongSmart(s.title, t)) return true;
+          }
+          return false;
+        }
+        _relatedResults = keepLiveSnapshot
+            ? [
+                ...result.direct.where((s) => !isDupOfLive(s)),
+                ...result.related.where((s) => !isDupOfLive(s)),
+              ]
+            : result.related;
         _loading = false;
       });
       // Precompute queues right after results are set — kept as separate
@@ -568,7 +629,13 @@ class _SearchScreenState extends State<SearchScreen>
       // Flutter actually runs build() (next frame), both _results and
       // _resultQueues/_relatedQueues are already consistent — no separate
       // async gap where one could be stale relative to the other.
-      _precomputeResultQueues();
+      // PERF: only recompute _resultQueues here when _results actually
+      // changed in THIS setState (the !keepLiveSnapshot path) — when
+      // keepLiveSnapshot is true, _results is untouched (still the frozen
+      // live snapshot) and was already precomputed right after it was
+      // set above, so redoing the same O(n²) dedup pass on identical
+      // data here was pure wasted CPU work on every submitted search.
+      if (!keepLiveSnapshot) _precomputeResultQueues();
       _precomputeRelatedQueues();
     });
   }

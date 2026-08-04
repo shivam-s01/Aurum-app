@@ -15,6 +15,7 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -217,7 +218,32 @@ class AurumAudioEngine(
 
     private val cachedMediaSourceFactory = DefaultMediaSourceFactory(createCacheDataSourceFactory())
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     val player: ExoPlayer = ExoPlayer.Builder(context)
+        // FIX ("phone heat ho raha hai aur battery jaldi drain ho rahi hai
+        // gaana chalate waqt, chahe screen on ho ya off, chahe Saavn ho ya
+        // YouTube"): ExoPlayer's default renderer path decodes ALL audio
+        // purely in software on the CPU, for the entire duration of every
+        // song, with no offload — this is a well-known, standard cause of
+        // exactly this symptom (constant, source-independent, screen-
+        // state-independent heat) in any ExoPlayer/Media3-based player
+        // that doesn't explicitly opt into offload. Most phones have a
+        // dedicated low-power audio DSP that can decode standard formats
+        // (AAC/MP3, which is what both Saavn and YouTube audio streams
+        // use) entirely in hardware, letting the main CPU go idle/sleep
+        // during playback instead of actively decoding non-stop — this is
+        // exactly what Spotify/YT Music/JioSaavn's own players do, and is
+        // the actual mechanism behind a "paid app doesn't heat my phone"
+        // feel.
+        // setEnableAudioOffload(true) only ever REQUESTS offload — Media3
+        // automatically and safely falls back to normal software decode
+        // per-track if the device or the specific stream's format/sample
+        // rate doesn't support it, so this can never break or degrade
+        // playback; it only takes effect where it can help.
+        .setRenderersFactory(
+            DefaultRenderersFactory(context)
+                .setEnableAudioOffload(true)
+        )
         .setLoadControl(loadControl)
         .setTrackSelector(trackSelector)
         // Routes every playback through the disk-cache-backed data source
@@ -266,6 +292,16 @@ class AurumAudioEngine(
         // both are satisfied here.
         .setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL)
         .build()
+        .apply {
+            // Completes the audio-offload fix above. setEnableAudioOffload on
+            // the renderer factory only makes offload AVAILABLE — the actual
+            // CPU/battery saving only kicks in once offload SCHEDULING is
+            // also turned on here, on the built player itself. Same
+            // automatic-fallback safety as the renderer flag: this is a
+            // request/hint, not a hard requirement, so it never breaks
+            // playback on a track/device that can't use it.
+            experimentalSetOffloadSchedulingEnabled(true)
+        }
 
     // ─────────────────────────────────────────────────────────────────
     // Custom audio focus handling (replaces ExoPlayer's built-in one —
