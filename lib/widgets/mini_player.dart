@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
+import '../models/song.dart';
 import '../theme/aurum_theme.dart';
+import '../utils/artwork_palette_cache.dart';
 import 'aurum_artwork.dart';
 import 'aurum_pressable.dart';
 import '../screens/full_player_screen.dart';
@@ -23,6 +25,50 @@ class MiniPlayer extends StatefulWidget {
 class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
   double _dragY = 0;
   bool _dragging = false;
+
+  // Spotify-style artwork-tinted background. Reuses the SAME palette
+  // cache Full Player already populates (see artwork_palette_cache.dart)
+  // — by the time a song is playing, Full Player (or the queue pre-warm)
+  // has almost always already extracted and cached its palette, so this
+  // is a near-zero-cost cache hit (peek()), not a fresh decode. No
+  // AnimationController involved: the color transition between songs is
+  // driven by a TweenAnimationBuilder, which only runs its short 420ms
+  // tween while a song change is actually in flight and is fully idle
+  // (zero ticks) the rest of the time — keeping the mini player's
+  // steady-state cost at zero extra animation work.
+  Color? _tintColor;
+  String? _tintForUrl;
+
+  void _syncTintForSong(Song? song) {
+    final url = song?.artworkUrl;
+    if (url == _tintForUrl) return;
+    _tintForUrl = url;
+    if (url == null || url.isEmpty || !url.startsWith('http')) {
+      if (mounted) setState(() => _tintColor = null);
+      return;
+    }
+    // Instant path: Full Player almost always already cached this exact
+    // song's palette (it's playing, after all). No async gap, no flash.
+    final cached = ArtworkPaletteCache.peek(url);
+    if (cached != null) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      if (mounted) {
+        setState(() => _tintColor = ensureContrastSafe(
+            isDark ? cached.darkMuted : cached.lightVibrant,
+            isLight: !isDark));
+      }
+      return;
+    }
+    // Cold path (rare — e.g. app cold-started straight into a playing
+    // song before Full Player has ever been opened): extract once,
+    // cached for every future look so this only happens per-song, ever.
+    ArtworkPaletteCache.get(url).then((p) {
+      if (!mounted || _tintForUrl != url) return;
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      setState(() => _tintColor =
+          ensureContrastSafe(isDark ? p.darkMuted : p.lightVibrant, isLight: !isDark));
+    });
+  }
 
   // FIX ("back navigation feels stuck/slow/janky on EVERY screen"): the
   // mini player sits as a persistent overlay on every screen (home,
@@ -225,6 +271,15 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
           return const SizedBox.shrink();
         }
 
+        // Kick off (or reuse the cached) palette lookup for whatever song
+        // is now playing. Deferred a frame — calling setState() directly
+        // inside build() isn't safe, and the cache-hit path (the common
+        // case) resolves so fast the one-frame delay is imperceptible.
+        final currentSong = player.currentSong;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _syncTintForSong(currentSong);
+        });
+
         final frac = (_dragY.abs() / 160.0).clamp(0.0, 1.0);
         final opacity = _dragging ? (1.0 - frac * 0.6).clamp(0.0, 1.0) : 1.0;
         final translateY = _dragging ? _dragY.clamp(-60.0, 200.0) : 0.0;
@@ -241,7 +296,22 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(28),
-                  child: _routeAnimating
+                  // Spotify-style tinted background: smoothly cross-fades
+                  // toward the current song's artwork color whenever it
+                  // changes. TweenAnimationBuilder only runs its own short
+                  // tween while _tintColor is actually changing — no
+                  // AnimationController, no continuous ticking, fully idle
+                  // between song changes.
+                  child: TweenAnimationBuilder<Color?>(
+                    tween: ColorTween(end: _tintColor),
+                    duration: const Duration(milliseconds: 420),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, animatedTint, _) {
+                      final isDark =
+                          Theme.of(context).brightness == Brightness.dark;
+                      final fallback = isDark ? Colors.black : Colors.white;
+                      final baseTint = animatedTint ?? fallback;
+                      return _routeAnimating
                       ? Container(
                           height: 68,
                           decoration: BoxDecoration(
@@ -260,22 +330,12 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                             // flash. Matched to the same alpha as the real
                             // blurred state so the switch between the two
                             // is visually seamless.
-                            color: (Theme.of(context).brightness ==
-                                        Brightness.dark
-                                    ? Colors.black
-                                    : Colors.white)
-                                .withValues(
-                              alpha: Theme.of(context).brightness ==
-                                      Brightness.dark
-                                  ? 0.42
-                                  : 0.62,
+                            color: baseTint.withValues(
+                              alpha: isDark ? 0.42 : 0.62,
                             ),
                             borderRadius: BorderRadius.circular(28),
                             border: Border.all(
-                              color: (Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? Colors.white
-                                      : Colors.black)
+                              color: (isDark ? Colors.white : Colors.black)
                                   .withValues(alpha: 0.08),
                               width: 1,
                             ),
@@ -298,23 +358,13 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                               height: 68,
                               decoration: BoxDecoration(
                                 color: blurSigma <= 0
-                                    ? AurumTheme.bgCardOf(context)
-                                    : (Theme.of(context).brightness ==
-                                                Brightness.dark
-                                            ? Colors.black
-                                            : Colors.white)
-                                        .withValues(
-                                        alpha: Theme.of(context).brightness ==
-                                                Brightness.dark
-                                            ? 0.42
-                                            : 0.62,
+                                    ? (_tintColor ?? AurumTheme.bgCardOf(context))
+                                    : baseTint.withValues(
+                                        alpha: isDark ? 0.42 : 0.62,
                                       ),
                                 borderRadius: BorderRadius.circular(28),
                                 border: Border.all(
-                                  color: (Theme.of(context).brightness ==
-                                              Brightness.dark
-                                          ? Colors.white
-                                          : Colors.black)
+                                  color: (isDark ? Colors.white : Colors.black)
                                       .withValues(alpha: 0.08),
                                   width: 1,
                                 ),
@@ -335,7 +385,9 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                               child: content,
                             );
                           },
-                        ),
+                        );
+                    },
+                  ),
                 ),
               ),
             ),

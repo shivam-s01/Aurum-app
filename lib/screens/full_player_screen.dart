@@ -104,7 +104,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   late final AnimationController _breatheCtrl;
 
   // ── Artwork float (5.5s loop, reverse) ──
-  late final AnimationController _artworkFloatCtrl;
 
   // ── Swipe-down to dismiss / swipe-up to open panel ──
   //
@@ -265,20 +264,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       duration: const Duration(milliseconds: 9000),
     );
 
-    // Artwork float: 6s pure vertical — Echo Nightly spec
-    _artworkFloatCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 6000),
-    );
+    // NOTE: the old "artwork float" controller (idle 6s up/down drift on
+    // the artwork) has been removed entirely — not just stopped. The
+    // artwork now stays fully pinned in place (premium/paid-app style),
+    // so there's no controller to allocate, tick, or dispose for it at
+    // all — one less AnimationController running in this screen's tree.
 
-    // Only start the ambient loops if the user hasn't disabled animations.
-    // Previously these always started with ..repeat(reverse: true), so even
-    // with the setting off the controllers kept ticking at 60fps forever
+    // Only start the ambient loop if the user hasn't disabled animations.
+    // Previously this always started with ..repeat(reverse: true), so even
+    // with the setting off the controller kept ticking at 60fps forever
     // while the full player was open - pure wasted GPU/battery, since
     // _BgLayer clamps the consumed value to 0.5 either way when off.
     if (AudioPrefs.enableAnimationsNotifier.value) {
       _breatheCtrl.repeat(reverse: true);
-      _artworkFloatCtrl.repeat(reverse: true);
     }
 
     _springBackCtrl = AnimationController(
@@ -329,7 +327,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _staggerCtrl.dispose();
     _titleChangeCtrl.dispose();
     _artworkCtrl.dispose();
-    _artworkFloatCtrl.dispose();
     _playBtnCtrl.dispose();
     _bgColorCtrl.dispose();
     _breatheCtrl.dispose();
@@ -538,7 +535,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     if (_ambientPaused) return;
     _ambientPaused = true;
     _breatheCtrl.stop();
-    _artworkFloatCtrl.stop();
   }
 
   void _resumeAmbientAnims() {
@@ -549,7 +545,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // burning GPU/battery on a value that _BgLayer will just clamp to 0.5.
     if (AudioPrefs.enableAnimationsNotifier.value) {
       _breatheCtrl.repeat(reverse: true);
-      _artworkFloatCtrl.repeat(reverse: true);
     }
   }
 
@@ -1103,7 +1098,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               w: w,
               bgLuma: _currentBg2.computeLuminance(),
               artworkAnim: _artworkAnim,
-              breatheCtrl: _artworkFloatCtrl,
             ),
             SizedBox(height: (vGapMd - 15).clamp(0.0, vGapMd)),
             // Song info — staggered fade+slide up (delay ~90ms)
@@ -1427,7 +1421,6 @@ class _Artwork extends StatefulWidget {
   final double hPad, h, w;
   final double bgLuma;
   final Animation<double> artworkAnim;
-  final Animation<double> breatheCtrl;
 
   const _Artwork({
     required this.song,
@@ -1437,7 +1430,6 @@ class _Artwork extends StatefulWidget {
     required this.w,
     required this.bgLuma,
     required this.artworkAnim,
-    required this.breatheCtrl,
   });
 
   @override
@@ -1515,23 +1507,19 @@ class _ArtworkState extends State<_Artwork> {
             child: Center(
               child: SizedBox(
                 width: maxArtSize,
-                height: maxArtSize + 8, // headroom for float offset
-                child: AnimatedBuilder(
-                  animation: widget.breatheCtrl,
-                  builder: (_, child) {
-                    // Pure vertical float: 0 → -7px → 0, easeInOut — Echo Nightly spec.
-                    // No horizontal drift, no scale — just a clean gentle rise and fall.
-                    final t = Curves.easeInOut.transform(widget.breatheCtrl.value);
-                    final floatY = -7.0 * t;
-                    final dragScale = _dragging
+                height: maxArtSize,
+                // Artwork stays pinned in place — no vertical float.
+                // Only the horizontal swipe-drag offset and its scale
+                // feedback remain; the idle up/down "breathing" motion
+                // has been removed so the artwork reads as static/fixed,
+                // matching a premium/paid-app look.
+                child: Transform.translate(
+                  offset: Offset(_dragDx * 0.3, 0),
+                  child: Transform.scale(
+                    scale: _dragging
                         ? (1.0 - (_dragDx.abs() / 800).clamp(0.0, 0.08))
-                        : 1.0;
-                    return Transform.translate(
-                      offset: Offset(_dragDx * 0.3, floatY),
-                      child: Transform.scale(scale: dragScale, child: child),
-                    );
-                  },
-                  child: AnimatedBuilder(
+                        : 1.0,
+                    child: AnimatedBuilder(
                   animation: widget.artworkAnim,
                   builder: (_, child) => Transform.scale(
                     scale: widget.artworkAnim.value,
@@ -1600,6 +1588,7 @@ class _ArtworkState extends State<_Artwork> {
                         );
                       },
                     ),
+                  ),
                   ),
                   ),
                 ),
