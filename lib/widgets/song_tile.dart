@@ -23,6 +23,14 @@ class SongTile extends StatefulWidget {
   final int? index;
   final bool showIndex;
   final int? displayIndex;
+  // FIX ("Up Next doesn't contain the rest of my liked songs/playlist"):
+  // tells PlayerProvider.playSong() whether `queue` is a real, user-picked
+  // list (Liked Songs, a playlist, an album, a mix, a library section,
+  // Recently Played) that should be played exactly as given, vs. a loose
+  // "whatever else was on screen" list (search results) that should still
+  // get trimmed and rebuilt from real recommendations. Screens that show a
+  // genuine saved list pass true; search passes false (the default).
+  final bool curatedQueue;
 
   const SongTile({
     super.key,
@@ -31,6 +39,7 @@ class SongTile extends StatefulWidget {
     this.index,
     this.showIndex = false,
     this.displayIndex,
+    this.curatedQueue = false,
   });
 
   @override
@@ -86,6 +95,7 @@ class _SongTileState extends State<SongTile> {
             widget.song,
             queue: widget.queue ?? [widget.song],
             index: widget.index ?? 0,
+            curatedQueue: widget.curatedQueue,
           ).catchError((e) {
         debugPrint('[SongTile] playSong error: $e');
       });

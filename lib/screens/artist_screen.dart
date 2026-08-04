@@ -300,7 +300,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                           final shuffled = List<Song>.from(artist.topSongs)
                             ..shuffle();
                           player.playSong(shuffled.first,
-                              queue: shuffled, index: 0);
+                              queue: shuffled, index: 0, curatedQueue: true);
                         },
                 ),
                 const SizedBox(width: 4),
@@ -310,7 +310,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                       : () {
                           AurumHaptics.heavy();
                           player.playSong(artist.topSongs.first,
-                              queue: artist.topSongs, index: 0);
+                              queue: artist.topSongs, index: 0, curatedQueue: true);
                         },
                   child: Container(
                     width: 52,
@@ -339,6 +339,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                 index: i,
                 showIndex: true,
                 displayIndex: i + 1,
+                curatedQueue: true,
               ),
               childCount: artist.topSongs.length,
             ),

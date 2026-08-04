@@ -368,7 +368,7 @@ class LibraryScreen extends StatelessWidget {
         ...recent.asMap().entries.map(
               (e) => Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: SongTile(song: e.value, queue: recent, index: e.key),
+                child: SongTile(song: e.value, queue: recent, index: e.key, curatedQueue: true),
               ),
             ),
         if (history.length > 5)
@@ -1102,6 +1102,7 @@ class _PlaylistActionRow extends StatelessWidget {
                       playlist.songs[0],
                       queue: playlist.songs,
                       index: 0,
+                      curatedQueue: true,
                     );
               },
               child: Container(
@@ -1136,6 +1137,7 @@ class _PlaylistActionRow extends StatelessWidget {
                       shuffled[0],
                       queue: shuffled,
                       index: 0,
+                      curatedQueue: true,
                     );
               },
               child: Container(
@@ -1345,6 +1347,7 @@ class _PlaylistSongTile extends StatelessWidget {
                 song,
                 queue: playlist.songs,
                 index: index,
+                curatedQueue: true,
               );
         },
         onLongPress: selecting ? null : onEnterSelectMode,
@@ -2079,7 +2082,8 @@ class _HistoryScreenState extends State<_HistoryScreen>
                             context.read<PlayerProvider>().playSong(
                                 shuffled[0],
                                 queue: shuffled,
-                                index: 0);
+                                index: 0,
+                                curatedQueue: true);
                           },
                         ),
                         const SizedBox(width: 4),
@@ -2168,7 +2172,8 @@ class _HistoryScreenState extends State<_HistoryScreen>
                             context.read<PlayerProvider>().playSong(
                                 history[0],
                                 queue: history,
-                                index: 0);
+                                index: 0,
+                                curatedQueue: true);
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(
@@ -2300,7 +2305,8 @@ class _HistoryScreenState extends State<_HistoryScreen>
                             SongTile(
                                 song: song,
                                 queue: history,
-                                index: i),
+                                index: i,
+                                curatedQueue: true),
                           ],
                         ),
                       );
@@ -2492,7 +2498,8 @@ class _LocalFilesScreen extends StatelessWidget {
                       itemBuilder: (_, i) => SongTile(
                           song: lib.allSongs[i],
                           queue: lib.allSongs,
-                          index: i),
+                          index: i,
+                          curatedQueue: true),
                     ),
     );
   }
@@ -2741,6 +2748,7 @@ class _DownloadTile extends StatelessWidget {
                 offlineSong,
                 queue: offlineQueue,
                 index: resolvedIndex,
+                curatedQueue: true,
               );
 
           Navigator.of(context).push(

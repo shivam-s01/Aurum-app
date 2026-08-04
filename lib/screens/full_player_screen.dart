@@ -1436,9 +1436,32 @@ class _Artwork extends StatefulWidget {
   State<_Artwork> createState() => _ArtworkState();
 }
 
-class _ArtworkState extends State<_Artwork> {
+class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin {
   double _dragDx = 0;
   bool _dragging = false;
+
+  // FIX (1-sec "jatka"/jerk on song change via swipe) — this used to reset
+  // _dragDx straight to 0 via a plain setState() the instant the finger
+  // lifted, regardless of how far it had been dragged (up to the ~220px/
+  // 70px threshold). Transform.translate follows _dragDx directly, so
+  // that read as the artwork instantly teleporting back to center in a
+  // single frame — a hard, visible snap right at the moment the new song
+  // landed, since skipNext()/skipPrev() were already firing in the same
+  // callback. This controller animates that same return-to-center instead
+  // of hard-cutting it, so the artwork eases back into place rather than
+  // jumping. Kept intentionally short/cheap (150ms, single Tween, no
+  // extra compositing layers) so it stays lightweight.
+  late final AnimationController _snapBackCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 150),
+  );
+  Animation<double>? _snapBackAnim;
+
+  @override
+  void dispose() {
+    _snapBackCtrl.dispose();
+    super.dispose();
+  }
 
   // Higher sensitivity (closer to 100) means a shorter swipe triggers a
   // skip. We map the 0–100 setting onto a 220px (least sensitive) down to
@@ -1446,6 +1469,23 @@ class _ArtworkState extends State<_Artwork> {
   double _thresholdFor(double sensitivity) {
     final t = sensitivity.clamp(0.0, 100.0) / 100.0;
     return 220.0 - (150.0 * t);
+  }
+
+  void _animateSnapBack() {
+    _snapBackCtrl.stop();
+    final start = _dragDx;
+    if (start == 0) {
+      setState(() => _dragging = false);
+      return;
+    }
+    _snapBackAnim = Tween<double>(begin: start, end: 0).animate(
+      CurvedAnimation(parent: _snapBackCtrl, curve: Curves.easeOutCubic),
+    )..addListener(() {
+        if (!mounted) return;
+        setState(() => _dragDx = _snapBackAnim!.value);
+      });
+    _dragging = false;
+    _snapBackCtrl.forward(from: 0.0);
   }
 
   void _handleDragEnd() {
@@ -1467,10 +1507,7 @@ class _ArtworkState extends State<_Artwork> {
       AurumHaptics.medium();
       widget.player.skipPrev();
     }
-    setState(() {
-      _dragDx = 0;
-      _dragging = false;
-    });
+    _animateSnapBack();
   }
 
   @override
@@ -1490,18 +1527,16 @@ class _ArtworkState extends State<_Artwork> {
         return GestureDetector(
           behavior: HitTestBehavior.translucent,
           onHorizontalDragStart: swipeEnabled
-              ? (_) => setState(() => _dragging = true)
+              ? (_) {
+                  _snapBackCtrl.stop();
+                  setState(() => _dragging = true);
+                }
               : null,
           onHorizontalDragUpdate: swipeEnabled
               ? (d) => setState(() => _dragDx += d.delta.dx)
               : null,
           onHorizontalDragEnd: swipeEnabled ? (_) => _handleDragEnd() : null,
-          onHorizontalDragCancel: swipeEnabled
-              ? () => setState(() {
-                    _dragDx = 0;
-                    _dragging = false;
-                  })
-              : null,
+          onHorizontalDragCancel: swipeEnabled ? _animateSnapBack : null,
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: widget.hPad),
             child: Center(
@@ -3711,6 +3746,38 @@ class _QueuePage extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
               sliver: SliverReorderableList(
                 itemCount: upNext.length,
+                // Subtle lift while the item is being dragged (YT Music/
+                // Spotify style) — a light scale-up + soft shadow so the
+                // dragged tile visibly separates from the rest of the
+                // list while it's following the finger. Single Transform +
+                // DecoratedBox, no extra controllers — cheap enough to run
+                // every frame of the drag.
+                proxyDecorator: (child, index, animation) {
+                  return AnimatedBuilder(
+                    animation: animation,
+                    builder: (context, _) {
+                      final t = Curves.easeOut.transform(animation.value);
+                      final scale = 1.0 + (0.03 * t);
+                      return Transform.scale(
+                        scale: scale,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withAlpha((110 * t).round()),
+                                blurRadius: 20 * t,
+                                offset: Offset(0, 6 * t),
+                              ),
+                            ],
+                          ),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: child,
+                  );
+                },
                 onReorder: (oldListIdx, newListIdx) {
                   AurumHaptics.medium();
                   final fromQueueIdx = upNext[oldListIdx];
@@ -4216,11 +4283,41 @@ class _QueueTileState extends State<_QueueTile>
                   ],
                 )),
                 const SizedBox(width: 8),
-                ReorderableDragStartListener(
-                  index: widget.reorderIndex,
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(Icons.drag_handle_rounded, color: dragColor, size: 18),
+                // FIX (YT Music-style "drag handle ko press karke song ko
+                // list mein kahi bhi drop karna" not working reliably):
+                // this used to be a plain ReorderableDragStartListener
+                // (starts the reorder drag the instant ANY pan begins,
+                // including near-zero horizontal jitter). But the handle
+                // sits inside the same tile as the outer GestureDetector's
+                // onHorizontalDragUpdate/onHorizontalDragEnd (swipe-to-
+                // delete) above — both recognizers enter the SAME gesture
+                // arena on touch-down at that point, and Flutter resolves
+                // an ambiguous pan-vs-horizontal-drag race unpredictably,
+                // so a press-and-drag on the handle was frequently getting
+                // intercepted as a swipe-to-delete gesture instead of
+                // starting the reorder, especially on a slightly diagonal
+                // first movement (extremely common with a thumb, not a
+                // precise mouse cursor).
+                //
+                // GestureDetector(behavior: opaque) wraps the handle with
+                // its own hit-test boundary so its pan recognizer claims
+                // the touch on this small icon before it can ever reach
+                // the outer tile's horizontal-drag recognizer — the two
+                // gestures no longer share an arena at all here. Switched
+                // to the Delayed variant (small long-press-to-arm window
+                // before the drag starts) so a quick tap still reaches
+                // onTap/onLongPress normally, and once armed the item
+                // follows the finger to ANY position in the list exactly
+                // like YouTube Music/Spotify, not just adjacent swaps.
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {},
+                  child: ReorderableDelayedDragStartListener(
+                    index: widget.reorderIndex,
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(Icons.drag_handle_rounded, color: dragColor, size: 18),
+                    ),
                   ),
                 ),
               ]),

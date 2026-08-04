@@ -306,7 +306,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                                 ? (List<Song>.from(_songs)..shuffle())
                                 : _songs;
                             player.playSong(queue.first,
-                                queue: queue, index: 0);
+                                queue: queue, index: 0, curatedQueue: true);
                           },
                     child: Container(
                       width: 56,
@@ -359,6 +359,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                   index: i,
                   showIndex: true,
                   displayIndex: i + 1,
+                  curatedQueue: true,
                 ),
                 childCount: _songs.length,
               ),
@@ -561,7 +562,7 @@ class _AlbumOptionsSheetState extends State<_AlbumOptionsSheet> {
                     if (songs.isEmpty) return;
                     Navigator.pop(context);
                     unawaited(
-                        player.playSong(songs.first, queue: songs, index: 0));
+                        player.playSong(songs.first, queue: songs, index: 0, curatedQueue: true));
                   },
                 ),
                 _GridOption(
@@ -573,7 +574,7 @@ class _AlbumOptionsSheetState extends State<_AlbumOptionsSheet> {
                     Navigator.pop(context);
                     final shuffled = List<Song>.from(songs)..shuffle();
                     unawaited(player.playSong(shuffled.first,
-                        queue: shuffled, index: 0));
+                        queue: shuffled, index: 0, curatedQueue: true));
                   },
                 ),
                 _GridOption(

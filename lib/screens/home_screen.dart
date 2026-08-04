@@ -203,7 +203,6 @@ class _PlaylistMeta {
 // like a stock Material widget.
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<SongSection> _onlineSections = [];
   bool _onlineLoading = true;
   String? _onlineError;
   // Bumped on every pull-to-refresh so the "Playlists for You" cards (which
@@ -215,6 +214,32 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _artistsLoading = true;
 
   final ScrollController _scrollCtrl = ScrollController();
+
+  // PERF FIX (40s "katarnak lag" on every cold start): _onlineSections used
+  // to live as plain State fields, updated via setState() on _HomeScreenState
+  // itself — see _loadOnline()'s onSection callback below. Every one of the
+  // ~15-19 sections streaming in on a cold start therefore triggered a
+  // setState() at the very ROOT of this screen, which meant Flutter rebuilt
+  // and re-diffed the ENTIRE Home tree each time: the AppBar, the
+  // AnimatedSwitcher, _CuratedPlaylistsSection, _HomePremiumBanner,
+  // _OnlineContent (all shelves), AND _ArtistStrip — none of which have
+  // anything to do with a single song section arriving. Even with
+  // _StaggeredSection's per-section ValueKey limiting the cost of diffing
+  // each individual shelf, that top-level rebuild-and-diff pass still ran
+  // 15-19 times back-to-back in the first few seconds of every cold start —
+  // exactly the sustained jank window described ("laggy until new titles
+  // stop arriving").
+  //
+  // Fix: move the streamed section list into its own ValueNotifier, and
+  // wrap ONLY _OnlineContent in a ValueListenableBuilder further down in
+  // build(). Every onSection arrival now rebuilds just that one subtree —
+  // the curated playlists row, premium banner, and artist strip never
+  // rebuild again after their own one-time load, no matter how many song
+  // sections stream in afterward.
+  final ValueNotifier<List<SongSection>> _onlineSectionsNotifier =
+      ValueNotifier<List<SongSection>>([]);
+  List<SongSection> get _onlineSections => _onlineSectionsNotifier.value;
+  set _onlineSections(List<SongSection> v) => _onlineSectionsNotifier.value = v;
 
   @override
   void initState() {
@@ -306,26 +331,31 @@ class _HomeScreenState extends State<HomeScreen> {
     // source lands first (almost always the cache, since it's pure local
     // disk vs a network round-trip) wins the initial paint, and the other
     // one simply never overwrites it with less/older data.
-    setState(() {
-      if (_onlineSections.isEmpty && cachedSections.isNotEmpty) {
-        _onlineSections = cachedSections;
-        // Real content already on screen from cache — the shimmer-only
-        // loading state no longer applies, even though the fresh fetch is
-        // still running in the background. _loadOnline()'s own onSection
-        // stream will progressively replace these with live sections as
-        // they arrive, same as it already does for a from-scratch load.
-        _onlineLoading = false;
-      }
-      if (_homeArtists.isEmpty && cachedArtists.isNotEmpty) {
+    // PERF FIX: sections go through the ValueNotifier directly (no
+    // setState) — see the notifier's doc comment above for why. Only the
+    // artist strip still needs a real setState here, and only if it's
+    // actually changing.
+    if (_onlineSections.isEmpty && cachedSections.isNotEmpty) {
+      // Real content already on screen from cache — the shimmer-only
+      // loading state no longer applies, even though the fresh fetch is
+      // still running in the background. _loadOnline()'s own onSection
+      // stream will progressively replace these with live sections as
+      // they arrive, same as it already does for a from-scratch load.
+      _onlineSections = cachedSections;
+      if (_onlineLoading) setState(() => _onlineLoading = false);
+    }
+    if (_homeArtists.isEmpty && cachedArtists.isNotEmpty) {
+      setState(() {
         _homeArtists = cachedArtists;
         _artistsLoading = false;
-      }
-    });
+      });
+    }
   }
 
   @override
   void dispose() {
     _scrollCtrl.dispose();
+    _onlineSectionsNotifier.dispose();
     super.dispose();
   }
 
@@ -380,6 +410,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _onlineLoading = willBeEmpty;
       _onlineError = null;
       _playlistRefreshKey++;
+      // _onlineSections itself is set just below via the ValueNotifier
+      // (not here) when clearExisting — see PERF FIX above.
       // FIX (cold-start cache, see home_feed_cache.dart / _hydrateFromCache):
       // this used to unconditionally wipe _onlineSections to [] on every
       // call, including the very first call fired right after
@@ -396,8 +428,11 @@ class _HomeScreenState extends State<HomeScreen> {
       // user-initiated refresh remains the right call there, since that's
       // a deliberate "give me a new batch" action, not a passive cold
       // start where stale-but-real content is strictly better than blank.
-      if (clearExisting) _onlineSections = [];
     });
+    // PERF FIX: moved outside the setState above — this is a section-list
+    // write, which now goes through the ValueNotifier (see its doc comment)
+    // instead of triggering a full HomeScreen rebuild.
+    if (clearExisting) _onlineSections = [];
     try {
       final recentlyPlayedProvider = context.read<RecentlyPlayedProvider>();
       final topArtists  = recentlyPlayedProvider.topArtists(count: 3);
@@ -445,16 +480,28 @@ class _HomeScreenState extends State<HomeScreen> {
         recentlyPlayed: recentSongs,
         onSection: (section) {
           if (!mounted) return;
-          setState(() {
-            final existingIdx = liveSections.indexWhere((s) => s.id == section.id);
-            if (existingIdx != -1) {
-              liveSections[existingIdx] = section;
-            } else {
-              liveSections.add(section);
-            }
-            _onlineSections = liveSections;
-            _onlineLoading = false;
-          });
+          // PERF FIX (40s cold-start lag): this used to be wrapped in
+          // setState() on _HomeScreenState — see the ValueNotifier's doc
+          // comment near the top of this State class for the full
+          // explanation. Each of the ~15-19 sections streaming in here now
+          // only notifies _onlineSectionsNotifier's own
+          // ValueListenableBuilder (wrapping just _OnlineContent further
+          // down in build()), instead of rebuilding the entire Home
+          // screen — AppBar, curated playlists, premium banner, and artist
+          // strip included — on every single arrival.
+          final existingIdx = liveSections.indexWhere((s) => s.id == section.id);
+          if (existingIdx != -1) {
+            liveSections[existingIdx] = section;
+          } else {
+            liveSections.add(section);
+          }
+          // Reassign to a fresh list so the ValueNotifier's own identity
+          // check (it only notifies listeners when the value actually
+          // changes) reliably fires — mutating liveSections in place above
+          // and reusing the same reference here would risk being treated
+          // as "unchanged" by some ValueNotifier-adjacent tooling.
+          _onlineSections = List<SongSection>.from(liveSections);
+          if (_onlineLoading) setState(() => _onlineLoading = false);
         },
       ).timeout(const Duration(seconds: 25));
       if (mounted) {
@@ -579,11 +626,23 @@ class _HomeScreenState extends State<HomeScreen> {
                               // ── Premium upsell banner (free users only) ──
                               _HomePremiumBanner(isActive: widget.isActive),
                               // ── Song sections ──
-                              _OnlineContent(
-                                sections: _onlineSections,
-                                loading: _onlineLoading,
-                                error: _onlineError,
-                                onRetry: _loadOnline,
+                              // PERF FIX: isolated in its own
+                              // ValueListenableBuilder so each streamed-in
+                              // section (up to ~15-19 per cold start) only
+                              // rebuilds this subtree — not the curated
+                              // playlists row, premium banner, or artist
+                              // strip above/below it. See
+                              // _onlineSectionsNotifier's doc comment.
+                              ValueListenableBuilder<List<SongSection>>(
+                                valueListenable: _onlineSectionsNotifier,
+                                builder: (context, sections, _) {
+                                  return _OnlineContent(
+                                    sections: sections,
+                                    loading: _onlineLoading,
+                                    error: _onlineError,
+                                    onRetry: _loadOnline,
+                                  );
+                                },
                               ),
                               // ── Artist Strip (after recommendations) ──
                               _ArtistStrip(

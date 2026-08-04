@@ -1130,7 +1130,27 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // ---------------------------------------------------------------------------
   // PLAYBACK CONTROL
   // ---------------------------------------------------------------------------
-  Future<void> playSong(Song song, {List<Song>? queue, int? index}) async {
+  // FIX ("Up Next empty/wrong after playing from Liked Songs / a playlist /
+  // album / mix"): playSong()'s caller-supplied-queue branch used to ALWAYS
+  // trim `_queue` down to just the tapped song and rebuild Up Next from a
+  // live online recommendation call (_buildInitialSmartQueue /
+  // getAutoQueue), discarding whatever real queue the caller passed in —
+  // see the FIX comment on that branch below for why that behavior exists
+  // at all (it's correct for search results, which are just "whatever
+  // matched the typed text", not a real playlist).
+  //
+  // The problem: that same trim-and-rebuild logic ALSO fired for taps that
+  // came from a genuinely curated, user-picked list — Liked Songs, a saved
+  // playlist, an album, a mix, a library section, Recently Played — where
+  // the passed-in `queue` **is** exactly what the user wants Up Next to be.
+  // Every one of those call sites already passes the full song list with a
+  // correct `index`, so there is nothing to "rebuild" — the fix in those
+  // cases is to just play that queue as given, online or fully offline.
+  // `curatedQueue: true` marks that case explicitly instead of relying on
+  // heuristics like queue length. Search/"just play this song" call sites
+  // continue to omit it (defaults false) and keep the old smart-queue
+  // rebuild behavior unchanged.
+  Future<void> playSong(Song song, {List<Song>? queue, int? index, bool curatedQueue = false}) async {
     _lastHandledIndex = null;
     _uiPlaySession++;
     final mySession = _uiPlaySession;
@@ -1199,6 +1219,45 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
+    if (curatedQueue && queue != null && queue.isNotEmpty && index != null) {
+      // Caller explicitly marked this as a real, user-picked list (Liked
+      // Songs, playlist, album, mix, library section, Recently Played).
+      // Use it exactly as given — no trimming, no online rebuild — same
+      // treatment as the fully-offline branch above, just without
+      // requiring every song to have a localPath.
+      _queue = List<Song>.from(queue);
+      _currentIndex = index.clamp(0, _queue.length - 1);
+      _currentSong = _queue[_currentIndex];
+      _expectedSongId = _currentSong!.id;
+      _expectedSongIdSetAt = DateTime.now();
+      _position = Duration.zero;
+      _duration = Duration.zero;
+      _isLoading = true;
+      notifyListeners();
+      _prewarmUpcoming(_currentIndex);
+      try {
+        await _engine.playQueue(_queue, _currentIndex).timeout(const Duration(seconds: 8));
+      } catch (e) {
+        if (mySession != _uiPlaySession) return;
+        _isLoading = false;
+        _expectedSongId = null;
+        _expectedSongIdSetAt = null;
+        _lastFailedSong = song;
+        _playbackError = 'Couldn\'t play "${song.title}". Tap to retry.';
+        notifyListeners();
+        return;
+      }
+      if (mySession != _uiPlaySession) return;
+      // Still extend Up Next with real recommendations once the curated
+      // list runs low — same ≤8-remaining auto-extend path used elsewhere
+      // — but only ever appended after every curated song, never replacing
+      // them.
+      if (_queue.length - _currentIndex <= 8 && song.source != SongSource.local) {
+        _buildInitialSmartQueue(song, alreadyInQueue: _queue.map((s) => s.id).toSet(), sessionId: mySession);
+      }
+      return;
+    }
+
     if (queue != null && index != null) {
       // FIX ("Up Next full of unrelated reupload junk after tapping a
       // search result"): a caller-supplied queue (search results, library
@@ -1215,6 +1274,10 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // used when no queue is passed at all — so search/library taps and
       // "just play this song" taps now produce an identical, relevant
       // Up Next instead of two different behaviors.
+      //
+      // NOTE: this branch is now only reached when curatedQueue is false
+      // (or wasn't set) — see the curatedQueue branch above for real
+      // playlist/liked/album/mix taps, which keep the caller's queue as-is.
       _queue = [song];
       _currentIndex = 0;
       _currentSong = song;

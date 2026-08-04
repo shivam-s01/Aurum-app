@@ -836,9 +836,23 @@ class ApiService {
     // pages instead of being silently capped at one ~20-video page — so
     // asking for more here now actually pays off downstream instead of
     // being a no-op.
+    // FIX (excess data usage / MB on cold start): each call here was
+    // asking for `limit=120` PER PAGE × 3 pages = up to 360 raw Saavn
+    // songs' worth of JSON for a SINGLE section, then throwing away
+    // everything past the first 80 survivors (see tryAdd()'s `merged.length
+    // >= 80` cap in _saavnSectionV4). With ~15-19 sections built on every
+    // cold start/refresh, that's a large amount of downloaded JSON that
+    // never even reaches the screen — pure wasted bandwidth, not something
+    // that improved section quality (the earlier "sections landing under
+    // 80" bump was solving a real problem, but it overshot: filtering
+    // headroom this generous just means more discarded data, not a fuller
+    // section). Capped back down to a limit that still comfortably clears
+    // 80 post-filter (3 pages here + YouTube's own pool below already
+    // provide real headroom over variant/dedup loss) without hauling in 3-4x
+    // more raw data than any section can ever actually use.
     final results = await Future.wait([
-      _searchSaavnDeep(query, limit: 120),
-      _searchYt(query, limit: 90),
+      _searchSaavnDeep(query, limit: 60),
+      _searchYt(query, limit: 45),
     ]);
     final rawSaavn = results[0];
     final rawYt    = results[1];
@@ -1064,14 +1078,39 @@ class ApiService {
     final priorityQueries = queryList.where((q) => q.priority).toList();
     final restQueries = queryList.where((q) => q.priority == false).toList();
 
-    final pending = <Future<void>>[
-      for (final sq in priorityQueries) runQuery(sq),
-    ];
-
-    const waveSize = 4;
-    const waveGap = Duration(milliseconds: 250);
-    for (var i = 0; i < restQueries.length; i += waveSize) {
+    // FIX (cold-start lag/data spike): priorityQueries used to all fire in
+    // one single wave with zero throttling ("there are only ever ~8 of
+    // them, well within a phone's comfortable concurrent-connection range"
+    // — see the comment above, from the 2026-07-25 fix that only throttled
+    // restQueries). In practice ~8 priority queries × ~4-5 HTTP connections
+    // each is still 32-40 simultaneous connections firing in the very first
+    // instant of every cold start/refresh — on top of whatever the
+    // just-hydrated cache is still rendering — which is exactly the
+    // "everything jerks/lags and burns a lot of data until fresh titles
+    // show up" window. Same root cause the restQueries fix already
+    // targeted, just left unpatched on this half.
+    //
+    // Fix: reuse the exact same small-wave throttle for priorityQueries
+    // instead of giving it special "no gate" treatment. Section COUNT is
+    // completely unchanged — every query in priorityQueries still runs and
+    // still calls onSection exactly as before, just spread across a couple
+    // of waves a beat apart instead of one big burst, so sections still
+    // reveal progressively (now closer to one/two-by-one, which also reads
+    // as smoother) and the phone's radio never has to open dozens of
+    // connections in the same instant.
+    const waveSize = 3;
+    const waveGap = Duration(milliseconds: 200);
+    final pending = <Future<void>>[];
+    for (var i = 0; i < priorityQueries.length; i += waveSize) {
       if (i > 0) await Future.delayed(waveGap);
+      final wave = priorityQueries.skip(i).take(waveSize);
+      for (final sq in wave) {
+        pending.add(runQuery(sq));
+      }
+    }
+
+    for (var i = 0; i < restQueries.length; i += waveSize) {
+      await Future.delayed(waveGap);
       final wave = restQueries.skip(i).take(waveSize);
       for (final sq in wave) {
         pending.add(runQuery(sq));
@@ -1082,13 +1121,14 @@ class ApiService {
 
     // SAAVN CHARTS — language-wise featured playlists parallel fire
     // Ye search se alag hai: Saavn ke curated Top 50 playlists directly
-    // fetch karta hai — Hindi, Punjabi, Tamil, Telugu etc. sab languages.
-    // fetchHomeStreaming ke baad fire hota hai taaki main feed pehle
-    // load ho, charts sections baad mein aayein (same as YT sections).
-    await fetchSaavnChartsStreaming(
-      onSection: onSection,
-      languages: const ['hindi', 'punjabi', 'tamil', 'telugu', 'kannada', 'malayalam', 'marathi', 'bengali', 'bhojpuri', 'gujarati'],
-    );
+    // fetch karta hai. fetchHomeStreaming ke baad fire hota hai taaki main
+    // feed pehle load ho, charts sections baad mein aayein (same as YT
+    // sections).
+    // FIX (data usage): trimmed from all 10 languages down to the top 4
+    // most broadly-listened Indian charts (see _saavnHomeDefaultLanguages)
+    // — was a major contributor to cold-start data spikes/lag. The rest of
+    // _saavnLanguages is kept for future per-user personalization.
+    await fetchSaavnChartsStreaming(onSection: onSection);
   }
 
   // ===========================================================================
@@ -1102,11 +1142,27 @@ class ApiService {
 
   static const String _saavnInternalApi = 'https://www.jiosaavn.com/api.php';
 
-  // Language codes Saavn ke internal API ke liye
+  // Language codes Saavn ke internal API ke liye — full catalog kept for
+  // reference / future per-user personalization, but only a subset is
+  // actually fetched on the home feed (see _saavnHomeDefaultLanguages
+  // below) to keep cold-start data usage and load time reasonable.
   static const List<String> _saavnLanguages = [
     'hindi', 'punjabi', 'tamil', 'telugu', 'kannada',
     'malayalam', 'marathi', 'bengali', 'bhojpuri', 'gujarati',
     'english', 'rajasthani', 'odia', 'haryanvi', 'assamese',
+  ];
+
+  // FIX (cold-start data usage): fetchSaavnChartsStreaming used to pull
+  // charts for all 15 languages above on every cold start/refresh — each
+  // one a full Top 50 playlist + artwork, which is the main source of the
+  // 4MB+ data spike and lag reported on slower connections. Most Aurum
+  // users only care about a handful of these. Default home feed now only
+  // fetches the top 4 most broadly-listened Indian charts; the rest of
+  // _saavnLanguages stays available for later per-user personalization
+  // (e.g. keyed off the user's own listening history/region) without
+  // needing another data-model change.
+  static const List<String> _saavnHomeDefaultLanguages = [
+    'hindi', 'punjabi', 'tamil', 'telugu',
   ];
 
   static const Map<String, String> _languageLabels = {
@@ -1280,17 +1336,34 @@ class ApiService {
   /// home feed mein call karo for maximum Saavn coverage.
   static Future<void> fetchSaavnChartsStreaming({
     required void Function(SongSection section) onSection,
-    List<String> languages = _saavnLanguages,
+    List<String> languages = _saavnHomeDefaultLanguages,
   }) async {
-    // Parallel fire with overall timeout — agar sab languages hang karein
-    // toh home feed forever nahi rukegi
-    await Future.wait(languages.map((lang) async {
-      try {
-        final section = await fetchSaavnLanguageSection(lang)
-            .timeout(const Duration(seconds: 12), onTimeout: () => null);
-        if (section != null) onSection(section);
-      } catch (_) {}
-    }));
+    // FIX (cold-start data spike / 4MB+ burst): this used a single
+    // unthrottled Future.wait firing all 10 languages' chart fetches at
+    // once, right after fetchHomeStreaming's own (already-throttled, see
+    // its comments above) wave finishes. Each language pulls a full Top 50
+    // playlist plus per-song artwork, so 10 of these landing in the same
+    // instant is the same "thundering herd" problem the main feed queries
+    // were fixed for — just left unpatched here. This is the direct cause
+    // of the multi-MB/s spike and stutter right as fresh titles replace
+    // the cache: 10 large simultaneous responses, each triggering their
+    // own onSection/setState, all in one tight window.
+    // Fix: same small-wave throttle pattern already used above — a few
+    // languages at a time with a short gap between waves, so charts still
+    // stream in progressively but never spike the radio/UI thread at once.
+    const waveSize = 3;
+    const waveGap = Duration(milliseconds: 200);
+    for (var i = 0; i < languages.length; i += waveSize) {
+      if (i > 0) await Future.delayed(waveGap);
+      final wave = languages.skip(i).take(waveSize);
+      await Future.wait(wave.map((lang) async {
+        try {
+          final section = await fetchSaavnLanguageSection(lang)
+              .timeout(const Duration(seconds: 12), onTimeout: () => null);
+          if (section != null) onSection(section);
+        } catch (_) {}
+      }));
+    }
   }
 
   // ===========================================================================

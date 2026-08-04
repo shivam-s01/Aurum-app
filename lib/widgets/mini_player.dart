@@ -293,7 +293,13 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
             child: Opacity(
               opacity: opacity,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                // FIX ("mini player bahut upar/floaty lagta hai"): 8px
+                // bottom gap plus the nav bar's own internal padding
+                // stacked up to a visibly large empty gap between the
+                // mini player and the nav bar in the screenshot. Tightened
+                // to sit snug just above the nav bar, matching the tight
+                // Spotify-style stacked look instead of floating.
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(28),
                   // Spotify-style tinted background: smoothly cross-fades
@@ -340,7 +346,10 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                               width: 1,
                             ),
                           ),
-                          child: _miniPlayerContent(context, player),
+                          child: _miniPlayerContent(context, player,
+                              onTint: baseTint.computeLuminance() > 0.5
+                                  ? Colors.black
+                                  : Colors.white),
                         )
                       : ValueListenableBuilder<double>(
                           valueListenable: AudioPrefs.miniPlayerBlurSigmaNotifier,
@@ -354,14 +363,17 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                             // Only the blurred variant keeps the
                             // semi-transparent tint that lets
                             // BackdropFilter's blur actually be visible.
+                            final solidBg =
+                                _tintColor ?? AurumTheme.bgCardOf(context);
+                            final barBg = blurSigma <= 0
+                                ? solidBg
+                                : baseTint.withValues(
+                                    alpha: isDark ? 0.42 : 0.62,
+                                  );
                             final content = Container(
                               height: 68,
                               decoration: BoxDecoration(
-                                color: blurSigma <= 0
-                                    ? (_tintColor ?? AurumTheme.bgCardOf(context))
-                                    : baseTint.withValues(
-                                        alpha: isDark ? 0.42 : 0.62,
-                                      ),
+                                color: barBg,
                                 borderRadius: BorderRadius.circular(28),
                                 border: Border.all(
                                   color: (isDark ? Colors.white : Colors.black)
@@ -369,7 +381,26 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                                   width: 1,
                                 ),
                               ),
-                              child: _miniPlayerContent(context, player),
+                              // FIX ("theme ke hisab se artwork awkward
+                              // lagta hai"): title/artist text used to
+                              // always use the app's fixed dark/light-mode
+                              // text color, completely independent of the
+                              // actual artwork-derived color this bar is
+                              // painted with. A light/pastel album cover in
+                              // dark mode produced a light tint background
+                              // with white theme text on top — low/no
+                              // contrast, unreadable. Deriving on/off text
+                              // straight from the bar's own real background
+                              // luminance (same pattern already used for
+                              // the play button icon below) guarantees
+                              // readable text against whatever color this
+                              // specific song's artwork actually painted.
+                              child: _miniPlayerContent(context, player,
+                                  onTint: (blurSigma <= 0 ? solidBg : baseTint)
+                                              .computeLuminance() >
+                                          0.5
+                                      ? Colors.black
+                                      : Colors.white),
                             );
                             // PERF/HEAT SETTING: mini player is a persistent
                             // overlay on every screen, so its BackdropFilter
@@ -401,8 +432,18 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
   /// artist, transport controls) — shared between the normal BackdropFilter
   /// path and the cheap-tint fallback used while a route transition is in
   /// flight (see _routeAnimating above).
-  Widget _miniPlayerContent(BuildContext context, PlayerProvider player) {
+  ///
+  /// [onTint] is the black/white color that's actually readable against
+  /// THIS render's real background color (solid tint, blurred tint, or
+  /// route-animating fallback tint — whichever one is currently painted).
+  /// Title/artist text uses it directly instead of the app's fixed
+  /// dark/light-mode text color, so a light album cover in dark mode (or
+  /// vice versa) never produces low-contrast text on top of its own
+  /// artwork-derived background.
+  Widget _miniPlayerContent(BuildContext context, PlayerProvider player,
+      {required Color onTint}) {
     final song = player.currentSong!;
+    final secondaryOnTint = onTint.withValues(alpha: 0.72);
     return Column(
       children: [
         _MiniProgressBar(player: player),
@@ -425,7 +466,7 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                       Text(
                         song.title,
                         style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
+                          color: onTint,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
@@ -436,7 +477,7 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                       Text(
                         song.artist,
                         style: TextStyle(
-                          color: AurumTheme.textSecondaryOf(context),
+                          color: secondaryOnTint,
                           fontSize: 11,
                         ),
                         maxLines: 1,
@@ -453,6 +494,7 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                     player.skipPrev();
                   },
                   size: 22,
+                  color: secondaryOnTint,
                 ),
                 const SizedBox(width: 4),
                 _PlayBtn(player: player),
@@ -464,6 +506,7 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                     player.skipNext();
                   },
                   size: 22,
+                  color: secondaryOnTint,
                 ),
               ],
             ),
@@ -549,11 +592,13 @@ class _ControlBtn extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final double size;
+  final Color? color;
 
   const _ControlBtn({
     required this.icon,
     required this.onTap,
     this.size = 24,
+    this.color,
   });
 
   @override
@@ -567,7 +612,12 @@ class _ControlBtn extends StatelessWidget {
         height: 32,
         child: Icon(
           icon,
-          color: AurumTheme.textSecondaryOf(context),
+          // FIX: was always the app's fixed theme text-secondary color,
+          // ignoring the mini player's own artwork-tinted background —
+          // same contrast bug as the title/artist text above. Falls back
+          // to the old theme color only when no tint is supplied (keeps
+          // every other caller of _ControlBtn, if any, unaffected).
+          color: color ?? AurumTheme.textSecondaryOf(context),
           size: size,
         ),
       ),

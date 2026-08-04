@@ -78,7 +78,7 @@ class LikedScreen extends StatelessWidget {
                           onTap: () {
                             AurumHaptics.medium();
                             final player = context.read<PlayerProvider>();
-                            player.playSong(songs[0], queue: songs, index: 0);
+                            player.playSong(songs[0], queue: songs, index: 0, curatedQueue: true);
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -96,7 +96,7 @@ class LikedScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                  ...songs.asMap().entries.map((e) => SongTile(song: e.value, queue: songs, index: e.key)),
+                  ...songs.asMap().entries.map((e) => SongTile(song: e.value, queue: songs, index: e.key, curatedQueue: true)),
                   const SizedBox(height: 100),
                 ]),
               );

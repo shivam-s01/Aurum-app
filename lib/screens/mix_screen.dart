@@ -348,7 +348,7 @@ class _MixScreenState extends State<MixScreen> {
                                 ? (List<Song>.from(songs)..shuffle())
                                 : songs;
                             player.playSong(queue.first,
-                                queue: queue, index: 0);
+                                queue: queue, index: 0, curatedQueue: true);
                           },
                     child: Container(
                       width: 56,
@@ -396,6 +396,7 @@ class _MixScreenState extends State<MixScreen> {
                   index: i,
                   showIndex: true,
                   displayIndex: i + 1,
+                  curatedQueue: true,
                 ),
                 childCount: songs.length,
               ),
@@ -600,7 +601,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                     if (songs.isEmpty) return;
                     Navigator.pop(context);
                     unawaited(
-                        player.playSong(songs.first, queue: songs, index: 0));
+                        player.playSong(songs.first, queue: songs, index: 0, curatedQueue: true));
                   },
                 ),
                 _GridOption(
@@ -612,7 +613,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                     Navigator.pop(context);
                     final shuffled = List<Song>.from(songs)..shuffle();
                     unawaited(player.playSong(shuffled.first,
-                        queue: shuffled, index: 0));
+                        queue: shuffled, index: 0, curatedQueue: true));
                   },
                 ),
                 _GridOption(
