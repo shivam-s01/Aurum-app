@@ -217,6 +217,33 @@ class AurumAudioEngine(
 
     private val cachedMediaSourceFactory = DefaultMediaSourceFactory(createCacheDataSourceFactory())
 
+    // FIX ("phone heat ho raha hai aur battery jaldi drain ho rahi hai
+    // gaana chalate waqt"): builds the AudioOffloadPreferences that
+    // request offload — decoding on the device's low-power audio DSP
+    // instead of the main CPU, which is what actually stops the phone
+    // from staying warm during long playback sessions. This is the
+    // modern, non-experimental replacement for the older
+    // DefaultRenderersFactory.setEnableAudioOffload() /
+    // ExoPlayer.experimentalSetOffloadSchedulingEnabled() pair (Media3
+    // <1.6) — Google folded both of those into this single
+    // TrackSelectionParameters-based API starting in Media3 1.6.0.
+    // setIsGaplessSupportRequired/setIsSpeedChangeSupportRequired keep
+    // gapless playback and speed changes (both already used elsewhere in
+    // this file) working correctly even while offload is active — Media3
+    // automatically falls back to normal decode on any track/device
+    // combination that can't satisfy every requested condition, so this
+    // can never break playback, only help where it can.
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun buildAudioOffloadPreferences() =
+        androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.Builder()
+            .setAudioOffloadMode(
+                androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED
+            )
+            .setIsGaplessSupportRequired(true)
+            .setIsSpeedChangeSupportRequired(true)
+            .build()
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setLoadControl(loadControl)
         .setTrackSelector(trackSelector)
@@ -266,6 +293,17 @@ class AurumAudioEngine(
         // both are satisfied here.
         .setWakeMode(androidx.media3.common.C.WAKE_MODE_LOCAL)
         .build()
+        .also { p ->
+            // AudioOffloadPreferences is applied via trackSelectionParameters
+            // rather than a Builder method — same pattern as every other
+            // Media3 app currently shipping this (e.g. Echo Nightly's
+            // PlayerService.kt), verified against Media3 1.8.0's actual API
+            // surface rather than the older experimental methods.
+            p.trackSelectionParameters = p.trackSelectionParameters
+                .buildUpon()
+                .setAudioOffloadPreferences(buildAudioOffloadPreferences())
+                .build()
+        }
 
     // ─────────────────────────────────────────────────────────────────
     // Custom audio focus handling (replaces ExoPlayer's built-in one —
