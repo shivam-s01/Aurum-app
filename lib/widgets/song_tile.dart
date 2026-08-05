@@ -3,13 +3,13 @@ import '../utils/aurum_transitions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 import '../models/song.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../screens/library_screen.dart' show showAddToPlaylistSheet;
 import '../screens/home_screen.dart' show pushFullPlayer;
+import '../screens/full_player_screen.dart' show shareSong;
 import '../screens/artist_screen.dart';
 import '../screens/album_screen.dart';
 import '../services/api_service.dart';
@@ -670,10 +670,4 @@ class _ArtistChip extends StatelessWidget {
       ),
     );
   }
-}
-
-// ── Share song via native share sheet ──────────────────────────────────────────
-void shareSong(BuildContext context, Song song) {
-  final text = '🎵 Check out "${song.title}" by ${song.artist} on Aurum Music!';
-  Share.share(text);
 }
