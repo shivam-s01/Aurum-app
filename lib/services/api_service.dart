@@ -50,6 +50,7 @@ import '../models/lyrics.dart';
 import '../utils/constants.dart';
 import 'audio_prefs.dart';
 import 'recommendation_engine.dart';
+import 'music_source.dart';
 import 'native_related_videos.dart' show NativeRelatedVideos, YtRelatedVideo;
 
 // =============================================================================
@@ -1652,14 +1653,18 @@ class ApiService {
     final fallbackQueries = RecommendationEngine.generateQueries(currentSong);
     final wantsYtRelated = currentSong.source == SongSource.youtube;
 
+    // Saavn is the strict, unconditional primary source for every signal
+    // below — MusicCatalog.saavn (see music_source.dart) already retries
+    // once on its own if a host comes back empty, so every signal here
+    // gets that resilience for free without re-deriving it per call-site.
     final results = await Future.wait<List<Song>>([
       // Signal 1: Saavn similar-songs (album+artist correlation)
-      _fetchSimilarFromSaavn(currentSong, limit: limit)
-          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+      MusicCatalog.saavn.similarTo(currentSong, limit: limit)
+          .timeout(const Duration(seconds: 7), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[]),
       // Signal 2: Same-artist catalog search
-      _searchSaavn('${currentSong.artist} songs', limit: limit * 2) // 2x->4x)
-          .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+      MusicCatalog.saavn.search('${currentSong.artist} songs', limit: limit * 2)
+          .timeout(const Duration(seconds: 7), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[]),
       // Signal 1.5: YouTube's own related-videos graph (YT-sourced songs
       // only) — a no-op empty future for Saavn-sourced songs so the list
@@ -1683,8 +1688,8 @@ class ApiService {
       // Signal 3: Mood+genre+era fallback (Saavn) — one query per
       // generated AutoQueueQuery, all raced together and flattened.
       Future.wait(fallbackQueries.map((q) =>
-          _searchSaavn(q.query, limit: limit)
-              .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+          MusicCatalog.saavn.search(q.query, limit: limit)
+              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
               .catchError((_) => <Song>[])))
           .then((lists) => [for (final l in lists) ...l]),
       // Signal 4: YouTube supplementary fill — same mood/genre/era queries
@@ -1695,8 +1700,16 @@ class ApiService {
       // Saavn pool means most/all of this signal's songs simply get
       // rejected as unneeded duplicates-of-nothing-new, which costs
       // nothing but the parallel network call itself).
+      // FIX ("Saavn down hone par bhi queue 80 tak pahunche"): limit*2 ->
+      // limit*3. Saavn still gets strict priority (Signals 1-3 above are
+      // applied to the pool FIRST, so any healthy Saavn result always wins
+      // every dedup tie) — this only widens the safety net for the
+      // genuine-outage case where Saavn comes up empty even after its own
+      // retry, so YT alone can still fill a pool big enough for a full
+      // ~80-song queue instead of stalling at whatever the old, tighter
+      // limit*2 happened to leave after quality/dedup filtering.
       Future.wait(fallbackQueries.map((q) =>
-          _searchYt(q.query, limit: limit * 2) // limit->limit*2 pro YT
+          _searchYt(q.query, limit: limit * 3)
               .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
               .catchError((_) => <Song>[])))
           .then((lists) => [for (final l in lists) ...l]),
@@ -1727,6 +1740,13 @@ class ApiService {
   /// separate worker deploy and had no host failover, so it silently went
   /// stale. This version rides on the same multi-host path as everything
   /// else, so it benefits from the same automatic failover.
+
+  /// Public entry point for MusicSource (see music_source.dart) — a thin,
+  /// unchanged alias for _fetchSimilarFromSaavn.
+  static Future<List<Song>> similarFromSaavnRaw(Song song, {int limit = 20}) {
+    return _fetchSimilarFromSaavn(song, limit: limit);
+  }
+
   static Future<List<Song>> _fetchSimilarFromSaavn(Song song, {int limit = 20}) async {
     final queries = <String>[];
     if (song.album.trim().isNotEmpty) queries.add(song.album);
@@ -1840,9 +1860,18 @@ class ApiService {
     // channel priority, a real quality/view floor, smart dedup against
     // what Saavn already returned, and the same relevance scoring — never
     // a raw, unfiltered YT dump.
+    //
+    // The main query goes through MusicCatalog.saavn (music_source.dart),
+    // which already retries once on its own if a host comes back empty —
+    // search is the highest-visibility surface for a transient Saavn miss,
+    // so that resilience matters most here. Lyric-variant queries stay on
+    // the raw ApiService call directly: they're already a fallback-for-a-
+    // fallback (only fired when the query is long enough to have sub-
+    // phrase variants worth trying), so retrying each one individually
+    // would add latency for a low-value long-tail case.
     final saavnFutures = [
-      _searchSaavn(q, limit: 50)
-          .timeout(const Duration(seconds: 7), onTimeout: () => <Song>[])
+      MusicCatalog.saavn.search(q, limit: 50)
+          .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[]),
       ...lyricVariants.map((v) => _searchSaavn(v, limit: 30)
           .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
@@ -1933,6 +1962,10 @@ class ApiService {
         }
         if (isDupOfSaavn) continue;
         if (!RecommendationEngine.isPremiumQuality(song)) continue;
+        // Same non-music/news-vlog/bare-label-reupload filter as
+        // getAutoQueue — search's YT fallback shouldn't surface this
+        // content either.
+        if (RecommendationEngine.isNonMusicContent(song)) continue;
         final score = _scoreSearchResult(song, q, wantsVariant);
         if (score < minRelevanceScore) continue;
         ytScored.add(_ScoredSong(song, score));
@@ -2552,6 +2585,15 @@ class ApiService {
   // sum of every host's timeout. Falls back through hosts in priority
   // order only if the race turns up nothing at all (kept purely for the
   // pathological case where every host times out with zero data).
+
+  /// Public entry point for MusicSource (see music_source.dart) — a thin,
+  /// unchanged alias for _searchSaavn. Kept separate from the private name
+  /// so the multi-host race/failover internals below can keep evolving
+  /// without ever becoming public API themselves.
+  static Future<List<Song>> searchSaavnRaw(String query, {int limit = 20}) {
+    return _searchSaavn(query, limit: limit);
+  }
+
   static Future<List<Song>> _searchSaavn(String query, {int limit = 20}) async {
     Future<List<Song>?> tryNodeHost(String host) async {
       try {
@@ -2669,6 +2711,12 @@ class ApiService {
   static bool _isOfficialChannel(String channelName) {
     final c = channelName.toLowerCase();
     return _officialChannelMarkers.any((m) => c.contains(m));
+  }
+
+  /// Public entry point for MusicSource (see music_source.dart) — a thin,
+  /// unchanged alias for _searchYt.
+  static Future<List<Song>> searchYtRaw(String query, {int limit = 30}) {
+    return _searchYt(query, limit: limit);
   }
 
   static Future<List<Song>> _searchYt(String query, {int limit = 30}) async { // 15->30 pro level
@@ -2820,16 +2868,6 @@ class ApiService {
   // more prone to a one-off slow response, not a broken one. Now: two
   // attempts (3s, then 5s) before giving up, so one slow/dropped
   // response doesn't sink an otherwise-good URL.
-  //
-  // FIX (Spotify-style slow-network tolerance): a genuinely slow
-  // connection (not a dead one) can still legitimately need longer than
-  // 5s to answer a HEAD/ranged-GET — a third, more patient attempt (10s)
-  // gives a slow-but-working connection a real chance to prove the URL
-  // is alive before this falls back to swapping the source out from
-  // under the user. This only adds latency in the genuinely-dead-URL
-  // case (which was already paying the 3s+5s cost anyway), and never
-  // changes behavior on a fast connection where the first attempt
-  // already succeeds.
   static Future<bool> _isUrlAlive(String url) async {
     Future<bool> attempt(Duration timeout) async {
       try {
@@ -2855,11 +2893,7 @@ class ApiService {
     // rather than a truly dead URL. Give it one more, slightly longer,
     // chance before this URL gets discarded and the caller falls back
     // to a different source entirely.
-    if (await attempt(const Duration(seconds: 5))) return true;
-    // Still nothing — on a slow-but-real connection this can genuinely
-    // just be latency, not a dead link. One last, more patient attempt
-    // before finally giving up on this URL.
-    return attempt(const Duration(seconds: 10));
+    return attempt(const Duration(seconds: 5));
   }
 
   static Future<String?> resolveStreamUrl(Song song, {bool forceRefresh = false}) async {

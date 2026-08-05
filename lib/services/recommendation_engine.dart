@@ -1291,6 +1291,82 @@ class RecommendationEngine {
     return true;
   }
 
+  // FIX ("T-Series/Saregama copyright-holder uploads and non-music videos
+  // (news, vlogs) showing up in the queue"): YouTube's own related-videos
+  // graph (NativeRelatedVideos.getRelated, used as one of getAutoQueue's
+  // signal sources) has no concept of "music vs. everything else" — it
+  // surfaces whatever YouTube's algorithm associates with a video, which
+  // for a Bollywood song is very often the SAME song re-uploaded on the
+  // label's own channel (T-Series/Saregama/Sony Music/Zee Music etc. —
+  // legitimate uploaders, but a bare label-channel reupload with no real
+  // song title, since the label channel IS the primary/official upload
+  // rather than a distinct discovery), or entirely unrelated content the
+  // algorithm associates only by co-watch pattern (news, commentary,
+  // vlogs — e.g. a Dhruv Rathee political video, which is exactly what
+  // was reported: it played AS a queue entry, not just appeared in a
+  // list). Two independent signals catch this without needing a real
+  // genre/category API (YouTube doesn't expose one via NewPipeExtractor):
+  //   1. Title pattern: real song uploads consistently use "Song Name -
+  //      Movie | Artist" or "Song Name (Lyrics)" style titles. Generic
+  //      news/vlog-style titles ("Why is X DROWNING?", "X EXPLAINED",
+  //      question-style or all-caps-hook titles) don't follow that
+  //      pattern and are excluded on title shape alone, independent of
+  //      channel name — this also catches non-label channels doing the
+  //      same kind of content.
+  //   2. Channel-only labels: a handful of major label/network channels
+  //      (T-Series, Saregama, Sony Music [India], Zee Music, Aditya
+  //      Music, Tips, Venus) are legitimate music sources in general, so
+  //      they're not blocked outright — but a bare label-channel entry
+  //      with no distinguishing song-style title marker is exactly the
+  //      "generic reupload, not a real discovery" case, so those are
+  //      filtered while a clearly-titled song from the same label (which
+  //      does happen, e.g. an actual new release) still passes through.
+  static final RegExp _nonMusicTitlePattern = RegExp(
+    r'\b(vs\.?\b|explained|exposed|breaking|debate|interview|podcast|'
+    r'documentary|analysis|review|reaction|vlog|news|update|crisis|'
+    r'scandal|controversy|drowning|flood|election|protest|war\b|'
+    r'government|politics|political)\b',
+    caseSensitive: false,
+  );
+
+  // Titles ending in a bare "?" hook or written in a shouty all-caps
+  // clause are a strong commentary/news-video signal — real song titles
+  // essentially never end a sentence-style question this way.
+  static final RegExp _questionHookPattern = RegExp(r'\?\s*\|?\s*$');
+
+  static const Set<String> _labelOnlyChannels = {
+    't-series', 'saregama', 'saregama music', 'sony music india',
+    'zee music company', 'aditya music', 'tips official', 'venus',
+    'speed records', 'white hill music',
+  };
+
+  // A title carries real song-style markers if it has a separator
+  // structure typical of music uploads: "Song - Movie", "Song | Artist",
+  // "Song (Lyrics)/(Official Video)/(Audio)". Absence of all of these
+  // combined with a label-only channel is what marks a bare reupload.
+  static final RegExp _songStyleMarkerPattern = RegExp(
+    r'[\-\|]|\((lyrics?|official( video| audio)?|full song|audio)\)',
+    caseSensitive: false,
+  );
+
+  /// True if `song` looks like non-music content (news/commentary/vlog) or
+  /// a bare label-channel reupload with no real song-title structure, and
+  /// should never be auto-queued regardless of how strongly YouTube's own
+  /// related-videos graph associated it with the current song.
+  static bool isNonMusicContent(Song song) {
+    if (song.source != SongSource.youtube) return false;
+    final title = song.title;
+    if (_nonMusicTitlePattern.hasMatch(title)) return true;
+    if (_questionHookPattern.hasMatch(title)) return true;
+
+    final channel = song.artist.trim().toLowerCase();
+    if (_labelOnlyChannels.contains(channel) &&
+        !_songStyleMarkerPattern.hasMatch(title)) {
+      return true;
+    }
+    return false;
+  }
+
   // Strip variant tags from title to get the "core" for comparison
   static String _titleCore(String title) {
     return title
@@ -1349,6 +1425,15 @@ class RecommendationEngine {
     for (final song in pool) {
       // ID dedup
       if (seenIds.contains(song.id)) continue;
+
+      // FIX (isNonMusicContent was defined but never actually called —
+      // dead code from an earlier pass): this is the actual wire-in. Every
+      // candidate, from every signal, now gets checked here before any
+      // other filter — non-music/news/vlog content and bare label-channel
+      // reuploads never reach scoring at all, regardless of which signal
+      // (Saavn-similar, YT-related, mood/genre fallback, etc.) surfaced
+      // them or how strongly that signal's own logic favored them.
+      if (isNonMusicContent(song)) continue;
 
       // Variant filter
       if (!allowVariants) {
