@@ -360,7 +360,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                   height: 40,
                   decoration: BoxDecoration(
                     color: isLiked
-                        ? const Color(0xFFE1306C).withValues(alpha: (0.12 * 255).toInt())
+                        ? const Color(0xFFE1306C).withValues(alpha: 0.12)
                         : AurumTheme.bgSurfaceOf(context),
                     shape: BoxShape.circle,
                   ),
@@ -521,9 +521,9 @@ class _GridOption extends StatelessWidget {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: color.withValues(alpha: (0.08 * 255).toInt()),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withValues(alpha: (0.18 * 255).toInt()), width: 0.8),
+          border: Border.all(color: color.withValues(alpha: 0.18), width: 0.8),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
