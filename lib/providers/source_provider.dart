@@ -40,6 +40,30 @@ class SourceProvider extends ChangeNotifier {
   /// without network.
   bool Function()? isCurrentSongLocal;
 
+  /// Optional check wired in from main.dart: returns true if the engine
+  /// currently has enough buffered audio to keep playing for a bit even
+  /// with no network. Spotify doesn't yank a track the instant a signal
+  /// drop is detected — it keeps riding the buffer and only actually
+  /// interrupts once that buffer is exhausted and the player itself
+  /// stalls. When this returns true we skip the immediate stop here and
+  /// let the engine's own buffering/stall callback (see PlayerProvider)
+  /// decide if/when playback truly needs to pause.
+  bool Function()? hasPlaybackBuffer;
+
+  /// Called whenever connectivity genuinely comes back (offline → online,
+  /// driven by a real network event — never by the user's manual toggle).
+  /// Spotify-style: reconnecting doesn't just flip a status pill, it picks
+  /// the interrupted stream back up automatically so the user doesn't have
+  /// to notice playback died and tap play again themselves. Wired in
+  /// main.dart to resume/replay whatever song was current when the drop
+  /// happened, but only if it actually needs it (see the call site for
+  /// the "was this song genuinely interrupted" check) — this fires on
+  /// every reconnect, including ones where playback never actually
+  /// stopped (e.g. it was still riding its buffer, or the current song
+  /// was local), so the callback itself is responsible for deciding
+  /// whether there's anything to resume.
+  void Function()? onReconnected;
+
   MusicSource get source => _source;
   bool get isOnline => _source == MusicSource.online;
 
@@ -84,16 +108,31 @@ class SourceProvider extends ChangeNotifier {
 
   void _setSource(MusicSource next, {required bool notify}) {
     if (next == _source) return; // no actual change, skip
+    final previous = _source;
     _source = next;
     if (notify) {
-      // A local file keeps playing fine with no network — only stop
-      // playback when the current song actually depends on the network
-      // (an online stream). Falls back to the old "always stop" behavior
-      // if the check hasn't been wired up yet, so this never regresses
-      // into "nothing was stopped and the mini player looks stuck".
+      // A local file keeps playing fine with no network — only consider
+      // stopping playback when the current song actually depends on the
+      // network (an online stream). Falls back to the old "always stop"
+      // behavior if the check hasn't been wired up yet, so this never
+      // regresses into "nothing was stopped and the mini player looks
+      // stuck".
       final currentIsLocal = isCurrentSongLocal?.call() ?? false;
-      if (!currentIsLocal) {
+      // Spotify-style: don't cut a stream the instant connectivity drops.
+      // If there's still audio sitting in the engine's buffer, let it keep
+      // playing — the engine's own stall/error callback is what actually
+      // pauses playback once that buffer runs out and there's genuinely
+      // nothing left to play.
+      final stillBuffered = hasPlaybackBuffer?.call() ?? false;
+      if (!currentIsLocal && !stillBuffered) {
         onSourceChanged?.call();
+      }
+      // Spotify-style auto-resume: connectivity genuinely coming back
+      // (offline → online) is the one transition that should proactively
+      // try to pick playback back up, rather than leaving a dead/paused
+      // stream sitting there until the user notices and taps play again.
+      if (previous == MusicSource.offline && next == MusicSource.online) {
+        onReconnected?.call();
       }
       notifyListeners();
     }

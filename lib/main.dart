@@ -236,35 +236,6 @@ class AurumApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) {
             final sp = SourceProvider();
-            // Auto-switch is driven by real connectivity (see init()).
-            // When it flips while a song is playing, the previous source's
-            // playback (online stream URL or local file) is no longer
-            // valid for the new mode — stop it immediately instead of
-            // leaving a dead/wrong song stuck in the mini player.
-            //
-            // FIX: engine.stop() is async and was called fire-and-forget
-            // with no error handling. If the player has nothing loaded
-            // (e.g. user toggles source before playing anything) or the
-            // native ExoPlayer call throws, that became an unhandled
-            // Future rejection that crashed the app the instant the
-            // Online/Offline pill was tapped. Now any failure is caught
-            // and swallowed — stopping playback is best-effort, it should
-            // never be able to take down the UI.
-            sp.onSourceChanged = () {
-              engine.stop().catchError((e, st) {
-                debugPrint('[Aurum] stop() on source change failed: $e');
-              });
-              // Only an online stream gets cut (see isCurrentSongLocal
-              // below) — so if we're here, the user needs to know why
-              // their music just stopped, rather than it looking like a
-              // random freeze/crash.
-              scaffoldMessengerKey.currentState?.showSnackBar(
-                const SnackBar(
-                  content: Text("You're offline — playback paused"),
-                  duration: Duration(seconds: 3),
-                ),
-              );
-            };
             sp.init();
             return sp;
           },
@@ -306,9 +277,13 @@ class AurumApp extends StatelessWidget {
             // connectivity problem, not premium being lost/denied.
             pp.onSlowNetwork = () {
               scaffoldMessengerKey.currentState?.showSnackBar(
-                const SnackBar(
-                  content: Text('Please check your internet connection'),
-                  duration: Duration(seconds: 3),
+                SnackBar(
+                  content: const Text('Please check your internet connection'),
+                  duration: const Duration(seconds: 3),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               );
             };
@@ -333,6 +308,79 @@ class AurumApp extends StatelessWidget {
             // local file, since it doesn't need network to keep playing.
             context.read<SourceProvider>().isCurrentSongLocal =
                 () => p.currentSong?.isLocal ?? false;
+            // See SourceProvider.hasPlaybackBuffer: a connectivity drop
+            // doesn't stop an online stream that still has buffered audio
+            // left to play — matches Spotify, which keeps going until the
+            // buffer is actually exhausted.
+            context.read<SourceProvider>().hasPlaybackBuffer =
+                () => p.hasPlaybackBuffer;
+            // Spotify-style auto-resume: capture what was playing right
+            // before a genuine connectivity drop stops it (see
+            // onSourceChanged below), and pick it back up automatically —
+            // same song, same position — the moment connectivity
+            // genuinely returns, instead of leaving a dead stream sitting
+            // there until the user notices and taps play again.
+            context.read<SourceProvider>().onReconnected =
+                () => p.resumeAfterReconnect();
+            // Auto-switch is driven by real connectivity (see
+            // SourceProvider.init()). When it flips while a song is
+            // playing, the previous source's playback (online stream URL
+            // or local file) is no longer valid for the new mode — stop
+            // it immediately instead of leaving a dead/wrong song stuck
+            // in the mini player. Captures what was playing first (see
+            // markInterruptedByNetworkLoss) so onReconnected above can
+            // pick it back up automatically once connectivity returns.
+            //
+            // FIX: engine.stop() is async and was called fire-and-forget
+            // with no error handling. If the player has nothing loaded
+            // (e.g. user toggles source before playing anything) or the
+            // native ExoPlayer call throws, that became an unhandled
+            // Future rejection that crashed the app the instant the
+            // Online/Offline pill was tapped. Now any failure is caught
+            // and swallowed — stopping playback is best-effort, it should
+            // never be able to take down the UI.
+            context.read<SourceProvider>().onSourceChanged = () {
+              p.markInterruptedByNetworkLoss();
+              engine.stop().catchError((e, st) {
+                debugPrint('[Aurum] stop() on source change failed: $e');
+              });
+              // Only an online stream gets cut (see isCurrentSongLocal
+              // above) — so if we're here, the user needs to know why
+              // their music just stopped, rather than it looking like a
+              // random freeze/crash.
+              scaffoldMessengerKey.currentState?.showSnackBar(
+                SnackBar(
+                  content: const Text("You're offline — playback paused"),
+                  duration: const Duration(seconds: 3),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              );
+            };
+            // No-auto-skip resolve policy (see AurumAudioEngine.
+            // resolveWithPatience): a slow-but-real connection never
+            // skips or stops the song on its own — the native engine
+            // just keeps quietly retrying in the background. This is
+            // purely informational so the user understands why their
+            // tap hasn't started playing yet, distinct from the offline
+            // snackbar above (which fires only when the source has
+            // genuinely switched to Offline). Edge-triggered in
+            // PlayerProvider, so this shows once per stuck episode, not
+            // once per retry.
+            p.onResolveTakingLong = () {
+              scaffoldMessengerKey.currentState?.showSnackBar(
+                SnackBar(
+                  content: const Text('Please check your internet connection'),
+                  duration: const Duration(seconds: 3),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              );
+            };
             return p;
           },
           update: (_, recentlyPlayed, favorites, player) {

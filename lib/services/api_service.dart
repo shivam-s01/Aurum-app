@@ -2820,6 +2820,16 @@ class ApiService {
   // more prone to a one-off slow response, not a broken one. Now: two
   // attempts (3s, then 5s) before giving up, so one slow/dropped
   // response doesn't sink an otherwise-good URL.
+  //
+  // FIX (Spotify-style slow-network tolerance): a genuinely slow
+  // connection (not a dead one) can still legitimately need longer than
+  // 5s to answer a HEAD/ranged-GET — a third, more patient attempt (10s)
+  // gives a slow-but-working connection a real chance to prove the URL
+  // is alive before this falls back to swapping the source out from
+  // under the user. This only adds latency in the genuinely-dead-URL
+  // case (which was already paying the 3s+5s cost anyway), and never
+  // changes behavior on a fast connection where the first attempt
+  // already succeeds.
   static Future<bool> _isUrlAlive(String url) async {
     Future<bool> attempt(Duration timeout) async {
       try {
@@ -2845,7 +2855,11 @@ class ApiService {
     // rather than a truly dead URL. Give it one more, slightly longer,
     // chance before this URL gets discarded and the caller falls back
     // to a different source entirely.
-    return attempt(const Duration(seconds: 5));
+    if (await attempt(const Duration(seconds: 5))) return true;
+    // Still nothing — on a slow-but-real connection this can genuinely
+    // just be latency, not a dead link. One last, more patient attempt
+    // before finally giving up on this URL.
+    return attempt(const Duration(seconds: 10));
   }
 
   static Future<String?> resolveStreamUrl(Song song, {bool forceRefresh = false}) async {

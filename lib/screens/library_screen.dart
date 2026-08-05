@@ -45,6 +45,7 @@ import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_empty_state.dart';
 import 'full_player_screen.dart';
+import 'home_screen.dart' show pushFullPlayer;
 import '../widgets/premium_gate.dart';
 import '../models/song.dart';
 import '../utils/aurum_transitions.dart';
@@ -2751,38 +2752,24 @@ class _DownloadTile extends StatelessWidget {
                 curatedQueue: true,
               );
 
-          Navigator.of(context).push(
-            PageRouteBuilder(
-              // FIX (background screen glitches/blinks during swipe-down-
-              // to-dismiss): see the full explanation in home_screen.dart's
-              // pushFullPlayer() — opaque:true stops Flutter from actively
-              // repainting this route while FullPlayerScreen sits on top,
-              // so its own drag-to-dismiss fade briefly exposes a frozen
-              // frame instead of a live one on every drag update.
-              opaque: false,
-              pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-              // FIX (flat theme-colored screen for 1-2s on open/swipe-down-
-              // close instead of instant artwork): see the matching fix in
-              // home_screen.dart's pushFullPlayer(), mini_player.dart's
-              // _openFullPlayer(), and song_tile.dart's _handleTap() —
-              // FullPlayerScreen already paints its own opaque, theme-
-              // correct background on its first frame, so this extra flat
-              // ColoredBox was redundant and is what showed through as an
-              // untinted flat color during the whole transition, both
-              // directions.
-              transitionsBuilder: (context, anim, __, child) => SlideTransition(
-                position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-                    .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-                child: child,
-              ),
-              transitionDuration: const Duration(milliseconds: 380),
-              // FIX ("back feels stuck/not smooth"): was 300ms while the
-              // forward push above is 380ms — closing the full player ran
-              // at a different, faster speed than opening it. Matched so
-              // back mirrors forward 1:1.
-              reverseTransitionDuration: const Duration(milliseconds: 380),
-            ),
-          );
+          // FIX (offline song → back/home leaves a dead, unresponsive grey
+          // screen until the app is force-restarted): this used to push
+          // its own inline PageRouteBuilder, a hand-copied duplicate of
+          // home_screen.dart's pushFullPlayer() that had drifted out of
+          // sync with it — most importantly missing the _openingFullPlayer
+          // guard/reset. Without that guard, this tile's onTap and any
+          // other trigger racing with it (e.g. a state rebuild from
+          // playSong() above landing mid-navigation) could both push a
+          // route in the same frame; with opaque:false, the loser of that
+          // race can be left attached to the Navigator stack but never
+          // properly composited — an invisible barrier that still
+          // hit-tests every tap and swallows the back gesture, matching
+          // exactly the "screen goes dead, only app restart fixes it"
+          // report. Routing through the single shared helper (same one
+          // every other entry point into FullPlayerScreen already uses)
+          // removes the duplicate, drifted route definition entirely and
+          // gets the guard for free.
+          pushFullPlayer(context);
         }
       },
     );

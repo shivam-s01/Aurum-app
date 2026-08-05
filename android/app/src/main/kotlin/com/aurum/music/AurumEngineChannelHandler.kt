@@ -96,6 +96,7 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                                 "queueIds" to s.queueIds,
                                 "currentSongId" to s.currentSongId,
                                 "liked" to s.liked,
+                                "resolveTakingLong" to s.resolveTakingLong,
                             )
                         )
                     }

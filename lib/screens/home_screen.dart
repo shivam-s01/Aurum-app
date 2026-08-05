@@ -271,11 +271,16 @@ class _HomeScreenState extends State<HomeScreen> {
         // been exhausted — a single flaky song no longer triggers this.
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            backgroundColor: Colors.red.shade900,
+            backgroundColor: AurumTheme.bgCardOf(context),
             duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             content: Text(
               error,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 13,
+              ),
             ),
           ),
         );

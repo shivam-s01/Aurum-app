@@ -37,6 +37,14 @@ class NativeEngineState {
   final List<String> queueIds;
   final String? currentSongId;
   final bool liked;
+  // Mirrors AurumAudioEngine.kt's NativeEngineState.resolveTakingLong:
+  // true while the current song's stream has been retrying to resolve
+  // for longer than a normal connection should need, but the engine is
+  // still actively retrying in the background rather than having given
+  // up — PlayerProvider surfaces this as a "check your connection"
+  // message, never as a song change. See AurumAudioEngine's no-auto-skip
+  // resolve policy for the full reasoning.
+  final bool resolveTakingLong;
 
   const NativeEngineState({
     this.processingState = 'idle',
@@ -49,6 +57,7 @@ class NativeEngineState {
     this.queueIds = const [],
     this.currentSongId,
     this.liked = false,
+    this.resolveTakingLong = false,
   });
 }
 
@@ -182,6 +191,7 @@ class NativeAudioEngine {
         queueIds: List<String>.from(m['queueIds'] as List? ?? const []),
         currentSongId: m['currentSongId'] as String?,
         liked: m['liked'] as bool? ?? false,
+        resolveTakingLong: m['resolveTakingLong'] as bool? ?? false,
       ));
     }, onError: (Object e, StackTrace st) {
       debugPrint('[NativeAudioEngine] state event error (ignored, stream stays alive): $e');

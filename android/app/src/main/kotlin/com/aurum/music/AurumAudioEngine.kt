@@ -3,6 +3,9 @@ package com.aurum.music
 import android.content.Context
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -36,6 +39,15 @@ data class NativeEngineState(
     val currentSongId: String? = null,
     val error: String? = null,
     val liked: Boolean = false,
+    // True while the current song's stream URL has been retrying to
+    // resolve for longer than a normal connection should ever need, but
+    // the engine has NOT given up — it keeps retrying in the background
+    // for as long as there's any network path at all (see
+    // hasAnyNetworkConnection/RESOLVE_PATIENCE_THRESHOLD_MS). Dart uses
+    // this purely to show a "check your connection" message; it is never
+    // a signal to skip or change songs — only the user's own Next/Previous
+    // action does that.
+    val resolveTakingLong: Boolean = false,
 )
 
 /**
@@ -119,8 +131,20 @@ class AurumAudioEngine(
     // was always the actual intended ceiling; the byte cap was firing
     // long before that ceiling was ever reached, defeating its own
     // purpose.
+    //
+    // bufferForPlaybackMs / bufferForPlaybackAfterRebufferMs (Spotify-
+    // style slow-network tolerance): on a fast connection 1.5s/3s of
+    // buffer is plenty before starting/resuming playback. On a genuinely
+    // slow connection, starting that early just means the player catches
+    // up to its own buffer again within a couple of seconds and drops
+    // back into STATE_BUFFERING — which is the exact "song keeps
+    // stopping and starting" feeling this is meant to avoid. A slightly
+    // larger cushion (3s initial / 5s after a rebuffer) costs a small
+    // amount of extra wait before sound starts, but lets a slow
+    // connection build up enough of a lead to actually keep playing
+    // through, instead of oscillating between BUFFERING and READY.
     private val loadControl = DefaultLoadControl.Builder()
-        .setBufferDurationsMs(15_000, 30_000, 1_500, 3_000)
+        .setBufferDurationsMs(15_000, 30_000, 3_000, 5_000)
         .setTargetBufferBytes(-1)
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()
@@ -201,9 +225,21 @@ class AurumAudioEngine(
     // while adding the missing file/content/asset/rawresource handlers
     // needed for local playback, with zero change to network timeouts,
     // User-Agent, or the disk cache wrapping below.
+    // FIX (Spotify-style slow-network tolerance): on a genuinely slow
+    // connection (throttled mobile data, weak WiFi), individual chunk
+    // reads can legitimately take longer than a "normal" connection
+    // without the stream actually being dead — the old 8s read timeout
+    // was killing perfectly-recoverable slow reads and forcing the
+    // idle/dead-URL recovery path to kick in purely because of latency,
+    // not an actual failure. Read timeout bumped to give slow connections
+    // real room to keep delivering bytes; connect timeout also has a bit
+    // more headroom for a slow initial handshake. This does not weaken
+    // recovery for a genuinely dead stream — handleMidStreamIdle/
+    // handleFreshStartIdle/the buffering watchdog still catch that, just
+    // without punishing "slow but working" along the way.
     private fun createHttpFactory() = DefaultHttpDataSource.Factory()
-        .setConnectTimeoutMs(16_000)
-        .setReadTimeoutMs(8_000)
+        .setConnectTimeoutMs(20_000)
+        .setReadTimeoutMs(20_000)
         .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
     private fun createUpstreamFactory() = DefaultDataSource.Factory(context, createHttpFactory())
@@ -584,6 +620,10 @@ class AurumAudioEngine(
     // processingState "loading" so Dart's existing isLoading getter picks
     // it up with zero call-site changes needed.
     private var isResolving = false
+    // Backing field for NativeEngineState.resolveTakingLong — see that
+    // field's doc comment. Only ever read/written from the resolve loop
+    // below (single-threaded via `scope`), same as isResolving.
+    private var resolveTakingLong = false
 
     // Media3's playlist == the "ConcatenatingAudioSource" equivalent.
     // We track song IDs in the same order as player.mediaItemCount to
@@ -641,31 +681,43 @@ class AurumAudioEngine(
         private const val PRIORITY_BACKWARD_WINDOW = 1
         private const val PACED_RESOLVE_DELAY_MS = 2500L
 
-        // FIX (loading-stuck, 10-20s no-feedback window): hard ceiling on
-        // how long ANY single resolve attempt chain (resolveFast + its
-        // internal retries, or findFirstPlayableFrom's walk) is allowed to
-        // run before we give up and surface a real error instead of
-        // silently continuing to await. Matches the Worker's own max
-        // per-request timeout (isUrlAlive/AbortSignal.timeout(7000) plus
-        // margin for one retry) for Saavn/Worker-backed sources so
-        // Dart-side and native-side "give up" points line up.
-        //
-        // YouTube resolution runs natively via YoutubeInnertube (InnerTube
-        // call + JS cipher decode), which routinely takes longer than the
-        // Worker ever did. resolveFast() already gives it an 18s
-        // per-attempt budget internally (see perAttemptTimeoutMs below),
-        // but this OUTER cap was flatly 8s for every source, silently
-        // killing YouTube resolution before its own internal timeout ever
-        // got a chance to finish. Bumped so the outer cap can never be
-        // tighter than the inner per-attempt budget.
-        private const val RESOLVE_HARD_CAP_MS = 8_000L
-        private const val RESOLVE_HARD_CAP_YOUTUBE_MS = 20_000L
+        // FIX (Spotify-style slow-network tolerance): both caps sized to
+        // actually cover resolveFast()'s own inner budget instead of
+        // cutting it off mid-attempt. resolveFast() defaults to 2
+        // attempts internally, each with its own per-attempt timeout
+        // (perAttemptTimeoutMs below) plus a short gap between them —
+        // YouTube: up to ~18s × 2 + gap ≈ 36.5s; other sources: up to
+        // ~12s × 2 + gap ≈ 24.5s. The outer cap must be at least that
+        // large or it fires before the inner logic gets its real,
+        // documented number of attempts — which on a slow connection is
+        // indistinguishable from the song being dead even though the
+        // request was still genuinely in flight.
+        private const val RESOLVE_HARD_CAP_MS = 26_000L
+        private const val RESOLVE_HARD_CAP_YOUTUBE_MS = 38_000L
 
         private fun hardCapFor(song: NativeSong): Long =
             if (song.source == "youtube") RESOLVE_HARD_CAP_YOUTUBE_MS else RESOLVE_HARD_CAP_MS
+
+        // No-auto-skip policy: a slow (but real) connection must never
+        // cause the engine to give up on the song the user actually
+        // chose and silently move to a different one — that's the exact
+        // "songs keep skipping and nothing ever plays" failure mode on a
+        // weak connection. So resolveWithPatience() below retries
+        // indefinitely as long as there's any network path at all
+        // (hasAnyNetworkConnection); this threshold only controls when
+        // resolveTakingLong flips to true so Dart can surface a "check
+        // your connection" message — it is not a giving-up point.
+        private const val RESOLVE_WARNING_THRESHOLD_MS = 20_000L
+
+        // Backoff between retry attempts once the first attempt has
+        // already failed/timed out: starts short, ramps up, caps at 8s
+        // so a long-standing outage doesn't hammer the resolver.
+        private fun retryBackoffMs(attempt: Int): Long =
+            2_000L * minOf(attempt + 1, 4)
     }
 
     init {
+        registerReconnectListener()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 pushState()
@@ -912,6 +964,7 @@ class AurumAudioEngine(
             queueIds = queueSongs.map { it.id },
             currentSongId = effectiveCurrentSongId,
             liked = currentSongLiked,
+            resolveTakingLong = resolveTakingLong,
         )
     }
 
@@ -985,38 +1038,52 @@ class AurumAudioEngine(
         pushState()
 
         var started = false
+        // FIX (finally-override race): the old unconditional
+        // `finally { isResolving = false }` below used to stomp this back
+        // to false even on the "network genuinely absent, stay pending"
+        // return path just above it — silently killing the loading UI the
+        // moment that return fired. This flag lets that specific return
+        // path opt OUT of the finally's reset, while every other
+        // exit/exception still gets the safety-net reset.
+        var keepResolvingOnExit = false
         try {
             hardStopAndMute(mySession)
             if (mySession != playSessionId) return
 
             isResolving = true
             pushState()
-            var url = try {
-                withTimeoutOrNull(hardCapFor(songs[safeIndex])) { resolveFast(songs[safeIndex], mySession) }
-            } catch (e: CancellationException) { throw e }
+
+            // No-auto-skip policy: retries the tapped song indefinitely
+            // as long as there's any network path at all — see
+            // resolveWithPatience(). This only returns null if the
+            // session was cancelled (user picked something else, handled
+            // by the mySession check right below) or the network is
+            // genuinely completely absent — neither case should ever
+            // silently jump to a different song in the queue, so there is
+            // deliberately no findFirstPlayableFrom fallback here anymore.
+            val resolvedSong = songs[safeIndex]
+            val url = resolveWithPatience(resolvedSong, mySession)
             if (mySession != playSessionId) return
 
-            var resolvedSong = songs[safeIndex]
             if (url == null) {
-                val found = try {
-                    withTimeoutOrNull(RESOLVE_HARD_CAP_YOUTUBE_MS) { findFirstPlayableFrom(songs, safeIndex + 1, mySession) }
-                } catch (e: CancellationException) { throw e }
-                if (mySession != playSessionId) return
-                if (found == null) {
-                    isResolving = false
-                    failPlayback(songs[safeIndex], "stream URL could not be resolved for this song or any other in the queue (last: ${YoutubeInnertube.lastFailureReason})")
-                    return
-                }
-                effectiveIndex = found.first
-                resolvedSong = songs[found.first]
-                url = found.second
-                currentIndex = effectiveIndex
-                onQueueChanged?.invoke()
+                // Network is genuinely, completely absent (not just
+                // slow) — nothing left to try right now. Leave the song
+                // loaded/pending rather than failing the queue out from
+                // under the user; SourceProvider's offline handling on
+                // the Dart side already reflects this in the UI, and
+                // resolveTakingLong (still true) keeps the "check your
+                // connection" message up. isResolving stays true so the
+                // UI keeps showing loading, not a dead state — the user
+                // can always back out via a manual Next/Previous.
+                keepResolvingOnExit = true
+                pushState()
+                return
             }
 
+            resolveTakingLong = false
             if (mySession != playSessionId) return
             try {
-                setSingleMediaItemInternal(url!!, resolvedSong)
+                setSingleMediaItemInternal(url, resolvedSong)
             } catch (e: Exception) {
                 isResolving = false
                 failPlayback(resolvedSong, e.message ?: "setMediaItem failed")
@@ -1045,11 +1112,17 @@ class AurumAudioEngine(
         } catch (e: Exception) {
             emitError("playQueue failed for \"${songs[safeIndex].title}\" — ${e.message}")
         } finally {
-            // Belt-and-suspenders: no matter which branch/exception path we
-            // took above, isResolving must never be left true past this
-            // point — that would leave the spinner spinning forever on the
-            // NEXT unrelated state change too, not just this one.
-            isResolving = false
+            // Belt-and-suspenders: any branch/exception path we took above
+            // resets isResolving, EXCEPT the deliberate "network genuinely
+            // absent, stay pending" return (keepResolvingOnExit) — that one
+            // needs isResolving to stay true so the UI keeps showing
+            // loading instead of snapping back to a dead state. Also skip
+            // the reset if a newer session has already superseded us —
+            // stomping isResolving here would clobber whatever state the
+            // newer session is now legitimately driving.
+            if (!keepResolvingOnExit && mySession == playSessionId) {
+                isResolving = false
+            }
             if (mySession == playSessionId) {
                 restoreVolume()
                 isLoadingNewSong = false
@@ -1081,6 +1154,10 @@ class AurumAudioEngine(
         onQueueChanged?.invoke()
         pushState()
 
+        // FIX (finally-override race): same pattern as playQueueInternal —
+        // lets the deliberate "network genuinely absent, stay pending"
+        // return below opt out of the finally block's isResolving reset.
+        var keepResolvingOnExit = false
         try {
             isLoadingNewSong = true
             hardStopAndMute(mySession)
@@ -1103,21 +1180,38 @@ class AurumAudioEngine(
             if (mySession != playSessionId) return
 
             if (url == null) {
+                // First attempt missed — nudge the resolver's cache once
+                // before falling into the indefinite-patience loop below,
+                // in case a stale cached (dead) URL was the actual cause
+                // rather than the connection itself.
                 delay(700)
                 if (mySession != playSessionId) return
                 resolver.invalidate(song)
-                url = try {
-                    withTimeoutOrNull(hardCapFor(song)) { resolveFast(song, mySession) }
-                } catch (e: CancellationException) { throw e }
+            }
+
+            // No-auto-skip policy: retries the tapped song indefinitely
+            // as long as there's any network path at all — see
+            // resolveWithPatience(). A single-song tap has nothing to
+            // fall back to anyway, so this is the only sane behavior:
+            // keep trying, never silently fail the tap out from under
+            // the user.
+            if (url == null) {
+                url = resolveWithPatience(song, mySession)
                 if (mySession != playSessionId) return
             }
 
             if (url == null) {
-                isResolving = false
-                failPlayback(song, "stream URL could not be resolved after retries, or local file missing (last: ${YoutubeInnertube.lastFailureReason})")
+                // Network genuinely, completely absent — leave the tap
+                // pending rather than failing it. isResolving stays true
+                // (loading state); resolveTakingLong (still true) keeps
+                // the "check your connection" message up. The user can
+                // always back out by tapping something else.
+                keepResolvingOnExit = true
+                pushState()
                 return
             }
 
+            resolveTakingLong = false
             if (mySession != playSessionId) return
             try {
                 setSingleMediaItemInternal(url, song)
@@ -1141,7 +1235,12 @@ class AurumAudioEngine(
         } catch (e: Exception) {
             emitError("playSong failed for \"${song.title}\" — ${e.message}")
         } finally {
-            isResolving = false
+            // See keepResolvingOnExit comment above playQueueInternal's
+            // matching finally block — same override-race fix, mirrored
+            // here for the single-tap path.
+            if (!keepResolvingOnExit && mySession == playSessionId) {
+                isResolving = false
+            }
             // FIX — this used to only reset isLoadingNewSong inside the
             // `mySession == playSessionId` branch. When this call was
             // superseded by a newer tap (mySession != playSessionId,
@@ -1215,6 +1314,53 @@ class AurumAudioEngine(
         return null
     }
 
+    // No-auto-skip resolve policy (Spotify-style): the song the user
+    // actually chose is never silently swapped out just because the
+    // connection is slow. This keeps retrying resolveFast() for [song]
+    // for as long as there's any network path at all — no attempt-count
+    // ceiling, no wall-clock giving-up point. It only stops retrying if:
+    //   - the session moves on (user skipped/changed songs — checked via
+    //     mySession/playSessionId, same invariant as everywhere else),
+    //   - or the network genuinely disappears entirely (no interface at
+    //     all — retrying literally cannot succeed in that state).
+    // resolveTakingLong flips true once RESOLVE_WARNING_THRESHOLD_MS has
+    // passed with no success, purely so Dart can show a "check your
+    // connection" message; it has no effect on retry behavior itself.
+    // Callers are responsible for clearing resolveTakingLong + pushState()
+    // once this returns (both the success and the network-lost-null path).
+    private suspend fun resolveWithPatience(song: NativeSong, sessionId: Int): String? {
+        val startedAt = SystemClock.elapsedRealtime()
+        var attempt = 0
+        while (true) {
+            if (sessionId != playSessionId) return null
+            if (!hasAnyNetworkConnection()) {
+                // No network path at all right now — nothing to retry
+                // against. Not a skip: the caller keeps the song loaded/
+                // pending and this same call site will naturally be
+                // re-entered on the next play/retry trigger once
+                // connectivity actually returns.
+                return null
+            }
+            val url = try {
+                withTimeoutOrNull(hardCapFor(song)) { resolveFast(song, sessionId) }
+            } catch (e: CancellationException) {
+                throw e
+            }
+            if (sessionId != playSessionId) return null
+            if (!url.isNullOrEmpty()) return url
+
+            if (!resolveTakingLong &&
+                SystemClock.elapsedRealtime() - startedAt >= RESOLVE_WARNING_THRESHOLD_MS
+            ) {
+                resolveTakingLong = true
+                pushState()
+            }
+
+            delay(retryBackoffMs(attempt))
+            attempt++
+        }
+    }
+
     private suspend fun findFirstPlayableFrom(
         songs: List<NativeSong>, fromIndex: Int, sessionId: Int,
     ): Pair<Int, String>? {
@@ -1285,6 +1431,107 @@ class AurumAudioEngine(
         if (BuildConfig.DEBUG) android.util.Log.d("AurumAudioEngine", msg)
     }
 
+    // Spotify-style distinction: a device with an active network interface
+    // but a genuinely slow/patchy connection should never see the song
+    // change out from under it — it should just keep buffering/retrying
+    // quietly until the data actually arrives. Only a real absence of any
+    // network path (airplane mode, no SIM/WiFi at all) is treated as
+    // unrecoverable-right-now, since no amount of waiting fixes that.
+    // This is a coarse, synchronous check (link existence, not a live
+    // reachability probe) deliberately — it only needs to answer "is there
+    // any network path at all", which is exactly the same signal
+    // SourceProvider on the Dart side already keys off of.
+    private fun hasAnyNetworkConnection(): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return true // fail open — never let a lookup failure masquerade as "offline"
+            val network = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) {
+            true // fail open — same reasoning as above
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Auto-retry-on-reconnect: resolveWithPatience() stops retrying (and
+    // leaves the song sitting in its current "loading" state, per the
+    // no-auto-skip policy) when the network is genuinely, completely
+    // absent — there's nothing left to retry against at that point. But
+    // once the network comes back, the user shouldn't have to notice and
+    // manually tap something to resume; this listener catches that
+    // transition and re-drives the resolve for whatever's pending, the
+    // same way Spotify silently picks a stalled track back up the moment
+    // connectivity returns.
+    // ─────────────────────────────────────────────────────────────────
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    private fun registerReconnectListener() {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                // Only worth acting on if something is actually stuck
+                // waiting — isResolving is the same flag pushState()
+                // uses to report "loading" to Dart, so this only fires
+                // work when the UI itself would be showing a spinner.
+                // No-op otherwise, so this callback is cheap on every
+                // ordinary network flap (screen off/on, wifi roaming)
+                // that doesn't coincide with a stuck resolve.
+                if (!isResolving) return
+                val songToRetry = queueSongs.getOrNull(currentIndex) ?: return
+                val sessionNow = playSessionId
+                scope.launch {
+                    // onAvailable can fire a beat before the network is
+                    // actually fully usable for requests — a short delay
+                    // avoids immediately re-failing into another "no
+                    // network" result the instant this listener fires.
+                    delay(500)
+                    if (sessionNow != playSessionId) return@launch
+                    if (!isResolving) return@launch
+                    if (!hasAnyNetworkConnection()) return@launch
+                    val freshUrl = resolveWithPatience(songToRetry, sessionNow)
+                    if (sessionNow != playSessionId) return@launch
+                    if (freshUrl == null) {
+                        // Still nothing (e.g. flapped straight back off) —
+                        // leave state as-is, pushState() already reflects
+                        // "still trying" via isResolving/resolveTakingLong.
+                        return@launch
+                    }
+                    resolveTakingLong = false
+                    if (queueSongs.getOrNull(currentIndex)?.id != songToRetry.id) return@launch
+                    try {
+                        setSingleMediaItemInternal(freshUrl, songToRetry)
+                        isResolving = false
+                        player.play()
+                        pushState()
+                    } catch (e: Exception) {
+                        isResolving = false
+                        failPlayback(songToRetry, e.message ?: "setMediaItem failed after reconnect")
+                    }
+                }
+            }
+        }
+        try {
+            cm.registerDefaultNetworkCallback(callback)
+            networkCallback = callback
+        } catch (_: Exception) {
+            // Registration failing (e.g. missing ACCESS_NETWORK_STATE on
+            // some OEM lockdown) just means auto-retry-on-reconnect won't
+            // fire — resolveWithPatience()'s own retry loop still covers
+            // every other case, so this is a soft degradation, not fatal.
+        }
+    }
+
+    private fun unregisterReconnectListener() {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val callback = networkCallback
+        if (cm != null && callback != null) {
+            try { cm.unregisterNetworkCallback(callback) } catch (_: Exception) { /* already gone */ }
+        }
+        networkCallback = null
+    }
+
     private suspend fun handleFreshStartIdle() {
         val songAtIdle = queueSongs.getOrNull(currentIndex) ?: return
 
@@ -1351,25 +1598,25 @@ class AurumAudioEngine(
 
         resolver.invalidate(songNow)
 
-        // Same second-retry safety net as handleMidStreamIdle — a single
-        // transient background network failure shouldn't immediately be
-        // treated as a dead song.
-        var freshUrl: String? = null
-        for (attempt in 0 until 2) {
-            if (sessionAtIdle != playSessionId) return
-            freshUrl = try {
-                withTimeoutOrNull(15_000) { resolver.resolve(songNow, forceRefresh = true) }
-            } catch (e: Exception) { null }
-            if (freshUrl != null) break
-            if (attempt == 0) delay(1500)
-        }
+        // No-auto-skip policy: retries indefinitely while any network
+        // path exists (see resolveWithPatience) instead of giving up
+        // after 2 quick attempts and jumping to the next song. A slow
+        // connection must never look identical to a dead song.
+        isResolving = true
+        pushState()
+        val freshUrl = resolveWithPatience(songNow, sessionAtIdle)
+        if (sessionAtIdle != playSessionId) return
 
-        if (freshUrl == null || sessionAtIdle != playSessionId) {
-            if (sessionAtIdle != playSessionId) return
-            emitError("Resolve failed for \"${songNow.title}\" — skipping to next song.", true)
-            advancePastDeadSong(songNow, sessionAtIdle)
+        if (freshUrl == null) {
+            // Network genuinely, completely absent — nothing left to try
+            // right now. Leave this song loaded/pending (not skipped);
+            // isResolving/resolveTakingLong keep the UI honestly showing
+            // "still trying" rather than silently moving on.
+            pushState()
             return
         }
+        resolveTakingLong = false
+        isResolving = false
 
         if (queueSongs.getOrNull(currentIndex)?.id != songAtIdle.id) return
         if (sessionAtIdle != playSessionId) return
@@ -1451,61 +1698,69 @@ class AurumAudioEngine(
         resolver.invalidate(song)
         val sessionAtError = playSessionId
 
-        // FIX: previously gave up and skipped the song after a single
-        // failed resolve attempt. In the background, a temporary network
-        // hiccup (Doze-mode throttling, brief connectivity drop while
-        // switching wifi/mobile data) can make one attempt fail even
-        // though the song itself is perfectly fine — that was showing up
-        // as "song randomly skips/changes while playing in background".
-        // One retry after a short pause absorbs those transient failures
-        // without meaningfully delaying genuine dead-link recovery.
-        var freshUrl: String? = null
-        for (attempt in 0 until 2) {
-            if (sessionAtError != playSessionId) return
-            freshUrl = try {
-                withTimeoutOrNull(12_000) { resolver.resolve(song, forceRefresh = true) }
-            } catch (e: Exception) { null }
-            if (freshUrl != null) break
-            if (attempt == 0) delay(1500)
-        }
+        // No-auto-skip policy: a genuinely slow (but real) connection
+        // must never cause the song to change out from under the user —
+        // keep quietly retrying with the loading state visible until the
+        // data actually shows up (see resolveWithPatience). Only a
+        // complete, genuine absence of network is unrecoverable right
+        // now, and even then this doesn't skip — it just leaves the song
+        // as-is until connectivity returns (see the null-freshUrl branch
+        // below).
+        isResolving = true
+        pushState()
+        val freshUrl = resolveWithPatience(song, sessionAtError)
 
         if (sessionAtError != playSessionId) return
-        if (!stillOnThisSong()) return
+        if (!stillOnThisSong()) { isResolving = false; return }
 
-        if (freshUrl != null) {
-            try {
-                val idx = player.currentMediaItemIndex
-                if (idx < player.mediaItemCount && stillOnThisSong()) {
-                    val item = buildMediaItem(song, freshUrl)
-                    player.replaceMediaItem(idx, item)
-                    player.seekTo(idx, pos)
-                    player.play()
-                    // FIX (spinner stuck forever after a successful
-                    // expired-URL recovery — the one case this whole
-                    // function exists for): every other exit path here
-                    // either calls emitError (which pushes state via the
-                    // error stream) or falls all the way through to the
-                    // emitError call below. This success path was the
-                    // only one with no explicit pushState() of its own,
-                    // relying entirely on the player's own onIsPlaying/
-                    // onPlaybackStateChanged listener callbacks to notice
-                    // the IDLE→BUFFERING→READY cycle and push fresh state
-                    // to Dart. That's usually true, but isn't guaranteed
-                    // for every device/ExoPlayer version's exact callback
-                    // timing on this specific replaceMediaItem+seek+play
-                    // sequence — and when it doesn't fire, Dart's
-                    // optimistic isLoading (set right before the play()
-                    // call that triggered this whole recovery) never
-                    // receives the state event that would close it, even
-                    // though audio has genuinely resumed playing in the
-                    // background. Pushing explicitly here costs nothing
-                    // and removes that dependency entirely.
-                    pushState()
-                    return
-                }
-            } catch (e: Exception) { /* fall through to error below */ }
+        if (freshUrl == null) {
+            // Network genuinely, completely absent — leave the song
+            // as-is rather than skipping; isResolving/resolveTakingLong
+            // keep the UI honestly reflecting "still trying".
+            pushState()
+            return
         }
+        resolveTakingLong = false
 
+        try {
+            val idx = player.currentMediaItemIndex
+            if (idx < player.mediaItemCount && stillOnThisSong()) {
+                val item = buildMediaItem(song, freshUrl)
+                player.replaceMediaItem(idx, item)
+                player.seekTo(idx, pos)
+                player.play()
+                isResolving = false
+                // FIX (spinner stuck forever after a successful
+                // expired-URL recovery — the one case this whole
+                // function exists for): every other exit path here
+                // either calls emitError (which pushes state via the
+                // error stream) or falls all the way through to the
+                // emitError call below. This success path was the
+                // only one with no explicit pushState() of its own,
+                // relying entirely on the player's own onIsPlaying/
+                // onPlaybackStateChanged listener callbacks to notice
+                // the IDLE→BUFFERING→READY cycle and push fresh state
+                // to Dart. That's usually true, but isn't guaranteed
+                // for every device/ExoPlayer version's exact callback
+                // timing on this specific replaceMediaItem+seek+play
+                // sequence — and when it doesn't fire, Dart's
+                // optimistic isLoading (set right before the play()
+                // call that triggered this whole recovery) never
+                // receives the state event that would close it, even
+                // though audio has genuinely resumed playing in the
+                // background. Pushing explicitly here costs nothing
+                // and removes that dependency entirely.
+                pushState()
+                return
+            }
+        } catch (e: Exception) { /* fall through to error below */ }
+
+        // Reached only if applying the resolved URL to the player itself
+        // failed (replaceMediaItem/seekTo/play threw, or the player's
+        // media item index moved out from under us) — a genuine,
+        // unrecoverable-right-now failure distinct from "still resolving
+        // slowly", so this (and only this) path still advances the queue.
+        isResolving = false
         if (sessionAtError != playSessionId) return
         emitError("Stream expired for \"${song.title}\" and could not be recovered. Skipping to next song.", true)
         advancePastDeadSong(song, sessionAtError)
@@ -2203,6 +2458,7 @@ class AurumAudioEngine(
     fun release() {
         fadeJob?.cancel()
         idleWatchdogJob?.cancel()
+        unregisterReconnectListener()
         scope.cancel()
         effects.dispose()
         abandonAudioFocus()

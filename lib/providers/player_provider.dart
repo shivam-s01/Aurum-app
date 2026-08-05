@@ -111,6 +111,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   bool     _isPlaying      = false;
   bool     _isLoading      = false;
+  // Mirrors NativeEngineState.resolveTakingLong — true while the current
+  // song is still actively being retried by the native no-auto-skip
+  // resolve policy (see AurumAudioEngine.resolveWithPatience), for longer
+  // than a normal connection should need. Never a signal to change songs
+  // by itself; onResolveTakingLong below is purely a "check your
+  // connection" UI hint, wired in main.dart.
+  bool     _resolveTakingLong = false;
   Duration _position       = Duration.zero;
   Duration _duration       = Duration.zero;
   Duration _buffered       = Duration.zero;
@@ -279,6 +286,49 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   int _currentIndex = 0;
   Song? _currentSong;
 
+  // Spotify-style auto-resume on reconnect: when SourceProvider stops an
+  // online stream because connectivity genuinely dropped (see main.dart's
+  // onSourceChanged), it records what was playing and where here. If/when
+  // connectivity comes back, onReconnected (also wired in main.dart) uses
+  // this to pick the exact same song back up at the exact position it was
+  // cut off, instead of leaving it dead until the user notices and taps
+  // play again. Cleared the moment it's consumed (or superseded by any
+  // other playback change) so a later, unrelated reconnect doesn't replay
+  // a song the user has since moved away from.
+  Song? _interruptedByNetworkSong;
+  Duration _interruptedByNetworkPosition = Duration.zero;
+
+  /// Called by SourceProvider.onSourceChanged right before it stops an
+  /// online stream due to a genuine connectivity drop. Captures enough to
+  /// resume seamlessly if/when the connection comes back.
+  void markInterruptedByNetworkLoss() {
+    if (_currentSong == null || (_currentSong?.isLocal ?? true)) return;
+    _interruptedByNetworkSong = _currentSong;
+    _interruptedByNetworkPosition = _position;
+  }
+
+  /// Called by SourceProvider.onReconnected once connectivity genuinely
+  /// comes back. Resumes whatever was interrupted, at the exact position
+  /// it stopped at — a no-op if nothing was actually interrupted (e.g.
+  /// the buffer carried playback through, or nothing was playing at all),
+  /// so this is always safe to call on every reconnect.
+  Future<void> resumeAfterReconnect() async {
+    final song = _interruptedByNetworkSong;
+    if (song == null) return;
+    final pos = _interruptedByNetworkPosition;
+    _interruptedByNetworkSong = null;
+    _interruptedByNetworkPosition = Duration.zero;
+    try {
+      await playSong(song, queue: _queue.isNotEmpty ? _queue : null,
+          index: _queue.isNotEmpty ? _currentIndex : null);
+      if (pos > Duration.zero) {
+        await seekTo(pos);
+      }
+    } catch (e) {
+      debugPrint('[Aurum] resumeAfterReconnect failed: $e');
+    }
+  }
+
   // BUGFIX (2026-07-02): "click kiya kuch aur, play kuch aur ho gaya".
   // playSong() below is async and NOT awaited by most call sites (song
   // tiles fire-and-forget it on tap). If the user taps song B while song
@@ -360,6 +410,18 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // means this was auto-recovered (single song skipped, playback
   // continues) and should only be logged, not shown to the user.
   void Function(String error, {bool silent})? onPlaybackError;
+
+  // Fired once when the current song's resolve first crosses into
+  // "taking longer than a normal connection should need" (edge-
+  // triggered off _resolveTakingLong flipping false→true) — never on
+  // every subsequent state tick while it stays stuck, so this doesn't
+  // spam the UI with repeat snackbars for one ongoing episode. This is
+  // purely an informational "check your connection" hint: playback is
+  // NOT stopped and no song change happens because of this — the native
+  // engine keeps retrying the same song in the background regardless
+  // (see AurumAudioEngine's no-auto-skip resolve policy). Wired in
+  // main.dart.
+  void Function()? onResolveTakingLong;
 
   // ── Phase 4: Skip limit for free users ───────────────────────────────────
   // Free users get 6 skips per hour. Resets automatically after 60 min.
@@ -583,6 +645,16 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
     _buffered  = state.bufferedPosition;
     if (state.duration != null) _duration = state.duration!;
+
+    // Edge-triggered: only fire the "check your connection" callback the
+    // moment this flips from not-stuck to stuck, not on every tick while
+    // it stays true — a resolve that's still retrying pushes fresh state
+    // repeatedly (position/buffered ticks etc.), and re-notifying on each
+    // one would spam a fresh SnackBar every second or two.
+    if (state.resolveTakingLong && !_resolveTakingLong) {
+      onResolveTakingLong?.call();
+    }
+    _resolveTakingLong = state.resolveTakingLong;
 
     // Reconcile the local queue mirror against queueIds. If the lengths and
     // order already match by ID, nothing to do — this keeps us from
@@ -1037,9 +1109,20 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // ---------------------------------------------------------------------------
   bool     get isPlaying      => _isPlaying;
   bool     get isLoading      => _isLoading;
+  bool     get resolveTakingLong => _resolveTakingLong;
   Duration get position       => _position;
   Duration get duration       => _duration;
   Duration get buffered       => _buffered;
+
+  /// True when the engine still has meaningful unplayed audio buffered
+  /// ahead of the current position. Used by SourceProvider so a
+  /// connectivity drop doesn't yank an online stream mid-playback —
+  /// same as Spotify, which keeps riding the buffer instead of cutting
+  /// out the instant the network blips. A half-second cushion avoids
+  /// treating normal buffered==position moments (right after a seek,
+  /// or the very start of a track) as "no buffer".
+  bool get hasPlaybackBuffer =>
+      _buffered - _position > const Duration(milliseconds: 500);
   LoopMode get loopMode       => _loopMode;
   bool     get shuffle        => _shuffle;
   bool     get showFullPlayer => _showFullPlayer;

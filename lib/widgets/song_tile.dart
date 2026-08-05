@@ -8,7 +8,7 @@ import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../screens/library_screen.dart' show showAddToPlaylistSheet;
-import '../screens/full_player_screen.dart';
+import '../screens/home_screen.dart' show pushFullPlayer;
 import '../screens/artist_screen.dart';
 import '../screens/album_screen.dart';
 import '../services/api_service.dart';
@@ -99,55 +99,24 @@ class _SongTileState extends State<SongTile> {
           ).catchError((e) {
         debugPrint('[SongTile] playSong error: $e');
       });
+      // FIX (offline/local song on Home → back or Home-tab leaves a dead,
+      // unresponsive grey screen until the app is force-restarted): this
+      // used to push its own inline PageRouteBuilder, a hand-copied
+      // duplicate of home_screen.dart's pushFullPlayer() that had drifted
+      // out of sync with it — most importantly missing the
+      // _openingFullPlayer guard/reset. Without that guard, a tap here
+      // racing with playSong()'s own state rebuild above (both landing in
+      // the same frame — far more likely on a local/offline song, which
+      // resolves near-instantly with no network round-trip to naturally
+      // space the two apart) could push two overlapping routes with
+      // opaque:false; the loser can end up attached to the Navigator
+      // stack but never properly composited — an invisible barrier that
+      // still hit-tests every tap and swallows the back gesture. Routing
+      // through the single shared helper (same one mini_player.dart and
+      // home_screen.dart's other entry points use) removes the duplicate,
+      // drifted route definition and gets the guard for free.
       if (mounted) {
-        Navigator.of(context).push(
-          PageRouteBuilder(
-            // FIX (background screen glitches/blinks during swipe-down-to-
-            // dismiss): opaque:true (previous value) stopped Flutter from
-            // actively repainting whatever screen this tile lives on —
-            // Home, Library, Search results — while FullPlayerScreen sat
-            // on top, so its drag-to-dismiss fade briefly exposed a
-            // frozen frame instead of a live one on every drag update,
-            // reading as a glitch.
-            //
-            // This was set to opaque:true specifically to fix a separate
-            // bug: opaque:false previously left SearchScreen's last frame
-            // stale/frozen after FullPlayerScreen was popped (SearchScreen
-            // builds its results list from local setState, not a
-            // Provider/Consumer that repaints on its own). That's now
-            // fixed directly in search_screen.dart's own push call, with
-            // an explicit setState() in its .then() — so opaque:true is no
-            // longer needed here to route around it, and Home/Library
-            // (which are Provider/Consumer-driven and repaint naturally)
-            // never needed it in the first place.
-            opaque: false,
-            pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-            // FIX ("tap a song → the PREVIOUS screen stays visible for a
-            // beat, THEN artwork/full player appears" / same flat-color
-            // issue on swipe-down-close): this used to wrap the sliding
-            // FullPlayerScreen in `ColoredBox(color: AurumTheme.bgOf(
-            // context))`. FullPlayerScreen already paints its own opaque,
-            // theme-correct Scaffold background on its very first frame
-            // (see the Scaffold backgroundColor comment in
-            // full_player_screen.dart) — this extra ColoredBox was
-            // redundant, and being a FLAT untinted color with no artwork/
-            // gradient of its own, it's exactly what read as "nothing has
-            // changed yet" during the slide, both opening and — since
-            // reverseTransitionDuration reuses this same builder — on the
-            // swipe-down dismiss too. Same root cause and same fix as
-            // home_screen.dart's pushFullPlayer() and mini_player.dart's
-            // _openFullPlayer().
-            transitionsBuilder: (context, anim, __, child) => SlideTransition(
-              position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-                  .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-              child: child,
-            ),
-            transitionDuration: const Duration(milliseconds: 380),
-            // FIX ("back feels stuck/not smooth"): matched to the forward
-            // duration above — was 300ms vs 380ms open.
-            reverseTransitionDuration: const Duration(milliseconds: 380),
-          ),
-        );
+        pushFullPlayer(context);
       }
     } finally {
       // FIX (premium-feel latency) — this used to be a flat 800ms before
