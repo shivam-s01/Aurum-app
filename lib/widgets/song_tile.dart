@@ -3,6 +3,7 @@ import '../utils/aurum_transitions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/song.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
@@ -359,7 +360,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                   height: 40,
                   decoration: BoxDecoration(
                     color: isLiked
-                        ? const Color(0xFFE1306C).withOpacity(0.12)
+                        ? const Color(0xFFE1306C).withValues(alpha: (0.12 * 255).toInt())
                         : AurumTheme.bgSurfaceOf(context),
                     shape: BoxShape.circle,
                   ),
@@ -520,9 +521,9 @@ class _GridOption extends StatelessWidget {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
+          color: color.withValues(alpha: (0.08 * 255).toInt()),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withOpacity(0.18), width: 0.8),
+          border: Border.all(color: color.withValues(alpha: (0.18 * 255).toInt()), width: 0.8),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -669,4 +670,10 @@ class _ArtistChip extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Share song via native share sheet ──────────────────────────────────────────
+void shareSong(BuildContext context, Song song) {
+  final text = '🎵 Check out "${song.title}" by ${song.artist} on Aurum Music!';
+  Share.share(text);
 }
