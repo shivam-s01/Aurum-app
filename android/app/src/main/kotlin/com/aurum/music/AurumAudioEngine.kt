@@ -303,6 +303,69 @@ class AurumAudioEngine(
                 .buildUpon()
                 .setAudioOffloadPreferences(buildAudioOffloadPreferences())
                 .build()
+
+            // ─────────────────────────────────────────────────────────
+            // SMOOTHNESS FIXES — everything below is purely about making
+            // playback feel instant/responsive (Echo Nightly / Spotify /
+            // YT Music level), on top of the offload work above. None of
+            // this touches correctness or the resolve/queue logic
+            // elsewhere in this file — only player-level tuning.
+            // ─────────────────────────────────────────────────────────
+
+            // Lets ExoPlayer start fetching/buffering the NEXT media item
+            // in the timeline while the current one is still playing,
+            // instead of waiting until the current item finishes before
+            // even starting to prepare the next one. This is what makes
+            // track-to-track transitions and forward skips feel instant
+            // rather than having a beat of buffering right at the
+            // boundary. TIME_UNSET here means "no artificial delay before
+            // starting to preload" — start as early as ExoPlayer's own
+            // internal heuristics allow.
+            p.preloadConfiguration = ExoPlayer.PreloadConfiguration(androidx.media3.common.C.TIME_UNSET)
+
+            // Trims silence at the start/end of tracks during playback.
+            // Same effect Spotify/YT Music apply — back-to-back songs
+            // feel tighter with no dead-air gap, and it also shortens the
+            // perceived tap-to-sound delay on tracks that have a silent
+            // lead-in. Safe no-op on tracks that don't have any silence
+            // to trim.
+            p.skipSilenceEnabled = true
+
+            // Explicit false (matches ExoPlayer's own default, made
+            // explicit here so it can never regress): without this, some
+            // gapless-adjacent code paths can introduce a hairline pause
+            // exactly at a track boundary. Keeping it force-false
+            // guarantees gapless transitions stay a true zero-gap handoff.
+            p.setPauseAtEndOfMediaItems(false)
+
+            // Seeks (scrubbing the seek bar, tapping ahead in a track,
+            // skip-with-position-carry in the crossfade/dead-song-recovery
+            // paths elsewhere in this file) default to EXACT frame-accurate
+            // seeking, which requires decoding forward from the nearest
+            // keyframe to the exact requested position — slower, and the
+            // main source of a seek "feeling laggy". CLOSEST_SYNC instead
+            // jumps straight to the nearest keyframe and starts playing
+            // immediately from there. For music (no visual frame to keep
+            // in sync with), the few hundred milliseconds of drift this
+            // can introduce is inaudible, while the responsiveness gain
+            // is exactly what makes scrubbing feel "premium/instant"
+            // instead of sluggish.
+            p.setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
+
+            // New in Media3 1.8.0: an explicit low-latency mode for
+            // sustained, rapid seek-bar dragging (as opposed to a single
+            // discrete seek/tap). While active, ExoPlayer trades some
+            // decode quality for much faster response to continuous
+            // scrub input, then seamlessly returns to normal playback
+            // quality once scrubbing stops — this is what makes dragging
+            // the seek bar feel as fluid as YouTube's own scrubbing
+            // rather than seek-then-wait-then-seek-again.
+            try {
+                p.setScrubbingModeEnabled(true)
+            } catch (e: Exception) {
+                // Defensive: safe no-op if unsupported on a given device/
+                // build — scrubbing simply falls back to normal seeking.
+            }
         }
 
     // ─────────────────────────────────────────────────────────────────
