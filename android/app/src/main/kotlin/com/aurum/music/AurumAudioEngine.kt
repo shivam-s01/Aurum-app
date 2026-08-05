@@ -352,20 +352,19 @@ class AurumAudioEngine(
             // instead of sluggish.
             p.setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
 
-            // New in Media3 1.8.0: an explicit low-latency mode for
-            // sustained, rapid seek-bar dragging (as opposed to a single
-            // discrete seek/tap). While active, ExoPlayer trades some
-            // decode quality for much faster response to continuous
-            // scrub input, then seamlessly returns to normal playback
-            // quality once scrubbing stops — this is what makes dragging
-            // the seek bar feel as fluid as YouTube's own scrubbing
-            // rather than seek-then-wait-then-seek-again.
-            try {
-                p.setScrubbingModeEnabled(true)
-            } catch (e: Exception) {
-                // Defensive: safe no-op if unsupported on a given device/
-                // build — scrubbing simply falls back to normal seeking.
-            }
+            // NOTE: Media3 1.8.0's scrubbing mode (ExoPlayer.
+            // setScrubbingModeEnabled) is intentionally NOT enabled here.
+            // It is a TEMPORARY, drag-duration-only mode meant to be
+            // toggled on right when the user starts dragging the seek bar
+            // and back off the instant they release it — turning it on
+            // once at player construction time keeps the player
+            // permanently in scrubbing mode, which silently prevented
+            // normal playback from ever starting (song loads/shows
+            // metadata but audio never plays — exactly the "0:00 forever"
+            // bug this caused). Wiring it correctly requires a call from
+            // the seek-bar's drag-start/drag-end handlers on the Dart
+            // side through the method channel, which is future work —
+            // left out for now so playback stays correct.
         }
 
     // ─────────────────────────────────────────────────────────────────
