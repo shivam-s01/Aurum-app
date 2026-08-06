@@ -240,6 +240,22 @@ class ApiService {
     'https://jiosavan-three.vercel.app',    // Flask secondary
   ];
 
+  // FIX ("naya mirror jiosaavnapi-il2o.onrender.com use kar sakte hain?"):
+  // added as an extra resilience mirror after live testing (2026-08) —
+  // response shape matches the other Flask-family hosts fine (same
+  // /result/ list-of-song-objects format tryResultRoute already parses).
+  // BUT this specific host's own `page` query param is a no-op: page=1
+  // and page=2 returned byte-identical results in testing, unlike
+  // _saavnPrimary/_saavnSecondary/_saavn below which genuinely paginate.
+  // Kept in its own list (not merged into _saavnFlaskHosts) so
+  // _searchSaavn can special-case it to always request page=1 only,
+  // regardless of pagesNeeded — sending it page=2/3 would just be a
+  // wasted duplicate network call for zero extra depth, since it would
+  // silently return the exact same page-1 data every time.
+  static const List<String> _saavnNoPaginationFlaskHosts = [
+    'https://jiosaavnapi-il2o.onrender.com',
+  ];
+
   /// Tries each host in [hosts] in order, returning the first response that
   /// is HTTP 200 AND passes [isValid] (so a host returning an empty/error
   /// JSON body with a 200 status still gets skipped). Returns null if every
@@ -1659,13 +1675,31 @@ class ApiService {
     // gets that resilience for free without re-deriving it per call-site.
     final results = await Future.wait<List<Song>>([
       // Signal 1: Saavn similar-songs (album+artist correlation)
-      MusicCatalog.saavn.similarTo(currentSong, limit: limit)
-          .timeout(const Duration(seconds: 7), onTimeout: () => <Song>[])
+      // TUNED ("Saavn se bahut kam songs aa rahe hain"): limit -> limit*2.
+      // This is the strongest, most reliable Saavn signal (real catalog
+      // album+artist correlation), so it gets the biggest raw-fetch bump —
+      // more Saavn depth here directly means fewer YT fallback songs are
+      // ever needed downstream.
+      MusicCatalog.saavn.similarTo(currentSong, limit: limit * 2)
+          .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[]),
       // Signal 2: Same-artist catalog search
-      MusicCatalog.saavn.search('${currentSong.artist} songs', limit: limit * 2)
-          .timeout(const Duration(seconds: 7), onTimeout: () => <Song>[])
-          .catchError((_) => <Song>[]),
+      // TUNED: limit*2 -> limit*3 for the same reason as Signal 1.
+      // FIX ("Up Next ek hi junk uploader channel se flood ho jaata hai"):
+      // when currentSong.artist itself looks like an uploader/channel
+      // name (not a real singer credit), a same-artist query just
+      // re-surfaces that same channel's other uploads instead of genuine
+      // similar-artist recommendations — see looksLikeChannelName's doc
+      // comment. Skip this signal entirely in that case so it can't seed
+      // the pool with more of the same channel; Signals 1/3/4 (real
+      // catalog similarity + mood/genre/era) still run normally and cover
+      // the gap with genuinely relevant songs instead.
+      if (RecommendationEngine.looksLikeChannelName(currentSong.artist))
+        Future.value(<Song>[])
+      else
+        MusicCatalog.saavn.search('${currentSong.artist} songs', limit: limit * 3)
+            .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[]),
       // Signal 1.5: YouTube's own related-videos graph (YT-sourced songs
       // only) — a no-op empty future for Saavn-sourced songs so the list
       // shape/indexing below stays fixed regardless of source.
@@ -1687,9 +1721,11 @@ class ApiService {
         Future.value(<Song>[]),
       // Signal 3: Mood+genre+era fallback (Saavn) — one query per
       // generated AutoQueueQuery, all raced together and flattened.
+      // TUNED: limit -> limit*2 — same "more Saavn depth = less YT
+      // fallback needed" reasoning as Signals 1-2.
       Future.wait(fallbackQueries.map((q) =>
-          MusicCatalog.saavn.search(q.query, limit: limit)
-              .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+          MusicCatalog.saavn.search(q.query, limit: limit * 2)
+              .timeout(const Duration(seconds: 7), onTimeout: () => <Song>[])
               .catchError((_) => <Song>[])))
           .then((lists) => [for (final l in lists) ...l]),
       // Signal 4: YouTube supplementary fill — same mood/genre/era queries
@@ -1870,7 +1906,9 @@ class ApiService {
     // phrase variants worth trying), so retrying each one individually
     // would add latency for a low-value long-tail case.
     final saavnFutures = [
-      MusicCatalog.saavn.search(q, limit: 50)
+      // TUNED ("search mein bhi Saavn se jyada songs aaye"): 50 -> 90 —
+      // same "more raw Saavn depth" reasoning as the Up Next signals.
+      MusicCatalog.saavn.search(q, limit: 90)
           .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[]),
       ...lyricVariants.map((v) => _searchSaavn(v, limit: 30)
@@ -1924,6 +1962,16 @@ class ApiService {
     // of how weak its match score was.
     const minRelevanceScore = 5.0; // FIX: 15 se 5 kiya — Saavn pe song hai lekin score low tha toh drop ho raha tha
     for (final song in saavnCombined) {
+      // FIX ("aaltu faltu/unrelated songs search mein"): same gap as
+      // quickSearch — isLowQualityUpload/isNonMusicContent were never
+      // actually applied to Saavn results here, only the relevance score
+      // (deliberately low at 5.0 so genuine matches with weak title
+      // overlap aren't dropped). That low floor is fine for RELEVANT junk
+      // uploads (still the right song, just a bad upload) but let through
+      // completely unrelated jukebox/compilation tracks that happened to
+      // match a stray fragment of a long query.
+      if (RecommendationEngine.isLowQualityUpload(song.title)) continue;
+      if (RecommendationEngine.isNonMusicContent(song)) continue;
       final score = _scoreSearchResult(song, q, wantsVariant);
       if (score < minRelevanceScore) continue;
       var isDupOfAccepted = false;
@@ -1997,7 +2045,7 @@ class ApiService {
     // second wave of requests just to pad the list with "vibe" filler.
     // Now it only runs when direct results are thin, so a query that
     // already lands a clean, complete Saavn match returns immediately.
-    if (directResults.isNotEmpty && directResults.length < 30) { // FIX: 12 se 30 — ab properly Saavn related songs bhi aayenge
+    if (directResults.isNotEmpty && directResults.length < 45) { // TUNED: 30 -> 45 — category expansion aur zyada reliably chale
       final topMatch = directResults.first;
       final directIds    = <String>{for (final s in directResults) s.id};
       final directTitles = <String>{for (final s in directResults) _normTitle(s.title)};
@@ -2033,7 +2081,13 @@ class ApiService {
       // song is smart-compared against everything already in the pool,
       // not just exact-matched.
       final seenRelatedRawTitles = <String>[];
-      const relatedCap = 50;
+      // TUNED ("us category ke aur bhi songs zyada aaye"): 50 -> 80.
+      const relatedCap = 80;
+      // Same "Saavn-dominant, YT gap-filler only" cap as Up Next's
+      // discovery-mix — category expansion should stay mostly real Saavn
+      // catalog too, not become a YT dump just because it fetches more now.
+      final maxYtInRelated = (relatedCap * 0.3).ceil();
+      int ytInRelated = 0;
 
       // FIX ("har baar ekdam same category but NEW songs aaye"): exclude
       // songs already played this session from the DISCOVERY expansion
@@ -2042,10 +2096,11 @@ class ApiService {
       final sessionPlayedIds = RecommendationEngine.sessionRecentIds;
 
       final combinedRelated = await Future.wait([
-        ...relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 30)
+        // TUNED: Saavn 30 -> 50 (bigger share of category-sibling pool).
+        ...relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 50)
             .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[])),
-        ...relatedQueries.map((rq) => _searchYt(rq.query, limit: 40) // 20->40 pro YT
+        ...relatedQueries.map((rq) => _searchYt(rq.query, limit: 40)
             .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[])),
       ]);
@@ -2061,6 +2116,7 @@ class ApiService {
           // implicitly guarantees — keeps the blended list clean/pro
           // instead of dumping in low-quality YT uploads just for volume.
           if (s.source == SongSource.youtube && !RecommendationEngine.isPremiumQuality(s)) continue;
+          if (s.source == SongSource.youtube && ytInRelated >= maxYtInRelated) continue;
           final tk = _normTitle(s.title);
           if (directTitles.contains(tk) || seenRelated.contains(tk)) continue;
           var isDup = false;
@@ -2071,6 +2127,34 @@ class ApiService {
           seenRelated.add(tk);
           seenRelatedRawTitles.add(s.title);
           relatedPool.add(s);
+          if (s.source == SongSource.youtube) ytInRelated++;
+        }
+      }
+      // Backfill pass ("category thin ho toh bhi list poori bhare"): if the
+      // Saavn-priority YT cap above left relatedPool short of relatedCap
+      // (Saavn's own catalog for this specific category/mood was thin),
+      // relax the cap and fill the rest from YT — same "Saavn-first, but
+      // never return short" pattern as Up Next's discovery mix.
+      if (relatedPool.length < relatedCap) {
+        for (final list in combinedRelated) {
+          if (relatedPool.length >= relatedCap) break;
+          for (final s in list) {
+            if (relatedPool.length >= relatedCap) break;
+            if (directIds.contains(s.id)) continue;
+            if (sessionPlayedIds.contains(s.id)) continue;
+            if (RecommendationEngine.isInherentVariant(s.title)) continue;
+            if (s.source == SongSource.youtube && !RecommendationEngine.isPremiumQuality(s)) continue;
+            final tk = _normTitle(s.title);
+            if (directTitles.contains(tk) || seenRelated.contains(tk)) continue;
+            var isDup = false;
+            for (final rawTitle in seenRelatedRawTitles) {
+              if (RecommendationEngine.isSameSongSmart(s.title, rawTitle)) { isDup = true; break; }
+            }
+            if (isDup) continue;
+            seenRelated.add(tk);
+            seenRelatedRawTitles.add(s.title);
+            relatedPool.add(s);
+          }
         }
       }
       results.addAll(relatedPool);
@@ -2387,7 +2471,7 @@ class ApiService {
     // well inside 1.2s, so the YT probe never fires at all — zero extra
     // battery/data cost for the normal case the lightweight fix protects.
     final qWordsForVariants = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-    final saavnFuture = _searchSaavn(q, limit: limit + 15)
+    final saavnFuture = _searchSaavn(q, limit: limit + 15, allowMultiPage: false)
         .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[]);
     Future<List<Song>>? earlyYtFuture;
     final saavnResults = await saavnFuture.timeout(
@@ -2437,6 +2521,20 @@ class ApiService {
     final saavnScored = <_ScoredSong>[];
     final saavnRawTitlesAccepted = <String>[];
     for (final song in saavnCombined) {
+      // FIX ("ek letter type karte hi random unrelated/junk 46-min tracks
+      // aa jaate hain" — production bug seen live): quickSearch never
+      // actually called isNonMusicContent/isLowQualityUpload on ANY
+      // result, Saavn or YT — only isPremiumQuality (view-count/duration)
+      // ever ran, and only on the YT gap-fill path below. A weak/short
+      // live-typing query has a low relevance floor (5.0, deliberately,
+      // so partial typing still surfaces real matches) and Saavn's own
+      // loose backend search can match a completely unrelated long
+      // compilation/jukebox track on a stray fragment — nothing here ever
+      // screened that out. Same gate the full search()/getAutoQueue paths
+      // already apply, now applied here too so live suggestions hold the
+      // same quality bar as a submitted search.
+      if (RecommendationEngine.isLowQualityUpload(song.title)) continue;
+      if (RecommendationEngine.isNonMusicContent(song)) continue;
       final score = _scoreSearchResult(song, q, wantsVariant);
       if (score < minLiveRelevanceScore) continue;
       var isDup = false;
@@ -2472,6 +2570,8 @@ class ApiService {
       if (mergedQuick.length >= limit) break;
       if (saavnNormsQuick.contains(_normTitle(ys.title))) continue;
       if (!RecommendationEngine.isPremiumQuality(ys)) continue;
+      if (RecommendationEngine.isLowQualityUpload(ys.title)) continue;
+      if (RecommendationEngine.isNonMusicContent(ys)) continue;
       final score = _scoreSearchResult(ys, q, wantsVariant);
       if (score < minLiveRelevanceScore) continue;
       mergedQuick.add(ys);
@@ -2594,11 +2694,67 @@ class ApiService {
     return _searchSaavn(query, limit: limit);
   }
 
-  static Future<List<Song>> _searchSaavn(String query, {int limit = 20}) async {
-    Future<List<Song>?> tryNodeHost(String host) async {
+  static Future<List<Song>> _searchSaavn(String query, {int limit = 20, bool allowMultiPage = true}) async {
+    // FIX ("Saavn se bhi full song library nahi utha raha" — real
+    // production gap): every OTHER Saavn caller in this file that wants
+    // deep results (_searchSaavnDeep, used by home sections) already walks
+    // multiple pages via `&page=N`, because JioSaavn's own backend caps
+    // each individual page response well below whatever `limit` is asked
+    // for — a single request with limit=90 still only returns one page's
+    // worth of real results (typically ~20-40), the rest of `limit` was
+    // just silently unused. _searchSaavn (used by EVERY OTHER Saavn path
+    // in the app — Up Next Signals 1-4, search(), quickSearch(), related
+    // expansion) never did this — it always fetched exactly ONE page no
+    // matter how high `limit` was raised, so all of last session's
+    // "raise the limit" tuning was capped by this ceiling underneath it
+    // the whole time. Walking enough pages to actually cover `limit` here
+    // is what makes every one of those upstream limit increases (Saavn
+    // similarTo, same-artist search, mood/genre fallback, main search
+    // query, category-related expansion) actually reach Saavn's real
+    // catalog depth instead of quietly re-returning the same first page.
+    //
+    // [allowMultiPage] defaults true for every normal caller (submit
+    // search, Up Next signals, related expansion). quickSearch (live,
+    // per-KEYSTROKE typing) explicitly passes false — see the LIGHTWEIGHT
+    // FIX comments in quickSearch itself for why per-keystroke calls stay
+    // single-page: multi-page there would multiply the exact per-keystroke
+    // request storm that fix was written to prevent.
+    // PRODUCTION-SAFE DEPTH CAP ("Saavn ki A-to-Z poori library uthao"):
+    // there's no such thing as a single "whole Saavn library" endpoint —
+    // JioSaavn itself is query/category-driven, same as every other
+    // streaming catalog. What "pull everything relevant" means in
+    // practice is: walk as many real result pages as a query genuinely
+    // has, for whatever query/artist/mood is being searched — which is
+    // exactly what page-walking already does below. Two independent caps
+    // keep that safe at production scale instead of ever letting a caller
+    // accidentally trigger hundreds of parallel requests or multi-MB
+    // responses:
+    //   1. `effectiveLimit` — the per-PAGE size sent to each host is
+    //      capped at 40 regardless of what `limit` a caller passes in.
+    //      JioSaavn's own backend already has an effective per-page
+    //      ceiling around this size; asking for more per page doesn't
+    //      return more real songs, it just risks a slower/heavier
+    //      response for zero extra depth. A caller that wants MORE total
+    //      songs should walk more pages (below), not ask for a bigger
+    //      single page.
+    //   2. `pagesNeeded` — walks up to 10 pages (~400 real songs per host
+    //      before dedup, ~1600 raw across all 4 hosts) when `limit` asks
+    //      for real depth. 10 was chosen as the ceiling most JioSaavn
+    //      mirrors' search index realistically has fresh distinct results
+    //      for before pages start recycling/thinning out — walking further
+    //      would mostly return late-arriving stragglers or repeats
+    //      dedup was already discarding, at real cost (more parallel
+    //      requests hitting free-tier Render hosts, more phone battery/
+    //      data per search). This is already 2x deeper than before.
+    final effectiveLimit = limit > 40 ? 40 : limit;
+    final pagesNeeded = allowMultiPage
+        ? (limit / effectiveLimit).ceil().clamp(1, 10)
+        : 1;
+
+    Future<List<Song>?> tryNodeHost(String host, int page) async {
       try {
         final url = Uri.parse(
-          '$host/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+          '$host/api/search/songs?query=${Uri.encodeQueryComponent(query)}&limit=$effectiveLimit&page=$page',
         );
         final res = await _client.get(url).timeout(const Duration(seconds: 8));
         if (res.statusCode != 200) return null;
@@ -2607,21 +2763,21 @@ class ApiService {
         if (results is! List || results.isEmpty) return null;
         final songs = results
             .whereType<Map<String, dynamic>>()
-            .take(limit)
+            .take(effectiveLimit)
             .map(_songFromSaavn)
             .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
             .toList();
         return songs.isNotEmpty ? songs : null;
       } catch (e) {
-        _log('[_searchSaavn] $host error: $e');
+        _log('[_searchSaavn] $host page $page error: $e');
         return null;
       }
     }
 
-    Future<List<Song>?> tryResultRoute(String host) async {
+    Future<List<Song>?> tryResultRoute(String host, int page) async {
       try {
         final url = Uri.parse(
-          '$host/result/?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+          '$host/result/?query=${Uri.encodeQueryComponent(query)}&limit=$effectiveLimit&page=$page',
         );
         final res = await _client.get(url).timeout(const Duration(seconds: 8));
         if (res.statusCode != 200) return null;
@@ -2632,13 +2788,13 @@ class ApiService {
         if (results is! List || results.isEmpty) return null;
         final songs = results
             .whereType<Map<String, dynamic>>()
-            .take(limit)
+            .take(effectiveLimit)
             .map(_songFromSaavn)
             .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
             .toList();
         return songs.isNotEmpty ? songs : null;
       } catch (e) {
-        _log('[_searchSaavn] $host error: $e');
+        _log('[_searchSaavn] $host page $page error: $e');
         return null;
       }
     }
@@ -2657,15 +2813,33 @@ class ApiService {
     // parallel hosts ke results merge hote hain — koi bhi song miss
     // nahi hoga. Speed same rahegi kyunki sab parallel fire hote hain.
     // Duplicate dedup search() mein isSameSongSmart se hoti hai.
+    //
+    // Page 1 always fires from every host (unchanged latency for a normal
+    // `limit`-sized request). Pages 2+ only fire when `limit` actually
+    // asks for more than one page's worth — a plain limit:20 caller (e.g.
+    // a quick single-song lookup) pays zero extra requests; only the
+    // higher-limit callers (Up Next signals, main search, category
+    // expansion) that need real depth pay for the extra parallel pages.
     final allResults = await Future.wait(<Future<List<Song>?>>[
-      for (final host in _saavnNodeHosts) tryNodeHost(host),
-      tryResultRoute(_saavnPrimary),
-      tryResultRoute(_saavnSecondary),
-      tryResultRoute(_saavn),
+      for (final host in _saavnNodeHosts)
+        for (int p = 1; p <= pagesNeeded; p++) tryNodeHost(host, p),
+      for (int p = 1; p <= pagesNeeded; p++) tryResultRoute(_saavnPrimary, p),
+      for (int p = 1; p <= pagesNeeded; p++) tryResultRoute(_saavnSecondary, p),
+      for (int p = 1; p <= pagesNeeded; p++) tryResultRoute(_saavn, p),
+      // Extra resilience mirror — ALWAYS page=1 only, never pagesNeeded,
+      // since this host's own `page` param is a confirmed no-op (see
+      // _saavnNoPaginationFlaskHosts doc comment above). Requesting more
+      // pages from it would just be a wasted duplicate network call
+      // returning identical data every time.
+      for (final host in _saavnNoPaginationFlaskHosts) tryResultRoute(host, 1),
     ]);
+    final seenIds = <String>{};
     final merged = <Song>[];
     for (final r in allResults) {
-      if (r != null) merged.addAll(r);
+      if (r == null) continue;
+      for (final s in r) {
+        if (seenIds.add(s.id)) merged.add(s);
+      }
     }
     return merged;
   }
