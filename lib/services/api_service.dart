@@ -1922,8 +1922,21 @@ class ApiService {
     // Saavn (+ variants) fully finished, stacking its own 10s on top of
     // Saavn's up to 12s. Racing them means the total wait is bounded by
     // whichever is slower, not by their sum.
+    // STABILITY FIX ("kuch sec baad search crash ho jata hai" — production
+    // bug): this future used to have .timeout() but NO .catchError(). A
+    // timeout resolves to <Song>[] safely, but a REAL exception (socket
+    // error, malformed JSON from a flaky mirror, null field in a YT
+    // response) propagated straight through the later `await
+    // earlySearchYtFuture` (below) as an uncaught exception. Since
+    // ApiService.search() itself was also awaited with no try/catch from
+    // search_screen.dart's Timer callback, that exception became an
+    // uncaught async error with no error zone to catch it — which crashes
+    // the whole app, not just this widget. Every other parallel Saavn/YT
+    // future in this file already has .catchError() right next to its
+    // .timeout(); this was the one gap in the submit-search path.
     final earlySearchYtFuture = _searchYt(q, limit: 40)
-        .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[]);
+        .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
+        .catchError((_) => <Song>[]);
     var saavnAll = await Future.wait(saavnFutures);
     var saavnCombined = [for (final list in saavnAll) ...list];
 

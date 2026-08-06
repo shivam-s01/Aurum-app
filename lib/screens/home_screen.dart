@@ -69,56 +69,85 @@ void pushFullPlayer(BuildContext context) {
   if (_openingFullPlayer) return;
   _openingFullPlayer = true;
   AurumHaptics.light();
-  Navigator.of(context).push(
-    PageRouteBuilder(
-      // FIX (background screen visibly glitches/blinks during swipe-
-      // down-to-dismiss): this was `opaque: true`. Flutter's routing
-      // treats an opaque route as fully covering everything behind it,
-      // so it stops actively rendering/repainting the previous route
-      // for the duration the opaque route is on top — it just keeps the
-      // last frame around, since (by the opaque contract) nothing behind
-      // it should ever be visible anyway. FullPlayerScreen's swipe-to-
-      // dismiss (_DragTransform, see full_player_screen.dart) fades its
-      // own Opacity down toward 0 while dragging, which — being opaque
-      // — briefly exposes that frozen, non-updating previous frame
-      // underneath instead of a live one. Every drag frame recomposites
-      // a moving translucent player over a static background, which is
-      // exactly what reads as the background "blinking"/glitching during
-      // the drag. `opaque: false` tells Flutter this route may show the
-      // one behind it, so that previous route keeps rendering live frames
-      // the whole time — confirmed safe here since the screen-behind-
-      // freeze this was originally set to prevent only ever showed up
-      // while the player was fully static/open (unaffected by this
-      // change), never during the drag itself.
-      opaque: false,
-      pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-      // FIX ("full player looks like a flat theme-colored screen for 1-2s
-      // on open AND on swipe-down-close, instead of Spotify-style instant
-      // artwork/content"): this used to wrap the sliding FullPlayerScreen
-      // in `ColoredBox(color: AurumTheme.bgOf(context))`. FullPlayerScreen
-      // already paints its own opaque, theme-correct Scaffold background
-      // (Colors.black / #F5F0EA, see the Scaffold backgroundColor comment
-      // in full_player_screen.dart) on its very first frame — so that
-      // ColoredBox was pure redundant plumbing that happened to sit ON
-      // TOP of the real background during the entire 380ms slide, in
-      // every direction (reverseTransitionDuration reuses this exact
-      // same transitionsBuilder for the swipe-down dismiss). A flat,
-      // untinted color painted for the whole transition duration is
-      // exactly what read as "the theme covers the whole screen for a
-      // couple seconds before the real content/artwork shows up" — both
-      // opening AND closing. Removing the wrapper lets the
-      // SlideTransition reveal FullPlayerScreen's real (already correct)
-      // background and content directly, with nothing extra painted over
-      // or under it.
-      transitionsBuilder: (context, anim, __, child) => SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-            .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-        child: child,
+  // STABILITY FIX ("offline/local song se Home pe jaate hi screen dead ho
+  // jaati hai, bina app restart ke nahi jaata" — production bug): the
+  // guard reset below used to live ONLY inside `.then((_) {...})`, which
+  // fires when the pushed route is later popped. If `Navigator.of(
+  // context).push(...)` itself never successfully completes that
+  // round-trip — e.g. `context` gets deactivated by a widget-tree rebuild
+  // that lands in the same frame (playSong()'s notifyListeners() racing
+  // with this push, exactly the same "two things landing in the same
+  // frame" class of race already fixed above for local/offline songs,
+  // which resolve near-instantly with no network round-trip to naturally
+  // separate the two), the push can throw or silently never settle. With
+  // no other reset path, `_openingFullPlayer` stays `true` forever — and
+  // since it's a single module-level guard shared by EVERY tap site in
+  // the app (song_tile.dart, mini_player.dart, home_screen.dart itself),
+  // that one stuck flag makes every future tap anywhere silently return
+  // at the guard-check above and do nothing. That is exactly a dead,
+  // unresponsive screen that never recovers without a full app restart.
+  // Wrapping the push in try/catch and always resetting the guard — on
+  // success (unchanged), on the route's own completion (unchanged), AND
+  // now on any synchronous failure — closes every path that could leave
+  // it stuck.
+  try {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        // FIX (background screen visibly glitches/blinks during swipe-
+        // down-to-dismiss): this was `opaque: true`. Flutter's routing
+        // treats an opaque route as fully covering everything behind it,
+        // so it stops actively rendering/repainting the previous route
+        // for the duration the opaque route is on top — it just keeps the
+        // last frame around, since (by the opaque contract) nothing behind
+        // it should ever be visible anyway. FullPlayerScreen's swipe-to-
+        // dismiss (_DragTransform, see full_player_screen.dart) fades its
+        // own Opacity down toward 0 while dragging, which — being opaque
+        // — briefly exposes that frozen, non-updating previous frame
+        // underneath instead of a live one. Every drag frame recomposites
+        // a moving translucent player over a static background, which is
+        // exactly what reads as the background "blinking"/glitching during
+        // the drag. `opaque: false` tells Flutter this route may show the
+        // one behind it, so that previous route keeps rendering live frames
+        // the whole time — confirmed safe here since the screen-behind-
+        // freeze this was originally set to prevent only ever showed up
+        // while the player was fully static/open (unaffected by this
+        // change), never during the drag itself.
+        opaque: false,
+        pageBuilder: (_, __, ___) => const FullPlayerScreen(),
+        // FIX ("full player looks like a flat theme-colored screen for 1-2s
+        // on open AND on swipe-down-close, instead of Spotify-style instant
+        // artwork/content"): this used to wrap the sliding FullPlayerScreen
+        // in `ColoredBox(color: AurumTheme.bgOf(context))`. FullPlayerScreen
+        // already paints its own opaque, theme-correct Scaffold background
+        // (Colors.black / #F5F0EA, see the Scaffold backgroundColor comment
+        // in full_player_screen.dart) on its very first frame — so that
+        // ColoredBox was pure redundant plumbing that happened to sit ON
+        // TOP of the real background during the entire 380ms slide, in
+        // every direction (reverseTransitionDuration reuses this exact
+        // same transitionsBuilder for the swipe-down dismiss). A flat,
+        // untinted color painted for the whole transition duration is
+        // exactly what read as "the theme covers the whole screen for a
+        // couple seconds before the real content/artwork shows up" — both
+        // opening AND closing. Removing the wrapper lets the
+        // SlideTransition reveal FullPlayerScreen's real (already correct)
+        // background and content directly, with nothing extra painted over
+        // or under it.
+        transitionsBuilder: (context, anim, __, child) => SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+              .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+          child: child,
+        ),
       ),
-    ),
-  ).then((_) {
+    ).then((_) {
+      _openingFullPlayer = false;
+    }, onError: (_) {
+      _openingFullPlayer = false;
+    });
+  } catch (_) {
+    // Synchronous failure (e.g. context already unmounted at call time) —
+    // the .then()/onError above never got attached, so reset here too.
     _openingFullPlayer = false;
-  });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -589,7 +589,30 @@ class _SearchScreenState extends State<SearchScreen>
         _precomputeResultQueues();
       }
 
-      final result = await ApiService.search(query);
+      // STABILITY FIX ("kuch sec baad search crash ho jata hai" — production
+      // bug): ApiService.search() was awaited directly with no try/catch,
+      // inside a `Timer(...) async` callback. Any real exception surfacing
+      // through it (network layer, JSON parsing, a null field from a flaky
+      // mirror — see the matching fix in api_service.dart's
+      // earlySearchYtFuture for the specific gap that let this happen) had
+      // nowhere to go: a Timer callback isn't awaited by anything, so an
+      // uncaught exception inside it becomes an uncaught async error with
+      // no error zone to catch it, which crashes the whole app rather than
+      // just this screen. Wrapping the call itself is the last line of
+      // defense — even if every internal source-level guard is later
+      // bypassed by some new code path, this screen degrades to "no
+      // results" instead of crashing.
+      SearchResult result;
+      try {
+        result = await ApiService.search(query);
+      } catch (_) {
+        if (!mounted) return;
+        if (_controller.text.trim() != query) return;
+        if (!keepLiveSnapshot) {
+          setState(() { _loading = false; });
+        }
+        return;
+      }
       if (!mounted) return;
       // Stale-guard: if the user kept typing/searched something else while
       // this was in flight, don't stomp on the newer query's results.
@@ -675,7 +698,19 @@ class _SearchScreenState extends State<SearchScreen>
     if (query == _lastBrowseQuery) return;
     _lastBrowseQuery = query;
     setState(() => _browseLoading = true);
-    final result = await BrowseService.search(query);
+    // STABILITY FIX: same class of bug as ApiService.search() above —
+    // BrowseService.search() was awaited with no try/catch, so a real
+    // exception here (Browse tab search fires from the same debounce timer
+    // as live search) had the same uncaught-async-error crash path.
+    BrowseSearchResult result;
+    try {
+      result = await BrowseService.search(query);
+    } catch (_) {
+      if (mounted && _lastBrowseQuery == query) {
+        setState(() => _browseLoading = false);
+      }
+      return;
+    }
     if (mounted && _lastBrowseQuery == query) {
       setState(() { _browseResult = result; _browseLoading = false; });
     }

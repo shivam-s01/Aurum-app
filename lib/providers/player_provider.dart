@@ -1027,7 +1027,33 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _isAutoExtendingQueue = true;
     try {
       final current = q[index];
-      if (current.source == SongSource.local) return;
+      // FIX ("Up Next khaali reh jata hai jab downloaded/local song chal
+      // raha ho" — production gap): this used to hard-return the instant
+      // the CURRENTLY PLAYING song was local, with no fallback at all — a
+      // local song has no online catalog ID for getAutoQueue to seed
+      // Saavn/YT recommendations from, so extending was skipped outright.
+      // That meant Up Next silently stopped refilling for the rest of a
+      // session anywhere a local song landed mid-queue: play a downloaded
+      // track, and the "≤8 remaining" trigger above would keep firing on
+      // every subsequent song-change, hit this same early return every
+      // time, and Up Next would run dry with nothing ever added back.
+      // Fix: fall back to the most recent NON-local song already in the
+      // queue (walking backward from the current index) as the seed for
+      // getAutoQueue instead — same recommendation quality a normal
+      // extend gets, just anchored to the last online song the user was
+      // actually listening to rather than the local one. Only skip
+      // entirely (as before) when the ENTIRE queue so far is local —
+      // there's genuinely nothing online to anchor to in that case.
+      Song anchor = current;
+      if (anchor.source == SongSource.local) {
+        for (int i = index - 1; i >= 0; i--) {
+          if (q[i].source != SongSource.local) {
+            anchor = q[i];
+            break;
+          }
+        }
+        if (anchor.source == SongSource.local) return; // whole queue is local so far — nothing to anchor to
+      }
 
       // Full dedup: existing queue IDs + RecommendationEngine session window
       final existingIds = <String>{
@@ -1039,7 +1065,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // ~80-song initial build above rather than trickling back down
       // to a much smaller buffer between refills.
       final nextSongs = await ApiService.getAutoQueue(
-        current,
+        anchor,
         limit: 30,
         existingQueueIds: existingIds,
       );
