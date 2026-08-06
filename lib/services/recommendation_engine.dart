@@ -1221,6 +1221,20 @@ class RecommendationEngine {
     caseSensitive: false,
   );
 
+  static bool looksLikeChannelName(String artist) {
+    return _channelNamePattern.hasMatch(artist);
+  }
+
+  static final RegExp _channelNamePattern = RegExp(
+    r'\b(t-?series|vevo|records|music company|music official|'
+    r'entertainment|studios?|productions?|films?|cinema|label|'
+    r'official channel|music india|music bhojpuri|music hub|'
+    r'sony music|zee music|saregama|tips (?:official|music)|'
+    r'speed records|white hill|desi music|indie music|'
+    r'top\s?(?:10|20)|now (?:playing|streaming)|jukebox)\b',
+    caseSensitive: false,
+  );
+
   /// Catches low-quality ORIGINAL uploads that aren't remixes/covers but
   /// still don't belong in a premium "Top Hits" feed — random local
   /// uploaders' New Year jingles, generic "naya dhamaka" spam, wedding/
