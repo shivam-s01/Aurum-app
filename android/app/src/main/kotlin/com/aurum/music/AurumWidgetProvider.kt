@@ -61,6 +61,10 @@ open class AurumWidgetProvider : AppWidgetProvider() {
          */
         fun clearArtworkCache() {
             lastArtworkUrl = null
+            // LOW-END DEVICE FIX: same reasoning as loadAndApplyThumbnail's
+            // replacement path — recycle before dropping the reference so
+            // the native bitmap memory is freed immediately.
+            lastThumbBitmap?.let { if (!it.isRecycled) it.recycle() }
             lastThumbBitmap = null
         }
 
@@ -218,8 +222,26 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                     val original = withContext(Dispatchers.IO) { downloadBitmap(url) } ?: return@launch
                     val thumb = withContext(Dispatchers.Default) {
                         roundedCrop(original, sizePx = 160, cornerRadiusPx = 22f)
-                    } ?: return@launch
+                    }
+                    // LOW-END DEVICE FIX (2GB RAM target): `original` is
+                    // fully consumed by roundedCrop() by this point (it
+                    // only reads from it to build `square`/`scaled`
+                    // above) — recycling it here frees its native pixel
+                    // memory immediately rather than waiting for GC,
+                    // matching the same fix applied inside roundedCrop
+                    // for its own intermediates.
+                    original.recycle()
+                    if (thumb == null) return@launch
 
+                    // The bitmap this field held until now is about to be
+                    // replaced and dropped — recycle it before overwriting
+                    // so its native memory is freed immediately instead of
+                    // leaking for the rest of the app process's lifetime.
+                    // This field survives across every widget refresh for
+                    // as long as the app process lives, so a leak here
+                    // compounds continuously over a long session — exactly
+                    // the "gets laggier the longer you use it" symptom.
+                    lastThumbBitmap?.let { if (!it.isRecycled) it.recycle() }
                     lastArtworkUrl = url
                     lastThumbBitmap = thumb
 
@@ -267,12 +289,32 @@ open class AurumWidgetProvider : AppWidgetProvider() {
         }
 
         private fun roundedCrop(source: Bitmap, sizePx: Int, cornerRadiusPx: Float): Bitmap? {
+            // LOW-END DEVICE FIX (2GB RAM target — "app gets laggier the
+            // longer you use it"): `square` and `scaled` were intermediate
+            // bitmaps, dead the moment `output` is drawn from them below,
+            // but were never recycled — left for the GC to eventually
+            // reclaim on its own schedule instead of freeing the native
+            // bitmap memory immediately. This function runs on every home-
+            // screen widget artwork refresh for the life of the app
+            // process; on a memory-constrained device those un-recycled
+            // intermediates accumulate pressure that shows up as
+            // increasing GC pause frequency/duration over a long session —
+            // exactly the "smoothness degrades over time" symptom. Bitmap
+            // objects created via createBitmap/createScaledBitmap own real
+            // native (non-Dalvik-heap) pixel memory that .recycle() frees
+            // deterministically and immediately, rather than waiting on
+            // GC. `square` is only skipped if it's literally the same
+            // object as `source` (createBitmap can return the input
+            // unchanged when x=0,y=0 and the requested region already
+            // matches the source's full size) — recycling it in that case
+            // would recycle the caller's bitmap out from under them.
             return try {
                 val squareSize = minOf(source.width, source.height)
                 val x = (source.width - squareSize) / 2
                 val y = (source.height - squareSize) / 2
                 val square = Bitmap.createBitmap(source, x, y, squareSize, squareSize)
                 val scaled = Bitmap.createScaledBitmap(square, sizePx, sizePx, true)
+                if (square !== source && square !== scaled) square.recycle()
 
                 val output = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
                 val canvas = Canvas(output)
@@ -284,6 +326,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                 canvas.drawRoundRect(rectF, cornerRadiusPx, cornerRadiusPx, paint)
                 paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
                 canvas.drawBitmap(scaled, rect, rect, paint)
+                if (scaled !== output) scaled.recycle()
 
                 output
             } catch (e: Throwable) {

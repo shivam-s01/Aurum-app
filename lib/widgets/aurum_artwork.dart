@@ -284,8 +284,29 @@ class _ContentUriImage extends StatefulWidget {
 }
 
 class _ContentUriImageState extends State<_ContentUriImage> {
-  // Shared across all instances — avoids duplicate platform calls
+  // Shared across all instances — avoids duplicate platform calls.
+  // MEMORY-LEAK FIX ("UI lag/memory grows on large local libraries" —
+  // production gap): this was an unbounded Map. Every unique content://
+  // URI ever displayed (every distinct local/downloaded song's album art,
+  // as raw decoded bytes — not a thumbnail, the full MediaStore art blob)
+  // stayed in memory for the rest of the app session, no eviction, ever.
+  // A user with a large local library scrolling their library/queue
+  // repeatedly over a long session would accumulate hundreds of these
+  // permanently, which is exactly the kind of slow memory growth that
+  // shows up as the app "getting laggier the longer it's open" without
+  // an obvious single cause. ArtworkPaletteCache (artwork_palette_cache.
+  // dart) already solved this identical problem for palette data with a
+  // capped, drop-oldest policy — reusing that same bound here (60 entries,
+  // consistent with the rest of the codebase) fixes it the same way.
+  static const int _maxEntries = 60;
   static final Map<String, Uint8List?> _cache = {};
+
+  static void _cachePut(String uri, Uint8List? bytes) {
+    if (_cache.length >= _maxEntries && !_cache.containsKey(uri)) {
+      _cache.remove(_cache.keys.first);
+    }
+    _cache[uri] = bytes;
+  }
 
   static const _channel = MethodChannel('com.aurum.music/media_store');
 
@@ -327,10 +348,10 @@ class _ContentUriImageState extends State<_ContentUriImage> {
         'getAlbumArt',
         {'uri': widget.uri},
       );
-      _cache[widget.uri] = result;
+      _cachePut(widget.uri, result);
       if (mounted) setState(() { _bytes = result; _loaded = true; });
     } catch (_) {
-      _cache[widget.uri] = null;
+      _cachePut(widget.uri, null);
       if (mounted) setState(() { _bytes = null; _loaded = true; });
     }
   }

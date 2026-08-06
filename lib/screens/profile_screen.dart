@@ -123,6 +123,13 @@ class _ProfileHero extends StatelessWidget {
                 child: CachedNetworkImage(
                   imageUrl: avatarUrl,
                   fit: BoxFit.cover,
+                  // LOW-END DEVICE FIX (2GB RAM): heavily blurred (28σ)
+                  // full-screen background — same reasoning as the shorts
+                  // feed's blurred layer, a small decode target looks
+                  // identical once blurred this hard, so there's no
+                  // reason to decode a Google profile photo at its native
+                  // resolution just to blur away all its detail.
+                  memCacheWidth: 200,
                   errorWidget: (_, __, ___) => _gradientBg(),
                 ),
               )
@@ -169,6 +176,13 @@ class _ProfileHero extends StatelessWidget {
                       ? CachedNetworkImage(
                           imageUrl: avatarUrl,
                           fit: BoxFit.cover,
+                          // LOW-END DEVICE FIX (2GB RAM): 100x100 display
+                          // circle, capped to 2x for crisp high-DPI
+                          // rendering instead of decoding the source
+                          // photo (Google avatars can come back at
+                          // several hundred px) at full resolution.
+                          memCacheWidth: 200,
+                          memCacheHeight: 200,
                           placeholder: (_, __) => Container(
                             color: AurumTheme.bgCardOf(context),
                             child: const Icon(Icons.person_rounded,

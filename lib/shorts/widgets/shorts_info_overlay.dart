@@ -50,6 +50,16 @@ class ShortsInfoOverlay extends StatelessWidget {
                   width: 42,
                   height: 42,
                   fit: BoxFit.cover,
+                  // LOW-END DEVICE FIX (2GB RAM target): 42x42 logical
+                  // display size but no decode cap meant this was
+                  // decoding thumbnail URLs (often 500px+ from JioSaavn/
+                  // YouTube) at their full native resolution every time —
+                  // 80x the display's pixel data for something rendered
+                  // as a small corner icon. Capped to a generous 2x
+                  // display size for crisp rendering on high-DPI screens
+                  // without the multi-hundred-px waste.
+                  memCacheWidth: 84,
+                  memCacheHeight: 84,
                   placeholder: (_, __) => Container(
                     width: 42,
                     height: 42,

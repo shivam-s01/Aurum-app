@@ -148,6 +148,23 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
           child: CachedNetworkImage(
             imageUrl: widget.artworkUrl,
             fit: BoxFit.cover,
+            // LOW-END DEVICE FIX (2GB RAM target): this is the one
+            // full-sharpness (non-blurred) copy of the artwork on this
+            // card, shown at full screen width with a slow Ken Burns
+            // zoom up to 1.11x — so it does need real resolution, unlike
+            // the blurred copy above (capped to 200px since blur erases
+            // detail anyway). But JioSaavn/YouTube thumbnail URLs are
+            // frequently 500-1200px+, and decoding at native resolution
+            // when the widest a phone screen gets is ~480 logical px
+            // (less after DPI scaling reduces the *physical* pixel need)
+            // is pure wasted RAM — multiplied by every card Flutter keeps
+            // resident for smooth swipe transitions (previous/current/
+            // next), not just the one on screen. Capped to 2x a
+            // generous 480px screen width, which is comfortably sharp
+            // even at 1.11x zoom on the highest-DPI phones in use, while
+            // cutting decode memory substantially versus the uncapped
+            // original on a typical thumbnail.
+            memCacheWidth: 960,
             fadeInDuration: const Duration(milliseconds: 250),
             placeholder: (_, __) => Container(color: const Color(0xFF0A0A0A)),
             errorWidget: (_, __, ___) => Container(
