@@ -93,7 +93,56 @@ class LocalMusicService {
 
   static Future<List<SongSection>> scanLibrarySections(List<Song> songs) {
     if (songs.isEmpty) return Future.value([]);
-    return Future.value([SongSection(title: 'Device Songs', songs: songs)]);
+    // REDESIGN ("premium, not one big generic shelf"): this used to dump
+    // every local song into a single "Device Songs" section — with the
+    // Home screen now rendering each section as its own horizontal
+    // artwork-card shelf (see home_screen.dart's _OfflineSectionRow), one
+    // giant section meant offline Home was still effectively ONE shelf no
+    // matter how varied the actual library was, which is exactly what
+    // read as generic rather than a real curated-feeling page. Grouping by
+    // album (when known) gives multiple genuinely distinct shelves — same
+    // "each shelf is its own real playlist" feel the online feed and
+    // Spotify's own Downloaded tab both have — while still falling back to
+    // one combined "Device Songs" section for whatever fraction of a
+    // user's library has no usable album tag (common for random/renamed
+    // downloads), so nothing here ever produces a shelf of size zero or
+    // silently drops a song.
+    const unknownAlbum = '<unknown>';
+    final byAlbum = <String, List<Song>>{};
+    final untagged = <Song>[];
+    for (final song in songs) {
+      final album = song.album.trim();
+      if (album.isEmpty || album == unknownAlbum) {
+        untagged.add(song);
+      } else {
+        (byAlbum[album] ??= []).add(song);
+      }
+    }
+
+    // Only albums with more than one track read as a genuine "shelf" —
+    // singles/one-offs are folded into the combined section instead of
+    // each becoming its own near-empty row, which is what a real
+    // curated-playlist feel actually requires (a shelf of one card looks
+    // broken, not premium).
+    final sections = <SongSection>[];
+    final leftovers = <Song>[...untagged];
+    byAlbum.forEach((album, albumSongs) {
+      if (albumSongs.length > 1) {
+        sections.add(SongSection(title: album, songs: albumSongs));
+      } else {
+        leftovers.addAll(albumSongs);
+      }
+    });
+
+    // Largest/most-populated albums first — mirrors how the online feed's
+    // own sections are ordered by relevance, not arrival order.
+    sections.sort((a, b) => b.songs.length.compareTo(a.songs.length));
+
+    if (leftovers.isNotEmpty) {
+      sections.add(SongSection(title: 'Device Songs', songs: leftovers));
+    }
+
+    return Future.value(sections);
   }
 
   static String _cleanTitle(String raw) {

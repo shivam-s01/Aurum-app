@@ -95,6 +95,19 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
   // uses for its own didPushNext/didPopNext) correctly reports ANY route
   // change above MainShell.
   bool _routeAnimating = false;
+  // FIX ("kabhi kabhi mini player poora stuck ho jata hai"): didPushNext
+  // and didPopNext each schedule their own Future.delayed to flip
+  // _routeAnimating back to false. If the user navigates quickly — pushes
+  // Settings, then immediately backs out again before the first 410ms
+  // timer has fired — the OLD timer from the push is still pending when
+  // the pop's own 80ms timer fires and clears it first; then the old
+  // push timer fires afterward and sets _routeAnimating = true again,
+  // this time with no future timer left to ever clear it. The mini
+  // player is then stuck showing the cheap flat-tint fallback (visually
+  // "frozen") until some unrelated rebuild happens to reset it. Giving
+  // each scheduled callback its own generation token means a stale timer
+  // from a superseded navigation can no longer stomp on a newer one.
+  int _routeAnimGen = 0;
 
   @override
   void didChangeDependencies() {
@@ -116,13 +129,16 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
   // cheap tint immediately.
   @override
   void didPushNext() {
+    final gen = ++_routeAnimGen;
     if (mounted) setState(() => _routeAnimating = true);
     // Every close/open transition in this app uses AurumMotion.long1
     // (350ms) per aurum_transitions.dart. A short buffer (60ms) absorbs
     // minor scheduling jitter so this never restores the real blur a
     // frame or two before the transition has actually finished painting.
     Future.delayed(const Duration(milliseconds: 410), () {
-      if (mounted) setState(() => _routeAnimating = false);
+      if (mounted && gen == _routeAnimGen) {
+        setState(() => _routeAnimating = false);
+      }
     });
   }
 
@@ -145,15 +161,33 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
   // (80ms, just enough to absorb scheduling jitter for the rare
   // programmatic Navigator.pop() cases) replaces the long delay since
   // there's no ongoing transition left to protect here.
+  // FIX ("full player swipe-down se close karte hi mini player 1-2 second
+  // ke liye ekdam flat/glass dikhta hai, phir sahi ho jata hai"): this
+  // still set _routeAnimating = true immediately (even though the fixed
+  // delay was already shortened to 80ms above). Full Player's own
+  // swipe-to-dismiss (_completeDismissDrag() in full_player_screen.dart)
+  // only calls Navigator.pop() AFTER its own 140-300ms slide-off
+  // animation has already finished — the screen is already fully
+  // off-screen and invisible by the time didPopNext() fires here. So
+  // flipping to the flat-tint fallback at all, even briefly, was pure
+  // unnecessary flicker: real BackdropFilter blur was already safe to
+  // keep showing the whole time, since nothing was left animating on top
+  // of it. Removed entirely for the swipe-dismiss case — the flat
+  // fallback is now reserved for didPushNext(), where a route really is
+  // sliding on top and the cheap tint genuinely saves GPU work during
+  // that transition.
   @override
   void didPopNext() {
-    if (mounted) setState(() => _routeAnimating = true);
-    Future.delayed(const Duration(milliseconds: 80), () {
-      if (mounted) setState(() => _routeAnimating = false);
-    });
+    // Nothing to do: no fallback tint needed here anymore (see FIX above).
   }
 
-  static const double _dismissThreshold = 64.0;
+  // FIX ("halka sa neeche swipe karte hi gaana pause/dismiss ho jata
+  // hai"): 64px is roughly a single accidental thumb-drag on a real
+  // phone — especially easy to trigger by mistake while trying to just
+  // tap or reposition your finger near the mini player. Raised to 110px
+  // (a clearly deliberate downward swipe) so casual touches no longer
+  // pause+dismiss the song.
+  static const double _dismissThreshold = 110.0;
   static const double _openThreshold = -60.0;
 
   // FIX (tap sometimes does nothing / feels random): onTap and
@@ -317,7 +351,19 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
                     builder: (context, animatedTint, _) {
                       final isDark =
                           Theme.of(context).brightness == Brightness.dark;
-                      final fallback = isDark ? Colors.black : Colors.white;
+                      // FIX ("home pe wapas aate hi mini player ek pal ke
+                      // liye poora white/blank dikhta hai"): the fallback
+                      // used to be plain Colors.white in light mode. Any
+                      // time this widget rebuilds before _syncTintForSong's
+                      // post-frame callback has actually resolved a real
+                      // artwork tint (e.g. right after navigating back to
+                      // Home, before the cache peek() result lands), that
+                      // pure-white fallback painted the ENTIRE 68px bar —
+                      // reading as "the whole mini player goes white" for a
+                      // frame or two. The app's own themed card color
+                      // blends into the UI instead of flashing as a stark
+                      // white/blank block while waiting for the real tint.
+                      final fallback = AurumTheme.bgCardOf(context);
                       final baseTint = animatedTint ?? fallback;
                       return _routeAnimating
                       ? Container(

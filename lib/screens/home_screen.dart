@@ -525,6 +525,34 @@ class _HomeScreenState extends State<HomeScreen> {
       // never sees the same shelf twice while a refresh is in flight.
       final liveSections = clearExisting ? <SongSection>[] : List<SongSection>.from(_onlineSections);
       if (clearExisting) _onlineSections = liveSections;
+      // PERF FIX ("refresh ke poore time tak lag/jerky rehta hai"): each of
+      // the ~15-19 streamed sections used to trigger its own IMMEDIATE
+      // List.from() copy + ValueNotifier rebuild the instant it arrived.
+      // api_service.dart's own wave-throttling fires sections in small
+      // bursts (up to 3 at a time, ~200ms apart) — so within a single burst,
+      // 2-3 of these full copy+rebuild cycles were landing back-to-back in
+      // the same handful of frames, competing with each other and with
+      // whatever the just-hydrated cache content was still laying out. That
+      // repeating burst-of-rebuilds pattern, once per wave, for the entire
+      // duration of the refresh, is what read as "lag until fresh content
+      // finishes loading" rather than one clean jank moment.
+      // Coalescing into a microtask means every section that arrives within
+      // the same synchronous batch (a whole burst resolving together) is
+      // folded into ONE list copy and ONE notifier update, scheduled once
+      // per burst instead of once per section — cutting the rebuild count
+      // roughly 3x during exactly the window that felt janky, with zero
+      // change to which sections appear or how fast the first one shows up.
+      bool _flushScheduled = false;
+      void scheduleFlush() {
+        if (_flushScheduled) return;
+        _flushScheduled = true;
+        scheduleMicrotask(() {
+          _flushScheduled = false;
+          if (!mounted) return;
+          _onlineSections = List<SongSection>.from(liveSections);
+          if (_onlineLoading) setState(() => _onlineLoading = false);
+        });
+      }
       await ApiService.fetchHomeStreaming(
         topArtists: topArtists,
         topArtistsRotating: topArtistsRotating,
@@ -551,8 +579,9 @@ class _HomeScreenState extends State<HomeScreen> {
           // changes) reliably fires — mutating liveSections in place above
           // and reusing the same reference here would risk being treated
           // as "unchanged" by some ValueNotifier-adjacent tooling.
-          _onlineSections = List<SongSection>.from(liveSections);
-          if (_onlineLoading) setState(() => _onlineLoading = false);
+          // (See scheduleFlush() above — the actual reassignment + setState
+          // now happens once per burst instead of once per section.)
+          scheduleFlush();
         },
       ).timeout(const Duration(seconds: 25));
       if (mounted) {
@@ -1965,75 +1994,105 @@ class _OfflineContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lib = context.watch<LibraryProvider>();
+    // Aurum's own in-app downloads (DownloadProvider/Hive) are a SEPARATE
+    // source from the raw device MediaStore scan LibraryProvider does —
+    // songs downloaded through the app never show up in `lib.allSongs`
+    // unless MediaStore also happens to index that exact file. Without
+    // this, "Downloaded" content the user got FROM Aurum itself (the most
+    // likely thing they'd expect to see first) was invisible on offline
+    // Home — only songs picked up by a raw folder scan showed at all.
+    final downloads = context.watch<DownloadProvider>().completed;
 
-    if (lib.status == LibraryStatus.idle || lib.status == LibraryStatus.loading) {
+    final libLoading = lib.status == LibraryStatus.idle || lib.status == LibraryStatus.loading;
+    if (libLoading && downloads.isEmpty) {
       return const Padding(
         padding: EdgeInsets.only(top: 80),
         child: const Center(child: AurumMorphLoader(size: 56)),
       );
     }
-    if (lib.status == LibraryStatus.noPermission) {
+    if (lib.status == LibraryStatus.noPermission && downloads.isEmpty) {
       return _msg(context, Icons.folder_off_rounded,
           AppLocalizations.of(context)!.homeStoragePermissionNeeded, AppLocalizations.of(context)!.homeGrantPermission, () => lib.load());
     }
-    if (lib.allSongs.isEmpty) {
+    if (lib.allSongs.isEmpty && downloads.isEmpty) {
       return _msg(context, Icons.music_off_rounded,
           AppLocalizations.of(context)!.homeNoLocalSongs, AppLocalizations.of(context)!.homeScanAgain, () => lib.refresh());
     }
 
-    final sections = lib.sections.isNotEmpty
-        ? lib.sections
-        : [SongSection(title: AppLocalizations.of(context)!.homeLocalSongs, songs: lib.allSongs)];
+    // De-dupe: a song already picked up by the raw MediaStore scan (same
+    // local file) shouldn't also appear a second time as an "Aurum
+    // Downloads" card — keyed by local file path, the one identifier both
+    // sources actually share.
+    final scannedPaths = lib.allSongs.map((s) => s.localPath).whereType<String>().toSet();
+    final appDownloadedSongs = downloads
+        .map((d) => d.song)
+        .where((s) => s.localPath == null || !scannedPaths.contains(s.localPath))
+        .toList();
 
+    final librarySections = lib.sections.isNotEmpty
+        ? lib.sections
+        : (lib.allSongs.isNotEmpty
+            ? [SongSection(title: AppLocalizations.of(context)!.homeLocalSongs, songs: lib.allSongs)]
+            : <SongSection>[]);
+
+    // Aurum's own downloads lead the page — most-recently-downloaded
+    // first (DownloadProvider.completed is already sorted newest-first),
+    // same "your most recent activity surfaces first" logic the online
+    // feed's own "Because You Played" row follows.
+    // NOTE (l10n): "Downloaded on Aurum" is a brand name + fixed English
+    // word pair — same category as "Made for You" and "Because You
+    // Played" elsewhere in api_service.dart, which this codebase also
+    // keeps as fixed English label text rather than routing through
+    // AppLocalizations (those are generated section titles, not UI
+    // chrome). Left un-keyed for the same reason, rather than guessing a
+    // translation into all 16 locales myself and risking a wrong one
+    // shipping silently — an actual translator should add a proper
+    // homeDownloadedOnAurum key across every app_*.arb file.
+    final sections = <SongSection>[
+      if (appDownloadedSongs.isNotEmpty)
+        SongSection(id: 'aurum_downloads', title: 'Downloaded on Aurum', songs: appDownloadedSongs),
+      ...librarySections,
+    ];
+
+    final totalCount = appDownloadedSongs.length + lib.allSongs.length;
+
+    // REDESIGN ("echo nightly / production level" request): a separate
+    // hero banner here (blurred artwork + all-caps label + big count) was
+    // dropped after review — the online feed itself has NO such banner
+    // above its sections (see build() above, just _TopAmbientGlow behind
+    // everything), so adding one only for offline content created a
+    // second, inconsistent design language instead of matching the app's
+    // actual premium look. Real reference apps (Spotify's own Downloaded
+    // tab) don't banner-ize this either — they go straight into the
+    // shelf/grid. Offline content now opens directly into the SAME
+    // horizontal artwork-card shelves (_SongGridCard) + "See all" →
+    // MixScreen the online feed uses, with one plain section-count line
+    // in the same style Search/Library already use for list counts —
+    // consistent with the rest of the app rather than a bespoke banner.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
           child: Row(children: [
-            Icon(Icons.download_done_rounded, color: AurumTheme.gold, size: 18),
-            const SizedBox(width: 8),
+            Icon(Icons.download_done_rounded, color: AurumTheme.gold, size: 16),
+            const SizedBox(width: 6),
             Text(
-              '${lib.allSongs.length} songs on device',
+              '$totalCount songs on device',
               style: TextStyle(
-                  color: AurumTheme.textMutedOf(context), fontSize: 13),
+                color: AurumTheme.textSecondaryOf(context),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ]),
         ),
         ...sections.asMap().entries.map((e) => _StaggeredSection(
           key: ValueKey('offline_${e.value.id}'),
           sectionId: 'offline_${e.value.id}',
-          child: Padding(
-            padding: const EdgeInsets.only(top: 20, left: 16, right: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(e.value.title,
-                    style: TextStyle(
-                        color: AurumTheme.textPrimaryOf(context),
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                // FIX: use asMap() so we have the song's actual position
-                // within this section's list. Queue is also scoped to this
-                // section so index always matches — previously queue was
-                // lib.allSongs but index was from indexOf() on that same
-                // list, which returned -1 for songs whose Song.== isn't
-                // overridden (different object instances), causing the
-                // fallback `index: 0` to always play the first song.
-                ...e.value.songs.asMap().entries.map((entry) {
-                  final idx  = entry.key;
-                  final song = entry.value;
-                  return SongTile(
-                    song: song,
-                    queue: e.value.songs,
-                    index: idx,
-                  );
-                }),
-              ],
-            ),
-          ),
+          child: _OfflineSectionRow(section: e.value),
         )),
+        const SizedBox(height: 12),
       ],
     );
   }
@@ -2053,6 +2112,116 @@ class _OfflineContent extends StatelessWidget {
             child: Text(label, style: TextStyle(color: AurumTheme.gold)),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// One offline section rendered as the exact same horizontal artwork-card
+// shelf the online feed uses (_SongGridCard), with a "See all" that opens
+// the SAME MixScreen every online curated mix opens into — so a folder of
+// local songs reads and behaves like a real playlist, title/artwork/emoji
+// and all, instead of a flat file-browser list.
+// ─────────────────────────────────────────────────────────────────────────────
+class _OfflineSectionRow extends StatefulWidget {
+  final SongSection section;
+  const _OfflineSectionRow({required this.section});
+
+  @override
+  State<_OfflineSectionRow> createState() => _OfflineSectionRowState();
+}
+
+class _OfflineSectionRowState extends State<_OfflineSectionRow> {
+  late final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _openMix(BuildContext context) {
+    AurumHaptics.selection();
+    final section = widget.section;
+    final art = section.songs
+        .map((s) => s.artworkUrl)
+        .firstWhere((u) => u.isNotEmpty, orElse: () => '');
+    AurumPageRoute.to(
+      context,
+      MixScreen(
+        mixId: section.id,
+        mixName: section.title,
+        artworkUrl: art,
+        emoji: '📁',
+        songs: section.songs,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final section = widget.section;
+    return Padding(
+      padding: const EdgeInsets.only(top: 24, left: 16, right: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  section.title,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: () => _openMix(context),
+                // FIX: hardcoded English on this new offline row — reuses
+                // the app's existing commonSeeAll key (already defined
+                // across all 16 locale .arb files) instead of introducing
+                // another un-translated string, matching how every
+                // localized label elsewhere in this file is sourced.
+                child: Text(
+                  AppLocalizations.of(context)!.commonSeeAll,
+                  style: TextStyle(
+                    color: AurumTheme.gold,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          FadedHorizontalList(
+            height: 214,
+            controller: _scrollController,
+            child: ListView.builder(
+              controller: _scrollController,
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 600,
+              padding: const EdgeInsets.only(right: 16),
+              itemCount: section.songs.length.clamp(0, 12),
+              itemBuilder: (_, i) {
+                if (i >= section.songs.length) return const SizedBox.shrink();
+                return _SongGridCard(
+                  song: section.songs[i],
+                  queue: section.songs,
+                  index: i,
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
