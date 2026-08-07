@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/short_item.dart';
+import '../services/itunes_shorts_api.dart';
 import '../services/shorts_native_engine.dart';
 import '../services/shorts_prefs.dart';
 import '../services/shorts_recommendation_engine.dart';
@@ -136,6 +137,18 @@ class ShortsFeedController extends ChangeNotifier {
     if (category == _category) return;
     _category = category;
     await ShortsPrefs.setActiveCategory(category);
+
+    // FIX ("fresh content every time, category-wise"): ItunesShortsApi's
+    // per-(category,language) offset is module-level and persists across
+    // switches within the same app session — only _shownKeys (below) was
+    // being cleared here. Without this reset, returning to a category
+    // already visited this session would resume from wherever its offset
+    // was left, not restart from a fresh rotation — so a quick
+    // Punjabi -> Bhojpuri -> Punjabi hop showed the same songs again
+    // instead of a genuinely new batch. Resetting the cursor here makes
+    // every category switch a true fresh start, same as a first app
+    // launch would give it.
+    ItunesShortsApi.resetCursor(category, _language);
 
     _items.clear();
     _shownKeys.clear();
