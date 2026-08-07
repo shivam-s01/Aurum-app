@@ -36,7 +36,7 @@ class _EdgeSwipeBack extends StatefulWidget {
   State<_EdgeSwipeBack> createState() => _EdgeSwipeBackState();
 }
 
-class _EdgeSwipeBackState extends State<_EdgeSwipeBack> {
+class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObserver {
   // Width of the draggable strip along the left edge, matching the narrow
   // "just the edge" feel Spotify uses rather than a whole-screen drag zone.
   static const double _edgeWidth = 24.0;
@@ -45,6 +45,52 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> {
 
   bool get _enabled =>
       AurumMotion.enabled && AudioPrefs.backAnimations;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  // FIX ("offline song bajao, app background karo, wapas aao — screen
+  // permanently dimmed/stuck, swipe-up kabhi kaam karta hai kabhi nahi"):
+  // the onCancel fix above only covers the gesture ARENA taking the
+  // pointer away mid-drag (a competing scroll/drag winning resolution).
+  // It does NOT cover the app itself being backgrounded mid-drag — e.g.
+  // the user's thumb is mid-swipe on the left edge exactly when they hit
+  // Recents/home, or a local/downloaded song's playback notification or a
+  // system dialog steals focus during the gesture. Android does not
+  // guarantee onEnd or onCancel fires on the in-flight recognizer when the
+  // Activity is paused this way — the pointer stream can simply stop
+  // being delivered, leaving _dragging stuck true and
+  // animationController.value frozen at whatever partial fraction the
+  // drag had reached. That same controller drives the PREVIOUS route's
+  // secondaryAnimation (the dim/parallax in AurumSlidePageRoute and
+  // AurumPageRoute below) — so resuming shows that screen permanently
+  // dimmed, and since the controller's value is stuck mid-range rather
+  // than at a clean 0 or 1, gesture detection built on top of it (e.g.
+  // whether a subsequent swipe-up opens the full player) becomes
+  // inconsistent, matching the "kabhi kaam karta hai kabhi stuck" report.
+  // This symptom skews toward local/offline playback simply because
+  // that's when a user is most likely to background the app right after
+  // starting a swipe (no network round-trip holding their attention on
+  // the screen first) — it's not actually specific to local songs at the
+  // code level, any mid-drag backgrounding triggers it.
+  // Fix: observe app lifecycle here too, same as the dispose() safety net
+  // already does for widget teardown — the instant the app is paused
+  // (or detached) mid-drag, stop tracking the drag and snap the shared
+  // controller back to fully-open immediately, no animation, no waiting
+  // for a pointer event that may never arrive.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if ((state == AppLifecycleState.paused ||
+            state == AppLifecycleState.inactive ||
+            state == AppLifecycleState.detached) &&
+        _dragging) {
+      _dragging = false;
+      widget.animationController.value = 1.0;
+    }
+  }
 
   // Safety net alongside the onCancel fix above: if this widget itself
   // gets torn down mid-drag (route disposed from elsewhere, hot-reload,
@@ -56,6 +102,7 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> {
     if (_dragging) {
       widget.animationController.value = 1.0;
     }
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 

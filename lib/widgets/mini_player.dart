@@ -15,6 +15,12 @@ import '../main.dart' show aurumRouteObserver;
 import '../utils/aurum_haptics.dart';
 import '../services/audio_prefs.dart';
 
+// TEMP DEBUG SWITCH — set to false (or delete this line + the two guarded
+// blocks below) once the white-layer repro is confirmed either way. Kept
+// as a single top-level flag so removal later is a one-line + two-block
+// deletion, not a hunt through the file.
+const bool _kDebugMiniPlayerStuckDrag = true;
+
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
 
@@ -22,7 +28,7 @@ class MiniPlayer extends StatefulWidget {
   State<MiniPlayer> createState() => _MiniPlayerState();
 }
 
-class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
+class _MiniPlayerState extends State<MiniPlayer> with RouteAware, WidgetsBindingObserver {
   double _dragY = 0;
   bool _dragging = false;
 
@@ -119,9 +125,120 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
   }
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
     aurumRouteObserver.unsubscribe(this);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  // FIX ("offline song bajao, app background karo, wapas aao — mini
+  // player/screen permanently dim ya offset lagta hai, swipe-up kabhi kaam
+  // karta hai kabhi stuck ho jata hai"): the GestureDetector below only
+  // wired onVerticalDragStart/Update/End — there was no
+  // onVerticalDragCancel at all. If the gesture arena takes the pointer
+  // away mid-drag (a competing scroll winning resolution) OR the app
+  // itself gets backgrounded mid-drag (user's thumb still down on the mini
+  // player exactly when they hit Recents/home — easy to do with a local
+  // song, since there's no network round-trip keeping their attention on
+  // the screen a moment longer first), neither onVerticalDragEnd nor any
+  // cancel handler ever fires. _dragging stays stuck true and _dragY stays
+  // frozen at whatever partial value the drag had reached — and both
+  // directly drive this widget's opacity/translateY in build() below, so
+  // the mini player (and by extension whatever's behind/around it) is left
+  // visibly offset and faded until something unrelated happens to call
+  // setState() again. This matches the local/offline-specific "white layer
+  // / dim" report: same root shape as the already-fixed
+  // "offline song → back leaves a dead white/grey screen" bug above (a
+  // dropped gesture/frame leaving stale visual state), just via the
+  // vertical drag-to-dismiss gesture instead of the full-player route
+  // push. Fix: add the missing onVerticalDragCancel (resets exactly like a
+  // non-dismissing drag-end would), and also observe app lifecycle so a
+  // pause/inactive/detached transition mid-drag resets this state
+  // immediately rather than waiting on a pointer event that may never
+  // arrive.
+  void _onDragCancel() {
+    if (!mounted) return;
+    if (_kDebugMiniPlayerStuckDrag) {
+      debugPrint('[MiniPlayer][DEBUG] onVerticalDragCancel fired — '
+          'resetting stuck drag (_dragY was $_dragY)');
+      _flashDebugBanner('Drag cancelled — reset by fix');
+    }
+    setState(() {
+      _dragging = false;
+      _dragY = 0;
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if ((state == AppLifecycleState.paused ||
+            state == AppLifecycleState.inactive ||
+            state == AppLifecycleState.detached) &&
+        _dragging &&
+        mounted) {
+      if (_kDebugMiniPlayerStuckDrag) {
+        debugPrint('[MiniPlayer][DEBUG] lifecycle=$state fired mid-drag — '
+            'resetting stuck drag (_dragY was $_dragY). Will confirm on '
+            'next resume.');
+        _debugResetHappenedDuringBackground = true;
+      }
+      setState(() {
+        _dragging = false;
+        _dragY = 0;
+      });
+    } else if (state == AppLifecycleState.resumed &&
+        _kDebugMiniPlayerStuckDrag &&
+        _debugResetHappenedDuringBackground) {
+      _debugResetHappenedDuringBackground = false;
+      _flashDebugBanner('Resumed — stuck drag was reset while backgrounded');
+    }
+  }
+
+  // TEMP DEBUG — true only in the window between the fix resetting a
+  // stuck drag while backgrounded and the very next resume, so the
+  // confirmation banner fires exactly once per actual reset (not on every
+  // ordinary resume). See _kDebugMiniPlayerStuckDrag doc comment above the
+  // import block for removal instructions.
+  bool _debugResetHappenedDuringBackground = false;
+
+  // TEMP DEBUG — a small, dismissible top banner (NOT a SnackBar, which
+  // would visually clash with any real SnackBar the app is already
+  // showing, and NOT a dialog, which would block interaction). Auto-hides
+  // itself; purely informational. Safe to delete entirely along with
+  // _kDebugMiniPlayerStuckDrag and _debugResetHappenedDuringBackground
+  // when done testing.
+  void _flashDebugBanner(String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger.clearMaterialBanners();
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: AurumTheme.gold.withOpacity(0.92),
+        content: Text(
+          '🔧 DEBUG: $message',
+          style: const TextStyle(
+            color: Colors.black,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => messenger.hideCurrentMaterialBanner(),
+            child: const Text('OK', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+    Future.delayed(const Duration(seconds: 4), () {
+      if (mounted) messenger.hideCurrentMaterialBanner();
+    });
   }
 
   // A new route (Settings, Full Player, etc.) was just pushed on top of
@@ -324,6 +441,7 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
           onVerticalDragStart: _onDragStart,
           onVerticalDragUpdate: _onDragUpdate,
           onVerticalDragEnd: _onDragEnd,
+          onVerticalDragCancel: _onDragCancel,
           child: Transform.translate(
             offset: Offset(0, translateY),
             child: Opacity(
