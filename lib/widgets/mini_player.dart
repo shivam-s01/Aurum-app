@@ -10,7 +10,7 @@ import '../theme/aurum_theme.dart';
 import '../utils/artwork_palette_cache.dart';
 import 'aurum_artwork.dart';
 import 'aurum_pressable.dart';
-import '../screens/full_player_screen.dart';
+import '../screens/home_screen.dart' show pushFullPlayer;
 import '../main.dart' show aurumRouteObserver;
 import '../utils/aurum_haptics.dart';
 import '../services/audio_prefs.dart';
@@ -205,10 +205,7 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
     }
   }
 
-  bool _opening = false;
   void _openFullPlayer() {
-    if (_opening) return;
-    _opening = true;
     AurumHaptics.light();
 
     // FIX ("artwork pops in after full player is already open"): the mini
@@ -243,40 +240,29 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
       });
     }
 
-    Navigator.of(context)
-        .push(
-      PageRouteBuilder(
-        // FIX (background screen glitches/blinks during swipe-down-to-
-        // dismiss): see the full explanation in home_screen.dart's
-        // pushFullPlayer() — opaque:true stopped Flutter from actively
-        // repainting whatever's underneath while FullPlayerScreen sits on
-        // top, so its drag-to-dismiss fade briefly exposed a frozen frame
-        // instead of a live one on every drag update.
-        opaque: false,
-        pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-        // FIX ("full player looks like a flat theme-colored screen for
-        // 1-2s on open AND on swipe-down-close"): see the matching fix
-        // (and full reasoning) in home_screen.dart's pushFullPlayer() —
-        // FullPlayerScreen already paints its own opaque, theme-correct
-        // background on its first frame, so wrapping it in a separate
-        // flat ColoredBox here was redundant and is exactly what showed
-        // through as an untinted flat color covering the whole screen
-        // during the entire transition, both directions (this route's
-        // reverseTransitionDuration below reuses this same builder for
-        // the swipe-down dismiss).
-        transitionsBuilder: (context, anim, __, child) => SlideTransition(
-          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-              .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-          child: child,
-        ),
-        transitionDuration: const Duration(milliseconds: 380),
-        // FIX ("back feels stuck/not smooth"): matched to the forward
-        // duration above — was 300ms vs 380ms open (same root-cause fix
-        // as aurum_transitions.dart).
-        reverseTransitionDuration: const Duration(milliseconds: 380),
-      ),
-    )
-        .then((_) => _opening = false);
+    // BUGFIX ("offline song → back leaves a dead white/grey screen until
+    // app restart", also reported as songs randomly not playing after a
+    // full-player round trip): this used to push its own inline
+    // PageRouteBuilder with its own LOCAL `_opening` guard — a hand-copied
+    // duplicate of home_screen.dart's pushFullPlayer(), search_screen.dart's
+    // push, and the old library_screen.dart/song_tile.dart pushes (those
+    // two were already migrated to the shared helper — see their FIX
+    // comments). A local guard only protects THIS widget's own tap from
+    // double-firing; it does nothing to stop mini_player.dart and (before
+    // this fix) search_screen.dart each independently passing their own
+    // guard and both pushing a route in the same frame — e.g. tapping the
+    // mini player at the same instant a search result or song tile tap is
+    // still resolving. With opaque:false, the loser of that race can end
+    // up attached to the Navigator stack but never properly composited —
+    // an invisible barrier that still hit-tests every tap and swallows
+    // the back gesture, which is exactly the "screen goes dead, only a
+    // restart fixes it" report, and far more likely for local/offline
+    // songs since they resolve near-instantly with no network round-trip
+    // to naturally space two taps apart. Routing through the single
+    // shared pushFullPlayer() helper (same one every other entry point
+    // now uses) removes this duplicate, unguarded route definition and
+    // gets the real cross-widget guard for free.
+    pushFullPlayer(context);
   }
 
   @override

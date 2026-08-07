@@ -2318,6 +2318,30 @@ class ApiService {
       if (queryWords.length >= 4 && coverage < 0.5) {
         score -= 40;
       }
+
+      // FIX ("kisi disco mai jaaye" surfacing unrelated bhajan/devotional
+      // titles ahead of/instead of the real song): a title that only
+      // shares 1-2 common connector words with a 4+ word query — "mai",
+      // "jaaye", "hai", "ho" — was clearing the floor purely on those
+      // stray overlaps, with no real requirement that the DISTINCTIVE
+      // words (the ones that actually identify the song — "disco",
+      // "kisi") matched anything. Exactly-at-50%-coverage titles used to
+      // dodge the < 0.5 penalty above while still banking the phrase-order
+      // bonus for a short, generic 2-word run. Requiring the query's own
+      // most distinctive (longest) word(s) to be present — not just any
+      // half of the words — filters out coincidental-overlap titles that
+      // technically clear the coverage bar on connector words alone.
+      if (queryWords.length >= 4) {
+        final distinctiveWords = ([...queryWords]..sort((a, b) => b.length.compareTo(a.length)))
+            .take(2)
+            .toList();
+        final distinctiveMatched = distinctiveWords.every((w) =>
+            titleNormSp.contains(w) ||
+            artistNormSp.contains(w) ||
+            _fuzzyWordMatch(w, titleNormSp) ||
+            _fuzzyWordMatch(w, artistNormSp));
+        if (!distinctiveMatched) score -= 35;
+      }
     }
 
     if (_isOfficialAudio(song)) score += 30;

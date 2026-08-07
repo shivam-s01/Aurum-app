@@ -65,7 +65,7 @@ import '../utils/aurum_haptics.dart';
 //      onto the nav stack.
 bool _openingFullPlayer = false; // guards against double-push on rapid tap
 
-void pushFullPlayer(BuildContext context) {
+void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
   if (_openingFullPlayer) return;
   _openingFullPlayer = true;
   AurumHaptics.light();
@@ -145,9 +145,18 @@ void pushFullPlayer(BuildContext context) {
               .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
           child: child,
         ),
+        // Explicit 380ms both directions — matches the tuned duration
+        // every entry point (mini player, search, library, song tile)
+        // already agreed on before being consolidated into this shared
+        // helper. Without this, PageRouteBuilder's default (300ms) would
+        // apply instead, a subtle but real feel-mismatch versus what was
+        // tuned and shipped before.
+        transitionDuration: const Duration(milliseconds: 380),
+        reverseTransitionDuration: const Duration(milliseconds: 380),
       ),
     ).then((_) {
       _openingFullPlayer = false;
+      onClosed?.call();
     }, onError: (_) {
       _openingFullPlayer = false;
     });

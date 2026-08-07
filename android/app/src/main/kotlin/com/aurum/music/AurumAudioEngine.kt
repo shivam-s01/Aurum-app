@@ -1329,6 +1329,23 @@ class AurumAudioEngine(
     // Callers are responsible for clearing resolveTakingLong + pushState()
     // once this returns (both the success and the network-lost-null path).
     private suspend fun resolveWithPatience(song: NativeSong, sessionId: Int): String? {
+        // BUGFIX (offline/downloaded songs stuck on loading forever): this
+        // loop used to check hasAnyNetworkConnection() before ever calling
+        // resolveFast() — but resolveFast() has its own isLocal shortcut
+        // that reads the file straight off disk and never touches the
+        // network at all. With the phone offline (the normal case while
+        // actually listening to downloaded songs), hasAnyNetworkConnection()
+        // returned false immediately and this function bailed with null
+        // before resolveFast() ever got a chance to hand back the local
+        // file:// URI — so playQueueInternal/playSongInternal treated it
+        // as "network absent, stay pending" and the UI sat on the loading
+        // spinner forever, even though nothing here needed the network.
+        // Local/downloaded songs must resolve instantly regardless of
+        // connectivity, so check isLocal first and skip the network gate
+        // (and the whole retry loop) entirely for them.
+        if (song.isLocal) {
+            return resolveFast(song, sessionId, maxAttempts = 1)
+        }
         val startedAt = SystemClock.elapsedRealtime()
         var attempt = 0
         while (true) {

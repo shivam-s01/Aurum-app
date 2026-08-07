@@ -20,7 +20,7 @@ import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_empty_state.dart';
 import '../widgets/aurum_equalizer_bars.dart';
 import '../l10n/generated/app_localizations.dart';
-import 'full_player_screen.dart';
+import 'home_screen.dart' show pushFullPlayer;
 import '../utils/aurum_haptics.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -456,13 +456,28 @@ class _SearchScreenState extends State<SearchScreen>
   // after _results is set (search submit, or live results promoted) instead
   // of once per itemBuilder call. Same dedup logic as before, just computed
   // up-front instead of on every scroll frame.
+  // CRASH/ANR FIX ("loading bar search karne pe hang karta hai"): this was
+  // the same unbounded O(n²) shape as _precomputeRelatedQueues below,
+  // just on _results instead of _relatedResults — a deep search's direct
+  // matches (_results) can themselves run into the dozens, and this ran
+  // uncapped for EVERY tapped-index anchor, rescanning the ENTIRE list
+  // with an isSameSongSmart (Levenshtein-backed) call per comparison, all
+  // synchronously on the UI thread right after setState. That's exactly
+  // the freeze-then-ANR pattern, just triggered from the direct-results
+  // path instead of the related-results path. Same fix, same caps.
   void _precomputeResultQueues() {
-    _resultQueues = List.generate(_results.length, (tappedIndex) {
+    final cap = _results.length < _maxRelatedQueueAnchors
+        ? _results.length
+        : _maxRelatedQueueAnchors;
+    _resultQueues = List.generate(cap, (tappedIndex) {
       final anchor = _results[tappedIndex];
       final seenIds = <String>{anchor.id};
       final seenRawTitles = <String>[anchor.title];
       final out = <Song>[anchor];
-      for (int j = 0; j < _results.length; j++) {
+      final scanLimit = _results.length < _maxRelatedQueueScan
+          ? _results.length
+          : _maxRelatedQueueScan;
+      for (int j = 0; j < scanLimit; j++) {
         if (j == tappedIndex) continue;
         final s = _results[j];
         if (seenIds.contains(s.id)) continue;
@@ -484,13 +499,39 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   // Same as _precomputeResultQueues but for _relatedResults.
+  //
+  // CRASH FIX ("search results scroll/settle hote hi app freeze ho ke crash
+  // ho jata hai" — ANR, not a thrown exception): this used to be an
+  // uncapped O(n²) pass — for EVERY related song, rescan the ENTIRE related
+  // list, calling isSameSongSmart (which runs a Levenshtein-distance check
+  // internally) against every earlier title. _relatedResults can genuinely
+  // hold 100+ songs, so this could mean on the order of 10,000
+  // Levenshtein-checked string comparisons running synchronously on the UI
+  // thread immediately after setState — long enough on a mid/low-end
+  // device to miss enough frames for Android to consider the app
+  // unresponsive and kill it. Bounding both the outer loop (how many
+  // anchors get a precomputed queue) and the inner scan (how many earlier
+  // titles each anchor is compared against) keeps the worst case fixed
+  // regardless of how large a deep search's related expansion gets.
+  // Anchors beyond the cap just fall back to a single-song queue (song,
+  // index) at the call site instead of the reupload-aware queue, which
+  // only matters for far-off-screen items anyway.
+  static const int _maxRelatedQueueAnchors = 40;
+  static const int _maxRelatedQueueScan = 40;
+
   void _precomputeRelatedQueues() {
-    _relatedQueues = List.generate(_relatedResults.length, (tappedIndex) {
+    final cap = _relatedResults.length < _maxRelatedQueueAnchors
+        ? _relatedResults.length
+        : _maxRelatedQueueAnchors;
+    _relatedQueues = List.generate(cap, (tappedIndex) {
       final anchor = _relatedResults[tappedIndex];
       final seenIds = <String>{anchor.id};
       final seenRawTitles = <String>[anchor.title];
       final out = <Song>[anchor];
-      for (int j = 0; j < _relatedResults.length; j++) {
+      final scanLimit = _relatedResults.length < _maxRelatedQueueScan
+          ? _relatedResults.length
+          : _maxRelatedQueueScan;
+      for (int j = 0; j < scanLimit; j++) {
         if (j == tappedIndex) continue;
         final s = _relatedResults[j];
         if (seenIds.contains(s.id)) continue;
@@ -786,55 +827,27 @@ class _SearchScreenState extends State<SearchScreen>
     );
     if (mounted) {
       context.read<PlayerProvider>().playSong(song, queue: [song], index: 0);
-      Navigator.of(context).push(
-        PageRouteBuilder(
-          // FIX (background screen visibly glitches/blinks during swipe-
-          // down-to-dismiss): opaque:true (the previous value) stops
-          // Flutter from actively repainting this route while
-          // FullPlayerScreen sits on top, on the assumption nothing
-          // behind an opaque route is ever visible. But FullPlayerScreen's
-          // drag-to-dismiss fades its own Opacity toward 0 while dragging
-          // — which briefly DOES expose what's behind it — so every drag
-          // frame was compositing a moving translucent player over a
-          // frozen, non-repainting background, reading as a glitch/blink.
-          // opaque:false fixes that by letting this route keep rendering
-          // live frames the whole time.
-          //
-          // This was set to opaque:true specifically to fix a DIFFERENT
-          // bug: opaque:false previously left SearchScreen's last frame
-          // frozen after FullPlayerScreen was popped, until some unrelated
-          // state change forced a rebuild. That freeze is handled below
-          // instead, via a explicit setState() in this push's .then() —
-          // rather than opaque:true, which only masked it by stopping
-          // SearchScreen from being treated as "possibly visible" at all
-          // (which is what caused the swipe-glitch here).
-          opaque: false,
-          pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-          // FIX (flat theme-colored screen for 1-2s on open/swipe-down-
-          // close instead of instant artwork): see the matching fix in
-          // home_screen.dart's pushFullPlayer(), mini_player.dart's
-          // _openFullPlayer(), song_tile.dart's _handleTap(), and
-          // library_screen.dart — FullPlayerScreen already paints its own
-          // opaque, theme-correct background on its first frame, so this
-          // extra flat ColoredBox was redundant and is what showed
-          // through as an untinted flat color during the whole
-          // transition, both directions.
-          transitionsBuilder: (context, anim, __, child) => SlideTransition(
-            position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-                .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-            child: child,
-          ),
-          transitionDuration: const Duration(milliseconds: 380),
-          // FIX ("back feels stuck/not smooth"): matched to the forward
-          // duration above — was 300ms vs 380ms open (same root-cause fix
-          // as aurum_transitions.dart).
-          reverseTransitionDuration: const Duration(milliseconds: 380),
-        ),
-      ).then((_) {
-        // Companion to the opaque:false fix above — force one rebuild once
-        // FullPlayerScreen is popped, so this screen repaints a fresh
-        // frame instead of potentially showing whatever its last frame
-        // was before FullPlayerScreen covered it.
+      // BUGFIX ("offline song → back leaves a dead white/grey screen until
+      // app restart", also reported as songs not playing after a full-
+      // player round trip from search/library/home): this used to push
+      // its own inline PageRouteBuilder with no double-push guard at all
+      // — a hand-copied duplicate of home_screen.dart's pushFullPlayer(),
+      // mini_player.dart's old _openFullPlayer() (now also migrated —
+      // see its FIX comment), and the already-migrated library_screen.
+      // dart/song_tile.dart pushes. Three+ independent route-push sites
+      // each racing the others meant a search-result tap landing in the
+      // same frame as a mini-player or song-tile tap could push two
+      // overlapping opaque:false routes; the loser can end up attached to
+      // the Navigator stack but never properly composited — an invisible
+      // barrier that still hit-tests every tap and swallows the back
+      // gesture, exactly the "screen goes dead, only restart fixes it"
+      // report. Routing through the single shared pushFullPlayer() helper
+      // (same one every other entry point now uses) removes this
+      // duplicate, unguarded route definition and gets the real
+      // cross-widget guard for free. The onClosed callback preserves this
+      // screen's own post-pop rebuild (previously done via .then() on the
+      // inline push) since SearchScreen has no RouteAware of its own.
+      pushFullPlayer(context, onClosed: () {
         if (mounted) setState(() {});
       });
     }
