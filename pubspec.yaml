@@ -50,7 +50,18 @@ dependencies:
   # Android 12+ (S+). No-ops (returns null light/dark schemes) on older
   # Android, other platforms, or devices without dynamic color support —
   # callers must always have a static-palette fallback ready.
-  dynamic_color: ^1.7.0
+  # PINNED (exact, not ^) to 1.7.0: 1.9.0's android/build.gradle.kts uses
+  # the newer `kotlin { compilerOptions { jvmTarget = ... } }` DSL block,
+  # which requires Flutter's "built-in Kotlin" feature (AGP 9+ and the
+  # android.builtInKotlin gradle.properties flag) to resolve. This
+  # project is on AGP 8.9.1, so that block fails with "Unresolved
+  # reference: kotlin/compilerOptions/jvmTarget" during
+  # :dynamic_color:compileReleaseKotlin — the exact CI failure this pin
+  # fixes. 1.7.0 uses the older, compatible kotlinOptions syntax. The
+  # caret (^1.7.0) previously let pub silently resolve to 1.9.0 on any
+  # fresh `flutter pub get` — pinning exact prevents that regression
+  # until the project is deliberately upgraded to AGP 9+/built-in Kotlin.
+  dynamic_color: 1.7.0
   material_new_shapes: ^1.0.0
   phosphor_flutter: ^2.1.0
   expressive_loading_indicator:
