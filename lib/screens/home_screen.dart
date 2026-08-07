@@ -113,25 +113,33 @@ void pushFullPlayer(BuildContext context) {
         // while the player was fully static/open (unaffected by this
         // change), never during the drag itself.
         opaque: false,
-        pageBuilder: (_, __, ___) => const FullPlayerScreen(),
-        // FIX ("full player looks like a flat theme-colored screen for 1-2s
-        // on open AND on swipe-down-close, instead of Spotify-style instant
-        // artwork/content"): this used to wrap the sliding FullPlayerScreen
-        // in `ColoredBox(color: AurumTheme.bgOf(context))`. FullPlayerScreen
-        // already paints its own opaque, theme-correct Scaffold background
-        // (Colors.black / #F5F0EA, see the Scaffold backgroundColor comment
-        // in full_player_screen.dart) on its very first frame — so that
-        // ColoredBox was pure redundant plumbing that happened to sit ON
-        // TOP of the real background during the entire 380ms slide, in
-        // every direction (reverseTransitionDuration reuses this exact
-        // same transitionsBuilder for the swipe-down dismiss). A flat,
-        // untinted color painted for the whole transition duration is
-        // exactly what read as "the theme covers the whole screen for a
-        // couple seconds before the real content/artwork shows up" — both
-        // opening AND closing. Removing the wrapper lets the
-        // SlideTransition reveal FullPlayerScreen's real (already correct)
-        // background and content directly, with nothing extra painted over
-        // or under it.
+        pageBuilder: (context, __, ___) => ColoredBox(
+          // FIX (cold-start white flash between tap and FullPlayerScreen's
+          // first real frame): opaque:false (needed for the swipe-dismiss
+          // background-blink fix above) means Flutter no longer guarantees
+          // anything is painted under this route before FullPlayerScreen's
+          // own Scaffold gets to run its build — on a cold start (no
+          // artwork cached yet, Provider still spinning up), that gap
+          // could be one visible frame of plain white before the themed
+          // Scaffold/ColoredBox inside FullPlayerScreen ever paints. This
+          // pageBuilder-level ColoredBox is the outermost possible layer
+          // for this route — it paints instantly, before FullPlayerScreen
+          // constructs, closing that gap completely regardless of how
+          // long the real screen takes to build its first frame.
+          color: AurumTheme.bgOf(context),
+          child: const FullPlayerScreen(),
+        ),
+        // NOTE (supersedes the "flat theme-colored screen for 1-2s" fix
+        // that previously removed the ColoredBox wrapper entirely): that
+        // fix was correct for the steady-state slide — a themed color
+        // painted for the *whole* 380ms transition duration does read as
+        // "stuck on a flat color" versus real artwork/content. The
+        // ColoredBox reintroduced above is different in kind, not a
+        // regression of that fix: it only needs to win a single first
+        // frame on a cold start (see the FIX comment above), and
+        // FullPlayerScreen's own themed Scaffold/inner ColoredBox paint
+        // over it immediately after — so the "flat color for the whole
+        // transition" complaint this comment describes does not return.
         transitionsBuilder: (context, anim, __, child) => SlideTransition(
           position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
               .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),

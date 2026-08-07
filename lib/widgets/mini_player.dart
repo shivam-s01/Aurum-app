@@ -129,10 +129,26 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware {
   // A route above MainShell was just popped (user backed out of
   // Settings/Full Player/etc.) — the reverse transition is about to
   // animate too.
+  //
+  // FIX ("mini player stuck as flat glass for a couple seconds after
+  // swipe-down close"): this used to share the same fixed 410ms delay as
+  // didPushNext(). That's correct for a normal push (a real 350ms
+  // AurumMotion.long1 route transition is animating) but wrong here for
+  // Full Player's swipe-to-dismiss specifically: _completeDismissDrag()
+  // in full_player_screen.dart runs its own variable-length drag
+  // animation (140-300ms, scaled to however far the finger already was)
+  // and only calls Navigator.pop() AFTER that finishes — by which point
+  // the screen is already fully off-screen. So didPopNext() fires with
+  // nothing left animating, yet still held the cheap flat tint for
+  // another fixed 410ms on top of that, for no visual reason — which is
+  // exactly the multi-second "stuck glass" gap. A short fixed buffer
+  // (80ms, just enough to absorb scheduling jitter for the rare
+  // programmatic Navigator.pop() cases) replaces the long delay since
+  // there's no ongoing transition left to protect here.
   @override
   void didPopNext() {
     if (mounted) setState(() => _routeAnimating = true);
-    Future.delayed(const Duration(milliseconds: 410), () {
+    Future.delayed(const Duration(milliseconds: 80), () {
       if (mounted) setState(() => _routeAnimating = false);
     });
   }

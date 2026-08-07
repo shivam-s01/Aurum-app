@@ -104,10 +104,26 @@ class ShortsFeedController extends ChangeNotifier {
       category: _category,
       language: _language,
     );
-    for (final item in firstPaint) {
+    var resolvedFirstPaint = firstPaint;
+    // FIX (empty feed on transient failure, e.g. iTunes rate-limit):
+    // a single empty first-paint result used to go straight to
+    // _EmptyFeedState with no retry — the most common real-world cause
+    // being a brief 403 rate-limit window that ItunesShortsApi itself
+    // already retries internally, but a slower/aggregate failure could
+    // still slip through. One extra attempt here, after a short delay,
+    // covers that gap without adding a visible extra spinner cycle for
+    // the user (initialLoading stays true throughout).
+    if (resolvedFirstPaint.isEmpty) {
+      await Future.delayed(const Duration(milliseconds: 800));
+      resolvedFirstPaint = await _engine.fetchFirstPaint(
+        category: _category,
+        language: _language,
+      );
+    }
+    for (final item in resolvedFirstPaint) {
       _shownKeys.add(item.dedupeKey);
     }
-    _items.addAll(firstPaint);
+    _items.addAll(resolvedFirstPaint);
     _initialLoading = false;
     notifyListeners();
 
@@ -161,10 +177,18 @@ class ShortsFeedController extends ChangeNotifier {
       category: _category,
       language: _language,
     );
-    for (final item in firstPaint) {
+    var resolvedFirstPaint = firstPaint;
+    if (resolvedFirstPaint.isEmpty) {
+      await Future.delayed(const Duration(milliseconds: 800));
+      resolvedFirstPaint = await _engine.fetchFirstPaint(
+        category: _category,
+        language: _language,
+      );
+    }
+    for (final item in resolvedFirstPaint) {
       _shownKeys.add(item.dedupeKey);
     }
-    _items.addAll(firstPaint);
+    _items.addAll(resolvedFirstPaint);
     _initialLoading = false;
     notifyListeners();
 

@@ -617,6 +617,68 @@ class _SearchScreenState extends State<SearchScreen>
       // Stale-guard: if the user kept typing/searched something else while
       // this was in flight, don't stomp on the newer query's results.
       if (_controller.text.trim() != query) return;
+      // PERF/STABILITY FIX ("app kuch sec ke liye stuck ho jata hai typing
+      // ke baad, phir crash" — ANR class bug, not a thrown exception): this
+      // isDupOfLive computation used to run INSIDE setState() itself — a
+      // nested O(direct+related × liveSnapshot) loop where EVERY comparison
+      // calls isSameSongSmart (itself a nested per-segment loop with
+      // Levenshtein distance checks). A deep search can return up to ~80
+      // direct + 100+ related songs; against a ~20-song live snapshot, that
+      // is thousands of expensive string comparisons running synchronously
+      // on the UI thread inside the widget rebuild that setState()
+      // triggers — long enough on a mid/low-end device to miss enough
+      // frames in a row for Android to consider the app unresponsive and
+      // kill it (an ANR), which reads as "freezes for a few seconds, then
+      // just closes" rather than a caught exception with a stack trace.
+      // Computing the deduped list BEFORE setState() doesn't reduce the
+      // total work, but it does stop it from being attributed to (and
+      // blocking) the actual frame-critical rebuild — combined with the
+      // hard caps below, the worst case is now bounded instead of scaling
+      // unboundedly with however many songs a broad query's deep search
+      // happens to return.
+      //
+      // LIGHTWEIGHT FIX: this whole block is only relevant when
+      // keepLiveSnapshot is true — in the other branch, _relatedResults
+      // takes result.related as-is (see setState below) and none of this
+      // dedup work is ever used. Gating it here means a query that DIDN'T
+      // keep the live snapshot (the live pass came up short, i.e. a less
+      // common/niche query) skips thousands of string comparisons
+      // entirely instead of computing a result that gets thrown away —
+      // pure wasted CPU/battery for no visible benefit in that branch.
+      List<Song> dedupedRelated = const [];
+      if (keepLiveSnapshot) {
+        final liveIds = liveSnapshotBeforeDeepSearch.map((s) => s.id).toSet();
+        // Cap comparisons: only the first N live titles are checked
+        // against — reupload/duplicate dedup only needs to catch the
+        // songs actually visible on screen, and _liveResults is itself
+        // already capped to a small on-screen list, so this cap should
+        // rarely even trigger. It exists purely as a hard ceiling so a
+        // pathological session (e.g. _liveResults somehow ballooning)
+        // can't turn this into unbounded work.
+        const maxLiveTitlesToCheck = 25;
+        final liveRawTitles = liveSnapshotBeforeDeepSearch
+            .map((s) => s.title)
+            .take(maxLiveTitlesToCheck)
+            .toList();
+        bool isDupOfLive(Song s) {
+          if (liveIds.contains(s.id)) return true;
+          for (final t in liveRawTitles) {
+            if (RecommendationEngine.isSameSongSmart(s.title, t)) return true;
+          }
+          return false;
+        }
+        // Cap the candidate pool itself too — result.related in
+        // particular can be a genuinely large expansion list; nothing
+        // downstream needs more than a screenful's worth deduped up
+        // front, and the section just shows fewer items rather than
+        // doing wasted work on entries far off-screen.
+        const maxCandidatesToDedup = 150;
+        dedupedRelated = <Song>[
+          ...result.direct.take(maxCandidatesToDedup).where((s) => !isDupOfLive(s)),
+          ...result.related.take(maxCandidatesToDedup).where((s) => !isDupOfLive(s)),
+        ];
+      }
+
       setState(() {
         if (!keepLiveSnapshot) _results = result.direct;
         // FIX: when we're keeping the frozen live snapshot, the deep
@@ -628,21 +690,7 @@ class _SearchScreenState extends State<SearchScreen>
         // Smart title-comparison (not just ID) keeps reuploads of a song
         // already showing in _results out of the related section too —
         // same isSameSongSmart dedup used everywhere else in the app.
-        final liveIds = liveSnapshotBeforeDeepSearch.map((s) => s.id).toSet();
-        final liveRawTitles = liveSnapshotBeforeDeepSearch.map((s) => s.title).toList();
-        bool isDupOfLive(Song s) {
-          if (liveIds.contains(s.id)) return true;
-          for (final t in liveRawTitles) {
-            if (RecommendationEngine.isSameSongSmart(s.title, t)) return true;
-          }
-          return false;
-        }
-        _relatedResults = keepLiveSnapshot
-            ? [
-                ...result.direct.where((s) => !isDupOfLive(s)),
-                ...result.related.where((s) => !isDupOfLive(s)),
-              ]
-            : result.related;
+        _relatedResults = keepLiveSnapshot ? dedupedRelated : result.related;
         _loading = false;
       });
       // Precompute queues right after results are set — kept as separate

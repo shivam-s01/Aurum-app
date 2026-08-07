@@ -1026,15 +1026,24 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               child: _DragTransform(
                 dragYListenable: _dragYNotifier,
                 child: Scaffold(
-                      // Was Colors.transparent — combined with the
-                      // route's opaque:true (needed to stop the screen
-                      // behind from freezing), any frame where this
-                      // Scaffold hadn't yet painted its own background
-                      // (e.g. right at the start of the slide-up
-                      // transition) showed through as a flash of plain
-                      // white instead of the previous route or the
-                      // player's own gradient. A real background color
-                      // matching the current theme removes that gap.
+                      // FIX (cold-start white flash on Home song tap): the
+                      // comment this replaces said "route's opaque:true" —
+                      // stale. pushFullPlayer() in home_screen.dart sets
+                      // opaque: false (a separate, correct fix for the
+                      // background-blink-during-swipe-dismiss bug). But
+                      // opaque:false means Flutter no longer guarantees this
+                      // Scaffold is the only thing painted for this frame —
+                      // combined with a cold app start (no cached artwork
+                      // palette yet, PlayerProvider still resolving), the
+                      // very first compositor frame of the slide-up
+                      // transition could land before this Scaffold's own
+                      // background color had actually painted, exposing raw
+                      // system-default white for exactly one frame. A
+                      // themed backgroundColor here was the first half of
+                      // the fix; instant is the other half — see the
+                      // ColoredBox below in the Stack, which paints a solid
+                      // color on the very first frame with no dependency on
+                      // this Scaffold's own paint timing.
                       backgroundColor:
                           Theme.of(context).brightness == Brightness.light
                               ? const Color(0xFFF5F0EA)
@@ -1042,6 +1051,22 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                       body: Stack(
                         fit: StackFit.expand,
                         children: [
+                          // FIX (cold-start white flash, second half): a
+                          // guaranteed-opaque solid color painted as the
+                          // very first Stack child, matching the theme.
+                          // Unlike Scaffold.backgroundColor (which is still
+                          // subject to Flutter's own paint scheduling), a
+                          // plain ColoredBox as literally the first pixel
+                          // this Stack ever draws removes any possible gap
+                          // frame during the route's slide-up on a cold
+                          // start, when the artwork/palette-driven _BgLayer
+                          // below hasn't extracted real colors yet.
+                          ColoredBox(
+                            color:
+                                Theme.of(context).brightness == Brightness.light
+                                    ? const Color(0xFFF5F0EA)
+                                    : Colors.black,
+                          ),
                           // Background: isolated repaint boundary
                           RepaintBoundary(
                             child: _BgLayer(

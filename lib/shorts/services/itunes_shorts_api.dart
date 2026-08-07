@@ -27,6 +27,30 @@ class ItunesShortsApi {
   static const _base = 'https://itunes.apple.com/search';
   static const _searchTimeout = Duration(seconds: 8);
 
+  // FIX ("Couldn't load your feed" on a fresh/fast-swiping session):
+  // the iTunes Search API rate-limits at roughly 20 req/min and
+  // responds to an over-limit call with 403 — indistinguishable from
+  // any other failure to the old code, which just returned an empty
+  // list immediately. A first-paint call landing during a 403 window
+  // (e.g. right after several quick category switches, each of which
+  // fires its own fetchFirstPaint + _loadMore burst) meant the feed
+  // showed a permanent empty state even though the network was fine
+  // and the limit resets within seconds. Two changes fix this
+  // production-grade rather than papering over it:
+  //  1. A short in-process retry with backoff specifically for 403 —
+  //     the limit window is brief, so 2 retries a few hundred ms apart
+  //     resolve the overwhelming majority of cases transparently,
+  //     before the user ever sees an error state.
+  //  2. A cooldown timestamp: once we DO see a 403, avoid hammering
+  //     the API again for a few seconds even from unrelated calls
+  //     (different category/key), since the limit is IP-wide, not
+  //     per-key — retrying immediately from every key would just
+  //     collect more 403s and delay recovery.
+  static const _rateLimitRetries = 2;
+  static const _rateLimitRetryDelay = Duration(milliseconds: 600);
+  static const _rateLimitCooldown = Duration(seconds: 4);
+  static DateTime? _rateLimitedUntil;
+
   // key: "category::language" -> next offset to fetch from.
   static final Map<String, int> _offsets = {};
   // Guards against two overlapping fetches for the same key racing.
@@ -108,9 +132,35 @@ class ItunesShortsApi {
       'offset': '$offset',
     });
 
+    // If we're inside a recent rate-limit cooldown, wait it out before
+    // even trying — avoids piling on more 403s while the window is
+    // still hot.
+    final cooldownUntil = _rateLimitedUntil;
+    if (cooldownUntil != null) {
+      final remaining = cooldownUntil.difference(DateTime.now());
+      if (remaining > Duration.zero) {
+        await Future.delayed(remaining);
+      }
+    }
+
     try {
-      final resp = await http.get(uri).timeout(_searchTimeout);
-      if (resp.statusCode != 200) return const [];
+      http.Response? resp;
+      for (var attempt = 0; attempt <= _rateLimitRetries; attempt++) {
+        resp = await http.get(uri).timeout(_searchTimeout);
+        if (resp.statusCode == 403) {
+          _rateLimitedUntil = DateTime.now().add(_rateLimitCooldown);
+          if (attempt < _rateLimitRetries) {
+            await Future.delayed(_rateLimitRetryDelay * (attempt + 1));
+            continue;
+          }
+        }
+        break;
+      }
+      // Any successful response clears a stale cooldown early.
+      if (resp != null && resp.statusCode == 200) {
+        _rateLimitedUntil = null;
+      }
+      if (resp == null || resp.statusCode != 200) return const [];
 
       final body = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       final results = (body['results'] as List?) ?? const [];
