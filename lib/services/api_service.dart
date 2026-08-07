@@ -33,9 +33,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
+import 'dart:io' show HttpClient;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart' show IOClient;
 import 'package:html/parser.dart' as html_parser;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:async/async.dart';
@@ -206,7 +208,39 @@ class ApiService {
   }
   static bool get workerMaintenanceMode => _WorkerHealth.maintenanceMode;
 
-  static final http.Client    _client = http.Client();
+  // FIX ("search 1 min tak wait karna padta hai, Saavn results late/missing
+  // aate hain" — production bug): _client used to be a bare http.Client()
+  // with zero connection tuning underneath. Two compounding problems came
+  // from that:
+  //   1. _saavnPrimary (jiosavan-ecc1.onrender.com) is a documented Render
+  //      free-tier host that cold-sleeps after inactivity (see the FIX
+  //      comment above _saavnPrimary's definition — confirmed hanging 20s+
+  //      when asleep). It's hit on page 1 of EVERY search.
+  //   2. A single search fires _saavnNodeHosts + 3 named hosts +
+  //      _saavnNoPaginationFlaskHosts, each × pagesNeeded (up to 10) pages,
+  //      ALL in parallel, THEN _withRetry (SaavnSource) can fire that
+  //      entire stampede a SECOND time if the first attempt came up empty,
+  //      PLUS lyric-variant and typo-variant queries each repeat the whole
+  //      thing again. Every one of those requests shares this one
+  //      unconfigured http.Client(). Dart's `.timeout()` on a request only
+  //      stops the code from WAITING on it — it doesn't force the
+  //      underlying socket to close — so a slow/sleeping host's connection
+  //      can keep occupying a pool slot well past its nominal 8s timeout,
+  //      starving later requests in the same search of an available
+  //      connection and compounding toward exactly the ~1 minute reported.
+  // Fix: back _client with an explicit HttpClient that gives up on
+  // establishing a TCP connection after 5s (separate from and tighter than
+  // the request-level 8s .timeout() used everywhere below — this cuts off
+  // a dead/sleeping host at the SOCKET level, before it can occupy a pool
+  // slot for the full request lifetime) and caps idle-connection reuse so
+  // a stalled connection to a sleeping Render host doesn't get silently
+  // reused for the next request.
+  static final http.Client _client = IOClient(
+    HttpClient()
+      ..connectionTimeout = const Duration(seconds: 5)
+      ..idleTimeout = const Duration(seconds: 3)
+      ..maxConnectionsPerHost = 6,
+  );
   static final YoutubeExplode _yt     = YoutubeExplode();
 
   // ===========================================================================
@@ -1667,7 +1701,42 @@ class ApiService {
     // stages happened to be needed.
     // ═══════════════════════════════════════════════════════════════════
     final fallbackQueries = RecommendationEngine.generateQueries(currentSong);
-    final wantsYtRelated = currentSong.source == SongSource.youtube;
+    // FIX ("same song repeats every 5-10 songs in Up Next" — online-only,
+    // never happens on local): this used to gate Signal 1.5 (YouTube's own
+    // related-videos graph — NewPipeExtractor's relatedItems, the single
+    // deepest/most-diverse signal in this whole function, exactly what
+    // powers YT Music's own "Up Next") behind `currentSong.source ==
+    // SongSource.youtube` — it only ever ran when the CURRENTLY PLAYING
+    // song already happened to be YouTube-sourced. Since Saavn is this
+    // app's strict primary source (see MusicCatalog.saavn comments
+    // elsewhere in this file), the overwhelming majority of plays are
+    // Saavn-sourced, so this signal was silently skipped almost always —
+    // Up Next was built from Saavn similar/search + YT text-search fallback
+    // only, never YouTube's actual recommendation graph. For an
+    // artist/mood with a shallow Saavn catalog, those signals alone
+    // produce a small, easily-exhausted candidate pool: once the 20-slot
+    // session ID window (RecommendationEngine.sessionRecentIds) ages a
+    // song back out, and the pool has nothing new left to offer, the same
+    // handful of songs cycle back — exactly the "repeats every 5-10 songs"
+    // symptom, and exactly why it never happened on local playback (local
+    // songs don't reach getAutoQueue at all — see the isLocal guard above).
+    // Fix: resolve a YouTube-equivalent video ID for ANY current song via
+    // a quick title+artist search, then feed that into getRelated — Signal
+    // 1.5 now runs unconditionally, giving every Saavn-sourced play the
+    // same graph-based recommendation depth a YouTube-sourced play always
+    // had. Best-effort: any failure to resolve an equivalent ID just means
+    // this one signal contributes nothing, same as every other signal's
+    // existing catchError fallback below.
+    Future<String?> resolveYtIdForRelated() async {
+      if (currentSong.source == SongSource.youtube) return currentSong.id;
+      try {
+        final hits = await _searchYt('${currentSong.title} ${currentSong.artist}', limit: 5)
+            .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[]);
+        return hits.isNotEmpty ? hits.first.id : null;
+      } catch (_) {
+        return null;
+      }
+    }
 
     // Saavn is the strict, unconditional primary source for every signal
     // below — MusicCatalog.saavn (see music_source.dart) already retries
@@ -1700,25 +1769,31 @@ class ApiService {
         MusicCatalog.saavn.search('${currentSong.artist} songs', limit: limit * 3)
             .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[]),
-      // Signal 1.5: YouTube's own related-videos graph (YT-sourced songs
-      // only) — a no-op empty future for Saavn-sourced songs so the list
-      // shape/indexing below stays fixed regardless of source.
-      if (wantsYtRelated)
-        NativeRelatedVideos.getRelated(currentSong.id)
-            .timeout(const Duration(seconds: 8), onTimeout: () => <YtRelatedVideo>[])
-            .then((related) => related.map((r) => Song(
-                  id: r.videoId,
-                  title: r.title,
-                  artist: r.uploaderName,
-                  album: '',
-                  artworkUrl: 'https://i.ytimg.com/vi/${r.videoId}/hqdefault.jpg',
-                  source: SongSource.youtube,
-                  duration: r.durationSecs,
-                  viewCount: r.viewCount,
-                )).toList())
-            .catchError((_) => <Song>[])
-      else
-        Future.value(<Song>[]),
+      // Signal 1.5: YouTube's own related-videos graph — now runs for
+      // EVERY current song, not just YT-sourced ones (see the FIX note on
+      // resolveYtIdForRelated above). Saavn-sourced plays first resolve a
+      // YouTube-equivalent ID via a quick search, then feed that into the
+      // same getRelated() call YT-sourced plays always used.
+      () async {
+        try {
+          final ytId = await resolveYtIdForRelated();
+          if (ytId == null) return <Song>[];
+          final related = await NativeRelatedVideos.getRelated(ytId)
+              .timeout(const Duration(seconds: 8), onTimeout: () => <YtRelatedVideo>[]);
+          return related.map((r) => Song(
+                id: r.videoId,
+                title: r.title,
+                artist: r.uploaderName,
+                album: '',
+                artworkUrl: 'https://i.ytimg.com/vi/${r.videoId}/hqdefault.jpg',
+                source: SongSource.youtube,
+                duration: r.durationSecs,
+                viewCount: r.viewCount,
+              )).toList();
+        } catch (_) {
+          return <Song>[];
+        }
+      }(),
       // Signal 3: Mood+genre+era fallback (Saavn) — one query per
       // generated AutoQueueQuery, all raced together and flattened.
       // TUNED: limit -> limit*2 — same "more Saavn depth = less YT
@@ -1756,9 +1831,11 @@ class ApiService {
     // exactly as before — only the WAITING changed, not the precedence.
     for (final s in results[0]) addToPool(s); // Signal 1
     for (final s in results[1]) addToPool(s); // Signal 2
-    if (wantsYtRelated) {
-      for (final s in results[2]) addToPool(s); // Signal 1.5
-    }
+    // Signal 1.5 now runs unconditionally (see resolveYtIdForRelated FIX
+    // note above) — results[2] is already an empty list on its own when
+    // no YouTube-equivalent ID could be resolved, so no source-based gate
+    // is needed here anymore.
+    for (final s in results[2]) addToPool(s); // Signal 1.5
     for (final s in results[3]) addToPool(s); // Signal 3
     for (final s in results[4]) addToPool(s); // Signal 4
     _log('[autoQueue] all signals parallel: ${pool.length}');
@@ -2669,8 +2746,16 @@ class ApiService {
   }
 
   static Future<List<String>> _suggestSaavn(String query) async {
-    // Try onrender primary, then Vercel pillar, then CF worker
-    for (final base in [_saavnPrimary, _saavnSecondary, _saavn]) {
+    // FIX ("suggestions bhi late aate hain"): this used to try
+    // _saavnPrimary/_saavnSecondary FIRST — both Render/Vercel free-tier
+    // hosts that can cold-sleep 30-50s (see wakeSaavn()'s doc comment and
+    // the matching fix in _searchSaavn above). Since this loop is
+    // SEQUENTIAL (tries one host, only moves to the next on failure), a
+    // sleeping primary meant every autocomplete keystroke paid its full
+    // 3s timeout before even reaching the fast CF Worker. Reordered so
+    // the Worker (Cloudflare — never cold-sleeps) is tried first; Render
+    // hosts stay as a last-resort fallback rather than the default path.
+    for (final base in [_saavn, _saavnPrimary, _saavnSecondary]) {
       try {
         final url = Uri.parse(
           '$base/result/?query=${Uri.encodeQueryComponent(query)}&limit=10', // FIX: suggestions zyada
@@ -2857,11 +2942,25 @@ class ApiService {
     // a quick single-song lookup) pays zero extra requests; only the
     // higher-limit callers (Up Next signals, main search, category
     // expansion) that need real depth pay for the extra parallel pages.
+    // FIX ("search 1 min tak wait karna padta hai, itna late aata hai" —
+    // production bug, continuation of the connection-pool fix above): even
+    // with a tuned connection pool, _saavnPrimary/_saavnSecondary are
+    // Render/Vercel free-tier hosts that can cold-sleep for 30-50s (see
+    // wakeSaavn()'s own doc comment acknowledging this). Future.wait below
+    // waits for the WHOLE batch, so including a possibly-sleeping host in
+    // this race means every single search pays for that host's worst case
+    // whenever it happens to be asleep — even though the Node host and CF
+    // Worker below almost always answer in well under a second (Cloudflare
+    // Workers don't cold-sleep; the Node host has its own proven uptime).
+    // Removed _saavnPrimary/_saavnSecondary from this live user-facing
+    // race — they're still kept warm in the background by wakeSaavn() and
+    // still used by _searchSaavnDeep/similarTo's own narrower fallback
+    // chains, just no longer able to stall the single most latency-
+    // sensitive path (what the user is actively waiting on: search-as-
+    // you-type and submit-search results).
     final allResults = await Future.wait(<Future<List<Song>?>>[
       for (final host in _saavnNodeHosts)
         for (int p = 1; p <= pagesNeeded; p++) tryNodeHost(host, p),
-      for (int p = 1; p <= pagesNeeded; p++) tryResultRoute(_saavnPrimary, p),
-      for (int p = 1; p <= pagesNeeded; p++) tryResultRoute(_saavnSecondary, p),
       for (int p = 1; p <= pagesNeeded; p++) tryResultRoute(_saavn, p),
       // Extra resilience mirror — ALWAYS page=1 only, never pagesNeeded,
       // since this host's own `page` param is a confirmed no-op (see
