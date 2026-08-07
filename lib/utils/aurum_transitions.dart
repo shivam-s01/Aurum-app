@@ -46,6 +46,19 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> {
   bool get _enabled =>
       AurumMotion.enabled && AudioPrefs.backAnimations;
 
+  // Safety net alongside the onCancel fix above: if this widget itself
+  // gets torn down mid-drag (route disposed from elsewhere, hot-reload,
+  // etc.) with _dragging still true, don't leave the shared route
+  // controller frozen at a partial value — snap it back to fully-open so
+  // whatever screen reads it as secondaryAnimation is never left dimmed.
+  @override
+  void dispose() {
+    if (_dragging) {
+      widget.animationController.value = 1.0;
+    }
+    super.dispose();
+  }
+
   void _onDragStart(DragStartDetails details) {
     if (!_enabled) return;
     if (details.globalPosition.dx > _edgeWidth) return;
@@ -66,6 +79,34 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> {
     final dragFraction = (details.globalPosition.dx - _dragStartX!) / width;
     final newValue = (1.0 - dragFraction).clamp(0.0, 1.0);
     widget.animationController.value = newValue;
+  }
+
+  // FIX (Library/Albums screen stuck dimmed/off-position after navigating
+  // back — "ye jata bhe na hai kabhi kabhi"): HorizontalDragGestureRecognizer
+  // can lose an in-progress drag WITHOUT ever calling onEnd — e.g. a
+  // vertical scroll or the mini player's own drag (_dragY) claims the
+  // pointer via arena resolution mid-gesture. Previously only onEnd reset
+  // `_dragging` and settled `animationController` back to 0 or 1. If the
+  // gesture arena took the pointer away instead, _onDragEnd simply never
+  // ran: animationController.value stayed frozen at whatever partial value
+  // the finger last dragged to. Since that SAME controller drives the
+  // previous route's secondaryAnimation (the 0.92 dim / -6% parallax in
+  // AurumSlidePageRoute and the 0.96 dim in AurumPageRoute above), a
+  // dropped drag left the screen behind permanently dimmed and shifted —
+  // recoverable only by another route push/pop coincidentally resetting
+  // the same controller. onCancel is the recognizer's explicit signal that
+  // the gesture was taken away — settle exactly like a below-threshold
+  // release (animate back to fully-open) whenever it fires.
+  void _onDragCancel() {
+    if (!_dragging) return;
+    _dragging = false;
+    final remaining = 1.0 - widget.animationController.value;
+    final settleMs = (AurumMotion.long1.inMilliseconds * remaining)
+        .clamp(80.0, AurumMotion.long1.inMilliseconds.toDouble())
+        .round();
+    widget.animationController.animateTo(1.0,
+        duration: Duration(milliseconds: settleMs),
+        curve: AurumMotion.standard);
   }
 
   void _onDragEnd(DragEndDetails details) {
@@ -122,7 +163,8 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> {
             instance
               ..onStart = _onDragStart
               ..onUpdate = _onDragUpdate
-              ..onEnd = _onDragEnd;
+              ..onEnd = _onDragEnd
+              ..onCancel = _onDragCancel;
           },
         ),
       },
