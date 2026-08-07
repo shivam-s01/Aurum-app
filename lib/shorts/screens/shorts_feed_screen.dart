@@ -216,6 +216,20 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
 
       if (!mounted) return;
       Navigator.of(context).pop(); // exit Shorts back to wherever it was opened from
+    } catch (_) {
+      // FIX (crash hardening): _resolveFullSong/player.playSong can
+      // throw (network failure, search API error, player rejecting a
+      // null streamUrl fallback). Previously unhandled here, so a
+      // single failed "Listen Full Song" tap could crash the whole
+      // Shorts screen instead of just failing that one action.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Couldn\'t play this song'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _resolvingFullSong = false);
     }

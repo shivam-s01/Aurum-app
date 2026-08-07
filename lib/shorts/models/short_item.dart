@@ -29,7 +29,19 @@ class ShortItem {
   /// Unique key used for de-duplication across pages/sessions.
   String get dedupeKey => trackId;
 
-  bool get isPlayable => trackId.isNotEmpty && previewUrl.isNotEmpty;
+  // FIX ("shorts feed shows a permanent white/washed-out screen for some
+  // categories, e.g. Bhojpuri Hits"): isPlayable previously only checked
+  // trackId + previewUrl, never artworkUrl. iTunes occasionally returns a
+  // track with a real playable preview but an EMPTY artworkUrl100
+  // (label/licensing metadata gaps are common for regional-language
+  // catalogs like Bhojpuri). An empty string passed to CachedNetworkImage
+  // doesn't reliably trigger errorWidget the way a genuinely broken URL
+  // does (known upstream quirk), so no fallback background ever painted —
+  // leaving just the washed-out system chrome/scrim showing through
+  // permanently. Requiring artworkUrl here filters those tracks out at
+  // the source, before they ever reach the feed.
+  bool get isPlayable =>
+      trackId.isNotEmpty && previewUrl.isNotEmpty && artworkUrl.isNotEmpty;
 
   Map<String, dynamic> toCacheJson() => {
         'trackId': trackId,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 enum ShortsNativeStatus { none, loading, ready, failed }
@@ -85,18 +86,35 @@ class ShortsNativeEngine {
     _advanceChannel.setMethodCallHandler(null);
   }
 
+  // FIX (crash hardening): every invokeMethod call here used to
+  // propagate PlatformException straight to its caller. playSong() in
+  // particular is awaited directly inside
+  // ShortsFeedController._playCurrent(), which itself is awaited from
+  // next()/previous()/jumpTo() with no try/catch anywhere in that
+  // chain — so a single native-side failure (e.g. ExoPlayer rejecting
+  // a malformed previewUrl, a transient MethodChannel error during
+  // hot-reload, engine not yet attached) would throw all the way up
+  // through a PageView's onPageChanged callback and crash the whole
+  // Shorts screen instead of just failing that one card. Swallowing
+  // here (with debug-only logging) means a bad card degrades to "this
+  // one preview didn't play" — the feed and controller state stay
+  // intact and the user can keep swiping.
   Future<void> playSong({
     required String dedupeKey,
     required String title,
     required String artist,
     required String previewUrl,
-  }) {
-    return _methodChannel.invokeMethod('playSong', {
-      'dedupeKey': dedupeKey,
-      'title': title,
-      'artist': artist,
-      'previewUrl': previewUrl,
-    });
+  }) async {
+    try {
+      await _methodChannel.invokeMethod('playSong', {
+        'dedupeKey': dedupeKey,
+        'title': title,
+        'artist': artist,
+        'previewUrl': previewUrl,
+      });
+    } catch (e) {
+      debugPrint('ShortsNativeEngine.playSong failed: $e');
+    }
   }
 
   Future<void> preloadNext({
@@ -104,20 +122,50 @@ class ShortsNativeEngine {
     required String title,
     required String artist,
     required String previewUrl,
-  }) {
-    return _methodChannel.invokeMethod('preloadNext', {
-      'dedupeKey': dedupeKey,
-      'title': title,
-      'artist': artist,
-      'previewUrl': previewUrl,
-    });
+  }) async {
+    try {
+      await _methodChannel.invokeMethod('preloadNext', {
+        'dedupeKey': dedupeKey,
+        'title': title,
+        'artist': artist,
+        'previewUrl': previewUrl,
+      });
+    } catch (e) {
+      debugPrint('ShortsNativeEngine.preloadNext failed: $e');
+    }
   }
 
-  Future<void> togglePlayPause() => _methodChannel.invokeMethod('togglePlayPause');
-  Future<void> pause() => _methodChannel.invokeMethod('pause');
-  Future<void> resume() => _methodChannel.invokeMethod('resume');
+  Future<void> togglePlayPause() async {
+    try {
+      await _methodChannel.invokeMethod('togglePlayPause');
+    } catch (e) {
+      debugPrint('ShortsNativeEngine.togglePlayPause failed: $e');
+    }
+  }
+
+  Future<void> pause() async {
+    try {
+      await _methodChannel.invokeMethod('pause');
+    } catch (e) {
+      debugPrint('ShortsNativeEngine.pause failed: $e');
+    }
+  }
+
+  Future<void> resume() async {
+    try {
+      await _methodChannel.invokeMethod('resume');
+    } catch (e) {
+      debugPrint('ShortsNativeEngine.resume failed: $e');
+    }
+  }
 
   /// Releases both native ExoPlayer instances — call when the Shorts
   /// feed screen is fully closed (not on every card change).
-  Future<void> release() => _methodChannel.invokeMethod('release');
+  Future<void> release() async {
+    try {
+      await _methodChannel.invokeMethod('release');
+    } catch (e) {
+      debugPrint('ShortsNativeEngine.release failed: $e');
+    }
+  }
 }

@@ -85,6 +85,22 @@ class _ShortsVisualCardState extends State<ShortsVisualCard>
 
   @override
   Widget build(BuildContext context) {
+    // DEFENSIVE FIX (belt-and-suspenders for the empty-artworkUrl bug):
+    // ShortItem.isPlayable now filters these out at the source, but an
+    // item cached to disk from BEFORE that fix could still have an empty
+    // artworkUrl on a returning user's device. CachedNetworkImage doesn't
+    // reliably fire errorWidget for an empty-string URL (vs a genuinely
+    // broken one), so guarding here explicitly — rather than trusting
+    // CachedNetworkImage's error path — is what actually prevents the
+    // permanent washed-out/white card in that case.
+    if (widget.artworkUrl.isEmpty) {
+      return Container(
+        color: const Color(0xFF0A0A0A),
+        child: const Center(
+          child: Icon(Icons.music_note, color: Colors.white24, size: 48),
+        ),
+      );
+    }
     return Stack(
       fit: StackFit.expand,
       children: [
