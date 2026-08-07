@@ -28,6 +28,7 @@ import 'dart:math' as math;
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
@@ -708,6 +709,52 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                       .read<PlaylistProvider>()
                       .reorderSong(pl.id, oldIdx, newIdx);
                 },
+                // FIX (companion to the reorderSong() timing fix): gives the
+                // dragged tile a deliberate, premium lift-and-settle instead
+                // of Flutter's default proxyDecorator, which wraps the tile
+                // in a plain Material with a hard elevation shadow — visually
+                // flat/dated next to the rest of Aurum's motion language, and
+                // the specific widget most likely to be left as a stray
+                // painted frame if a drag is interrupted (e.g. by a fast
+                // back-navigation) before its own drop animation finishes.
+                // A short, explicit AnimatedScale + AnimatedContainer shadow
+                // keyed off `animation` (which Flutter always drives to 0 on
+                // drop/cancel, including interrupted drags) ensures there's
+                // always a defined "off" state to settle back to rather than
+                // whatever Material's internal elevation happened to be
+                // mid-flight.
+                proxyDecorator: (child, index, animation) {
+                  return AnimatedBuilder(
+                    animation: animation,
+                    builder: (context, _) {
+                      final t = Curves.easeOut.transform(animation.value);
+                      final scale = 1.0 + (0.03 * t);
+                      return Transform.scale(
+                        scale: scale,
+                        child: Material(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          elevation: 0,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: AurumTheme.bgCardOf(context),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.28 * t),
+                                  blurRadius: 20 * t,
+                                  offset: Offset(0, 6 * t),
+                                ),
+                              ],
+                            ),
+                            child: child,
+                          ),
+                        ),
+                      );
+                    },
+                    child: child,
+                  );
+                },
                 itemBuilder: (context, i) {
                   final song = pl.songs[i];
                   final tile = _PlaylistSongTile(
@@ -973,6 +1020,86 @@ class _PlaylistHeader extends StatelessWidget {
   final AurumPlaylist playlist;
   const _PlaylistHeader({required this.playlist});
 
+  // CHANGE ("ek option daal do playlist mai users kud se gallery se
+  // playlist ka wallpaper chose kr sakhe ekdam production level"): opens
+  // the gallery via image_picker, hands the picked file off to
+  // PlaylistProvider.setCoverImage (which copies it into app storage and
+  // persists it), and — if a custom cover is already set — offers Remove
+  // as a second option instead of only ever letting you add one. Matches
+  // the long-press-free, single-tap-on-the-artwork pattern Spotify uses
+  // for playlist cover editing rather than burying it in a menu.
+  Future<void> _changeCover(BuildContext context) async {
+    final provider = context.read<PlaylistProvider>();
+    final l10n = AppLocalizations.of(context)!;
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: AurumTheme.bgElevatedOf(ctx),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AurumTheme.textMutedOf(ctx).withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: Icon(Icons.photo_library_rounded,
+                    color: AurumTheme.gold),
+                title: Text(l10n.libraryChooseFromGallery,
+                    style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(ctx),
+                        fontWeight: FontWeight.w600)),
+                onTap: () => Navigator.pop(ctx, 'pick'),
+              ),
+              if (playlist.hasCustomCover)
+                ListTile(
+                  leading:
+                      const Icon(Icons.restore_rounded, color: Colors.redAccent),
+                  title: Text(l10n.libraryRemoveCustomCover,
+                      style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(ctx),
+                          fontWeight: FontWeight.w600)),
+                  onTap: () => Navigator.pop(ctx, 'remove'),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (action == 'pick') {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 90,
+        // Cap the longest edge — playlist covers only ever render up to
+        // 180px in-app; a full 12MP camera photo would just waste disk
+        // space and slow the copy for zero visible benefit.
+        maxWidth: 1200,
+        maxHeight: 1200,
+      );
+      if (picked != null) {
+        await provider.setCoverImage(playlist.id, picked.path);
+      }
+    } else if (action == 'remove') {
+      await provider.clearCoverImage(playlist.id);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -981,34 +1108,57 @@ class _PlaylistHeader extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           // ── Cover Art ───────────────────────────────────────────────────
-          Container(
-            width: 180,
-            height: 180,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: AurumTheme.gold.withOpacity(0.2),
-                  blurRadius: 30,
-                  spreadRadius: 2,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: playlist.mosaicArts.isEmpty
-                  ? Container(
-                      color: Colors.purpleAccent.withOpacity(0.15),
-                      child: const Icon(Icons.queue_music_rounded,
-                          color: Colors.purpleAccent, size: 72),
-                    )
-                  : playlist.mosaicArts.length < 4
-                      ? AurumArtwork(
-                          url: playlist.mosaicArts.first,
-                          size: 180,
-                          borderRadius: 16)
-                      : _MosaicCover(arts: playlist.mosaicArts),
+          GestureDetector(
+            onTap: () => _changeCover(context),
+            child: Container(
+              width: 180,
+              height: 180,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: AurumTheme.gold.withOpacity(0.2),
+                    blurRadius: 30,
+                    spreadRadius: 2,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: playlist.coverArt == null ||
+                            playlist.coverArt!.isEmpty
+                        ? Container(
+                            color: Colors.purpleAccent.withOpacity(0.15),
+                            child: const Icon(Icons.queue_music_rounded,
+                                color: Colors.purpleAccent, size: 72),
+                          )
+                        : AurumArtwork(
+                            url: playlist.coverArt!,
+                            size: 180,
+                            borderRadius: 16),
+                  ),
+                  // Edit badge — bottom-right, always visible, signals the
+                  // whole cover is tappable without needing a hint/tooltip.
+                  Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.55),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: Colors.white.withOpacity(0.15), width: 1),
+                      ),
+                      child: const Icon(Icons.edit_rounded,
+                          color: Colors.white, size: 16),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 20),
@@ -1056,29 +1206,6 @@ class _PlaylistHeader extends StatelessWidget {
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Mosaic 2×2 cover grid
-// ══════════════════════════════════════════════════════════════════════════════
-
-class _MosaicCover extends StatelessWidget {
-  final List<String> arts;
-  const _MosaicCover({required this.arts});
-
-  @override
-  Widget build(BuildContext context) {
-    final cells = arts.take(4).toList();
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: EdgeInsets.zero,
-      mainAxisSpacing: 1,
-      crossAxisSpacing: 1,
-      children: cells
-          .map((url) => AurumArtwork(url: url, size: 89, borderRadius: 0))
-          .toList(),
-    );
-  }
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
 // Action Row (Play All / Shuffle)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1389,18 +1516,16 @@ class _PlaylistCard extends StatelessWidget {
               child: SizedBox(
                 width: 56,
                 height: 56,
-                child: playlist.mosaicArts.isEmpty
+                child: playlist.coverArt == null || playlist.coverArt!.isEmpty
                     ? Container(
                         color: Colors.purpleAccent.withOpacity(0.15),
                         child: const Icon(Icons.queue_music_rounded,
                             color: Colors.purpleAccent, size: 28),
                       )
-                    : playlist.mosaicArts.length < 4
-                        ? AurumArtwork(
-                            url: playlist.mosaicArts.first,
-                            size: 56,
-                            borderRadius: 10)
-                        : _MosaicCover(arts: playlist.mosaicArts),
+                    : AurumArtwork(
+                        url: playlist.coverArt!,
+                        size: 56,
+                        borderRadius: 10),
               ),
             ),
             const SizedBox(width: 14),
@@ -1889,7 +2014,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                                 child: SizedBox(
                                   width: 44,
                                   height: 44,
-                                  child: pl.mosaicArts.isEmpty
+                                  child: pl.coverArt == null || pl.coverArt!.isEmpty
                                       ? Container(
                                           color: Colors.purpleAccent
                                               .withOpacity(0.15),
@@ -1898,7 +2023,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                                               color: Colors.purpleAccent,
                                               size: 20))
                                       : AurumArtwork(
-                                          url: pl.mosaicArts.first,
+                                          url: pl.coverArt!,
                                           size: 44,
                                           borderRadius: 8),
                                 ),

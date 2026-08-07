@@ -464,6 +464,8 @@
   "libraryRemoveDownload": "İndirmeyi kaldır",
   "libraryRemoveFromPlaylist": "Çalma listesinden kaldır",
   "libraryRemoveFromSavedAlbums": "Kaydedilen albümlerden kaldır",
+  "libraryChooseFromGallery": "Galeriden seç",
+  "libraryRemoveCustomCover": "Özel kapağı kaldır",
   "libraryRenamePlaylist": "Çalma listesini yeniden adlandır",
   "librarySearchAndAddSongsHere": "Şarkı ara ve buraya ekle",
   "librarySeeAllSongs": "{count, plural, one{Tek şarkıyı gör} other{Tüm {count} şarkıyı gör}}",

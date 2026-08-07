@@ -464,6 +464,8 @@
   "libraryRemoveDownload": "다운로드 삭제",
   "libraryRemoveFromPlaylist": "재생목록에서 삭제",
   "libraryRemoveFromSavedAlbums": "저장된 앨범에서 삭제",
+  "libraryChooseFromGallery": "갤러리에서 선택",
+  "libraryRemoveCustomCover": "커스텀 커버 제거",
   "libraryRenamePlaylist": "재생목록 이름 바꾸기",
   "librarySearchAndAddSongsHere": "곡을 검색하여 여기에 추가하세요",
   "librarySeeAllSongs": "{count, plural, other{{count}곡 모두 보기}}",

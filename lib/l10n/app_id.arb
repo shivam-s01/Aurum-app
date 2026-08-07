@@ -464,6 +464,8 @@
   "libraryRemoveDownload": "Hapus unduhan",
   "libraryRemoveFromPlaylist": "Hapus dari playlist",
   "libraryRemoveFromSavedAlbums": "Hapus dari album tersimpan",
+  "libraryChooseFromGallery": "Pilih dari galeri",
+  "libraryRemoveCustomCover": "Hapus sampul kustom",
   "libraryRenamePlaylist": "Ganti nama playlist",
   "librarySearchAndAddSongsHere": "Cari lagu dan tambahkan di sini",
   "librarySeeAllSongs": "{count, plural, other{Lihat semua {count} lagu}}",

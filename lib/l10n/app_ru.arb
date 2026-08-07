@@ -456,6 +456,8 @@
   "libraryRemoveDownload": "Удалить загрузку",
   "libraryRemoveFromPlaylist": "Удалить из плейлиста",
   "libraryRemoveFromSavedAlbums": "Удалить из сохранённых альбомов",
+  "libraryChooseFromGallery": "Выбрать из галереи",
+  "libraryRemoveCustomCover": "Удалить обложку",
   "libraryRenamePlaylist": "Переименовать плейлист",
   "librarySearchAndAddSongsHere": "Найдите треки и добавьте их сюда",
   "librarySeeAllSongs": "{count, plural, one{Смотреть {count} трек} few{Смотреть все {count} трека} many{Смотреть все {count} треков} other{Смотреть все {count} треков}}",

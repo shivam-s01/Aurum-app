@@ -809,6 +809,8 @@
   "libraryRemoveDownload": "Remove download",
   "libraryRemoveFromPlaylist": "Remove from playlist",
   "libraryRemoveFromSavedAlbums": "Remove from saved albums",
+  "libraryChooseFromGallery": "Choose from gallery",
+  "libraryRemoveCustomCover": "Remove custom cover",
   "libraryRenamePlaylist": "Rename playlist",
   "librarySearchAndAddSongsHere": "Search for songs and add them here",
   "librarySeeAllSongs": "{count, plural, =1{See all 1 song} other{See all {count} songs}}",

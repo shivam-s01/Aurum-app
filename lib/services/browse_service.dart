@@ -73,20 +73,19 @@ String _hqArtwork(String url) {
       .replaceAll('50x50', '500x500');
 }
 
-// BUGFIX: full-player artwork looked visibly low-res for YouTube-sourced
-// tracks. The three call sites below previously went straight to
-// v.thumbnails.mediumResUrl (a ~320x180 tier) with standardResUrl as their
-// only fallback — never touching maxResUrl (1280x720, the actual highest
-// tier YouTube offers) or highResUrl (480x360) at all. maxResUrl is
-// documented as "not always available" for some videos, which is exactly
-// why a fallback chain exists — but the chain needs to try the BEST
-// options first and only fall back to worse ones when they're genuinely
-// missing, not skip straight past them. This tries every tier from
-// highest to lowest and only returns a lower one if every better tier is
-// actually empty for that video.
+// FIX ("thumbnails look non-premium / low quality for a lot of YT songs"):
+// maxResUrl/standardResUrl are documented as "not always available", but
+// youtube_explode_dart always returns a non-empty (client-guessed) URL
+// string for them regardless — when the real image doesn't exist,
+// YouTube's CDN still answers 200 OK for that URL, just with a tiny
+// ~120x90 grey placeholder instead of the real picture. isNotEmpty never
+// catches that, so a large share of videos (older uploads, auto-
+// thumbnailed ones) were silently rendering as a blurry grey box. Trust
+// only highResUrl (480x360 'hqdefault') as the top tier — YouTube
+// generates this one for virtually every video that exists, so it's
+// never a placeholder, and 480x360 is still plenty sharp for a song
+// tile/cover/full-player background.
 String _bestYtThumbnail(yt.ThumbnailSet thumbnails) {
-  if (thumbnails.maxResUrl.isNotEmpty) return thumbnails.maxResUrl;
-  if (thumbnails.standardResUrl.isNotEmpty) return thumbnails.standardResUrl;
   if (thumbnails.highResUrl.isNotEmpty) return thumbnails.highResUrl;
   if (thumbnails.mediumResUrl.isNotEmpty) return thumbnails.mediumResUrl;
   return thumbnails.lowResUrl;

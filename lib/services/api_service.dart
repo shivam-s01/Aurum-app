@@ -3024,8 +3024,23 @@ class ApiService {
     }
   }
 
+  // FIX ("thumbnails look non-premium / low quality for a lot of YT songs"):
+  // youtube_explode_dart's maxResUrl/standardResUrl are DOCUMENTED as "not
+  // always available" — but the field is always a non-empty STRING (a
+  // client-constructed URL guess), never actually empty when the real
+  // image is missing. YouTube's CDN then serves a 200 OK response for
+  // that URL anyway, just with a tiny ~120x90 grey placeholder image
+  // instead of a 404 — so the old `isNotEmpty` check always passed and
+  // silently accepted the placeholder as if it were the real thumbnail,
+  // for every video that lacks a true maxres/standard image (a large
+  // share of catalog — older uploads, auto-thumbnailed videos, etc).
+  // highResUrl (480x360 'hqdefault') is the safe tier: YouTube generates
+  // it for virtually every video that exists, so it's never a placeholder
+  // — and at 480x360 it's still sharp enough for a song tile/cover, far
+  // better than a blurry grey box. Skip straight to the guaranteed tier
+  // instead of gambling on maxres/standard.
   static String _bestThumbnail(dynamic t) {
-    for (final url in [t.maxResUrl, t.highResUrl, t.standardResUrl, t.mediumResUrl, t.lowResUrl]) {
+    for (final url in [t.highResUrl, t.mediumResUrl, t.lowResUrl]) {
       if (url != null && url.toString().isNotEmpty) return url.toString();
     }
     return '';
@@ -4836,8 +4851,10 @@ class ApiService {
   // the actual song title.
   static final RegExp _bracketTagPattern = RegExp(
     r'[\(\[\{]\s*(official\s*(video|audio|music\s*video)?|lyrics?(\s*video)?|'
-    r'hd|4k|full\s*(video|song|audio)?|new|latest|original|explicit|'
-    r'visualizer|audio\s*only|with\s*lyrics|from\s*.*?)\s*[\)\]\}]',
+    r'hd|4k|8k|full\s*(video|song|audio|hd)?|new|latest|original|explicit|'
+    r'visualizer|audio\s*only|with\s*lyrics|slowed\s*(down|\+?\s*reverb)?|'
+    r'reverb|bass\s*boosted|extended|clean|dirty|radio\s*edit|'
+    r'\d{3,4}p|prod\.?\s*by\s*.*?|from\s*.*?)\s*[\)\]\}]',
     caseSensitive: false,
   );
 
@@ -4845,7 +4862,9 @@ class ApiService {
   // append after the real title.
   static final RegExp _channelSuffixPattern = RegExp(
     r'\s*[\|•]\s*(t-?series|zee music|sony music|saregama|tips|speed records|'
-    r'desi music|shemaroo|venus|eros now music|vevo|records?)\b.*$',
+    r'desi music|shemaroo|venus|eros now music|vevo|records?|'
+    r'yrf|excel movies|ultra|goldmines|sagahits|wave music|'
+    r'movies?\s*&?\s*music)\b.*$',
     caseSensitive: false,
   );
 
@@ -4854,8 +4873,32 @@ class ApiService {
   static final RegExp _looseNoiseWords = RegExp(
     r'\b(official\s*(music\s*)?video|official\s*audio|lyrical\s*video|'
     r'lyrics\s*video|full\s*video\s*song|video\s*song|full\s*song|'
-    r'audio\s*jukebox|hd\s*video)\b',
+    r'audio\s*jukebox|hd\s*video|new\s*song\s*\d{4}|latest\s*(bollywood\s*)?'
+    r'song\s*\d{4}|trending\s*song|viral\s*song|whatsapp\s*status|'
+    r'status\s*video|ringtone)\b',
     caseSensitive: false,
+  );
+
+  // Bare trailing "| Video" / "| Song" left dangling after a pipe once the
+  // multi-word noise phrases above are stripped (e.g. "Title | Full Song
+  // Video | Movie" loses "Full Song" but leaves a lone "Video" segment).
+  // Deliberately anchored to a pipe/dash boundary rather than \bvideo\b or
+  // \bsong\b bare, so a real title that happens to contain the word (e.g.
+  // "Ye Jo Halka Halka Saroor Hai" territory, or anything titled literally
+  // "Song") is never touched — only a standalone noise SEGMENT is removed.
+  static final RegExp _bareNoiseSegment = RegExp(
+    r'[\|•]\s*(video|song|full\s*video|title\s*song)\s*(?=[\|•]|$)',
+    caseSensitive: false,
+  );
+
+  // Hindi/Devanagari noise words uploaders commonly append — same role as
+  // _looseNoiseWords but for Devanagari script, which the English-only
+  // pattern above never touched. Without this, a title like
+  // "तेरा यार हूं मैं गाना वीडियो" kept "गाना वीडियो" (literally "song
+  // video") stuck on the end even after every English tag was stripped.
+  static final RegExp _devanagariNoiseWords = RegExp(
+    r'(गाना\s*वीडियो|फुल\s*वीडियो|ऑफिशियल\s*वीडियो|न्यू\s*सॉन्ग|लेटेस्ट\s*सॉन्ग|'
+    r'वीडियो\s*सॉन्ग|फुल\s*सॉन्ग|गाना|वीडियो)',
   );
 
   static String _cleanText(String s) {
@@ -4869,9 +4912,16 @@ class ApiService {
     out = out.replaceAll(_channelSuffixPattern, '');
     out = out.replaceAll(_bracketTagPattern, '');
     out = out.replaceAll(_looseNoiseWords, '');
+    out = out.replaceAll(_devanagariNoiseWords, '');
+    out = out.replaceAll(_bareNoiseSegment, '');
     // Collapse leftover separator debris ("Title -  | ", "Title ()") left
     // behind after tag/emoji stripping.
     out = out.replaceAll(RegExp(r'[\(\[\{]\s*[\)\]\}]'), '');
+    // Collapse doubled-up or now-empty pipe/dash separators left in the
+    // MIDDLE of the string too (not just at the ends) after noise removal
+    // — e.g. "Tum Hi Ho |  | Aashiqui 2" -> "Tum Hi Ho | Aashiqui 2".
+    out = out.replaceAll(RegExp(r'\s*[-|•]\s*(?=[-|•]|$)'), ' ');
+    out = out.replaceAll(RegExp(r'^\s*[-|•]\s*'), '');
     out = out.replaceAll(RegExp(r'\s*[-|•]\s*$'), '');
     out = out.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
     return out;

@@ -464,6 +464,8 @@
   "libraryRemoveDownload": "Xóa nội dung tải xuống",
   "libraryRemoveFromPlaylist": "Xóa khỏi playlist",
   "libraryRemoveFromSavedAlbums": "Xóa khỏi album đã lưu",
+  "libraryChooseFromGallery": "Chọn từ thư viện ảnh",
+  "libraryRemoveCustomCover": "Xóa ảnh bìa tùy chỉnh",
   "libraryRenamePlaylist": "Đổi tên playlist",
   "librarySearchAndAddSongsHere": "Tìm bài hát và thêm vào đây",
   "librarySeeAllSongs": "{count, plural, other{Xem tất cả {count} bài hát}}",

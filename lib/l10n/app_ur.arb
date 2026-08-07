@@ -468,6 +468,8 @@
   "libraryRemoveDownload": "ڈاؤن لوڈ ہٹائیں",
   "libraryRemoveFromPlaylist": "پلے لسٹ سے ہٹائیں",
   "libraryRemoveFromSavedAlbums": "محفوظ کردہ البمز سے ہٹائیں",
+  "libraryChooseFromGallery": "گیلری سے منتخب کریں",
+  "libraryRemoveCustomCover": "کسٹم کور ہٹائیں",
   "libraryRenamePlaylist": "پلے لسٹ کا نام تبدیل کریں",
   "librarySearchAndAddSongsHere": "گانے تلاش کریں اور یہاں شامل کریں",
   "librarySeeAllSongs": "{count, plural, one{1 گانا دیکھیں} other{تمام {count} گانے دیکھیں}}",

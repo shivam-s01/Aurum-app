@@ -456,6 +456,8 @@
   "libraryRemoveDownload": "ダウンロードを削除",
   "libraryRemoveFromPlaylist": "プレイリストから削除",
   "libraryRemoveFromSavedAlbums": "保存済みアルバムから削除",
+  "libraryChooseFromGallery": "ギャラリーから選択",
+  "libraryRemoveCustomCover": "カスタムカバーを削除",
   "libraryRenamePlaylist": "プレイリスト名を変更",
   "librarySearchAndAddSongsHere": "曲を検索してここに追加",
   "librarySeeAllSongs": "{count, plural, other{{count}曲すべて表示}}",

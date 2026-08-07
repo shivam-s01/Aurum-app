@@ -456,6 +456,8 @@
   "libraryRemoveDownload": "Supprimer le téléchargement",
   "libraryRemoveFromPlaylist": "Retirer de la playlist",
   "libraryRemoveFromSavedAlbums": "Retirer des albums enregistrés",
+  "libraryChooseFromGallery": "Choisir depuis la galerie",
+  "libraryRemoveCustomCover": "Supprimer la couverture personnalisée",
   "libraryRenamePlaylist": "Renommer la playlist",
   "librarySearchAndAddSongsHere": "Recherchez des morceaux et ajoutez-les ici",
   "librarySeeAllSongs": "{count, plural, =1{Voir l'unique morceau} other{Voir les {count} morceaux}}",

@@ -456,6 +456,8 @@
   "libraryRemoveDownload": "डाउनलोड हटाएं",
   "libraryRemoveFromPlaylist": "प्लेलिस्ट से हटाएं",
   "libraryRemoveFromSavedAlbums": "सेव किए गए एल्बम से हटाएं",
+  "libraryChooseFromGallery": "गैलरी से चुनें",
+  "libraryRemoveCustomCover": "कस्टम कवर हटाएं",
   "libraryRenamePlaylist": "प्लेलिस्ट का नाम बदलें",
   "librarySearchAndAddSongsHere": "गाने खोजें और यहाँ जोड़ें",
   "librarySeeAllSongs": "{count, plural, =1{सभी 1 गाना देखें} other{सभी {count} गाने देखें}}",

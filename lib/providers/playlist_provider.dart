@@ -10,8 +10,10 @@
 // =============================================================================
 
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
 import '../services/sync_service.dart';
 
@@ -24,6 +26,11 @@ class AurumPlaylist {
   List<Song> songs;
   final DateTime createdAt;
   DateTime updatedAt;
+  // User-chosen cover photo picked from the device gallery, stored as a
+  // local file path (image itself lives in app documents dir, see
+  // PlaylistProvider.setCoverImage). Null means "no custom cover" — falls
+  // back to the first song's artwork via coverArt below.
+  String? customCoverPath;
 
   AurumPlaylist({
     required this.id,
@@ -32,6 +39,7 @@ class AurumPlaylist {
     List<Song>? songs,
     DateTime? createdAt,
     DateTime? updatedAt,
+    this.customCoverPath,
   })  : songs = songs ?? [],
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
@@ -51,19 +59,23 @@ class AurumPlaylist {
     return '${m} min';
   }
 
-  /// Thumbnail: first song's artwork, or null
-  String? get coverArt =>
-      songs.isNotEmpty ? songs.first.artworkUrl : null;
+  /// Whether this playlist has a user-picked cover (vs. an auto cover).
+  bool get hasCustomCover =>
+      customCoverPath != null && customCoverPath!.isNotEmpty;
 
-  /// Grid of up to 4 artwork URLs for mosaic cover
-  List<String> get mosaicArts {
-    final unique = songs
-        .map((s) => s.artworkUrl)
-        .where((url) => url.isNotEmpty)
-        .toSet()
-        .take(4)
-        .toList();
-    return unique;
+  // CHANGE (playlist covers, "aisa kro users kud se hi usme vo abhi uska
+  // main theme ban raha hai 4 thumbnail mila kr vaisa hata do bs upar wala
+  // song ka thumbnail bane"): this used to expose a `mosaicArts` getter
+  // that the UI combined into a 2x2 grid of up to 4 different songs'
+  // artwork — a busy, collage-y look. The design now always resolves to
+  // exactly one image: the user's own gallery-picked cover if they set
+  // one (customCoverPath), otherwise simply the top/first song's artwork,
+  // matching the single clean thumbnail every mainstream streaming app
+  // (Spotify, YT Music) uses. mosaicArts is gone; every call site now
+  // reads this one getter instead.
+  String? get coverArt {
+    if (hasCustomCover) return customCoverPath;
+    return songs.isNotEmpty ? songs.first.artworkUrl : null;
   }
 
   Map<String, dynamic> toJson() => {
@@ -73,6 +85,7 @@ class AurumPlaylist {
         'songs': songs.map((s) => s.toJson()).toList(),
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
+        'customCoverPath': customCoverPath,
       };
 
   factory AurumPlaylist.fromJson(Map<String, dynamic> json) {
@@ -89,6 +102,7 @@ class AurumPlaylist {
       updatedAt: json['updatedAt'] != null
           ? DateTime.tryParse(json['updatedAt'] as String) ?? DateTime.now()
           : DateTime.now(),
+      customCoverPath: json['customCoverPath'] as String?,
     );
   }
 }
@@ -153,6 +167,19 @@ class PlaylistProvider extends ChangeNotifier {
   // ── Delete ────────────────────────────────────────────────────────────────
 
   Future<void> deletePlaylist(String id) async {
+    final pl = _findById(id);
+    // Clean up the custom cover file on disk too, so deleting a playlist
+    // doesn't silently leave its cover image behind forever.
+    if (pl != null && pl.hasCustomCover) {
+      final coverFile = File(pl.customCoverPath!);
+      if (await coverFile.exists()) {
+        try {
+          await coverFile.delete();
+        } catch (_) {
+          // Non-fatal.
+        }
+      }
+    }
     _playlists.removeWhere((p) => p.id == id);
     await _box.delete(id);
     unawaited(SyncService.instance.pushPlaylistDeleted(id));
@@ -208,7 +235,83 @@ class PlaylistProvider extends ChangeNotifier {
     final song = pl.songs.removeAt(oldIndex);
     pl.songs.insert(newIndex, song);
     pl.updatedAt = DateTime.now();
-    await _persist(pl);
+    // FIX ("ghost grey drag-tile overlay stuck on screen after reordering
+    // a playlist, surviving even a back-navigation until the app is force
+    // restarted"): notifyListeners() used to fire only AFTER `await
+    // _persist(pl)` (a Hive disk write) completed. SliverReorderableList
+    // needs the very next frame after onReorder returns to run its own
+    // internal drop/settle animation and tear down the elevated drag-proxy
+    // it renders over the dragged tile. Awaiting the disk write first
+    // delayed that frame by however long the write took, and if the user
+    // navigated back inside that window, the proxy's AnimationController
+    // was torn down mid-flight by the route disposing — leaving its last
+    // painted frame (the grey elevated rectangle) with nothing left to
+    // clear it. Persisting is fire-and-forget here instead: notifyListeners
+    // now runs synchronously in the same frame onReorder returns, so the
+    // proxy always gets its settle frame before any navigation can race it.
+    unawaited(_persist(pl));
+    notifyListeners();
+  }
+
+  // ── Cover Image ───────────────────────────────────────────────────────────
+
+  /// Copies the picked gallery image into the app's own documents dir (so
+  /// it survives even if the user deletes/moves the original from their
+  /// gallery) and sets it as this playlist's cover. Old custom cover file
+  /// (if any) is deleted first so covers don't silently accumulate on disk
+  /// every time someone changes their mind.
+  Future<void> setCoverImage(String playlistId, String pickedFilePath) async {
+    final pl = _findById(playlistId);
+    if (pl == null) return;
+
+    final docsDir = await getApplicationDocumentsDirectory();
+    final coversDir = Directory('${docsDir.path}/playlist_covers');
+    if (!await coversDir.exists()) {
+      await coversDir.create(recursive: true);
+    }
+
+    // Remove the previous custom cover file, if this playlist had one.
+    if (pl.hasCustomCover) {
+      final oldFile = File(pl.customCoverPath!);
+      if (await oldFile.exists()) {
+        try {
+          await oldFile.delete();
+        } catch (_) {
+          // Non-fatal — orphaned file, not worth failing the whole
+          // operation over.
+        }
+      }
+    }
+
+    final ext = pickedFilePath.split('.').last;
+    final destPath =
+        '${coversDir.path}/${pl.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    await File(pickedFilePath).copy(destPath);
+
+    pl.customCoverPath = destPath;
+    pl.updatedAt = DateTime.now();
+    unawaited(_persist(pl));
+    _sortByUpdated();
+    notifyListeners();
+  }
+
+  /// Reverts to the automatic cover (first song's artwork).
+  Future<void> clearCoverImage(String playlistId) async {
+    final pl = _findById(playlistId);
+    if (pl == null || !pl.hasCustomCover) return;
+
+    final oldFile = File(pl.customCoverPath!);
+    if (await oldFile.exists()) {
+      try {
+        await oldFile.delete();
+      } catch (_) {
+        // Non-fatal.
+      }
+    }
+
+    pl.customCoverPath = null;
+    pl.updatedAt = DateTime.now();
+    unawaited(_persist(pl));
     notifyListeners();
   }
 

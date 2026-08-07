@@ -24,6 +24,12 @@
 
     <!-- Local music: Android 13+ -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+    <!-- Playlist cover picker (gallery): Android 13+. Note: image_picker's
+         gallery source normally routes through the system Photo Picker,
+         which needs no runtime permission at all on API 33+ — this is a
+         defensive fallback for OEM image-picker implementations that still
+         check for it directly. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <!-- Local music: Android 12 and below -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"/>

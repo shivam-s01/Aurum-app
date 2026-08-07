@@ -464,6 +464,8 @@
   "libraryRemoveDownload": "إزالة التنزيل",
   "libraryRemoveFromPlaylist": "إزالة من قائمة التشغيل",
   "libraryRemoveFromSavedAlbums": "إزالة من الألبومات المحفوظة",
+  "libraryChooseFromGallery": "اختر من المعرض",
+  "libraryRemoveCustomCover": "إزالة الغلاف المخصص",
   "libraryRenamePlaylist": "إعادة تسمية قائمة التشغيل",
   "librarySearchAndAddSongsHere": "ابحث عن الأغاني وأضفها هنا",
   "librarySeeAllSongs": "{count, plural, =1{عرض الأغنية الوحيدة} other{عرض كل الأغاني وعددها {count}}}",

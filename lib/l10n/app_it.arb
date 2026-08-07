@@ -464,6 +464,8 @@
   "libraryRemoveDownload": "Rimuovi download",
   "libraryRemoveFromPlaylist": "Rimuovi dalla playlist",
   "libraryRemoveFromSavedAlbums": "Rimuovi dagli album salvati",
+  "libraryChooseFromGallery": "Scegli dalla galleria",
+  "libraryRemoveCustomCover": "Rimuovi copertina personalizzata",
   "libraryRenamePlaylist": "Rinomina playlist",
   "librarySearchAndAddSongsHere": "Cerca brani e aggiungili qui",
   "librarySeeAllSongs": "{count, plural, =1{Vedi l'unico brano} other{Vedi tutti i {count} brani}}",
