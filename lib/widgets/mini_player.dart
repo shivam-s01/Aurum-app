@@ -19,7 +19,7 @@ import '../services/audio_prefs.dart';
 // blocks below) once the white-layer repro is confirmed either way. Kept
 // as a single top-level flag so removal later is a one-line + two-block
 // deletion, not a hunt through the file.
-const bool _kDebugMiniPlayerStuckDrag = true;
+const bool _kDebugMiniPlayerStuckDrag = false;
 
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});

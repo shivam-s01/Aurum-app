@@ -54,7 +54,7 @@ import '../utils/aurum_haptics.dart';
 // report. Logs to logcat (`adb logcat | grep AurumDebug`) AND flashes an
 // on-screen MaterialBanner so it's visible without a PC attached. Safe to
 // delete this flag + every guarded block below once the culprit is found.
-const bool _kDebugFullPlayerWhiteLayer = true;
+const bool _kDebugFullPlayerWhiteLayer = false;
 
 void _debugFlashBanner(BuildContext? context, String message) {
   if (!_kDebugFullPlayerWhiteLayer) return;

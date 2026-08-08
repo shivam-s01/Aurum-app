@@ -39,7 +39,7 @@ import '../utils/aurum_haptics.dart';
 // after closing Full Player" hunt as home_screen.dart's
 // _kDebugFullPlayerWhiteLayer (separate flag name here only to avoid a
 // cross-file import; delete both together once the culprit is found).
-const bool _kDebugFullPlayerWhiteLayer2 = true;
+const bool _kDebugFullPlayerWhiteLayer2 = false;
 
 void _debugFlashBanner2(BuildContext? context, String message) {
   if (!_kDebugFullPlayerWhiteLayer2) return;
@@ -1847,6 +1847,16 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
                                 url: widget.song.artworkUrl,
                                 size: double.infinity,
                                 borderRadius: radius,
+                                // FIX (white flash on song tap / swipe-down
+                                // dismiss / collapse — root cause): see
+                                // suppressWhiteShimmer doc comment in
+                                // aurum_artwork.dart. This is the hero disc
+                                // artwork rendered at full screen size —
+                                // the white _ShimmerPulse loading state
+                                // that's harmless at tile size was covering
+                                // the entire player here while local/
+                                // content:// album art loaded.
+                                suppressWhiteShimmer: true,
                               ),
                             ),
                           ),

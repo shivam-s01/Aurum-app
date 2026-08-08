@@ -53,6 +53,28 @@ class AurumArtwork extends StatelessWidget {
   // the blurred background" on its own.
   final bool isBlurredBackground;
 
+  // FIX (white flash on song tap / swipe-down dismiss / player collapse —
+  // hero disc artwork): _ShimmerPulse paints a hardcoded Colors.white
+  // overlay (see bottom of this file) on top of whatever themed Container
+  // wraps it. That's invisible at normal tile size (44-108px) but the full
+  // player's hero disc artwork renders this same widget at
+  // size: double.infinity with isBlurredBackground left at its default
+  // (false, since this ISN'T the blurred background layer — it's the
+  // sharp foreground disc) — so every time this widget remounts with a
+  // new ValueKey (new song via tap, or the same widget re-laying-out
+  // during the swipe-down dismiss animation / player-collapse transition,
+  // both of which can retrigger the content:// MethodChannel load or an
+  // Image.file decode), the white shimmer briefly paints at FULL SCREEN
+  // size instead of a small tile — that's the white flash. Worse/"stuck"
+  // specifically on local/offline songs because the content:// MediaStore
+  // getAlbumArt() call has no disk cache shortcut the way network art
+  // does, so _loaded can stay false for multiple frames instead of one.
+  // This flag lets any full-screen-sized, non-blurred call site (the hero
+  // disc art) opt out of the white shimmer specifically, without touching
+  // isBlurredBackground's existing (and correct) "skip the container
+  // entirely" behavior for the actual blurred background layer.
+  final bool suppressWhiteShimmer;
+
   const AurumArtwork({
     super.key,
     required this.url,
@@ -60,6 +82,7 @@ class AurumArtwork extends StatelessWidget {
     this.borderRadius = 8,
     this.fadeIn = true,
     this.isBlurredBackground = false,
+    this.suppressWhiteShimmer = false,
   });
 
   int? get _cacheSize {
@@ -96,6 +119,7 @@ class AurumArtwork extends StatelessWidget {
         placeholder: _placeholder(context),
         fadeIn: fadeIn,
         isBlurredBackground: isBlurredBackground,
+        suppressWhiteShimmer: suppressWhiteShimmer,
       );
     }
 
@@ -141,7 +165,7 @@ class AurumArtwork extends StatelessWidget {
         size: size,
         cacheSize: _cacheSize,
         fadeIn: fadeIn,
-        placeholder: _shimmer(context),
+        placeholder: _shimmer(context, suppressWhiteShimmer),
         // FIX (same class as the content:// _bytes==null fix): a
         // genuinely failed network image (offline device, real 404, bad
         // URL) used to always fall through to _placeholder(context) — the
@@ -193,7 +217,7 @@ class AurumArtwork extends StatelessWidget {
   // here lets that show through instead of painting a second, wrong-
   // colored layer on top of it. Non-blurred callers (tiles, mini player,
   // the full player's own disc artwork) are unaffected.
-  Widget _shimmer(BuildContext context) {
+  Widget _shimmer(BuildContext context, [bool suppress = false]) {
     if (isBlurredBackground) return const SizedBox.expand();
     return Container(
       width: size,
@@ -202,7 +226,10 @@ class AurumArtwork extends StatelessWidget {
         color: AurumTheme.bgSurfaceOf(context),
         borderRadius: BorderRadius.circular(borderRadius),
       ),
-      child: const _ShimmerPulse(),
+      // suppress: full-screen hero call sites (e.g. FullPlayerScreen's
+      // disc artwork) skip the white pulse entirely — see
+      // suppressWhiteShimmer doc comment above. Small tiles keep it.
+      child: suppress ? const SizedBox.shrink() : const _ShimmerPulse(),
     );
   }
 }
@@ -339,6 +366,7 @@ class _ContentUriImage extends StatefulWidget {
   final Widget placeholder;
   final bool fadeIn;
   final bool isBlurredBackground;
+  final bool suppressWhiteShimmer;
 
   const _ContentUriImage({
     required this.uri,
@@ -347,6 +375,7 @@ class _ContentUriImage extends StatefulWidget {
     required this.placeholder,
     this.fadeIn = true,
     this.isBlurredBackground = false,
+    this.suppressWhiteShimmer = false,
   });
 
   @override
@@ -463,7 +492,18 @@ class _ContentUriImageState extends State<_ContentUriImage> {
           color: AurumTheme.bgSurfaceOf(context),
           borderRadius: BorderRadius.circular(widget.borderRadius),
         ),
-        child: const _ShimmerPulse(),
+        // FIX (white flash — hero disc artwork, local/content:// songs):
+        // this is the actual root cause of the reported bug. See
+        // suppressWhiteShimmer doc comment in aurum_artwork.dart above the
+        // AurumArtwork widget. getAlbumArt() over MethodChannel has no
+        // disk-cache shortcut, so on a fresh mount (song tap, or this
+        // widget remounting during the swipe-down dismiss / collapse
+        // transition) _loaded stays false for one or more real frames —
+        // at full hero size that white pulse used to cover the entire
+        // screen instead of a small tile.
+        child: widget.suppressWhiteShimmer
+            ? const SizedBox.shrink()
+            : const _ShimmerPulse(),
       );
     }
 
