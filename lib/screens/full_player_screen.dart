@@ -1,6 +1,14 @@
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../main.dart' show aurumRouteObserver;
+import 'dart:async';
+import 'dart:ui';
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../utils/artwork_palette_cache.dart';
 
 // TEMP DEBUG SWITCH — same "white/gray layer slides down and gets stuck
 // after closing Full Player" hunt as home_screen.dart's
@@ -35,14 +43,6 @@ void _debugFlashBanner2(BuildContext? context, String message) {
     if (context.mounted) messenger.hideCurrentMaterialBanner();
   });
 }
-import 'dart:async';
-import 'dart:ui';
-import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show ValueListenable;
-import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import '../utils/artwork_palette_cache.dart';
 import '../utils/aurum_transitions.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
 import 'package:share_plus/share_plus.dart';
