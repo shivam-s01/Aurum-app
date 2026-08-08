@@ -126,7 +126,24 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
           // for this route — it paints instantly, before FullPlayerScreen
           // constructs, closing that gap completely regardless of how
           // long the real screen takes to build its first frame.
-          color: AurumTheme.bgOf(context),
+          //
+          // FIX (visible flash even on warm starts, esp. under Material
+          // You / dynamic color): this used to be AurumTheme.bgOf(context)
+          // i.e. Theme.of(context).scaffoldBackgroundColor. That reads the
+          // wallpaper-derived dynamic scheme color, which almost never
+          // equals what FullPlayerScreen itself paints one frame later —
+          // FullPlayerScreen's Scaffold.backgroundColor / inner ColoredBox
+          // are hardcoded to 0xFFF5F0EA (light) / Colors.black (dark), not
+          // the dynamic scaffold color. So under dynamic color the app was
+          // painting color A here, then color B one frame later inside
+          // FullPlayerScreen — that mismatch IS the flash, every single
+          // time, not just on cold start. Hardcoding the same two values
+          // here that FullPlayerScreen actually uses makes both layers
+          // agree, so there is nothing to flash between regardless of
+          // theme/wallpaper.
+          color: Theme.of(context).brightness == Brightness.light
+              ? const Color(0xFFF5F0EA)
+              : Colors.black,
           child: const FullPlayerScreen(),
         ),
         // NOTE (supersedes the "flat theme-colored screen for 1-2s" fix
@@ -1829,28 +1846,25 @@ class _SongGridCard extends StatelessWidget {
       child: GestureDetector(
       onTap: () {
         AurumHaptics.selection();
-        context.read<PlayerProvider>().playSong(song, queue: queue, index: index);
-        // FIX ("first tap feels stuck/does nothing for 2-3s"): this used
-        // to only call playSong() — no navigation at all. Every other
-        // song-tap entry point in the app (SongTile, mini player,
-        // Trending Playlists' _openFullPlayer) pushes FullPlayerScreen
-        // immediately alongside the fire-and-forget playSong() call, so
-        // the screen opens instantly and its own isLoading-driven spinner
-        // covers the real network wait. Without that push here, tapping a
-        // Home-feed song card did nothing visible at all until the mini
-        // player happened to animate in once playback actually started —
-        // which, on a cold JioSaavn/YouTube resolve, genuinely can take a
-        // couple of seconds. That gap is real network latency either way;
-        // the missing navigation was what made it read as the app being
-        // stuck rather than a screen that opened instantly and is
-        // visibly loading.
-        //
-        // Routed through the shared pushFullPlayer() helper (see top of
-        // file) rather than a hand-rolled Navigator.push here: this is a
-        // StatelessWidget, so it has no field of its own to guard against
-        // a fast double-tap pushing FullPlayerScreen twice onto the nav
-        // stack — the shared helper's module-level guard covers it.
+        // FIX (offline/local song on Home → dead, unresponsive screen
+        // until force-restart): pushFullPlayer(context) used to fire
+        // AFTER playSong() below. playSong() calls notifyListeners()
+        // SYNCHRONOUSLY — before its first `await` — whenever the tapped
+        // song's queue is fully offline/local or curated (see
+        // player_provider.dart), since there's no network round-trip to
+        // space things out. That rebuild lands in the same frame as
+        // Navigator.of(context).push(...) inside pushFullPlayer using
+        // that same context — a context rebuilt mid-push can leave the
+        // new opaque:false route attached to the Navigator stack but
+        // never properly composited: an invisible barrier that still
+        // hit-tests every tap and swallows the back gesture, i.e. a dead
+        // screen fixable only by force-restart. Online songs mostly dodge
+        // this because their notifyListeners() only fires after a real
+        // await. Pushing first (while context is still guaranteed valid)
+        // and firing playSong() after removes the race instead of
+        // relying on timing luck.
         pushFullPlayer(context);
+        context.read<PlayerProvider>().playSong(song, queue: queue, index: index);
       },
       child: Padding(
         padding: const EdgeInsets.only(right: 12),
@@ -2608,17 +2622,15 @@ class _RecentlyPlayedSection extends StatelessWidget {
               itemBuilder: (_, i) => AurumPressable(
                 scaleAmount: 0.96,
                 onTap: () {
-                  player.playSong(songs[i], queue: songs, index: i);
-                  // FIX ("first tap feels stuck/does nothing for 2-3s"):
-                  // same bug as _SongGridCard above — this only called
-                  // playSong() with no navigation, so tapping a Recently
-                  // Played tile did nothing visible until the mini player
-                  // happened to animate in once playback actually started.
-                  // Routed through the shared pushFullPlayer() helper so
-                  // it stays consistent with every other song-tap entry
-                  // point on this screen and picks up the same double-tap
-                  // guard.
+                  // FIX (offline/local song → dead, unresponsive screen
+                  // until force-restart): same ordering race as
+                  // _SongGridCard above — playSong() fires
+                  // notifyListeners() synchronously for offline/curated
+                  // queues, before any await, which can invalidate this
+                  // context mid-push if pushFullPlayer runs after it.
+                  // Pushing first removes the race.
                   pushFullPlayer(context);
+                  player.playSong(songs[i], queue: songs, index: i);
                 },
                 child: Container(
                   width: 130,

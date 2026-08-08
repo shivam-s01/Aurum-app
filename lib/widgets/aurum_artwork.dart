@@ -30,12 +30,36 @@ class AurumArtwork extends StatelessWidget {
   // filter sits on top of it every single frame for its duration.
   final bool fadeIn;
 
+  // FIX (white flash on cold-start full-player open): the shimmer loading
+  // placeholder (_ShimmerPulse) is a subtle, low-opacity pulse tuned to
+  // look right on a normal thumbnail-sized tile. The full player's
+  // blurred background (_BgLayer in full_player_screen.dart) renders
+  // AurumArtwork at size:double.infinity and then applies
+  // Transform.scale(1.55) + a heavy Gaussian blur on top — at that scale
+  // the same subtle pulse stretches into a flat, bright white wash across
+  // the ENTIRE screen for however long the real artwork takes to arrive
+  // (worse on a cold start with nothing cached yet, and worse still for
+  // local/downloaded songs going through the content:// MediaStore path,
+  // which has no cache warm-up at all). The themed base/vignette layers
+  // already painted underneath this in full_player_screen.dart are the
+  // correct "nothing loaded yet" background for that specific context, so
+  // this flag lets ONLY that one call site opt out of the shimmer pulse
+  // while every other artwork usage (tiles, mini player, the full
+  // player's own non-blurred disc artwork, etc.) keeps it exactly as
+  // before. Deliberately a separate flag from `size`/`fadeIn` — those are
+  // both also used by the full player's non-background disc artwork
+  // (size:double.infinity to fill its parent, fadeIn:true for a smooth
+  // song-change crossfade), so neither can safely stand in as "is this
+  // the blurred background" on its own.
+  final bool isBlurredBackground;
+
   const AurumArtwork({
     super.key,
     required this.url,
     required this.size,
     this.borderRadius = 8,
     this.fadeIn = true,
+    this.isBlurredBackground = false,
   });
 
   int? get _cacheSize {
@@ -61,6 +85,7 @@ class AurumArtwork extends StatelessWidget {
         borderRadius: borderRadius,
         placeholder: _placeholder(context),
         fadeIn: fadeIn,
+        isBlurredBackground: isBlurredBackground,
       );
     }
 
@@ -128,6 +153,23 @@ class AurumArtwork extends StatelessWidget {
         ),
       );
 
+  // FIX (white flash on cold-start full-player open): the full-player's
+  // blurred background (_BlurredArtworkCore) passes isBlurredBackground:
+  // true because it's rendering this as a Transform.scale(1.55) +
+  // ImageFilter.blur(sigma 20-22) full-screen layer, not a normal
+  // thumbnail. _ShimmerPulse's white pulse (0.03-0.10 opacity) is subtle
+  // and fine at tile scale, but stretched 1.55x and heavily blurred
+  // across the whole screen it reads as a flat, bright white wash for
+  // however long the real artwork takes to decode on a cold start (no
+  // cache yet) — exactly the "flash before full player opens" report.
+  // The themed vignette/base layers already painted underneath this in
+  // full_player_screen.dart (_buildLight/_buildDark) are the correct
+  // "nothing loaded yet" background for this context — the shimmer pulse
+  // adds nothing but the flash at this scale, so skip it here and fall
+  // back to a plain themed surface instead. Gated on the explicit flag,
+  // NOT size.isFinite — the full player's own non-blurred disc artwork
+  // also renders at size:double.infinity (to fill its parent box) and
+  // still wants its normal shimmer while loading.
   Widget _shimmer(BuildContext context) => Container(
         width: size,
         height: size,
@@ -135,7 +177,7 @@ class AurumArtwork extends StatelessWidget {
           color: AurumTheme.bgSurfaceOf(context),
           borderRadius: BorderRadius.circular(borderRadius),
         ),
-        child: const _ShimmerPulse(),
+        child: isBlurredBackground ? null : const _ShimmerPulse(),
       );
 }
 
@@ -270,6 +312,7 @@ class _ContentUriImage extends StatefulWidget {
   final double borderRadius;
   final Widget placeholder;
   final bool fadeIn;
+  final bool isBlurredBackground;
 
   const _ContentUriImage({
     required this.uri,
@@ -277,6 +320,7 @@ class _ContentUriImage extends StatefulWidget {
     required this.borderRadius,
     required this.placeholder,
     this.fadeIn = true,
+    this.isBlurredBackground = false,
   });
 
   @override
@@ -359,6 +403,21 @@ class _ContentUriImageState extends State<_ContentUriImage> {
   @override
   Widget build(BuildContext context) {
     if (!_loaded) {
+      // FIX (white flash on cold-start full-player open for local/
+      // downloaded songs): this is the content:// (MediaStore) artwork
+      // path — exactly what offline/local songs use. Same root cause as
+      // the network-image _shimmer() in AurumArtwork above: the full
+      // player's blurred background renders this with
+      // isBlurredBackground:true, then Transform.scale(1.55) +
+      // blur(sigma 20-22) stretches whatever paints here across the
+      // entire screen. _ShimmerPulse's white pulse is subtle on a real
+      // tile but reads as a full-screen white wash at that scale for
+      // however long the MethodChannel album-art fetch takes — worse
+      // than the network case since this was never gated at all. Gated
+      // on the explicit flag, NOT size — the full player's own
+      // non-blurred disc artwork also renders content:// art at
+      // size:double.infinity (to fill its parent box) and still wants
+      // its normal shimmer while loading.
       return Container(
         width: widget.size,
         height: widget.size,
@@ -366,7 +425,7 @@ class _ContentUriImageState extends State<_ContentUriImage> {
           color: AurumTheme.bgSurfaceOf(context),
           borderRadius: BorderRadius.circular(widget.borderRadius),
         ),
-        child: const _ShimmerPulse(),
+        child: widget.isBlurredBackground ? null : const _ShimmerPulse(),
       );
     }
 

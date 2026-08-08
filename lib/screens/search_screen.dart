@@ -826,30 +826,28 @@ class _SearchScreenState extends State<SearchScreen>
       source:     track.isFromYoutube ? SongSource.youtube : SongSource.saavn,
     );
     if (mounted) {
-      context.read<PlayerProvider>().playSong(song, queue: [song], index: 0);
       // BUGFIX ("offline song → back leaves a dead white/grey screen until
-      // app restart", also reported as songs not playing after a full-
-      // player round trip from search/library/home): this used to push
-      // its own inline PageRouteBuilder with no double-push guard at all
-      // — a hand-copied duplicate of home_screen.dart's pushFullPlayer(),
-      // mini_player.dart's old _openFullPlayer() (now also migrated —
-      // see its FIX comment), and the already-migrated library_screen.
-      // dart/song_tile.dart pushes. Three+ independent route-push sites
-      // each racing the others meant a search-result tap landing in the
-      // same frame as a mini-player or song-tile tap could push two
-      // overlapping opaque:false routes; the loser can end up attached to
-      // the Navigator stack but never properly composited — an invisible
-      // barrier that still hit-tests every tap and swallows the back
-      // gesture, exactly the "screen goes dead, only restart fixes it"
-      // report. Routing through the single shared pushFullPlayer() helper
-      // (same one every other entry point now uses) removes this
-      // duplicate, unguarded route definition and gets the real
-      // cross-widget guard for free. The onClosed callback preserves this
-      // screen's own post-pop rebuild (previously done via .then() on the
-      // inline push) since SearchScreen has no RouteAware of its own.
+      // app restart"): pushFullPlayer(context) used to fire AFTER
+      // playSong() above. playSong() calls notifyListeners() SYNCHRONOUSLY
+      // — before its first `await` — for offline/local or curated queues
+      // (see player_provider.dart), since there's no network round-trip to
+      // space things out. That rebuild lands in the same frame as
+      // Navigator.of(context).push(...) inside pushFullPlayer using that
+      // same context; a context rebuilt mid-push can leave the new
+      // opaque:false route attached to the Navigator stack but never
+      // properly composited — an invisible barrier that still hit-tests
+      // every tap and swallows the back gesture, exactly the "screen goes
+      // dead, only restart fixes it" report. The double-push guard inside
+      // pushFullPlayer (see home_screen.dart) only ever covered TWO
+      // routes racing each other — it does nothing for this single-push
+      // ordering race. Pushing first, while context is still guaranteed
+      // valid, and firing playSong() after removes it. The onClosed
+      // callback preserves this screen's own post-pop rebuild since
+      // SearchScreen has no RouteAware of its own.
       pushFullPlayer(context, onClosed: () {
         if (mounted) setState(() {});
       });
+      context.read<PlayerProvider>().playSong(song, queue: [song], index: 0);
     }
   }
 

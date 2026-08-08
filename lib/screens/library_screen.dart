@@ -2870,31 +2870,30 @@ class _DownloadTile extends StatelessWidget {
               .toList();
           final resolvedIndex = queueIndex ?? 0;
 
+          // FIX (offline song → back/home leaves a dead, unresponsive grey
+          // screen until the app is force-restarted): pushFullPlayer(context)
+          // used to run AFTER playSong() below. playSong() calls
+          // notifyListeners() SYNCHRONOUSLY — before its first `await` — for
+          // a fully-offline queue (see isFullyOfflineQueue in
+          // player_provider.dart), since there's no network round-trip to
+          // space things out. That rebuild lands in the exact same frame as
+          // Navigator.of(context).push(...) inside pushFullPlayer using that
+          // same context, which can leave the new opaque:false route
+          // attached to the Navigator stack but never properly
+          // composited — an invisible barrier that still hit-tests every
+          // tap and swallows the back gesture: a dead screen fixable only
+          // by force-restart. Pushing first (while context is still
+          // guaranteed valid) and firing playSong() after removes the race
+          // instead of just routing through the shared helper, which only
+          // ever fixed the double-push case, not this ordering race.
+          pushFullPlayer(context);
+
           context.read<PlayerProvider>().playSong(
                 offlineSong,
                 queue: offlineQueue,
                 index: resolvedIndex,
                 curatedQueue: true,
               );
-
-          // FIX (offline song → back/home leaves a dead, unresponsive grey
-          // screen until the app is force-restarted): this used to push
-          // its own inline PageRouteBuilder, a hand-copied duplicate of
-          // home_screen.dart's pushFullPlayer() that had drifted out of
-          // sync with it — most importantly missing the _openingFullPlayer
-          // guard/reset. Without that guard, this tile's onTap and any
-          // other trigger racing with it (e.g. a state rebuild from
-          // playSong() above landing mid-navigation) could both push a
-          // route in the same frame; with opaque:false, the loser of that
-          // race can be left attached to the Navigator stack but never
-          // properly composited — an invisible barrier that still
-          // hit-tests every tap and swallows the back gesture, matching
-          // exactly the "screen goes dead, only app restart fixes it"
-          // report. Routing through the single shared helper (same one
-          // every other entry point into FullPlayerScreen already uses)
-          // removes the duplicate, drifted route definition entirely and
-          // gets the guard for free.
-          pushFullPlayer(context);
         }
       },
     );

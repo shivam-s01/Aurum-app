@@ -5449,6 +5449,7 @@ class _BlurredArtworkCore extends StatelessWidget {
               url: song.artworkUrl,
               size: double.infinity,
               borderRadius: 0,
+              isBlurredBackground: true,
               // FIX (black-flash on song change) — this was `fadeIn: false`.
               // The background blur layer is keyed by
               // ValueKey('${song.id}_${song.artworkUrl}') at the _BgLayer

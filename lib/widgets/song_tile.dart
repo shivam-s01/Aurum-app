@@ -89,6 +89,32 @@ class _SongTileState extends State<SongTile> {
     _isTapping = true;
     AurumHaptics.light();
     try {
+      // FIX (offline/local song → dead, unresponsive screen until force-
+      // restart): pushFullPlayer(context) used to fire AFTER the
+      // fire-and-forget playSong() call below. playSong() calls
+      // notifyListeners() SYNCHRONOUSLY (before its first `await`) for a
+      // fully-offline queue — see the isFullyOfflineQueue branch in
+      // player_provider.dart — because there's no network round-trip to
+      // naturally space things out. That notifyListeners() rebuilds every
+      // Provider consumer watching PlayerProvider (Home/Library screens
+      // showing isPlaying/currentSong) in the SAME frame that
+      // Navigator.of(context).push(...) inside pushFullPlayer is using
+      // that same context. A context rebuilt/invalidated mid-push can
+      // leave the new opaque:false route attached to the Navigator stack
+      // but never properly composited — an invisible barrier that still
+      // hit-tests every tap and swallows the back gesture, i.e. exactly a
+      // dead screen recoverable only by force-restart. Online songs never
+      // hit this because their notifyListeners() only fires after a real
+      // await (the network call), well outside this synchronous window.
+      // Fix: push the full player FIRST, using context while it's still
+      // guaranteed valid, then fire playSong() — instead of the other way
+      // around. This also reads better (Spotify-style instant-open,
+      // content fills in), and playSong() already handles its own
+      // loading/error state so FullPlayerScreen doesn't need the song to
+      // have resolved before it opens.
+      if (mounted) {
+        pushFullPlayer(context);
+      }
       // History save moved to PlayerProvider._onSongChanged — fires only
       // once the native engine confirms this song actually started
       // playing, instead of on every tap regardless of stream success.
@@ -100,25 +126,6 @@ class _SongTileState extends State<SongTile> {
           ).catchError((e) {
         debugPrint('[SongTile] playSong error: $e');
       });
-      // FIX (offline/local song on Home → back or Home-tab leaves a dead,
-      // unresponsive grey screen until the app is force-restarted): this
-      // used to push its own inline PageRouteBuilder, a hand-copied
-      // duplicate of home_screen.dart's pushFullPlayer() that had drifted
-      // out of sync with it — most importantly missing the
-      // _openingFullPlayer guard/reset. Without that guard, a tap here
-      // racing with playSong()'s own state rebuild above (both landing in
-      // the same frame — far more likely on a local/offline song, which
-      // resolves near-instantly with no network round-trip to naturally
-      // space the two apart) could push two overlapping routes with
-      // opaque:false; the loser can end up attached to the Navigator
-      // stack but never properly composited — an invisible barrier that
-      // still hit-tests every tap and swallows the back gesture. Routing
-      // through the single shared helper (same one mini_player.dart and
-      // home_screen.dart's other entry points use) removes the duplicate,
-      // drifted route definition and gets the guard for free.
-      if (mounted) {
-        pushFullPlayer(context);
-      }
     } finally {
       // FIX (premium-feel latency) — this used to be a flat 800ms before
       // the tile could be tapped again, on every single tap, regardless
