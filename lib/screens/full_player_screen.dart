@@ -462,7 +462,33 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       if (url.isNotEmpty && currentSong != null) {
         final cached = ArtworkPaletteCache.peek(url);
         if (cached != null) {
-          final isLight = Theme.of(context).brightness == Brightness.light;
+          // ROOT-CAUSE FIX (uniform gray/white wash, RGB~181, ~250-300ms,
+          // full player open — confirmed via frame-by-frame recording):
+          // this read Theme.of(context).brightness directly. theme_
+          // provider.dart's isDarkOf() doc comment already explains why
+          // that's unsafe: a route's own BuildContext, at the exact moment
+          // it's first mounting (this runs inside initState, the earliest
+          // possible build), isn't guaranteed to have a Theme ancestor
+          // that's finished rebuilding with this frame's resolved isDark —
+          // and Theme.of(context).brightness "silently defaults toward
+          // light" when it can't resolve cleanly. That fix was already
+          // applied to the route-level ColoredBox (pushFullPlayer in
+          // home_screen.dart) and this screen's own outer Scaffold
+          // backgroundColor — but this _BgLayer color-seeding call site,
+          // which is what actually paints the large blurred background
+          // behind the whole player, was missed in that pass. When it
+          // silently resolved light for a frame, seeded1..4 all took the
+          // light-mode branch (Color.lerp toward Colors.white) instead of
+          // the correct dark branch — exactly a uniform light wash over
+          // the still-forming player, composited under the SlideTransition
+          // while it's still animating in, matching the observed uniform
+          // ~181 gray (a light-tinted layer blended with the darker Home
+          // frame still partially visible through the in-flight slide).
+          // isDarkOf(context) is the same already-resolved boolean the
+          // route ColoredBox and this screen's Scaffold already use —
+          // asking it here instead closes the one remaining call site that
+          // could still disagree with them for a frame.
+          final isLight = !context.read<ThemeProvider>().isDarkOf(context);
           final c1 = cached.vibrant;
           final c2 = cached.dominant;
           final c3 = cached.darkMuted;
@@ -538,7 +564,23 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           // default, with the accurate palette morphing in on top of it
           // moments later exactly as _applyPalette's `instant` path
           // already does elsewhere in this file.
-          final isLight = Theme.of(context).brightness == Brightness.light;
+          //
+          // ROOT-CAUSE FIX (cached vs cold-cache theme-resolution
+          // mismatch): this used to read Theme.of(context).brightness —
+          // a DIFFERENT mechanism than the cached-palette branch just
+          // above (which already uses isDarkOf(context)). Two branches of
+          // the same seeding logic disagreeing on how "light vs dark" is
+          // decided is exactly the class of bug that produces a
+          // wrong-theme background: whichever branch actually ran for a
+          // given open (cached vs cold) could seed _lastIsLight/_targetBg*
+          // from a different source than the other, and unlike a single
+          // stray frame, this value persists (stored in _lastIsLight,
+          // compared against every subsequent build) until something else
+          // corrects it. Using isDarkOf(context) here — same as the
+          // cached-palette branch, _BgLayer, the route ColoredBox, and the
+          // outer Scaffold — means every path that can seed the player's
+          // background now agrees on the exact same resolved boolean.
+          final isLight = !context.read<ThemeProvider>().isDarkOf(context);
           final gen = ++_artGen;
           _lastArtUrl = url;
           _lastSongId = currentSong.id;
@@ -965,7 +1007,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         // re-triggering extraction whenever it flips (independent of
         // whether the song also changed) means a live theme toggle always
         // recomputes contrast-safe colors for the new mode.
-        final isLight = Theme.of(context).brightness == Brightness.light;
+        // ROOT-CAUSE FIX (single source of truth for theme resolution):
+        // this used to read Theme.of(context).brightness — a DIFFERENT
+        // mechanism than _BgLayer (which uses isDarkOf(context)) and the
+        // route/Scaffold background (same). isDarkOf folds in isAmoled and
+        // the isDynamic+platformBrightness special case, neither of which
+        // Theme.of(context).brightness alone captures — so this watchdog
+        // could disagree with what _BgLayer is actually painting, in
+        // either direction, for as long as the player stays open (this
+        // isn't a one-frame flash path — themeChanged gates persist until
+        // the next flip is detected). context.watch so a genuine live
+        // theme toggle while the player is open is still caught, matching
+        // the original intent of this whole block.
+        final isLight = !context.watch<ThemeProvider>().isDarkOf(context);
         final themeChanged = isLight != _lastIsLight;
         _lastIsLight = isLight;
         if (song.id != _lastSongId || themeChanged) {
@@ -5144,7 +5198,21 @@ class _BgLayer extends StatelessWidget {
   // breathe-driven AnimatedBuilder.
   @override
   Widget build(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
+    // ROOT-CAUSE FIX (uniform gray/white wash on full-player open — see
+    // the matching FIX comment on the initState color-seeding call site
+    // above for the full mechanism). This is the more important of the
+    // two call sites: _BgLayer is what actually paints the large blurred
+    // background behind the entire player on every build, not just the
+    // first. Reading Theme.of(context).brightness here directly — instead
+    // of context.watch<ThemeProvider>().isDarkOf(context), the single
+    // already-resolved source of truth main.dart/pushFullPlayer/this
+    // screen's own Scaffold all use — meant this widget specifically could
+    // still take the wrong (light) branch for a frame at route-mount time
+    // even after every other call site in this file had already been
+    // migrated to isDarkOf. context.watch (not read) so this also stays
+    // correct if the user's theme genuinely changes while the player is
+    // open, matching every other isDarkOf call site in this file.
+    final isLight = !context.watch<ThemeProvider>().isDarkOf(context);
 
     return ValueListenableBuilder<bool>(
       valueListenable: AudioPrefs.showBlurredBgNotifier,
@@ -5368,8 +5436,13 @@ class _StaticBlurArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (song.artworkUrl.isEmpty) return const SizedBox.shrink();
-
+    // NOTE: previously short-circuited to SizedBox.shrink() here when
+    // song.artworkUrl was empty, which skipped this whole layer for local
+    // songs with no embedded artwork — see the matching FIX comment in
+    // _BlurredArtworkCore below for why that caused a flat white/cream
+    // "layer" during swipe-to-dismiss. _BlurredArtworkCore now handles
+    // the empty-artwork case itself (gradient placeholder instead of
+    // nothing), so it's safe to always build it here too.
     final core = _BlurredArtworkCore(song: song, isLight: isLight);
     final ctrl = breatheCtrl;
     if (ctrl == null) return core;
@@ -5445,7 +5518,35 @@ class _BlurredArtworkCore extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (song.artworkUrl.isEmpty) return const SizedBox.shrink();
+    // FIX ("white/flat layer on swipe-down for local songs with no
+    // embedded artwork"): this used to return SizedBox.shrink() whenever
+    // song.artworkUrl was empty — which is common for local/offline files
+    // scanned by local_music_service.dart when the MP3 has no embedded
+    // art and MediaStore has nothing cached for it either (see e.g. "Gora
+    // Rang", "Jodaa" in the library — generic note icon, no artwork).
+    // Skipping this layer entirely left only _BgLayer's flat L0 base
+    // (Color(0xFFE8E2D6) in light mode) plus a near-invisible low-alpha
+    // vignette on screen — a plain, colorless sheet that reads as a
+    // "white layer" sliding down during the swipe-to-dismiss drag, since
+    // _DragTransform fades/translates this whole background along with
+    // everything else and there was nothing but flat color underneath it
+    // to fade. A soft static gradient placeholder here (no image decode
+    // needed, so cost is negligible) keeps this layer visually present
+    // for every song, artwork or not, so the drag always fades something
+    // with actual depth instead of a flat wash.
+    if (song.artworkUrl.isEmpty) {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: isLight
+                ? [const Color(0xFFDCD3C0), const Color(0xFFC9BCA0)]
+                : [const Color(0xFF241F38), const Color(0xFF120F24)],
+          ),
+        ),
+      );
+    }
     return RepaintBoundary(
       child: Opacity(
         opacity: isLight ? 0.90 : 0.88,

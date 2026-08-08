@@ -75,7 +75,17 @@ class AurumArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (url.isEmpty) return _placeholder(context);
+    // FIX: same isBlurredBackground gap as the other three artwork
+    // branches — an empty URL should not inject the gradient placeholder
+    // into a full-screen blurred background. _BlurredArtworkCore in
+    // full_player_screen.dart already checks song.artworkUrl.isEmpty
+    // before this widget is even constructed for the blurred-background
+    // call site, so this is currently unreachable with
+    // isBlurredBackground:true in practice — kept as defense-in-depth for
+    // any future call site.
+    if (url.isEmpty) {
+      return isBlurredBackground ? const SizedBox.expand() : _placeholder(context);
+    }
 
     // ── content:// URI (MediaStore album art) ──────────────────────────────
     if (url.startsWith('content://')) {
@@ -100,7 +110,12 @@ class AurumArtwork extends StatelessWidget {
         height: size,
         fit: BoxFit.cover,
         cacheWidth: _cacheSize,
-        errorBuilder: (_, __, ___) => _placeholder(context),
+        // FIX: same isBlurredBackground gap as the content:// and network
+        // paths above — a failed local file read (deleted/moved file)
+        // should not inject the gradient placeholder into a full-screen
+        // blurred background either.
+        errorBuilder: (_, __, ___) =>
+            isBlurredBackground ? const SizedBox.expand() : _placeholder(context),
       );
       return ClipRRect(
         borderRadius: BorderRadius.circular(borderRadius),
@@ -127,7 +142,17 @@ class AurumArtwork extends StatelessWidget {
         cacheSize: _cacheSize,
         fadeIn: fadeIn,
         placeholder: _shimmer(context),
-        errorWidget: _placeholder(context),
+        // FIX (same class as the content:// _bytes==null fix): a
+        // genuinely failed network image (offline device, real 404, bad
+        // URL) used to always fall through to _placeholder(context) — the
+        // bgSurfaceOf→bgElevatedOf gradient + music-note icon — regardless
+        // of isBlurredBackground. Stretched into the full player's blurred
+        // background the same way the loading shimmer was, that gradient
+        // is the same light wash for a failed load as for a slow one.
+        // _BgLayer's theme-correct base is already the right "no artwork"
+        // background here — stay transparent and let it show through.
+        errorWidget:
+            isBlurredBackground ? const SizedBox.expand() : _placeholder(context),
       ),
     );
   }
@@ -153,32 +178,33 @@ class AurumArtwork extends StatelessWidget {
         ),
       );
 
-  // FIX (white flash on cold-start full-player open): the full-player's
-  // blurred background (_BlurredArtworkCore) passes isBlurredBackground:
-  // true because it's rendering this as a Transform.scale(1.55) +
-  // ImageFilter.blur(sigma 20-22) full-screen layer, not a normal
-  // thumbnail. _ShimmerPulse's white pulse (0.03-0.10 opacity) is subtle
-  // and fine at tile scale, but stretched 1.55x and heavily blurred
-  // across the whole screen it reads as a flat, bright white wash for
-  // however long the real artwork takes to decode on a cold start (no
-  // cache yet) — exactly the "flash before full player opens" report.
-  // The themed vignette/base layers already painted underneath this in
-  // full_player_screen.dart (_buildLight/_buildDark) are the correct
-  // "nothing loaded yet" background for this context — the shimmer pulse
-  // adds nothing but the flash at this scale, so skip it here and fall
-  // back to a plain themed surface instead. Gated on the explicit flag,
-  // NOT size.isFinite — the full player's own non-blurred disc artwork
-  // also renders at size:double.infinity (to fill its parent box) and
-  // still wants its normal shimmer while loading.
-  Widget _shimmer(BuildContext context) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: AurumTheme.bgSurfaceOf(context),
-          borderRadius: BorderRadius.circular(borderRadius),
-        ),
-        child: isBlurredBackground ? null : const _ShimmerPulse(),
-      );
+  // FIX (white/gray wash on full-player open — P1, same root cause as
+  // _ContentUriImageState's !_loaded branch in this file): this used to
+  // still paint a Container with color: AurumTheme.bgSurfaceOf even when
+  // isBlurredBackground was true — that flag only ever gated the
+  // _ShimmerPulse CHILD, never this container's own background color.
+  // The full-player's blurred background (_BlurredArtworkCore) wraps this
+  // in Transform.scale(1.55) + ImageFilter.blur(sigma 20-22): a flat
+  // color survives that untouched and reads as a full-screen wash for
+  // however long the real artwork takes to decode. _BgLayer
+  // (full_player_screen.dart _buildLight/_buildDark) already paints its
+  // own theme-correct base + vignette underneath this layer specifically
+  // to be the "nothing loaded yet" background — returning transparent
+  // here lets that show through instead of painting a second, wrong-
+  // colored layer on top of it. Non-blurred callers (tiles, mini player,
+  // the full player's own disc artwork) are unaffected.
+  Widget _shimmer(BuildContext context) {
+    if (isBlurredBackground) return const SizedBox.expand();
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: AurumTheme.bgSurfaceOf(context),
+        borderRadius: BorderRadius.circular(borderRadius),
+      ),
+      child: const _ShimmerPulse(),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -403,21 +429,33 @@ class _ContentUriImageState extends State<_ContentUriImage> {
   @override
   Widget build(BuildContext context) {
     if (!_loaded) {
-      // FIX (white flash on cold-start full-player open for local/
-      // downloaded songs): this is the content:// (MediaStore) artwork
-      // path — exactly what offline/local songs use. Same root cause as
-      // the network-image _shimmer() in AurumArtwork above: the full
-      // player's blurred background renders this with
-      // isBlurredBackground:true, then Transform.scale(1.55) +
-      // blur(sigma 20-22) stretches whatever paints here across the
-      // entire screen. _ShimmerPulse's white pulse is subtle on a real
-      // tile but reads as a full-screen white wash at that scale for
-      // however long the MethodChannel album-art fetch takes — worse
-      // than the network case since this was never gated at all. Gated
-      // on the explicit flag, NOT size — the full player's own
-      // non-blurred disc artwork also renders content:// art at
-      // size:double.infinity (to fill its parent box) and still wants
-      // its normal shimmer while loading.
+      // FIX (white/gray wash on full-player open, root-caused — P0):
+      // this used to return a Container with color: AurumTheme.bgSurfaceOf
+      // (a light warm-grey, 0xFFE8E4D8 in light mode) regardless of
+      // isBlurredBackground — that flag only ever gated the _ShimmerPulse
+      // CHILD below, never this container's own background color. The
+      // full player's blurred background (_BlurredArtworkCore in
+      // full_player_screen.dart) wraps this widget in Transform.scale(1.55)
+      // + ImageFilter.blur(sigma 20-22): a flat color survives that
+      // untouched, so for however long the getAlbumArt MethodChannel call
+      // takes to resolve (no disk cache on this path — worse on a cold
+      // launch, worse than network art which at least has
+      // CachedNetworkImageProvider's cache to shortcut), the ENTIRE full
+      // player screen was a plain light wash.
+      //
+      // _BgLayer (full_player_screen.dart _buildLight/_buildDark) already
+      // paints its own theme-correct base + vignette UNDERNEATH this
+      // layer specifically to be the "nothing loaded yet" background —
+      // this widget just needs to get out of the way and let it show
+      // through, not paint a second, wrong-colored layer on top of it.
+      // Returning transparent here does exactly that. The non-blurred
+      // callers (tile art, mini player, full player's own disc artwork)
+      // are unaffected — they still get the themed Container + shimmer
+      // exactly as before, since this only changes the isBlurredBackground
+      // branch.
+      if (widget.isBlurredBackground) {
+        return const SizedBox.expand();
+      }
       return Container(
         width: widget.size,
         height: widget.size,
@@ -425,11 +463,28 @@ class _ContentUriImageState extends State<_ContentUriImage> {
           color: AurumTheme.bgSurfaceOf(context),
           borderRadius: BorderRadius.circular(widget.borderRadius),
         ),
-        child: widget.isBlurredBackground ? null : const _ShimmerPulse(),
+        child: const _ShimmerPulse(),
       );
     }
 
-    if (_bytes == null || _bytes!.isEmpty) return widget.placeholder;
+    // FIX (same class as the !_loaded branch above): _bytes == null here
+    // means the MethodChannel call completed but genuinely found no album
+    // art (not "still loading" — that's the !_loaded branch above). This
+    // used to fall through to widget.placeholder unconditionally —
+    // _placeholder(context) in aurum_artwork.dart, a bgSurfaceOf→
+    // bgElevatedOf gradient + music-note icon. Same problem as the
+    // loading case: stretched into the full player's blurred background
+    // at Transform.scale(1.55) + blur(20-22), that gradient reads as a
+    // light wash for a song that will simply never have artwork, not just
+    // a transient one. _BgLayer's own theme-correct base/vignette is
+    // already the correct "no artwork" background for this context —
+    // stay transparent and let it show through, exactly like the loading
+    // case above.
+    if (_bytes == null || _bytes!.isEmpty) {
+      return widget.isBlurredBackground
+          ? const SizedBox.expand()
+          : widget.placeholder;
+    }
 
     final memImage = Image.memory(
       _bytes!,
