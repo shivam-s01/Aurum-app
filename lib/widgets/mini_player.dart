@@ -11,7 +11,6 @@ import '../utils/artwork_palette_cache.dart';
 import 'aurum_artwork.dart';
 import 'aurum_pressable.dart';
 import '../screens/home_screen.dart' show pushFullPlayer;
-import '../main.dart' show aurumRouteObserver;
 import '../utils/aurum_haptics.dart';
 import '../services/audio_prefs.dart';
 
@@ -28,7 +27,7 @@ class MiniPlayer extends StatefulWidget {
   State<MiniPlayer> createState() => _MiniPlayerState();
 }
 
-class _MiniPlayerState extends State<MiniPlayer> with RouteAware, WidgetsBindingObserver {
+class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
   double _dragY = 0;
   bool _dragging = false;
 
@@ -76,53 +75,19 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware, WidgetsBinding
     });
   }
 
-  // FIX ("back navigation feels stuck/slow/janky on EVERY screen"): the
-  // mini player sits as a persistent overlay on every screen (home,
-  // library, search, settings, ...) and renders its background via
-  // BackdropFilter(ImageFilter.blur(sigmaX: 14, sigmaY: 14)). A
-  // BackdropFilter has to re-sample and re-blur everything behind it on
-  // EVERY frame it's asked to paint — it can't cache the blurred result,
-  // because the content behind it can change. That's normally fine when
-  // the screen is static. But during ANY push/pop transition, the whole
-  // screen behind the mini player is sliding/fading every frame, which
-  // means the expensive 14px-radius blur is being fully recomputed on
-  // every single frame of the transition too — competing with the actual
-  // transition animation for GPU time. That contention is exactly what
-  // reads as "slow/awkward/stuck," and because the mini player is on
-  // every screen, it happens on every back navigation, not just one
-  // screen.
-  //
-  // MiniPlayer lives inside MainShell's bottomNavigationBar — MainShell
-  // itself never transitions when e.g. Settings is pushed on top of it,
-  // so ModalRoute.of(context) from inside MiniPlayer would always report
-  // MainShell's own (never-animating) route, not whatever screen is
-  // actually being pushed/popped. Subscribing to the app-wide
-  // aurumRouteObserver instead (same pattern FullPlayerScreen already
-  // uses for its own didPushNext/didPopNext) correctly reports ANY route
-  // change above MainShell.
-  bool _routeAnimating = false;
-  // FIX ("kabhi kabhi mini player poora stuck ho jata hai"): didPushNext
-  // and didPopNext each schedule their own Future.delayed to flip
-  // _routeAnimating back to false. If the user navigates quickly — pushes
-  // Settings, then immediately backs out again before the first 410ms
-  // timer has fired — the OLD timer from the push is still pending when
-  // the pop's own 80ms timer fires and clears it first; then the old
-  // push timer fires afterward and sets _routeAnimating = true again,
-  // this time with no future timer left to ever clear it. The mini
-  // player is then stuck showing the cheap flat-tint fallback (visually
-  // "frozen") until some unrelated rebuild happens to reset it. Giving
-  // each scheduled callback its own generation token means a stale timer
-  // from a superseded navigation can no longer stomp on a newer one.
-  int _routeAnimGen = 0;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final route = ModalRoute.of(context);
-    if (route != null) {
-      aurumRouteObserver.subscribe(this, route);
-    }
-  }
+  // REMOVED (per explicit request — this entire route-observer /
+  // flat-tint-during-transition system was the root of the multi-day mini
+  // player "gray/stuck" saga): MiniPlayer used to subscribe to
+  // aurumRouteObserver purely to detect push/pop transitions above
+  // MainShell and swap in a cheap flat-tint fallback during them, to save
+  // GPU cost while BackdropFilter's blur would otherwise re-run every
+  // frame of the transition. The bookkeeping around that (didPushNext /
+  // didPopNext / a generation counter) was fragile enough that a State
+  // recreation (e.g. on theme change) could leave the fallback stuck on
+  // forever with nothing left to ever clear it. Removed entirely — the
+  // real blurred mini player now always renders, unconditionally, so there
+  // is no fallback state left to get stuck in. RouteAware subscription
+  // removed since nothing in this widget needs it anymore.
 
   @override
   void initState() {
@@ -132,7 +97,6 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware, WidgetsBinding
 
   @override
   void dispose() {
-    aurumRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -239,63 +203,6 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware, WidgetsBinding
     Future.delayed(const Duration(seconds: 4), () {
       if (mounted) messenger.hideCurrentMaterialBanner();
     });
-  }
-
-  // A new route (Settings, Full Player, etc.) was just pushed on top of
-  // MainShell — its push transition is about to animate, so drop to the
-  // cheap tint immediately.
-  @override
-  void didPushNext() {
-    final gen = ++_routeAnimGen;
-    if (mounted) setState(() => _routeAnimating = true);
-    // Every close/open transition in this app uses AurumMotion.long1
-    // (350ms) per aurum_transitions.dart. A short buffer (60ms) absorbs
-    // minor scheduling jitter so this never restores the real blur a
-    // frame or two before the transition has actually finished painting.
-    Future.delayed(const Duration(milliseconds: 410), () {
-      if (mounted && gen == _routeAnimGen) {
-        setState(() => _routeAnimating = false);
-      }
-    });
-  }
-
-  // A route above MainShell was just popped (user backed out of
-  // Settings/Full Player/etc.) — the reverse transition is about to
-  // animate too.
-  //
-  // FIX ("mini player stuck as flat glass for a couple seconds after
-  // swipe-down close"): this used to share the same fixed 410ms delay as
-  // didPushNext(). That's correct for a normal push (a real 350ms
-  // AurumMotion.long1 route transition is animating) but wrong here for
-  // Full Player's swipe-to-dismiss specifically: _completeDismissDrag()
-  // in full_player_screen.dart runs its own variable-length drag
-  // animation (140-300ms, scaled to however far the finger already was)
-  // and only calls Navigator.pop() AFTER that finishes — by which point
-  // the screen is already fully off-screen. So didPopNext() fires with
-  // nothing left animating, yet still held the cheap flat tint for
-  // another fixed 410ms on top of that, for no visual reason — which is
-  // exactly the multi-second "stuck glass" gap. A short fixed buffer
-  // (80ms, just enough to absorb scheduling jitter for the rare
-  // programmatic Navigator.pop() cases) replaces the long delay since
-  // there's no ongoing transition left to protect here.
-  // FIX ("full player swipe-down se close karte hi mini player 1-2 second
-  // ke liye ekdam flat/glass dikhta hai, phir sahi ho jata hai"): this
-  // still set _routeAnimating = true immediately (even though the fixed
-  // delay was already shortened to 80ms above). Full Player's own
-  // swipe-to-dismiss (_completeDismissDrag() in full_player_screen.dart)
-  // only calls Navigator.pop() AFTER its own 140-300ms slide-off
-  // animation has already finished — the screen is already fully
-  // off-screen and invisible by the time didPopNext() fires here. So
-  // flipping to the flat-tint fallback at all, even briefly, was pure
-  // unnecessary flicker: real BackdropFilter blur was already safe to
-  // keep showing the whole time, since nothing was left animating on top
-  // of it. Removed entirely for the swipe-dismiss case — the flat
-  // fallback is now reserved for didPushNext(), where a route really is
-  // sliding on top and the cheap tint genuinely saves GPU work during
-  // that transition.
-  @override
-  void didPopNext() {
-    // Nothing to do: no fallback tint needed here anymore (see FIX above).
   }
 
   // FIX ("halka sa neeche swipe karte hi gaana pause/dismiss ho jata
@@ -483,41 +390,26 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware, WidgetsBinding
                       // white/blank block while waiting for the real tint.
                       final fallback = AurumTheme.bgCardOf(context);
                       final baseTint = animatedTint ?? fallback;
-                      return _routeAnimating
-                      ? Container(
-                          height: 68,
-                          decoration: BoxDecoration(
-                            // FIX ("glass flash for ~0.1s on full player
-                            // swipe-down close"): this fallback tint's alpha
-                            // (0.62 dark / 0.82 light) was noticeably more
-                            // opaque than the real blurred mini player's
-                            // steady-state alpha (0.42 dark / 0.62 light,
-                            // see the ValueListenableBuilder branch below).
-                            // For ~410ms after didPopNext() fires, the mini
-                            // player shows THIS more-opaque flat tint, then
-                            // the instant _routeAnimating flips back to
-                            // false it snaps to the lighter, more
-                            // translucent blurred version — that mismatch
-                            // is exactly what read as a brief "glass"
-                            // flash. Matched to the same alpha as the real
-                            // blurred state so the switch between the two
-                            // is visually seamless.
-                            color: baseTint.withValues(
-                              alpha: isDark ? 0.42 : 0.62,
-                            ),
-                            borderRadius: BorderRadius.circular(28),
-                            border: Border.all(
-                              color: (isDark ? Colors.white : Colors.black)
-                                  .withValues(alpha: 0.08),
-                              width: 1,
-                            ),
-                          ),
-                          child: _miniPlayerContent(context, player,
-                              onTint: baseTint.computeLuminance() > 0.5
-                                  ? Colors.black
-                                  : Colors.white),
-                        )
-                      : ValueListenableBuilder<double>(
+                      // REMOVED (per explicit request — this whole
+                      // "_routeAnimating" flat-tint fallback was the root of
+                      // the multi-day "mini player gray/stuck" saga): this
+                      // branch used to swap in a cheap flat-color Container
+                      // for ~410ms every time a route pushed/popped on top
+                      // of MainShell, to save GPU cost during the
+                      // transition. The bookkeeping that drove it
+                      // (didPushNext/didPopNext/_routeAnimGen) was fragile —
+                      // a State recreation (e.g. on theme change) could
+                      // leave it permanently stuck true with nothing left to
+                      // ever clear it, which read as "mini player
+                      // permanently gray until app restart." Rather than
+                      // patch the bookkeeping further, the flat-tint path is
+                      // gone entirely: the real blurred mini player now
+                      // renders unconditionally, always. The only cost is
+                      // the BackdropFilter blur also running during route
+                      // transitions instead of being swapped out — a minor,
+                      // bounded perf tradeoff, not a correctness bug that
+                      // can get permanently stuck.
+                      return ValueListenableBuilder<double>(
                           valueListenable: AudioPrefs.miniPlayerBlurSigmaNotifier,
                           builder: (context, blurSigma, _) {
                             // blurSigma <= 0 means the user explicitly
@@ -595,13 +487,11 @@ class _MiniPlayerState extends State<MiniPlayer> with RouteAware, WidgetsBinding
   }
 
   /// The mini player's actual row content (progress bar, artwork, title/
-  /// artist, transport controls) — shared between the normal BackdropFilter
-  /// path and the cheap-tint fallback used while a route transition is in
-  /// flight (see _routeAnimating above).
+  /// artist, transport controls).
   ///
   /// [onTint] is the black/white color that's actually readable against
-  /// THIS render's real background color (solid tint, blurred tint, or
-  /// route-animating fallback tint — whichever one is currently painted).
+  /// THIS render's real background color (solid tint or blurred tint,
+  /// whichever one is currently painted).
   /// Title/artist text uses it directly instead of the app's fixed
   /// dark/light-mode text color, so a light album cover in dark mode (or
   /// vice versa) never produces low-contrast text on top of its own
