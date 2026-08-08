@@ -9,6 +9,31 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/artwork_palette_cache.dart';
+import '../utils/aurum_transitions.dart';
+import 'package:just_audio/just_audio.dart' show LoopMode;
+import 'package:share_plus/share_plus.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import '../providers/player_provider.dart';
+import '../providers/favorites_provider.dart';
+import '../providers/download_provider.dart';
+import '../providers/premium_provider.dart';
+import '../providers/theme_provider.dart';
+import '../models/song.dart';
+import '../models/lyrics.dart';
+import '../utils/devanagari_transliterator.dart';
+import '../theme/aurum_theme.dart';
+import '../l10n/generated/app_localizations.dart';
+import '../services/audio_prefs.dart';
+import '../services/waveform_service.dart';
+import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_pressable.dart';
+import '../widgets/aurum_like_button.dart';
+import '../widgets/premium_gate.dart';
+import 'library_screen.dart' show showAddToPlaylistSheet;
+import '../widgets/audio_output_sheet.dart';
+import '../widgets/cast_button.dart';
+import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
+import '../utils/aurum_haptics.dart';
 
 // TEMP DEBUG SWITCH — same "white/gray layer slides down and gets stuck
 // after closing Full Player" hunt as home_screen.dart's
@@ -43,31 +68,6 @@ void _debugFlashBanner2(BuildContext? context, String message) {
     if (context.mounted) messenger.hideCurrentMaterialBanner();
   });
 }
-import '../utils/aurum_transitions.dart';
-import 'package:just_audio/just_audio.dart' show LoopMode;
-import 'package:share_plus/share_plus.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
-import '../providers/player_provider.dart';
-import '../providers/favorites_provider.dart';
-import '../providers/download_provider.dart';
-import '../providers/premium_provider.dart';
-import '../providers/theme_provider.dart';
-import '../models/song.dart';
-import '../models/lyrics.dart';
-import '../utils/devanagari_transliterator.dart';
-import '../theme/aurum_theme.dart';
-import '../l10n/generated/app_localizations.dart';
-import '../services/audio_prefs.dart';
-import '../services/waveform_service.dart';
-import '../widgets/aurum_artwork.dart';
-import '../widgets/aurum_pressable.dart';
-import '../widgets/aurum_like_button.dart';
-import '../widgets/premium_gate.dart';
-import 'library_screen.dart' show showAddToPlaylistSheet;
-import '../widgets/audio_output_sheet.dart';
-import '../widgets/cast_button.dart';
-import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
-import '../utils/aurum_haptics.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FullPlayerScreen v5.0 — Echo Nightly Premium
