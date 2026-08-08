@@ -64,6 +64,58 @@ import '../utils/aurum_haptics.dart';
 //      so without a shared module-level guard, any Stateless tap site is
 //      unprotected against a fast double-tap pushing FullPlayerScreen twice
 //      onto the nav stack.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// One-shot backdrop for the FullPlayerScreen route — paints a solid themed
+// color for exactly the first frame (closing the cold-start white-flash gap
+// left by `opaque: false`), then removes itself so it can never be exposed
+// again later as a stuck opaque layer if the dismiss-drag's pop is ever
+// delayed or dropped. See the FIX comment at the pushFullPlayer call site
+// for the full story.
+class _FullPlayerRouteBackdrop extends StatefulWidget {
+  final bool isDark;
+  final Widget child;
+  const _FullPlayerRouteBackdrop({required this.isDark, required this.child});
+
+  @override
+  State<_FullPlayerRouteBackdrop> createState() =>
+      _FullPlayerRouteBackdropState();
+}
+
+class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
+  bool _showBackdrop = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Two frames is enough for FullPlayerScreen's own Scaffold/ColoredBox
+    // to have painted (the actual gap this backdrop exists to cover) —
+    // scheduling the removal via addPostFrameCallback (rather than a fixed
+    // delay) ties it to real paint timing instead of guessing a duration
+    // that could race on a slow cold start or run needlessly long on a
+    // fast one.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _showBackdrop = false);
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_showBackdrop) return widget.child;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ColoredBox(
+          color: widget.isDark ? Colors.black : const Color(0xFFF5F0EA),
+        ),
+        widget.child,
+      ],
+    );
+  }
+}
+
 bool _openingFullPlayer = false; // guards against double-push on rapid tap
 
 void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
@@ -114,7 +166,7 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
         // while the player was fully static/open (unaffected by this
         // change), never during the drag itself.
         opaque: false,
-        pageBuilder: (context, __, ___) => ColoredBox(
+        pageBuilder: (context, __, ___) => _FullPlayerRouteBackdrop(
           // FIX (cold-start white flash between tap and FullPlayerScreen's
           // first real frame): opaque:false (needed for the swipe-dismiss
           // background-blink fix above) means Flutter no longer guarantees
@@ -123,7 +175,7 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
           // artwork cached yet, Provider still spinning up), that gap
           // could be one visible frame of plain white before the themed
           // Scaffold/ColoredBox inside FullPlayerScreen ever paints. This
-          // pageBuilder-level ColoredBox is the outermost possible layer
+          // pageBuilder-level backdrop is the outermost possible layer
           // for this route — it paints instantly, before FullPlayerScreen
           // constructs, closing that gap completely regardless of how
           // long the real screen takes to build its first frame.
@@ -146,9 +198,36 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
           // to pick the active theme in the first place — there is no
           // second, independently-timed brightness lookup left to
           // disagree with it.
-          color: context.read<ThemeProvider>().isDarkOf(context)
-              ? Colors.black
-              : const Color(0xFFF5F0EA),
+          //
+          // FIX ("offline song bajao, full player kholo, swipe down se
+          // band karo — upar se white/gray layer aa jaata hai jo phir
+          // atak jaata hai, tap kaam nahi karta" — production bug): this
+          // used to be a plain ColoredBox wrapping FullPlayerScreen as its
+          // child — i.e. a SOLID, OPAQUE layer painted underneath
+          // FullPlayerScreen for the entire lifetime of the route, not
+          // just the first frame the comment above describes. That's
+          // invisible in the normal case because FullPlayerScreen's own
+          // Scaffold is opaque and fully covers it. But FullPlayerScreen's
+          // swipe-to-dismiss (_DragTransform) fades ITS OWN Opacity toward
+          // 0 while dragging/completing a dismiss — this backdrop sits
+          // OUTSIDE that Opacity, so it never fades with it. If the
+          // dismiss drag's pop is ever delayed or dropped (same class of
+          // same-frame-race already identified for local/offline taps
+          // elsewhere in this file — a local song's near-instant resolve
+          // leaves no network round-trip to naturally separate two events
+          // landing in the same frame), what's left on screen is this
+          // solid black/cream layer with nothing on top of it: exactly
+          // the reported "white/gray layer" — and since the route is
+          // still technically on the stack, it keeps intercepting every
+          // touch until something else coincidentally pops it, which is
+          // exactly the reported stuck/unresponsive feel.
+          // Fix: this backdrop now only needs to survive ONE frame (the
+          // gap before FullPlayerScreen's own Scaffold paints its first
+          // frame) — self-removing it a moment after first paint means
+          // even a delayed/dropped pop can never expose a persistent
+          // opaque layer again, closing the gap at its root instead of
+          // patching the guard that merely re-enabled future taps.
+          isDark: context.read<ThemeProvider>().isDarkOf(context),
           child: const FullPlayerScreen(),
         ),
         // NOTE (supersedes the "flat theme-colored screen for 1-2s" fix
