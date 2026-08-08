@@ -66,7 +66,7 @@ final RouteObserver<ModalRoute<void>> aurumRouteObserver =
 // when the white layer appears, this will show it. Safe to delete this
 // whole observer + its one registration in AurumApp's navigatorObservers
 // list once the culprit is found.
-const bool _kDebugRouteStack = true;
+const bool _kDebugRouteStack = false;
 
 // Keeps the last few route events in memory (not just logcat) so they can
 // be shown on-screen via a banner — no PC/adb needed to read them.

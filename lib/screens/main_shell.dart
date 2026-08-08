@@ -171,6 +171,25 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       _lastTrackedSongId = song.id;
       FeedbackService.onSongPlayed().then((shouldPrompt) {
         if (shouldPrompt && mounted) {
+          // FIX ("full player swipe-down se close karte hi ek gray/dark
+          // layer reh jaata hai, tap se nahi jaata"): this listener fires
+          // on ANY song change, on ANY screen — including while
+          // FullPlayerScreen is open or mid-swipe-to-dismiss. showDialog's
+          // own barrier (barrierDismissible: false, see
+          // feedback_dialog.dart) doesn't know or care that
+          // FullPlayerScreen's swipe-to-dismiss is a live drag gesture in
+          // progress — it just pushes a DialogRoute on top of whatever's
+          // current the instant a song change lands, which could be the
+          // exact same frame the user is dragging the full player off-
+          // screen. The dialog's own barrier then paints over/behind that
+          // drag, and because it's non-dismissible by tap or swipe, it's
+          // the layer that's left showing once the drag/pop settles.
+          // Checking canPop() on the root navigator here means the dialog
+          // simply waits until the user is back on a base screen (nothing
+          // pushed on top of MainShell) before ever appearing — it can
+          // never land mid-transition or mid-gesture again.
+          final rootNavigator = Navigator.of(context, rootNavigator: true);
+          if (rootNavigator.canPop()) return;
           showFeedbackDialog(context);
         }
       });
