@@ -49,6 +49,41 @@ import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
 import '../utils/aurum_haptics.dart';
 
+// TEMP DEBUG SWITCH — hunting the "white/gray layer slides down from the
+// top and gets stuck after closing Full Player (back button OR swipe-down)"
+// report. Logs to logcat (`adb logcat | grep AurumDebug`) AND flashes an
+// on-screen MaterialBanner so it's visible without a PC attached. Safe to
+// delete this flag + every guarded block below once the culprit is found.
+const bool _kDebugFullPlayerWhiteLayer = true;
+
+void _debugFlashBanner(BuildContext? context, String message) {
+  if (!_kDebugFullPlayerWhiteLayer) return;
+  debugPrint('[AurumDebug][FullPlayerWhiteLayer] $message');
+  if (context == null || !context.mounted) return;
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  if (messenger == null) return;
+  messenger.clearMaterialBanners();
+  messenger.showMaterialBanner(
+    MaterialBanner(
+      backgroundColor: Colors.cyanAccent.withOpacity(0.92),
+      content: Text(
+        '🔧 DEBUG: $message',
+        style: const TextStyle(
+            color: Colors.black, fontSize: 12, fontWeight: FontWeight.w600),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => messenger.hideCurrentMaterialBanner(),
+          child: const Text('OK', style: TextStyle(color: Colors.black)),
+        ),
+      ],
+    ),
+  );
+  Future.delayed(const Duration(seconds: 5), () {
+    if (context.mounted) messenger.hideCurrentMaterialBanner();
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared FullPlayerScreen navigation — every song-tap entry point on this
 // screen (Recently Played tiles, genre/mood grid cards, mini player, etc.)
@@ -88,6 +123,10 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
   @override
   void initState() {
     super.initState();
+    if (_kDebugFullPlayerWhiteLayer) {
+      debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop initState — '
+          'showBackdrop=true, isDark=${widget.isDark}');
+    }
     // Two frames is enough for FullPlayerScreen's own Scaffold/ColoredBox
     // to have painted (the actual gap this backdrop exists to cover) —
     // scheduling the removal via addPostFrameCallback (rather than a fixed
@@ -96,14 +135,31 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
     // fast one.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_kDebugFullPlayerWhiteLayer) {
+          debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop '
+              'self-removing after 2 frames (mounted=$mounted)');
+        }
         if (mounted) setState(() => _showBackdrop = false);
       });
     });
   }
 
   @override
+  void dispose() {
+    if (_kDebugFullPlayerWhiteLayer) {
+      debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop dispose — '
+          'showBackdrop was $_showBackdrop');
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (!_showBackdrop) return widget.child;
+    if (_kDebugFullPlayerWhiteLayer) {
+      debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop build() — '
+          'PAINTING SOLID ${widget.isDark ? "BLACK" : "CREAM"} LAYER');
+    }
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -119,8 +175,16 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
 bool _openingFullPlayer = false; // guards against double-push on rapid tap
 
 void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
-  if (_openingFullPlayer) return;
+  if (_openingFullPlayer) {
+    _debugFlashBanner(context, 'pushFullPlayer BLOCKED — guard already true '
+        '(double-tap or stuck guard)');
+    return;
+  }
   _openingFullPlayer = true;
+  if (_kDebugFullPlayerWhiteLayer) {
+    debugPrint('[AurumDebug][FullPlayerWhiteLayer] pushFullPlayer() called — '
+        'context.mounted=${context.mounted}');
+  }
   AurumHaptics.light();
   // STABILITY FIX ("offline/local song se Home pe jaate hi screen dead ho
   // jaati hai, bina app restart ke nahi jaata" — production bug): the
@@ -256,14 +320,28 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
         reverseTransitionDuration: const Duration(milliseconds: 380),
       ),
     ).then((_) {
+      if (_kDebugFullPlayerWhiteLayer) {
+        debugPrint('[AurumDebug][FullPlayerWhiteLayer] route.then() fired — '
+            'popped/settled normally, resetting guard');
+        _debugFlashBanner(context, 'Route popped normally (then fired)');
+      }
       _openingFullPlayer = false;
       onClosed?.call();
-    }, onError: (_) {
+    }, onError: (e) {
+      if (_kDebugFullPlayerWhiteLayer) {
+        debugPrint('[AurumDebug][FullPlayerWhiteLayer] route onError: $e');
+        _debugFlashBanner(context, 'Route onError: $e');
+      }
       _openingFullPlayer = false;
     });
-  } catch (_) {
+  } catch (e) {
     // Synchronous failure (e.g. context already unmounted at call time) —
     // the .then()/onError above never got attached, so reset here too.
+    if (_kDebugFullPlayerWhiteLayer) {
+      debugPrint('[AurumDebug][FullPlayerWhiteLayer] push() threw '
+          'synchronously: $e');
+      _debugFlashBanner(context, 'push() threw synchronously: $e');
+    }
     _openingFullPlayer = false;
   }
   // FIX ("local song play karo, ek white/confirm jaisa cheez atak jaati
@@ -286,6 +364,12 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
   // the guard open again shortly after the transition should have long
   // finished, so a dropped Future can never wedge every future tap.
   Future.delayed(const Duration(milliseconds: 1500), () {
+    if (_kDebugFullPlayerWhiteLayer && _openingFullPlayer) {
+      debugPrint('[AurumDebug][FullPlayerWhiteLayer] 1500ms BACKSTOP fired — '
+          'guard was STILL true, route.then() never fired! Forcing reset.');
+      _debugFlashBanner(context, '1500ms backstop force-reset the guard — '
+          'route never settled normally');
+    }
     _openingFullPlayer = false;
   });
 }
