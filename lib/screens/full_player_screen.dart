@@ -139,6 +139,14 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // animation at all — visually a hard jump/jerk. This controller
   // animates that snap-back smoothly instead.
   late final AnimationController _springBackCtrl;
+  // Tracks whether _springBackCtrl's CURRENT run is a committed dismiss
+  // (_completeDismissDrag, animating _dragY toward screenH then popping)
+  // versus a cancelled-drag spring-back (_springBackDrag, animating _dragY
+  // back to 0, staying open) — both reuse the same controller, so the
+  // lifecycle-pause fix below needs this to tell them apart: a committed
+  // dismiss should still be allowed to finish and pop even if the app is
+  // backgrounded mid-animation, but a spring-back-to-open should not.
+  bool _springBackIsDismissing = false;
 
   // ── Palette / song cache ──
   String? _lastArtUrl;
@@ -368,6 +376,49 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       if (!_panelOpen) _resumeAmbientAnims();
     } else {
       _pauseAmbientAnims();
+    }
+
+    // FIX ("swipe down to dismiss, background/resume mid-drag — full
+    // player left floating over stale content underneath, looks like two
+    // overlapping layers"): the GestureDetector driving swipe-to-dismiss
+    // (see onVerticalDragStart/Update/End further down) never wired an
+    // onVerticalDragCancel — so if the app is backgrounded with a finger
+    // still down mid-drag (Recents/home hit exactly while dismissing —
+    // easy to do with a local/offline song, since it resolves instantly
+    // with no network round-trip holding attention on the screen a moment
+    // longer), neither onVerticalDragEnd nor any cancel path ever fires.
+    // _isDragging and _dragY stay frozen at whatever partial value the
+    // drag had reached, and _dragY directly drives _DragTransform's
+    // translate/opacity on this whole screen — so resuming shows the full
+    // player stuck mid-dismiss, translated and faded over whatever's
+    // rendering underneath (exactly the "layer over old content" look).
+    // Same root shape as the equivalent fix already applied to
+    // mini_player.dart's own drag-to-dismiss for the same reason. Snap
+    // back to fully-open immediately (no animation — the app isn't even
+    // visible for one to be seen) rather than waiting on a pointer event
+    // that may never arrive.
+    if ((state == AppLifecycleState.paused ||
+            state == AppLifecycleState.inactive ||
+            state == AppLifecycleState.detached) &&
+        mounted &&
+        (_isDragging ||
+            (_dragY != 0 && !_springBackIsDismissing) ||
+            (_springBackCtrl.isAnimating && !_springBackIsDismissing))) {
+      // Stop any in-flight spring-back-to-open animation first —
+      // otherwise its own listener (see _springBackDrag above) would
+      // immediately overwrite the _dragY reset below on the next tick,
+      // since AnimationControllers keep ticking even while the app is
+      // backgrounded/paused. Deliberately NOT stopped when
+      // _springBackIsDismissing is true — that run is a COMMITTED dismiss
+      // (_completeDismissDrag) that still needs to finish and pop the
+      // route even if the app is backgrounded mid-animation; killing it
+      // here would instead leave the full player stuck open forever,
+      // trading the original stuck-layer bug for a worse one.
+      if (_springBackCtrl.isAnimating) _springBackCtrl.stop();
+      _dragIsUpward = false;
+      _upwardDragDistance = 0;
+      _dragY = 0;
+      if (_isDragging) setState(() => _isDragging = false);
     }
   }
 
@@ -783,6 +834,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   void _completeDismissDrag() {
     if (!mounted) return;
     AurumHaptics.light();
+    _springBackIsDismissing = true;
     final screenH = MediaQuery.of(context).size.height;
     final start = _dragY;
     _springBackCtrl.reset();
@@ -807,6 +859,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _springBackCtrl.forward().whenCompleteOrCancel(() {
       anim.removeListener(listener);
       _springBackCtrl.duration = const Duration(milliseconds: 320);
+      _springBackIsDismissing = false;
       if (!mounted) return;
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
@@ -1022,6 +1075,20 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   _springBackDrag();
                 }
                 _dragIsUpward = false;
+              },
+              // FIX ("swipe down/up sometimes leaves screen stuck") — no
+              // onVerticalDragCancel was wired here at all, so if the
+              // gesture arena took the pointer away mid-drag (a competing
+              // scroll winning resolution, same class of issue as the
+              // didChangeAppLifecycleState fix above covers for
+              // backgrounding), _isDragging/_dragY had no path back to a
+              // clean state. Treat exactly like a below-threshold release:
+              // spring back to fully-open.
+              onVerticalDragCancel: () {
+                if (_isDragging && mounted) setState(() => _isDragging = false);
+                _dragIsUpward = false;
+                _upwardDragDistance = 0;
+                _springBackDrag();
               },
               child: _DragTransform(
                 dragYListenable: _dragYNotifier,
@@ -5791,7 +5858,7 @@ class _IconBtn extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Control Button
 // ─────────────────────────────────────────────────────────────────────────────
-class _CtrlBtn extends StatelessWidget {
+class _CtrlBtn extends StatefulWidget {
   final IconData icon;
   final double size;
   final bool active;
@@ -5820,95 +5887,184 @@ class _CtrlBtn extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final c = color ?? (active ? AurumTheme.gold : inactiveColor);
+  State<_CtrlBtn> createState() => _CtrlBtnState();
+}
 
-    // PREMIUM POLISH PASS: keeps the same restrained language as before
-    // (no pill, no glow, no shadow — that restraint is what reads as
-    // premium rather than gamified) but refines the motion quality:
+// PREMIUM POLISH PASS 2 ("shuffle/repeat feel dead — make them feel
+// premium and clickable"): pass 1 (see the animation notes preserved
+// below) handled color/icon transitions but the buttons still had no felt
+// depth — flat icon in empty space, a barely-visible 4px dot the only
+// active signal, and a generic 0.85 press-scale shared with every other
+// control on the screen (skip/prev/next included), so shuffle/repeat
+// never read as distinct, "considered" controls.
+//
+// This pass is scoped ONLY to shuffle/repeat: skip/prev/next and the play
+// button are untouched, still using the plain _CtrlBtn/_PremiumPlayButton
+// paths elsewhere on screen — this widget is StatefulWidget now (needed
+// for the press-pulse AnimationController below) but every call site
+// still constructs it identically (`_CtrlBtn(...)`), so nothing else in
+// the file needed to change.
+//
+// Three additions, all deliberately restrained (no glow, no shadow, no
+// color outside the existing gold/inactive palette already used
+// everywhere else on this screen — an isolated flourish here would read
+// as inconsistent rather than premium):
+//  1. A soft circular backdrop fades in behind the icon when active
+//     (gold at ~10% opacity) — gives the toggle actual depth/weight
+//     instead of just a color change, same visual language as how
+//     "selected" chips read elsewhere in the app.
+//  2. The active indicator changed from a 4px dot to a short underline
+//     bar beneath the icon — reads as a more confident, considered
+//     status mark (closer to how Apple Music signals active
+//     shuffle/repeat) rather than a barely-visible pixel.
+//  3. A brief press-pulse: the backdrop scales up and its opacity ticks
+//     slightly on tap-down, settling back on release — gives the tap
+//     itself a felt moment rather than only the eventual state change
+//     being visible. Purely additive to the existing AurumPressable
+//     scale — that press-scale on the whole button is untouched.
+class _CtrlBtnState extends State<_CtrlBtn> with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+      reverseDuration: const Duration(milliseconds: 200),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onPressDown(_) => _pulseCtrl.forward();
+  void _onPressEnd(_) => _pulseCtrl.reverse();
+  void _onPressCancel() => _pulseCtrl.reverse();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.color ?? (widget.active ? AurumTheme.gold : widget.inactiveColor);
+
+    // Same restrained language as before (no pill, no glow, no shadow —
+    // that restraint is what reads as premium rather than gamified) but
+    // refines the motion quality:
     //  - The icon's color now animates (AnimatedDefaultTextStyle-style
     //    tween via TweenAnimationBuilder) instead of snapping instantly
     //    between muted/gold on toggle — a deliberate, considered
     //    transition rather than a hard cut.
-    //  - The active dot now scales in with a slight overshoot
-    //    (easeOutBack) rather than a flat fade — a small, confident
-    //    "settle" that reads as intentional rather than just appearing.
     //  - Icon swap crossfade slowed very slightly (180ms -> 200ms) and
     //    paired with a tiny scale so it reads as a soft transition rather
     //    than a flicker.
     // Only shuffle/repeat pass `active`; skip/prev/next never do, so all
     // of this only affects the two toggle buttons.
-    final showActiveDot = color == null;
+    final showActiveMark = widget.color == null;
 
     return Semantics(
-      label: semanticLabel,
+      label: widget.semanticLabel,
       button: true,
       child: AurumPressable(
         scaleAmount: 0.85,
         haptic: false, // callers already fire their own haptic per action
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, anim) => FadeTransition(
-                  opacity: anim,
-                  child: ScaleTransition(
-                    scale: Tween<double>(begin: 0.88, end: 1.0).animate(anim),
-                    child: child,
+        onTap: widget.onTap,
+        child: Listener(
+          onPointerDown: showActiveMark ? _onPressDown : null,
+          onPointerUp: showActiveMark ? _onPressEnd : null,
+          onPointerCancel: showActiveMark ? (_) => _onPressCancel() : null,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (showActiveMark)
+                        AnimatedBuilder(
+                          animation: _pulseCtrl,
+                          builder: (_, __) {
+                            final pulse = _pulseCtrl.value;
+                            // Backdrop is visible when active OR mid-press
+                            // (so even a tap that ends up toggling OFF
+                            // still gets a felt moment on press-down),
+                            // fading smoothly between the two.
+                            final baseOpacity = widget.active ? 0.12 : 0.0;
+                            final opacity =
+                                (baseOpacity + pulse * 0.10).clamp(0.0, 0.22);
+                            final scale = 1.0 + pulse * 0.08;
+                            if (opacity <= 0.001) return const SizedBox.shrink();
+                            return Transform.scale(
+                              scale: scale,
+                              child: Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: AurumTheme.gold.withOpacity(opacity),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        transitionBuilder: (child, anim) => FadeTransition(
+                          opacity: anim,
+                          child: ScaleTransition(
+                            scale: Tween<double>(begin: 0.88, end: 1.0).animate(anim),
+                            child: child,
+                          ),
+                        ),
+                        // Keyed on the icon shape only (not color) — a
+                        // pure color change (shuffle/repeat toggling
+                        // active while the icon shape stays the same)
+                        // animates smoothly via the TweenAnimationBuilder
+                        // below instead of retriggering the fade/scale
+                        // switch, which is reserved for genuine icon
+                        // shape changes (repeat -> repeat-one).
+                        child: TweenAnimationBuilder<Color?>(
+                          key: ValueKey(widget.icon),
+                          tween: ColorTween(end: c),
+                          duration: const Duration(milliseconds: 260),
+                          curve: Curves.easeOutCubic,
+                          builder: (_, animatedColor, __) => Icon(
+                            widget.icon,
+                            size: widget.size,
+                            color: animatedColor ?? c,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                // Keyed on the icon shape only (not color) — a pure color
-                // change (shuffle/repeat toggling active while the icon
-                // shape stays the same) animates smoothly via the
-                // TweenAnimationBuilder below instead of retriggering the
-                // fade/scale switch, which is reserved for genuine icon
-                // shape changes (repeat -> repeat-one).
-                child: TweenAnimationBuilder<Color?>(
-                  key: ValueKey(icon),
-                  tween: ColorTween(end: c),
-                  duration: const Duration(milliseconds: 260),
-                  curve: Curves.easeOutCubic,
-                  builder: (_, animatedColor, __) =>
-                      Icon(icon, size: size, color: animatedColor ?? c),
-                ),
-              ),
-              if (showActiveDot) ...[
-                const SizedBox(height: 4),
-                // A single quiet dot under the icon when active — the
-                // one detail carried over from Spotify's own shuffle/
-                // repeat treatment. Scales in with a slight overshoot
-                // rather than a flat fade, giving it a confident "settle"
-                // instead of just materializing. Still flat-filled, no
-                // glow — status mark, not decoration. AnimatedContainer's
-                // implicit size (via AnimatedScale wrapping a fixed-size
-                // dot) keeps row height constant either way, so
-                // neighboring buttons never shift.
-                AnimatedScale(
-                  scale: active ? 1.0 : 0.4,
-                  duration: const Duration(milliseconds: 260),
-                  curve: active ? Curves.easeOutBack : Curves.easeIn,
-                  child: AnimatedOpacity(
-                    opacity: active ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOut,
-                    child: Container(
-                      width: 4,
-                      height: 4,
-                      decoration: const BoxDecoration(
-                        color: AurumTheme.gold,
-                        shape: BoxShape.circle,
-                      ),
+                if (showActiveMark) ...[
+                  const SizedBox(height: 2),
+                  // Short underline bar replaces the old 4px dot — a
+                  // more confident, deliberate status mark. Width
+                  // animates in from a sliver rather than just fading,
+                  // so it reads as "drawing itself" on activation.
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutBack,
+                    width: widget.active ? 14 : 3,
+                    height: 2.5,
+                    decoration: BoxDecoration(
+                      color: AurumTheme.gold
+                          .withOpacity(widget.active ? 1.0 : 0.0),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
