@@ -58,6 +58,59 @@ final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
 final RouteObserver<ModalRoute<void>> aurumRouteObserver =
     RouteObserver<ModalRoute<void>>();
 
+// TEMP DEBUG — hunting the "white/gray layer stuck after closing Full
+// Player, restart needed" bug. Logs EVERY route push/pop/remove app-wide
+// (including bottom sheets/dialogs, which don't show up in the per-screen
+// debug prints already added to home_screen.dart/full_player_screen.dart).
+// If a route is ever left on the stack without a matching pop right around
+// when the white layer appears, this will show it. Safe to delete this
+// whole observer + its one registration in AurumApp's navigatorObservers
+// list once the culprit is found.
+const bool _kDebugRouteStack = true;
+
+// Keeps the last few route events in memory (not just logcat) so they can
+// be shown on-screen via a banner — no PC/adb needed to read them.
+final List<String> aurumDebugRouteLog = [];
+
+void _aurumDebugLogRoute(String entry) {
+  aurumDebugRouteLog.add(entry);
+  if (aurumDebugRouteLog.length > 8) aurumDebugRouteLog.removeAt(0);
+  debugPrint('[AurumDebug][RouteStack] $entry');
+}
+
+class _AurumDebugRouteObserver extends NavigatorObserver {
+  void _log(String action, Route<dynamic>? route, Route<dynamic>? previous) {
+    if (!_kDebugRouteStack) return;
+    _aurumDebugLogRoute('$action: '
+        '${route?.settings.name ?? route?.runtimeType} '
+        '(prev: ${previous?.settings.name ?? previous?.runtimeType})');
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _log('PUSH', route, previousRoute);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _log('POP', route, previousRoute);
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _log('REMOVE', route, previousRoute);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    if (!_kDebugRouteStack) return;
+    _aurumDebugLogRoute('REPLACE: '
+        '${oldRoute?.runtimeType} -> ${newRoute?.runtimeType}');
+  }
+}
+
+final _aurumDebugRouteObserver = _AurumDebugRouteObserver();
+
 Future<void> main() async {
   runZonedGuarded(() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -462,7 +515,7 @@ class AurumApp extends StatelessWidget {
             themeMode: themeProvider.themeMode,
             theme: lightTheme,
             darkTheme: darkTheme,
-            navigatorObservers: [aurumRouteObserver],
+            navigatorObservers: [aurumRouteObserver, _aurumDebugRouteObserver],
             locale: localeProvider.locale,
             supportedLocales: kSupportedLocales,
             localizationsDelegates: const [
@@ -512,7 +565,74 @@ class AurumApp extends StatelessWidget {
                 data: Theme.of(context),
                 duration: const Duration(milliseconds: 320),
                 curve: Curves.easeOutCubic,
-                child: child ?? const SizedBox.shrink(),
+                child: Stack(
+                  children: [
+                    child ?? const SizedBox.shrink(),
+                    // TEMP DEBUG — always-on-top button (small, top-right,
+                    // very low opacity so it doesn't get in the way) that
+                    // shows the last few route push/pop events recorded by
+                    // _aurumDebugRouteObserver above. Placed at the
+                    // MaterialApp.builder level so it sits above every
+                    // route/overlay in the app — if the white/gray stuck
+                    // layer is truly intercepting ALL touches app-wide this
+                    // button won't help (nothing would respond), but if
+                    // it's scoped to a lower layer this still works and
+                    // gives an on-device way to read the log with no PC.
+                    // Safe to delete this whole Positioned block (and the
+                    // Stack wrapper, reverting to `child ?? ...` directly)
+                    // once the culprit is found.
+                    if (_kDebugRouteStack)
+                      Positioned(
+                        top: 40,
+                        right: 4,
+                        child: SafeArea(
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(20),
+                              onTap: () {
+                                final ctx = navigatorKey.currentContext;
+                                if (ctx == null) return;
+                                showDialog(
+                                  context: ctx,
+                                  builder: (dctx) => AlertDialog(
+                                    title: const Text('Route log'),
+                                    content: SingleChildScrollView(
+                                      child: Text(
+                                        aurumDebugRouteLog.isEmpty
+                                            ? '(empty)'
+                                            : aurumDebugRouteLog.join('\n'),
+                                        style: const TextStyle(
+                                            fontSize: 11,
+                                            fontFamily: 'monospace'),
+                                      ),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(dctx),
+                                        child: const Text('Close'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: Colors.purple.withOpacity(0.35),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.bug_report,
+                                    size: 16, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               );
             },
             home: _BlurShaderWarmup(
