@@ -289,6 +289,23 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
               curve: AurumMotion.standard,
             );
 
+            // FIX ("almost every screen randomly gets a permanent gray
+            // dim, no swipe/drag involved" — production bug): same class
+            // of issue as AurumSlidePageRoute's matching fix just above —
+            // secondaryAnimation drives this route's 0.96-opacity dim
+            // while ANYTHING is pushed on top of it, which for
+            // AurumPageRoute means basically every screen in the app
+            // (it's the default push route). A fast/overlapping
+            // navigation can leave secondaryAnimation stuck at a stale
+            // non-zero value instead of settling to 0 on return, which
+            // renders as a permanent faint dim with no drag needed to
+            // reproduce — the _EdgeSwipeBack fixes above only cover the
+            // manually-scrubbed drag controller, not this independent
+            // Flutter-driven secondaryAnimation. Same fix: ignore
+            // secondaryAnimation's raw value whenever ModalRoute.isCurrent
+            // confirms this route is actually the active top of stack.
+            final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+
             final content = ColoredBox(
               color: AurumTheme.bgOf(context),
               child: FadeTransition(
@@ -299,9 +316,11 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
                     end: Offset.zero,
                   ).animate(curved),
                   child: FadeTransition(
-                    opacity: Tween<double>(begin: 1.0, end: 0.96).animate(
-                      secondaryCurved,
-                    ),
+                    opacity: isTopRoute
+                        ? const AlwaysStoppedAnimation(1.0)
+                        : Tween<double>(begin: 1.0, end: 0.96).animate(
+                            secondaryCurved,
+                          ),
                     child: child,
                   ),
                 ),
@@ -407,6 +426,30 @@ class AurumSlidePageRoute<T> extends PageRouteBuilder<T> {
               curve: AurumMotion.standard,
             );
 
+            // FIX ("Library/Playlists/Albums screen stuck permanently
+            // dimmed/gray-washed, random screens, no drag involved" —
+            // production bug): secondaryAnimation here drives the -6%
+            // parallax + 0.92 dim applied to THIS route while something
+            // is pushed on top of it (e.g. a song tile inside Playlists/
+            // Albums/Local Files opening FullPlayerScreen via
+            // pushFullPlayer). Unlike AurumPageRoute, nothing here
+            // manually scrubs an AnimationController by hand — this is
+            // pure Flutter-driven route animation — but a fast/overlapping
+            // navigation (double-tap racing pushFullPlayer's own guard
+            // reset, or FullPlayerScreen's pop not fully completing its
+            // reverse transition before another push/pop lands) can still
+            // leave secondaryAnimation holding a stale non-zero value
+            // instead of settling back to 0 when this route becomes the
+            // active top of the stack again. Trusting that raw value
+            // blindly is what let a stuck mid-value silently render as a
+            // permanent gray wash with no drag or gesture needed to
+            // trigger it. ModalRoute.isCurrent is ground truth for
+            // whether this route is actually the one the user is looking
+            // at right now — whenever it is, force full brightness/no-
+            // parallax regardless of whatever secondaryAnimation's raw
+            // value currently claims, so a stale value can never paint.
+            final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+
             return ColoredBox(
               color: AurumTheme.bgOf(context),
               child: SlideTransition(
@@ -420,14 +463,18 @@ class AurumSlidePageRoute<T> extends PageRouteBuilder<T> {
                     // Outgoing screen drifts left ~6% and dims — a light
                     // parallax cue that the new screen is arriving "on top",
                     // not just cross-fading in place.
-                    position: Tween<Offset>(
-                      begin: Offset.zero,
-                      end: const Offset(-0.06, 0),
-                    ).animate(secondaryCurved),
+                    position: isTopRoute
+                        ? const AlwaysStoppedAnimation(Offset.zero)
+                        : Tween<Offset>(
+                            begin: Offset.zero,
+                            end: const Offset(-0.06, 0),
+                          ).animate(secondaryCurved),
                     child: FadeTransition(
-                      opacity: Tween<double>(begin: 1.0, end: 0.92).animate(
-                        secondaryCurved,
-                      ),
+                      opacity: isTopRoute
+                          ? const AlwaysStoppedAnimation(1.0)
+                          : Tween<double>(begin: 1.0, end: 0.92).animate(
+                              secondaryCurved,
+                            ),
                       child: child,
                     ),
                   ),

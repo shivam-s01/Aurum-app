@@ -14,6 +14,7 @@ import '../providers/player_provider.dart';
 import '../providers/source_provider.dart';
 import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
+import '../providers/theme_provider.dart';
 import '../services/api_service.dart';
 import '../services/home_feed_cache.dart';
 import '../services/recommendation_engine.dart';
@@ -127,23 +128,27 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
           // constructs, closing that gap completely regardless of how
           // long the real screen takes to build its first frame.
           //
-          // FIX (visible flash even on warm starts, esp. under Material
-          // You / dynamic color): this used to be AurumTheme.bgOf(context)
-          // i.e. Theme.of(context).scaffoldBackgroundColor. That reads the
-          // wallpaper-derived dynamic scheme color, which almost never
-          // equals what FullPlayerScreen itself paints one frame later —
-          // FullPlayerScreen's Scaffold.backgroundColor / inner ColoredBox
-          // are hardcoded to 0xFFF5F0EA (light) / Colors.black (dark), not
-          // the dynamic scaffold color. So under dynamic color the app was
-          // painting color A here, then color B one frame later inside
-          // FullPlayerScreen — that mismatch IS the flash, every single
-          // time, not just on cold start. Hardcoding the same two values
-          // here that FullPlayerScreen actually uses makes both layers
-          // agree, so there is nothing to flash between regardless of
-          // theme/wallpaper.
-          color: Theme.of(context).brightness == Brightness.light
-              ? const Color(0xFFF5F0EA)
-              : Colors.black,
+          // FIX (cream/white flash on the FIRST full-player open of a
+          // session, every time, dark theme included): this used to read
+          // `Theme.of(context).brightness` directly. That ambient Theme
+          // lookup can legitimately disagree with what the rest of the
+          // app is actually showing for exactly one frame — the nearest
+          // Theme ancestor above this route's own context isn't guaranteed
+          // to have finished rebuilding with this frame's resolved
+          // isDark yet (e.g. right after cold start, before
+          // DynamicColorBuilder/Consumer2 in main.dart has completed its
+          // first pass). Theme.of(context).brightness silently defaults
+          // toward light when it can't resolve cleanly, which is exactly
+          // why the flash color reported is always the light cream
+          // (0xFFF5F0EA) and never black, and why it's specifically a
+          // first-open-only glitch. Reading ThemeProvider.isDarkOf(context)
+          // instead asks the SAME already-resolved boolean main.dart used
+          // to pick the active theme in the first place — there is no
+          // second, independently-timed brightness lookup left to
+          // disagree with it.
+          color: context.read<ThemeProvider>().isDarkOf(context)
+              ? Colors.black
+              : const Color(0xFFF5F0EA),
           child: const FullPlayerScreen(),
         ),
         // NOTE (supersedes the "flat theme-colored screen for 1-2s" fix
@@ -182,6 +187,28 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
     // the .then()/onError above never got attached, so reset here too.
     _openingFullPlayer = false;
   }
+  // FIX ("local song play karo, ek white/confirm jaisa cheez atak jaati
+  // hai, kuch bhi tap karne pe kuch nahi hota, restart ke bina nahi
+  // jaata" — production bug): every reset path above (.then, onError,
+  // catch) assumes the pushed route's Future eventually settles OR that
+  // the push throws synchronously. There's a third gap neither covers —
+  // Android can pause/kill the Activity in the narrow window between
+  // Navigator.push() returning a Future and this function reaching the
+  // line that chains .then()/.onError onto it (a real, if rare, window
+  // since local/offline song taps resolve near-instantly with nothing to
+  // naturally separate two same-frame events, same root cause already
+  // identified for the swipe-back stuck-controller bug above). If that
+  // happens, the Future genuinely never resolves and _openingFullPlayer
+  // stays true forever — which, since it's the ONE guard shared by every
+  // tap site in the entire app, makes every future song tap anywhere
+  // silently no-op. That is precisely a screen that looks stuck behind a
+  // stray overlay and never recovers without a force-restart. A blunt
+  // but bulletproof backstop: whatever happens to the route itself, force
+  // the guard open again shortly after the transition should have long
+  // finished, so a dropped Future can never wedge every future tap.
+  Future.delayed(const Duration(milliseconds: 1500), () {
+    _openingFullPlayer = false;
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

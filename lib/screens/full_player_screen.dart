@@ -1111,10 +1111,22 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                       // ColoredBox below in the Stack, which paints a solid
                       // color on the very first frame with no dependency on
                       // this Scaffold's own paint timing.
+                      // FIX (first-open cream/white flash, matches the
+                      // pushFullPlayer fix in home_screen.dart): both reads
+                      // here used to be Theme.of(context).brightness, an
+                      // ambient lookup that can lag one frame behind
+                      // ThemeProvider's own resolved isDark right after
+                      // cold start — see isDarkOf's FIX comment in
+                      // theme_provider.dart for why. Reading isDarkOf(
+                      // context) here keeps this Scaffold's background in
+                      // permanent agreement with the ColoredBox
+                      // pushFullPlayer paints one layer below it, so there
+                      // is never a color to flash between even on the very
+                      // first open of a session.
                       backgroundColor:
-                          Theme.of(context).brightness == Brightness.light
-                              ? const Color(0xFFF5F0EA)
-                              : Colors.black,
+                          context.watch<ThemeProvider>().isDarkOf(context)
+                              ? Colors.black
+                              : const Color(0xFFF5F0EA),
                       body: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -1130,9 +1142,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                           // below hasn't extracted real colors yet.
                           ColoredBox(
                             color:
-                                Theme.of(context).brightness == Brightness.light
-                                    ? const Color(0xFFF5F0EA)
-                                    : Colors.black,
+                                context.watch<ThemeProvider>().isDarkOf(context)
+                                    ? Colors.black
+                                    : const Color(0xFFF5F0EA),
                           ),
                           // Background: isolated repaint boundary
                           RepaintBoundary(

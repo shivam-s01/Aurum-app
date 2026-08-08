@@ -79,6 +79,39 @@ class ThemeProvider extends ChangeNotifier {
   bool get isAmoled => _mode == AurumThemeMode.amoled;
   bool get isDynamic => _mode == AurumThemeMode.dynamic;
 
+  // FIX (white/cream flash on first FullPlayerScreen open, "olash jaisa
+  // white white aata hai" — production bug): pushFullPlayer() in
+  // home_screen.dart and FullPlayerScreen's own Scaffold each used to
+  // decide light-vs-dark by reading `Theme.of(context).brightness`
+  // directly at their own build time. That's a DIFFERENT source of truth
+  // than the `isDark` bool main.dart actually computes to pick
+  // lightTheme/darkTheme in the first place (which also folds in isAmoled
+  // and the isDynamic+platformBrightness special case below — brightness
+  // alone doesn't capture those). Two independent call sites re-deriving
+  // "is dark" from ambient Theme lookups is exactly the kind of thing that
+  // goes stale for one frame: a route's pageBuilder can read Theme.of(
+  // context) from a context whose nearest Theme ancestor hasn't yet
+  // rebuilt with this frame's resolved theme (e.g. right after cold start
+  // or a DynamicColorBuilder/Consumer2 rebuild pass that hasn't landed),
+  // silently defaulting toward light — which is why the flash color seen
+  // is the light cream (0xFFF5F0EA), never black, and why it only ever
+  // shows on the FIRST open, not subsequent ones once the tree has
+  // settled. Exposing the exact same boolean main.dart uses to choose the
+  // MaterialApp theme means every other call site asks the one already-
+  // resolved answer instead of re-deriving (and risking disagreeing with)
+  // it independently.
+  bool isDarkOf(BuildContext context) {
+    final platformBrightness =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness;
+    return themeMode == ThemeMode.dark ||
+        isAmoled ||
+        (isDynamic &&
+            isDynamicAvailable &&
+            platformBrightness == Brightness.dark) ||
+        (themeMode == ThemeMode.system &&
+            platformBrightness == Brightness.dark);
+  }
+
   ThemeProvider() { _load(); }
 
   Future<void> _load() async {

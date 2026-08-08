@@ -135,14 +135,51 @@ class UpdateService {
   }) {
     showDialog(
       context: context,
-      barrierDismissible: false,
+      // FIX ("gray/dark screen stuck permanently, only app restart clears
+      // it" — production bug): this was barrierDismissible: false, on the
+      // reasoning that a user shouldn't accidentally miss an update
+      // prompt. But that trade only makes sense if the dialog CONTENT is
+      // guaranteed to render — if _UpdateDialog's build ever throws
+      // (malformed highlights from a release body, a null/empty url, a
+      // BackdropFilter/GPU hiccup on a given device, anything), Flutter
+      // has already inserted the barrier route before builder() runs, so
+      // a throw there leaves exactly the barrierColor scrim on screen
+      // with no content and no tap-to-dismiss — permanently, since
+      // barrierDismissible:false blocks the one recovery path a plain
+      // barrier normally has. That matches "sirf restart se jaata hai"
+      // exactly: nothing short of killing the process clears a route
+      // that's on the stack but was never popped and can't be tapped
+      // away. Missing an update prompt once is a trivial inconvenience
+      // (it re-checks next launch); a permanently stuck unresponsive
+      // screen is not. Back-gesture/tap-outside is now always a valid
+      // escape hatch regardless of what happens inside the dialog.
+      barrierDismissible: true,
       barrierColor: Colors.black.withOpacity(0.6),
-      builder: (_) => _UpdateDialog(
-        version: version,
-        highlights: highlights,
-        url: url,
-        onDismiss: () => _snooze(version),
-      ),
+      builder: (dialogContext) {
+        // FIX (same bug, second half): if _UpdateDialog itself throws
+        // during build despite the above, catch it here rather than
+        // letting the exception propagate up through showDialog's own
+        // builder — an uncaught throw here still leaves the barrier
+        // route on the stack with nothing painted for its content slot.
+        // Falling back to an empty, auto-dismissing SizedBox means the
+        // absolute worst case is "the update prompt silently didn't
+        // show this launch" instead of "app is stuck until restart".
+        try {
+          return _UpdateDialog(
+            version: version,
+            highlights: highlights,
+            url: url,
+            onDismiss: () => _snooze(version),
+          );
+        } catch (_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (Navigator.of(dialogContext).canPop()) {
+              Navigator.of(dialogContext).pop();
+            }
+          });
+          return const SizedBox.shrink();
+        }
+      },
     );
   }
 
@@ -516,9 +553,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                       ),
                     ],
 
-                    if (!_status.startsWith('Something') && !_status.startsWith('Download failed'))
-                      const SizedBox(height: 24)
-                    else
+                    if (_status.startsWith('Something') || _status.startsWith('Download failed'))
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
                         child: Text(_status,
@@ -527,7 +562,9 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                               fontSize: 12.5,
                               fontWeight: FontWeight.w600,
                             )),
-                      ),
+                      )
+                    else
+                      const SizedBox(height: 24),
 
                     if (!_downloading) ...[
                       Row(

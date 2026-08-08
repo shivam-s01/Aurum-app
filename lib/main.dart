@@ -409,15 +409,11 @@ class AurumApp extends StatelessWidget {
             themeProvider.updateDynamicSchemes(lightDynamic, darkDynamic);
           });
 
-          final isDark = themeProvider.themeMode == ThemeMode.dark ||
-              themeProvider.isAmoled ||
-              (themeProvider.isDynamic && themeProvider.isDynamicAvailable &&
-                  darkDynamic != null &&
-                  WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-                      Brightness.dark) ||
-              (themeProvider.themeMode == ThemeMode.system &&
-                  WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-                      Brightness.dark);
+          // Single source of truth now lives on ThemeProvider (see
+          // isDarkOf's FIX comment in theme_provider.dart) — pushFullPlayer
+          // and FullPlayerScreen read the exact same method instead of each
+          // re-deriving brightness independently via Theme.of(context).
+          final isDark = themeProvider.isDarkOf(context);
 
           SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
