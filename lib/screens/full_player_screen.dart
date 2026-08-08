@@ -1567,7 +1567,13 @@ class _TopBar extends StatelessWidget {
           icon: Icons.keyboard_arrow_down_rounded,
           size: 26,
           color: iconColor,
-          onTap: _close,
+          onTap: () {
+            if (_kDebugFullPlayerWhiteLayer2) {
+              debugPrint('[AurumDebug][FullPlayerWhiteLayer] _TopBar chevron '
+                  'tapped (back/close) — canPop=${Navigator.of(context).canPop()}');
+            }
+            Navigator.pop(context);
+          },
           semanticLabel: l10n.fpClosePlayer,
         ),
         Expanded(
