@@ -14,6 +14,7 @@ import androidx.media3.cast.CastPlayer
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
@@ -208,6 +209,32 @@ class AurumAudioEngine(
         SimpleCache(cacheDir, evictor, databaseProvider)
     }
 
+    // Live network throughput estimate, fed by every ExoPlayer HTTP
+    // transfer via .setTransferListener() below. Used by Smart Saver
+    // (Dart side, AudioPrefs.qualityOrder()) to pick a bitrate tier
+    // based on the connection's ACTUAL measured speed rather than a
+    // static "Data Saver on/off" guess — so a genuinely fast connection
+    // isn't held to 48kbps forever, and a genuinely slow one (2G/EDGE)
+    // doesn't get stuck retrying a 320kbps stream it can never keep up
+    // with. Single instance for the engine's lifetime: DefaultBandwidthMeter
+    // is explicitly designed to be shared across every data source so its
+    // estimate reflects real aggregate traffic, not just one song's reads.
+    // DefaultBandwidthMeter.Builder is @UnstableApi — opt-in required here,
+    // same tier as the cache/media-source builders already opted into
+    // elsewhere in this file.
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private val bandwidthMeter: DefaultBandwidthMeter by lazy {
+        DefaultBandwidthMeter.Builder(context).build()
+    }
+
+    /**
+     * Current estimate in bits/sec (0 until enough data has flowed to
+     * estimate). BandwidthMeter#getBitrateEstimate() itself is stable API —
+     * only the Builder used to construct [bandwidthMeter] above is unstable —
+     * so this accessor needs no opt-in of its own.
+     */
+    fun getEstimatedBandwidthBitsPerSec(): Long = bandwidthMeter.bitrateEstimate
+
     // Upstream (network) data source used only for bytes not already on
     // disk. Same connect/read timeouts as ViMusic's working config, and a
     // real browser-style User-Agent — googlevideo.com and Saavn's CDN both
@@ -237,10 +264,21 @@ class AurumAudioEngine(
     // recovery for a genuinely dead stream — handleMidStreamIdle/
     // handleFreshStartIdle/the buffering watchdog still catch that, just
     // without punishing "slow but working" along the way.
+    // .setTransferListener(bandwidthMeter) is what feeds the meter — every
+    // byte read through this factory (i.e. every streamed song) reports its
+    // size and duration to it, which is how getEstimatedBandwidthBitsPerSec()
+    // stays live. Purely additive: DefaultHttpDataSource forwards these
+    // events to the listener AFTER performing the actual read, so this has
+    // no effect on timeouts, retries, or the bytes returned to the caller.
+    // setTransferListener() is @UnstableApi (same annotation tier as the
+    // cache/media-source calls opted into elsewhere in this file) — opt-in
+    // required here or this fails to compile, not just a lint warning.
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun createHttpFactory() = DefaultHttpDataSource.Factory()
         .setConnectTimeoutMs(20_000)
         .setReadTimeoutMs(20_000)
         .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+        .setTransferListener(bandwidthMeter)
 
     private fun createUpstreamFactory() = DefaultDataSource.Factory(context, createHttpFactory())
 

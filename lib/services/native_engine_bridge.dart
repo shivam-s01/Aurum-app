@@ -582,6 +582,24 @@ class NativeAudioEngine {
   Future<void> setMediaVolume(int level) =>
       _method.invokeMethod('setMediaVolume', {'volume': level});
 
+  /// Live network throughput estimate in kbps, from ExoPlayer's shared
+  /// BandwidthMeter (fed by every streamed-song read). Returns 0 if not
+  /// enough data has flowed yet to produce an estimate (e.g. right after
+  /// app start, before any song has streamed). Never touches playback —
+  /// a pure read of an already-running estimator.
+  Future<int> getEstimatedBandwidthKbps() async {
+    try {
+      final bitsPerSec = await _method.invokeMethod('getEstimatedBandwidth');
+      final bits = (bitsPerSec as num?)?.toInt() ?? 0;
+      if (bits <= 0) return 0;
+      return bits ~/ 1000;
+    } catch (_) {
+      // Method missing/failed on this platform build — treat as
+      // "unknown", never let a Smart Saver probe crash resolve.
+      return 0;
+    }
+  }
+
   AudioOutputDevices? _parseOutputDevices(dynamic raw) {
     if (raw == null) return null;
     final m = Map<String, dynamic>.from(raw as Map);

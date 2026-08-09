@@ -221,10 +221,11 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   // Internal values MUST stay these exact English strings — they're persisted
   // to SharedPreferences and matched literally by AudioPrefs.qualityOrder()
   // and the native Kotlin side. Only the on-screen label is localized.
-  static const _qualityKeys = ['Auto', 'Low', 'Medium', 'High'];
+  static const _qualityKeys = ['Auto', 'Low', 'DataSaver', 'Medium', 'High'];
   List<(String key, String label, String subtitle, bool locked)> _qualityOptions(AppLocalizations l10n) => [
     ('Auto',   l10n.spQualityAuto,   l10n.spQualityAutoDesc,   false),
     ('Low',    l10n.spQualityLow,    l10n.spQualityLowDesc,    false),
+    ('DataSaver', l10n.spQualityDataSaver, l10n.spQualityDataSaverDesc, false),
     ('Medium', l10n.spQualityMedium, l10n.spQualityMediumDesc, false),
     ('High',   l10n.spQualityHigh,   l10n.spQualityHighDesc,   true), // locked = premium-only
   ];
@@ -346,6 +347,25 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                               color: AurumTheme.textMutedOf(context).withOpacity(isLocked ? 0.7 : 1),
                               fontSize: 11.5,
                             )),
+                        // "Smart Saver" (DataSaver) is the one tier whose
+                        // short label alone doesn't fully explain the
+                        // behaviour — its whole point is that it silently
+                        // adapts per song. Rather than always showing that
+                        // longer explanation in the collapsed list (which
+                        // would make the list feel cluttered/AI-written),
+                        // it only reveals once the user has actually
+                        // picked it — a quiet confirmation of what they
+                        // just turned on, the way a considered, premium
+                        // settings screen would do it.
+                        if (key == 'DataSaver' && selected) ...[
+                          const SizedBox(height: 3),
+                          Text(l10n.spQualityDataSaverDescExpanded,
+                              style: TextStyle(
+                                color: AurumTheme.textMutedOf(context).withOpacity(0.85),
+                                fontSize: 11,
+                                height: 1.35,
+                              )),
+                        ],
                       ],
                     ),
                   ),

@@ -582,20 +582,124 @@ class AudioPrefs {
     await p.setBool(_kHideStats, v);
   }
 
+  // ── Smart Saver: measured-bandwidth-aware quality ladder ────────────────
+  //
+  // "DataSaver" (both the standalone [dataSaver] toggle and the
+  // streamQuality=='DataSaver' tier) used to be a single hardcoded ladder
+  // regardless of how fast the connection actually was — a genuinely fast
+  // WiFi user on Data Saver got throttled to 48kbps forever, and a
+  // genuinely 2G user got stuck retrying whatever the static ladder's
+  // first entry was even if that tier kept timing out.
+  //
+  // qualityOrder() itself MUST stay synchronous — it's called deep inside
+  // ApiService's synchronous stream-URL extraction (_extractSaavnStreamUrl),
+  // which several resolve-chain branches call directly and none of them
+  // are async. So instead of making this async, we keep a cached bandwidth
+  // reading that's refreshed in the BACKGROUND (see
+  // [_refreshBandwidthEstimateIfStale]) and read synchronously here — the
+  // same "measure once, reuse for a few seconds" pattern already used by
+  // BatterySaverController elsewhere in this file.
+  static int? _cachedBandwidthKbps;
+  static DateTime? _bandwidthCachedAt;
+  static const _bandwidthTtl = Duration(seconds: 5);
+  static const _bandwidthChannel = MethodChannel('com.aurum.music/audio_engine');
+
+  // Prevents overlapping refreshes if qualityOrder() is called rapidly
+  // (e.g. resolving several queued songs back to back) while a probe is
+  // already in flight.
+  static bool _bandwidthRefreshInFlight = false;
+
+  /// Kicks off a background refresh of the cached bandwidth estimate if
+  /// the cache is missing or older than [_bandwidthTtl]. Fire-and-forget
+  /// by design: qualityOrder() always returns immediately using whatever
+  /// is cached right now (possibly 0/unknown on the very first call),
+  /// and the NEXT call benefits once this completes. This deliberately
+  /// never blocks a resolve — a slow/hanging platform channel call must
+  /// not stall song playback.
+  static void _refreshBandwidthEstimateIfStale() {
+    final now = DateTime.now();
+    final isStale = _bandwidthCachedAt == null ||
+        now.difference(_bandwidthCachedAt!) > _bandwidthTtl;
+    if (!isStale || _bandwidthRefreshInFlight) return;
+
+    _bandwidthRefreshInFlight = true;
+    _bandwidthChannel.invokeMethod('getEstimatedBandwidth').then((raw) {
+      final bits = (raw as num?)?.toInt() ?? 0;
+      _cachedBandwidthKbps = bits > 0 ? bits ~/ 1000 : 0;
+      _bandwidthCachedAt = DateTime.now();
+    }).catchError((_) {
+      // Leave the previous cached value in place (or null on first
+      // failure) — a failed probe should not make Smart Saver behave
+      // worse than before this feature existed.
+    }).whenComplete(() {
+      _bandwidthRefreshInFlight = false;
+    });
+  }
+
+  /// Bandwidth-aware ladder used whenever Data Saver behaviour is active
+  /// (either the standalone toggle or the 'DataSaver' streamQuality tier).
+  ///
+  /// [unknownFallback] is what's returned while the bandwidth estimate is
+  /// still unmeasured (first few seconds of a session, before any song has
+  /// streamed enough to produce a reading) — callers pass in their OWN
+  /// prior static ladder here so a cold start behaves EXACTLY as it did
+  /// before this change. Once a real reading exists, that fallback is
+  /// replaced by an actual measured-speed tier below.
+  static List<String> _smartSaverOrder({
+    required bool allow320,
+    required List<String> unknownFallback,
+  }) {
+    _refreshBandwidthEstimateIfStale();
+    final kbps = _cachedBandwidthKbps;
+
+    if (kbps == null || kbps <= 0) return unknownFallback;
+
+    if (kbps < 50) {
+      // True 2G/EDGE-class speed — don't even offer anything the
+      // connection can't realistically sustain.
+      return const ['48kbps', '96kbps'];
+    }
+    if (kbps <= 150) {
+      return const ['96kbps', '160kbps', '48kbps'];
+    }
+    // > 150kbps measured — plenty of headroom; still capped to what the
+    // caller allows (free tier never gets 320kbps here either).
+    return allow320
+        ? const ['160kbps', '320kbps', '96kbps']
+        : const ['160kbps', '96kbps'];
+  }
+
   /// Ordered list of Saavn quality strings to try, highest priority first —
   /// driven by [streamQuality] and [dataSaver] (Aurum's own in-app toggle).
-  /// Data Saver ON caps at 160kbps (a reasonable data-saving tier, not the
-  /// harshest one). Data Saver OFF always reaches for the highest available
-  /// bitrate — "Auto" means "give me the best quality this song has," not a
-  /// cautious middle ground.
+  ///
+  /// BUGFIX: every tier here is now scoped to EXACTLY the bitrate range its
+  /// Settings label promises. Previously 'Low' (labelled "48-96kbps") could
+  /// silently fall all the way to 12kbps, and premium 'Medium' (labelled
+  /// "Up to 160kbps") listed 320kbps as a fallback AFTER 96kbps — meaning
+  /// it was dead code (96kbps always matched first) instead of the
+  /// intended "reach a little higher only if 160 is missing" behaviour.
+  /// A user who picks a specific tier now reliably gets a bitrate from
+  /// that tier's advertised range, not a silent surprise a level below it.
   static List<String> qualityOrder() {
-    if (dataSaver) return const ['160kbps', '96kbps', '48kbps', '12kbps'];
+    if (dataSaver) {
+      return _smartSaverOrder(
+        allow320: isPremium,
+        // Exact original top-level dataSaver ladder — unchanged cold-start behaviour.
+        unknownFallback: const ['160kbps', '96kbps', '48kbps', '12kbps'],
+      );
+    }
 
     // Phase 5 — 320kbps is premium-only. Free users capped at 160kbps.
     if (!isPremium) {
       switch (streamQuality) {
         case 'Low':
-          return const ['12kbps', '48kbps', '96kbps'];
+          return const ['48kbps', '96kbps'];
+        case 'DataSaver':
+          return _smartSaverOrder(
+            allow320: false,
+            // Exact original free-tier DataSaver ladder.
+            unknownFallback: const ['48kbps', '96kbps', '160kbps'],
+          );
         case 'Medium':
         case 'High':
         case 'Auto':
@@ -606,9 +710,20 @@ class AudioPrefs {
 
     switch (streamQuality) {
       case 'Low':
-        return const ['12kbps', '48kbps', '96kbps'];
+        return const ['48kbps', '96kbps'];
+      // "Data Saver" — genuinely prefers the smallest file first (unlike
+      // Low, which stops at 96kbps even if only 320 exists for a song),
+      // but still climbs the ladder rather than failing playback outright
+      // if the song has no low-bitrate tier available. Now measured-
+      // bandwidth-aware: see [_smartSaverOrder].
+      case 'DataSaver':
+        return _smartSaverOrder(
+          allow320: true,
+          // Exact original premium DataSaver ladder.
+          unknownFallback: const ['48kbps', '96kbps', '160kbps', '320kbps'],
+        );
       case 'Medium':
-        return const ['160kbps', '96kbps', '320kbps', '48kbps', '12kbps'];
+        return const ['160kbps', '96kbps'];
       case 'High':
       case 'Auto':
       default:

@@ -430,6 +430,15 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     engine.outputManager.setForceSpeaker(force)
                     result.success(null)
                 }
+                // ── Smart Saver (2G-aware quality) ──────────────────────────
+                // Isolated read-only query: reports the current live
+                // throughput estimate from AurumAudioEngine's shared
+                // ExoPlayer BandwidthMeter. Never touches playback, the
+                // player's queue, or ExoPlayer state — a pure snapshot read,
+                // same isolation as getMediaVolume above.
+                "getEstimatedBandwidth" -> {
+                    result.success(engine.getEstimatedBandwidthBitsPerSec())
+                }
                 // ── System media volume (for the output-device sheet's
                 // slider) ────────────────────────────────────────────────
                 // Deliberately isolated from AurumAudioEngine/ExoPlayer —
