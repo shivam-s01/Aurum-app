@@ -48,7 +48,30 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
     final url = song?.artworkUrl;
     if (url == _tintForUrl) return;
     _tintForUrl = url;
-    if (url == null || url.isEmpty || !url.startsWith('http')) {
+    // BUGFIX ("gray/stuck layer specifically on downloaded/offline songs,
+    // tap opens full player, swipe-up/down behaves like the mini player" —
+    // this is the mini player itself, not a duplicate route): this used
+    // to bail out to a null tint (flat AurumTheme.bgCardOf fallback —
+    // Material 3's colorScheme.surface, a muted dark charcoal/gray) for
+    // ANY url that didn't start with 'http'. A downloaded/local song's
+    // artworkUrl is a file:// or content:// path or bare device path —
+    // NEVER http — so every single offline song hit this branch and
+    // permanently got the flat gray fallback with no real per-song tint,
+    // while online (http) artwork correctly extracted its own color.
+    // That's exactly why the "gray layer" was specific to offline
+    // songs: it isn't corrupted state, it's the intended fallback color
+    // for "no tint available" — just wrongly applied to every local song
+    // (ArtworkPaletteCache.get()/_resolveArtworkProvider ALREADY know how
+    // to decode file://content://local paths just fine — this early
+    // return in the mini player never even asked). In solid mode
+    // (Settings → Appearance → Mini Player Blur = 0) this fallback color
+    // paints completely flat and opaque with nothing else to break it up,
+    // reading as a stuck gray block; in blur mode the same flat color is
+    // there too, just less obvious because it's blurring page content
+    // underneath. Only genuinely missing/empty artwork should skip
+    // straight to the null/gray fallback now — local file paths go
+    // through the exact same cache lookup as http ones.
+    if (url == null || url.isEmpty) {
       if (mounted) setState(() => _tintColor = null);
       return;
     }

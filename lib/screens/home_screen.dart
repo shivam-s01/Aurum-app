@@ -110,7 +110,12 @@ void _debugFlashBanner(BuildContext? context, String message) {
 class _FullPlayerRouteBackdrop extends StatefulWidget {
   final bool isDark;
   final Widget child;
-  const _FullPlayerRouteBackdrop({required this.isDark, required this.child});
+  final Animation<double>? routeAnimation;
+  const _FullPlayerRouteBackdrop({
+    required this.isDark,
+    required this.child,
+    this.routeAnimation,
+  });
 
   @override
   State<_FullPlayerRouteBackdrop> createState() =>
@@ -142,10 +147,44 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
         if (mounted) setState(() => _showBackdrop = false);
       });
     });
+    // BUGFIX ("full player swipe-down se band karte hi turant gray/cream
+    // layer aa jaata hai" — offline/local songs, confirmed reproducible):
+    // the two-frame timer above assumes at least ~2 frames elapse between
+    // this route opening and FullPlayerScreen's own Scaffold painting.
+    // But _completeDismissDrag()'s slide-off-then-pop can start and finish
+    // well inside that same short window — especially right after an
+    // offline song's near-instant resolve, which is exactly what leaves
+    // the least time for those 2 frames to land before dismissal begins.
+    // When that happens, `_showBackdrop` is still true (the postFrame
+    // timer hasn't fired yet) while the route's own reverse transition
+    // (380ms SlideTransition) plays out — so this backdrop's solid
+    // ColoredBox, sitting OUTSIDE FullPlayerScreen's dismiss-drag Opacity,
+    // paints solid black/cream for the whole reverse-transition duration
+    // instead of just one frame. Listening to the route's own animation
+    // and hiding the backdrop the instant it starts reversing (status
+    // change, not a value threshold — fires on the very first tick of the
+    // dismiss) closes this regardless of how few frames elapsed since
+    // open; the 2-frame postFrame timer above still handles the original
+    // cold-start-flash case for the forward/open direction untouched.
+    widget.routeAnimation?.addStatusListener(_onRouteStatusChanged);
+  }
+
+  void _onRouteStatusChanged(AnimationStatus status) {
+    if (!mounted || !_showBackdrop) return;
+    if (status == AnimationStatus.reverse ||
+        status == AnimationStatus.dismissed) {
+      if (_kDebugFullPlayerWhiteLayer) {
+        debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop '
+            'force-hiding — route animation status=$status (dismiss '
+            'started before the 2-frame open timer fired)');
+      }
+      setState(() => _showBackdrop = false);
+    }
   }
 
   @override
   void dispose() {
+    widget.routeAnimation?.removeStatusListener(_onRouteStatusChanged);
     if (_kDebugFullPlayerWhiteLayer) {
       debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop dispose — '
           'showBackdrop was $_showBackdrop');
@@ -230,7 +269,12 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
         // while the player was fully static/open (unaffected by this
         // change), never during the drag itself.
         opaque: false,
-        pageBuilder: (context, __, ___) => _FullPlayerRouteBackdrop(
+        pageBuilder: (context, anim, ___) => _FullPlayerRouteBackdrop(
+          // Lets the backdrop hide itself the instant the route starts
+          // reversing (swipe-dismiss pop), instead of only on a 2-frame
+          // open timer — see the BUGFIX comment in
+          // _FullPlayerRouteBackdropState.initState for the full story.
+          routeAnimation: anim,
           // FIX (cold-start white flash between tap and FullPlayerScreen's
           // first real frame): opaque:false (needed for the swipe-dismiss
           // background-blink fix above) means Flutter no longer guarantees
