@@ -565,6 +565,23 @@ class NativeAudioEngine {
   Future<void> setForceSpeaker(bool force) =>
       _method.invokeMethod('setForceSpeaker', {'force': force});
 
+  /// Current system media (STREAM_MUSIC) volume — the same level the
+  /// hardware volume keys control. Isolated from the engine's internal
+  /// fade/duck/crossfade volume, which never changes as a result of
+  /// reading or writing this.
+  Future<MediaVolume> getMediaVolume() async {
+    final raw = await _method.invokeMethod('getMediaVolume');
+    final m = Map<String, dynamic>.from(raw as Map);
+    return MediaVolume(
+      level: m['volume'] as int? ?? 0,
+      max: m['max'] as int? ?? 1,
+    );
+  }
+
+  /// Sets system media volume directly (0..max from [getMediaVolume]).
+  Future<void> setMediaVolume(int level) =>
+      _method.invokeMethod('setMediaVolume', {'volume': level});
+
   AudioOutputDevices? _parseOutputDevices(dynamic raw) {
     if (raw == null) return null;
     final m = Map<String, dynamic>.from(raw as Map);
@@ -721,6 +738,16 @@ enum AudioOutputDeviceKind {
         return AudioOutputDeviceKind.unknown;
     }
   }
+}
+
+/// Snapshot of the system media (STREAM_MUSIC) volume — [level] is the
+/// current step and [max] is the top of that stream's step range (varies
+/// by device/OEM, typically 15 or 25 — never assume a fixed value).
+class MediaVolume {
+  final int level;
+  final int max;
+
+  const MediaVolume({required this.level, required this.max});
 }
 
 /// A single selectable audio output (the phone's own speaker, a connected

@@ -430,6 +430,39 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     engine.outputManager.setForceSpeaker(force)
                     result.success(null)
                 }
+                // ── System media volume (for the output-device sheet's
+                // slider) ────────────────────────────────────────────────
+                // Deliberately isolated from AurumAudioEngine/ExoPlayer —
+                // this only talks to Android's AudioManager STREAM_MUSIC,
+                // the same thing the hardware volume keys control. It
+                // never touches the fade/duck/crossfade volume math, so
+                // there's zero risk of it fighting those for control of
+                // the player's internal volume.
+                "getMediaVolume" -> {
+                    val am = appContext.getSystemService(Context.AUDIO_SERVICE)
+                        as android.media.AudioManager
+                    val current = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                    val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                    result.success(mapOf(
+                        "volume" to current,
+                        "max" to max,
+                    ))
+                }
+                "setMediaVolume" -> {
+                    val level = call.argument<Int>("volume")
+                    if (level == null) {
+                        result.error("BAD_ARGS", "volume required", null)
+                        return@onMethodCall
+                    }
+                    val am = appContext.getSystemService(Context.AUDIO_SERVICE)
+                        as android.media.AudioManager
+                    am.setStreamVolume(
+                        android.media.AudioManager.STREAM_MUSIC,
+                        level,
+                        0, // no UI flag — we render our own slider
+                    )
+                    result.success(null)
+                }
                 // ── Chromecast ───────────────────────────────────────────
                 "getCastState" -> {
                     result.success(engine.castManager.describeState())

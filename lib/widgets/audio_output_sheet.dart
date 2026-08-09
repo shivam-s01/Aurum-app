@@ -10,8 +10,18 @@
 //   (getAudioOutputDevices / selectAudioOutputDevice / setForceSpeaker),
 //   with a live EventChannel stream so Bluetooth connect/disconnect
 //   updates the sheet without the user reopening it.
+//
+//   Also hosts the system media-volume slider and a live "Quality" row
+//   (actual resolved kbps of the current stream, not a static label) —
+//   the two other rows a premium output sheet needs alongside device
+//   selection. Volume reads/writes go through getMediaVolume/
+//   setMediaVolume, which only ever touch Android's AudioManager
+//   STREAM_MUSIC — completely isolated from AurumAudioEngine's internal
+//   fade/duck/crossfade volume, so there's no path for this to ever
+//   fight that code for control.
 // =============================================================================
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -19,7 +29,9 @@ import '../l10n/generated/app_localizations.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
 import '../services/native_engine_bridge.dart';
+import '../services/audio_prefs.dart';
 import '../utils/aurum_haptics.dart';
+import 'aurum_artwork.dart';
 
 /// Opens the audio output picker as a bottom sheet. Call this from any
 /// screen with a live PlayerProvider in context (full player, mini
@@ -53,10 +65,27 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
   // UI update.
   int? _pendingDeviceId;
 
+  // Local optimistic volume state. The slider always renders from this,
+  // never straight from a re-fetch — dragging feels instant and never
+  // jitters back from a slightly-stale native read.
+  int? _volume;
+  int _maxVolume = 15;
+  // Debounces setMediaVolume while dragging: only the last value in a
+  // burst is actually sent to the platform channel, so a fast drag
+  // doesn't flood it with dozens of calls.
+  Timer? _volumeDebounce;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _loadVolume();
+  }
+
+  @override
+  void dispose() {
+    _volumeDebounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -67,6 +96,36 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
       _devices = devices;
       _loading = false;
     });
+  }
+
+  Future<void> _loadVolume() async {
+    final engine = context.read<PlayerProvider>().engine;
+    final mv = await engine.getMediaVolume();
+    if (!mounted) return;
+    setState(() {
+      _volume = mv.level;
+      _maxVolume = mv.max > 0 ? mv.max : 1;
+    });
+  }
+
+  void _onVolumeChanged(double value) {
+    setState(() => _volume = value.round());
+    _volumeDebounce?.cancel();
+    _volumeDebounce = Timer(const Duration(milliseconds: 40), () {
+      final v = _volume;
+      if (v == null) return;
+      context.read<PlayerProvider>().engine.setMediaVolume(v);
+    });
+  }
+
+  /// Live label for the currently playing stream's resolved quality —
+  /// e.g. "320 kbps" — falling back to "Auto" when the current source
+  /// has no discrete tier reported (matches Settings → Player & Audio's
+  /// own "Auto" default label, so the two screens never disagree).
+  String get _qualityLabel {
+    final kbps = AudioPrefs.lastResolvedKbps;
+    if (kbps == null) return 'Auto';
+    return '$kbps kbps';
   }
 
   Future<void> _onSelect(AudioOutputDevice device) async {
@@ -172,28 +231,56 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
                   child: Row(
                     children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AurumTheme.gold.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: AurumTheme.gold.withOpacity(0.3)),
-                        ),
-                        child: const Icon(Icons.speaker_group_rounded,
-                            color: AurumTheme.gold, size: 20),
-                      ),
+                      Builder(builder: (context) {
+                        final song =
+                            context.watch<PlayerProvider>().currentSong;
+                        return AurumArtwork(
+                          url: song?.artworkUrl ?? '',
+                          size: 44,
+                          borderRadius: 10,
+                        );
+                      }),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text(l10n.audioOutputPickerTitle,
-                            style: TextStyle(
-                                color: AurumTheme.textPrimaryOf(context),
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700)),
+                        child: Consumer<PlayerProvider>(
+                          builder: (context, player, _) {
+                            final song = player.currentSong;
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(l10n.audioOutputPickerTitle,
+                                    style: TextStyle(
+                                        color: AurumTheme.textMutedOf(
+                                            context),
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600)),
+                                if (song != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(song.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          color: AurumTheme.textPrimaryOf(
+                                              context),
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700)),
+                                ],
+                              ],
+                            );
+                          },
+                        ),
                       ),
                     ],
                   ),
+                ),
+                Divider(
+                    color: AurumTheme.textMutedOf(context).withOpacity(0.1),
+                    height: 1),
+                _VolumeRow(
+                  volume: _volume,
+                  max: _maxVolume,
+                  onChanged: _onVolumeChanged,
                 ),
                 Divider(
                     color: AurumTheme.textMutedOf(context).withOpacity(0.1),
@@ -279,12 +366,127 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                           height: 1.4),
                     ),
                   ),
+                Divider(
+                    color: AurumTheme.textMutedOf(context).withOpacity(0.1),
+                    height: 1),
+                _SheetInfoRow(
+                  icon: Icons.high_quality_rounded,
+                  label: 'Quality',
+                  value: _qualityLabel,
+                ),
                 const SizedBox(height: 8),
               ],
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// System media-volume slider, styled to match the rest of the sheet —
+/// a slim gold-gradient track with a small glowing thumb, mute icon that
+/// updates with the current level (matches the reference "Play on" sheet
+/// pattern, just restyled to Aurum's gold-on-dark identity instead of a
+/// generic teal Material slider).
+class _VolumeRow extends StatelessWidget {
+  final int? volume;
+  final int max;
+  final ValueChanged<double> onChanged;
+
+  const _VolumeRow({
+    required this.volume,
+    required this.max,
+    required this.onChanged,
+  });
+
+  IconData get _icon {
+    final v = volume;
+    if (v == null || v <= 0) return Icons.volume_off_rounded;
+    if (v < max * 0.5) return Icons.volume_down_rounded;
+    return Icons.volume_up_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = AurumTheme.textMutedOf(context);
+    final v = volume;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+      child: Row(
+        children: [
+          Icon(_icon, color: muted, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 3,
+                activeTrackColor: AurumTheme.gold,
+                inactiveTrackColor: muted.withOpacity(0.18),
+                thumbShape:
+                    const RoundSliderThumbShape(enabledThumbRadius: 7),
+                thumbColor: AurumTheme.gold,
+                overlayShape:
+                    const RoundSliderOverlayShape(overlayRadius: 16),
+                overlayColor: AurumTheme.gold.withOpacity(0.18),
+              ),
+              child: Slider(
+                value: (v ?? 0).toDouble().clamp(0, max.toDouble()),
+                min: 0,
+                max: max.toDouble(),
+                // Null (not yet loaded) renders as a disabled-looking
+                // slider at 0 rather than a misleading full/empty guess —
+                // onChanged is still wired so it becomes interactive the
+                // instant the initial getMediaVolume() call resolves.
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact icon + label + value row — used for the "Quality" line.
+/// Purely informational (no tap target), matching the reference sheet's
+/// "Equalizer / Quality" rows but restyled and reduced to just the one
+/// row Aurum actually needs.
+class _SheetInfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _SheetInfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = AurumTheme.textPrimaryOf(context);
+    final muted = AurumTheme.textMutedOf(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: Row(
+        children: [
+          Icon(icon, color: muted, size: 18),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(label,
+                style: TextStyle(
+                    color: primary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600)),
+          ),
+          Text(value,
+              style: TextStyle(
+                  color: AurumTheme.gold,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700)),
+        ],
+      ),
     );
   }
 }

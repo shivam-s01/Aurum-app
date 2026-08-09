@@ -2,6 +2,7 @@ import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
 import '../main.dart' show aurumRouteObserver;
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
@@ -2307,7 +2308,7 @@ class _SeekBarState extends State<_SeekBar> {
     // this widget listens to progress/position/buffered directly so the
     // slider still updates smoothly every tick without pulling the rest
     // of the (much heavier) screen along with it.
-    return Selector<PlayerProvider, (double, int, int, String, String, String?)>(
+    return Selector<PlayerProvider, (double, int, int, String, String, String?, bool)>(
       selector: (_, player) => (
         player.progress,
         player.duration.inMilliseconds,
@@ -2315,6 +2316,13 @@ class _SeekBarState extends State<_SeekBar> {
         player.positionString,
         player.durationString,
         player.currentSong?.id,
+        // Needed so the Waveform slider style's Ticker (see
+        // _WaveformSeekBarState) reliably restarts the instant playback
+        // resumes, rather than depending on `progress` happening to
+        // change on the same frame — pause/resume can otherwise land on
+        // a frame where progress is momentarily unchanged, leaving the
+        // wave's ticker stopped even though audio has resumed.
+        player.isPlaying,
       ),
       builder: (context, data, __) {
         return _buildSeekBar(context);
@@ -2438,9 +2446,14 @@ class _SeekBarState extends State<_SeekBar> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _WaveformSeekBar — premium waveform-style progress bar
+// _WaveformSeekBar — Material 3 wavy progress indicator style.
+// Track (unplayed) is a flat straight line; only the played portion waves.
+// Wave phase is driven by actual audio position (ms), not a free-running
+// timer, so it never drifts out of sync with playback, pause/resume, or
+// seeking. Amplitude is intentionally small ("barely there") — this is the
+// calmest of several tested variants and reads as premium, not gimmicky.
 // ─────────────────────────────────────────────────────────────────────────────
-class _WaveformSeekBar extends StatelessWidget {
+class _WaveformSeekBar extends StatefulWidget {
   final PlayerProvider player;
   final double hPad;
   final List<double>? waveform;
@@ -2468,10 +2481,94 @@ class _WaveformSeekBar extends StatelessWidget {
   });
 
   @override
+  State<_WaveformSeekBar> createState() => _WaveformSeekBarState();
+}
+
+class _WaveformSeekBarState extends State<_WaveformSeekBar>
+    with SingleTickerProviderStateMixin {
+  late final Ticker _ticker;
+  double _ampAnim = 0.0; // eases 0→1 on play, 1→0 on pause (flattens the wave)
+  Duration _lastElapsed = Duration.zero;
+
+  // Wave shape constants — tuned to the "barely there" variant.
+  static const double _wavelength = 26; // px per wave cycle
+  static const double _waveSpeed = 14;  // px per second, slow relaxed drift
+
+  double _scrollX = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = createTicker(_onTick);
+    // Only actually ticking (60fps work) while playing. When the full
+    // player is opened on a paused song, or the user pauses and leaves
+    // the screen open, there is nothing left to animate once the wave has
+    // flattened — running a Ticker every frame forever in that state is
+    // pure wasted work (battery/heat) for a visually static line.
+    if (widget.player.isPlaying && !widget.dragging) _ticker.start();
+  }
+
+  @override
+  void didUpdateWidget(_WaveformSeekBar old) {
+    super.didUpdateWidget(old);
+    _syncTickerToPlaybackState();
+  }
+
+  void _syncTickerToPlaybackState() {
+    final shouldRun = widget.player.isPlaying && !widget.dragging;
+    if (shouldRun && !_ticker.isTicking) {
+      // Resuming from a stopped ticker: reset the elapsed baseline so the
+      // next frame's dt isn't measured against a stale timestamp from
+      // before the pause (which would otherwise produce one oversized
+      // jump in _ampAnim/_scrollX on resume).
+      _lastElapsed = Duration.zero;
+      _ticker.start();
+    } else if (!shouldRun && _ticker.isTicking && _ampAnim <= 0.001) {
+      // Only stop once the wave has actually eased back down to flat —
+      // stopping mid-ease would freeze the line at a non-zero amplitude
+      // instead of settling to the calm straight-line paused state.
+      _ticker.stop();
+    }
+  }
+
+  void _onTick(Duration elapsed) {
+    final dtMs = (elapsed - _lastElapsed).inMilliseconds;
+    _lastElapsed = elapsed;
+    if (dtMs <= 0) return;
+    final dt = (dtMs / 1000.0).clamp(0.0, 0.05);
+
+    final playing = widget.player.isPlaying && !widget.dragging;
+    // Phase is anchored to real audio position so the wave stays perfectly
+    // in sync with the music, independent of frame timing/jank.
+    _scrollX = (widget.player.position.inMilliseconds / 1000.0) * _waveSpeed;
+
+    final target = playing ? 1.0 : 0.0;
+    final next = _ampAnim + (target - _ampAnim) * (dt * 6).clamp(0.0, 1.0);
+    if ((next - _ampAnim).abs() > 0.001 || playing) {
+      setState(() => _ampAnim = next);
+    } else if (_ticker.isTicking) {
+      // Reached target (flat, paused) — stop burning frames.
+      _ticker.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final progress = dragging ? (dragValue ?? player.progress) : player.progress;
+    // Playback state can change (play/pause, drag start/end) without a
+    // new widget instance being created, so this check needs to run on
+    // every build too, not just didUpdateWidget — covers the case where
+    // only a field the ticker cares about changed via setState elsewhere
+    // in the parent without the widget identity changing.
+    _syncTickerToPlaybackState();
+    final progress = widget.dragging ? (widget.dragValue ?? widget.player.progress) : widget.player.progress;
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: hPad - 4),
+      padding: EdgeInsets.symmetric(horizontal: widget.hPad - 4),
       child: Column(children: [
         SizedBox(
           height: 32,
@@ -2480,28 +2577,31 @@ class _WaveformSeekBar extends StatelessWidget {
               final width = constraints.maxWidth;
               void handleUpdate(Offset local) {
                 final v = (local.dx / width).clamp(0.0, 1.0);
-                onDrag(v);
+                widget.onDrag(v);
               }
               return GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onHorizontalDragStart: (d) {
-                  onDragStart();
+                  widget.onDragStart();
                   handleUpdate(d.localPosition);
                 },
                 onHorizontalDragUpdate: (d) => handleUpdate(d.localPosition),
-                onHorizontalDragEnd: (_) => onDragEnd(dragValue ?? progress),
+                onHorizontalDragEnd: (_) => widget.onDragEnd(widget.dragValue ?? progress),
                 onTapDown: (d) {
-                  onDragStart();
+                  widget.onDragStart();
                   handleUpdate(d.localPosition);
                 },
-                onTapUp: (_) => onDragEnd(dragValue ?? progress),
+                onTapUp: (_) => widget.onDragEnd(widget.dragValue ?? progress),
                 child: CustomPaint(
                   size: Size(width, 32),
                   painter: _WaveformPainter(
-                    bars: waveform,
                     progress: progress,
-                    activeColor: activeColor,
-                    inactiveColor: inactiveColor,
+                    activeColor: widget.activeColor,
+                    inactiveColor: widget.inactiveColor,
+                    scrollX: _scrollX,
+                    ampAnim: _ampAnim,
+                    wavelength: _wavelength,
+                    dragging: widget.dragging,
                   ),
                 ),
               );
@@ -2514,11 +2614,11 @@ class _WaveformSeekBar extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(player.positionString,
-                style: TextStyle(color: timeColor, fontSize: 11,
+              Text(widget.player.positionString,
+                style: TextStyle(color: widget.timeColor, fontSize: 11,
                     fontWeight: FontWeight.w500, letterSpacing: 0.3)),
-              Text(player.durationString,
-                style: TextStyle(color: timeColor, fontSize: 11,
+              Text(widget.player.durationString,
+                style: TextStyle(color: widget.timeColor, fontSize: 11,
                     fontWeight: FontWeight.w500, letterSpacing: 0.3)),
             ],
           ),
@@ -2529,61 +2629,90 @@ class _WaveformSeekBar extends StatelessWidget {
 }
 
 class _WaveformPainter extends CustomPainter {
-  final List<double>? bars;
   final double progress;
   final Color activeColor;
   final Color inactiveColor;
+  final double scrollX;
+  final double ampAnim;
+  final double wavelength;
+  final bool dragging;
 
   _WaveformPainter({
-    required this.bars,
     required this.progress,
     required this.activeColor,
     required this.inactiveColor,
+    required this.scrollX,
+    required this.ampAnim,
+    required this.wavelength,
+    required this.dragging,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final data = bars ?? List.filled(60, 0.4);
-    final count = data.length;
-    if (count == 0) return;
-
-    final gap = 2.5;
-    final barWidth = (size.width - gap * (count - 1)) / count;
     final centerY = size.height / 2;
     final progressX = size.width * progress;
+    // "Barely there" amplitude — small, calm ripple, not a dramatic bounce.
+    final maxAmp = size.height * 0.10;
+    final k = (2 * math.pi) / wavelength;
 
-    final activePaint = Paint()
-      ..color = activeColor
-      ..strokeCap = StrokeCap.round;
-    final inactivePaint = Paint()
-      ..color = inactiveColor
-      ..strokeCap = StrokeCap.round;
-
-    for (int i = 0; i < count; i++) {
-      final x = i * (barWidth + gap) + barWidth / 2;
-      final h = (data[i].clamp(0.08, 1.0)) * (size.height * 0.85);
-      final isActive = x <= progressX;
-      final paint = isActive ? activePaint : inactivePaint;
-      paint.strokeWidth = barWidth.clamp(1.5, 4.0);
+    // Track (unplayed): perfectly flat straight line, small gap before it.
+    const gap = 6.0;
+    if (progressX + gap < size.width) {
+      final trackPaint = Paint()
+        ..color = inactiveColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0
+        ..strokeCap = StrokeCap.round;
       canvas.drawLine(
-        Offset(x, centerY - h / 2),
-        Offset(x, centerY + h / 2),
-        paint,
+        Offset(progressX + gap, centerY),
+        Offset(size.width - 6, centerY),
+        trackPaint,
+      );
+      canvas.drawCircle(
+        Offset(size.width - 3, centerY),
+        2.0,
+        Paint()..color = inactiveColor,
       );
     }
 
-    // Playhead dot
+    // Active (played) portion: sinusoidal wave, constant wavelength/speed,
+    // synced to real audio position via scrollX.
+    final activePath = Path();
+    bool started = false;
+    for (double x = 0; x <= progressX; x += 2) {
+      final y = centerY + math.sin(k * (x - scrollX)) * (maxAmp * ampAnim);
+      if (!started) {
+        activePath.moveTo(x, y);
+        started = true;
+      } else {
+        activePath.lineTo(x, y);
+      }
+    }
+    final activePaint = Paint()
+      ..color = activeColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(activePath, activePaint);
+
+    // Playhead dot rides on the wave.
+    final headY = centerY + math.sin(k * (progressX - scrollX)) * (maxAmp * ampAnim);
     canvas.drawCircle(
-      Offset(progressX, centerY),
-      3.5,
+      Offset(progressX, headY),
+      dragging ? 5.5 : 4.0,
       Paint()..color = activeColor,
     );
   }
 
   @override
   bool shouldRepaint(covariant _WaveformPainter old) =>
-      old.progress != progress || old.bars != bars ||
-      old.activeColor != activeColor || old.inactiveColor != inactiveColor;
+      old.progress != progress ||
+      old.activeColor != activeColor ||
+      old.inactiveColor != inactiveColor ||
+      old.scrollX != scrollX ||
+      old.ampAnim != ampAnim ||
+      old.dragging != dragging;
 }
 
 
