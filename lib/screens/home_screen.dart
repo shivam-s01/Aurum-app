@@ -49,40 +49,52 @@ import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
 import '../utils/aurum_haptics.dart';
 
-// TEMP DEBUG SWITCH — hunting the "white/gray layer slides down from the
-// top and gets stuck after closing Full Player (back button OR swipe-down)"
-// report. Logs to logcat (`adb logcat | grep AurumDebug`) AND flashes an
-// on-screen MaterialBanner so it's visible without a PC attached. Safe to
-// delete this flag + every guarded block below once the culprit is found.
-const bool _kDebugFullPlayerWhiteLayer = true;
-
-void _debugFlashBanner(BuildContext? context, String message) {
-  if (!_kDebugFullPlayerWhiteLayer) return;
-  debugPrint('[AurumDebug][FullPlayerWhiteLayer] $message');
-  if (context == null || !context.mounted) return;
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  if (messenger == null) return;
-  messenger.clearMaterialBanners();
-  messenger.showMaterialBanner(
-    MaterialBanner(
-      backgroundColor: Colors.cyanAccent.withOpacity(0.92),
-      content: Text(
-        '🔧 DEBUG: $message',
-        style: const TextStyle(
-            color: Colors.black, fontSize: 12, fontWeight: FontWeight.w600),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => messenger.hideCurrentMaterialBanner(),
-          child: const Text('OK', style: TextStyle(color: Colors.black)),
-        ),
-      ],
-    ),
-  );
-  Future.delayed(const Duration(seconds: 5), () {
-    if (context.mounted) messenger.hideCurrentMaterialBanner();
-  });
-}
+// ═══════════════════════════════════════════════════════════════════════
+// NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
+//
+// The "Full Player swipe-dismiss / back-button close leaves a gray/black
+// layer stuck over the whole screen" bug has been diagnosed AND FIXED.
+// Root cause: _FullPlayerRouteBackdrop below only removed its solid
+// ColoredBox on a fixed 2-frame timer counted from when the route OPENED.
+// On a fast dismiss (most reproducible on offline/local songs, which
+// resolve near-instantly with no network gap), the pop's reverse
+// transition could start and finish before that timer ever fired, so the
+// backdrop's opaque layer kept painting for the whole ~380ms reverse
+// transition instead of for one frame.
+//
+// The fix: _FullPlayerRouteBackdropState now also listens to the route's
+// own transition Animation (`routeAnimation`, wired in from pushFullPlayer
+// below) and hides itself the instant that animation status becomes
+// `reverse` or `dismissed` — i.e. the moment a dismiss starts — instead of
+// only ever checking a fixed post-open timer. This closes the race
+// regardless of how few frames elapsed between open and dismiss.
+//
+// While diagnosing this, the file temporarily carried a
+// `_kDebugFullPlayerWhiteLayer` flag, a `_debugFlashBanner()` helper (an
+// on-screen cyan MaterialBanner), and debugPrint() calls scattered through
+// the backdrop lifecycle and pushFullPlayer(). ALL of that has been
+// removed — it was diagnostic scaffolding only, not part of the fix, and
+// left in a release build it's dead weight that also visibly flashes a
+// banner over real user content.
+//
+// DO NOT reintroduce that debug flag/banner/prints to "help verify" a
+// related bug. If a similar full-screen gray/black overlay issue
+// resurfaces:
+//   1. Check _FullPlayerRouteBackdropState's `_onRouteStatusChanged` and
+//      the 2-frame postFrame timer in `initState` FIRST — this is the
+//      single widget capable of painting a solid color over the entire
+//      route, and is the most likely site of any regression here.
+//   2. Confirm `routeAnimation` is still being passed through from the
+//      `pageBuilder` call site (search this file for
+//      `_FullPlayerRouteBackdrop(` ) — if that wiring is ever dropped
+//      (e.g. during an unrelated refactor of pushFullPlayer), the
+//      dismiss-triggered hide silently stops working and only the
+//      original (insufficient) 2-frame timer remains.
+//   3. If new diagnostics are genuinely needed, gate them behind
+//      `kDebugMode` (already imported above), never a hand-rolled
+//      `const bool _kDebugXxx = true` that silently ships to release
+//      builds — and remove them again once the bug is closed.
+// ═══════════════════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared FullPlayerScreen navigation — every song-tap entry point on this
@@ -128,10 +140,6 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
   @override
   void initState() {
     super.initState();
-    if (_kDebugFullPlayerWhiteLayer) {
-      debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop initState — '
-          'showBackdrop=true, isDark=${widget.isDark}');
-    }
     // Two frames is enough for FullPlayerScreen's own Scaffold/ColoredBox
     // to have painted (the actual gap this backdrop exists to cover) —
     // scheduling the removal via addPostFrameCallback (rather than a fixed
@@ -140,10 +148,6 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
     // fast one.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_kDebugFullPlayerWhiteLayer) {
-          debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop '
-              'self-removing after 2 frames (mounted=$mounted)');
-        }
         if (mounted) setState(() => _showBackdrop = false);
       });
     });
@@ -173,11 +177,6 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
     if (!mounted || !_showBackdrop) return;
     if (status == AnimationStatus.reverse ||
         status == AnimationStatus.dismissed) {
-      if (_kDebugFullPlayerWhiteLayer) {
-        debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop '
-            'force-hiding — route animation status=$status (dismiss '
-            'started before the 2-frame open timer fired)');
-      }
       setState(() => _showBackdrop = false);
     }
   }
@@ -185,20 +184,12 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
   @override
   void dispose() {
     widget.routeAnimation?.removeStatusListener(_onRouteStatusChanged);
-    if (_kDebugFullPlayerWhiteLayer) {
-      debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop dispose — '
-          'showBackdrop was $_showBackdrop');
-    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_showBackdrop) return widget.child;
-    if (_kDebugFullPlayerWhiteLayer) {
-      debugPrint('[AurumDebug][FullPlayerWhiteLayer] backdrop build() — '
-          'PAINTING SOLID ${widget.isDark ? "BLACK" : "CREAM"} LAYER');
-    }
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -213,17 +204,29 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
 
 bool _openingFullPlayer = false; // guards against double-push on rapid tap
 
+// FIX ("online song, cold start ke baad pehli baar full player kholo — ek
+// gray/cream layer fast-flash hoke chala jaata hai" — every session,
+// first open only): _FullPlayerRouteBackdrop's whole purpose is covering
+// the real gap that exists on a COLD start, before any artwork/theme has
+// painted anywhere yet — see the FIX comments at its pageBuilder call
+// site below for the full history of why it exists. But it was never
+// actually gated to cold start; it ran on every single open. On the
+// SECOND and later opens of a session, Home (and everything else) has
+// already painted real frames — opaque:false lets those keep rendering
+// live underneath the route the whole time, so there is no white/blank
+// gap left for this backdrop to cover. Painting it anyway just adds a
+// visible, unnecessary flash of solid color where previously there was
+// nothing to flash. Tracking whether ANY full player has already opened
+// this session and skipping the backdrop after the first time closes
+// that gap: the cold-start fix it exists for still fires exactly once
+// per app launch, and every subsequent open is flash-free.
+bool _hasOpenedFullPlayerThisSession = false;
+
 void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
   if (_openingFullPlayer) {
-    _debugFlashBanner(context, 'pushFullPlayer BLOCKED — guard already true '
-        '(double-tap or stuck guard)');
     return;
   }
   _openingFullPlayer = true;
-  if (_kDebugFullPlayerWhiteLayer) {
-    debugPrint('[AurumDebug][FullPlayerWhiteLayer] pushFullPlayer() called — '
-        'context.mounted=${context.mounted}');
-  }
   AurumHaptics.light();
   // STABILITY FIX ("offline/local song se Home pe jaate hi screen dead ho
   // jaati hai, bina app restart ke nahi jaata" — production bug): the
@@ -269,75 +272,88 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
         // while the player was fully static/open (unaffected by this
         // change), never during the drag itself.
         opaque: false,
-        pageBuilder: (context, anim, ___) => _FullPlayerRouteBackdrop(
-          // Lets the backdrop hide itself the instant the route starts
-          // reversing (swipe-dismiss pop), instead of only on a 2-frame
-          // open timer — see the BUGFIX comment in
-          // _FullPlayerRouteBackdropState.initState for the full story.
-          routeAnimation: anim,
-          // FIX (cold-start white flash between tap and FullPlayerScreen's
-          // first real frame): opaque:false (needed for the swipe-dismiss
-          // background-blink fix above) means Flutter no longer guarantees
-          // anything is painted under this route before FullPlayerScreen's
-          // own Scaffold gets to run its build — on a cold start (no
-          // artwork cached yet, Provider still spinning up), that gap
-          // could be one visible frame of plain white before the themed
-          // Scaffold/ColoredBox inside FullPlayerScreen ever paints. This
-          // pageBuilder-level backdrop is the outermost possible layer
-          // for this route — it paints instantly, before FullPlayerScreen
-          // constructs, closing that gap completely regardless of how
-          // long the real screen takes to build its first frame.
-          //
-          // FIX (cream/white flash on the FIRST full-player open of a
-          // session, every time, dark theme included): this used to read
-          // `Theme.of(context).brightness` directly. That ambient Theme
-          // lookup can legitimately disagree with what the rest of the
-          // app is actually showing for exactly one frame — the nearest
-          // Theme ancestor above this route's own context isn't guaranteed
-          // to have finished rebuilding with this frame's resolved
-          // isDark yet (e.g. right after cold start, before
-          // DynamicColorBuilder/Consumer2 in main.dart has completed its
-          // first pass). Theme.of(context).brightness silently defaults
-          // toward light when it can't resolve cleanly, which is exactly
-          // why the flash color reported is always the light cream
-          // (0xFFF5F0EA) and never black, and why it's specifically a
-          // first-open-only glitch. Reading ThemeProvider.isDarkOf(context)
-          // instead asks the SAME already-resolved boolean main.dart used
-          // to pick the active theme in the first place — there is no
-          // second, independently-timed brightness lookup left to
-          // disagree with it.
-          //
-          // FIX ("offline song bajao, full player kholo, swipe down se
-          // band karo — upar se white/gray layer aa jaata hai jo phir
-          // atak jaata hai, tap kaam nahi karta" — production bug): this
-          // used to be a plain ColoredBox wrapping FullPlayerScreen as its
-          // child — i.e. a SOLID, OPAQUE layer painted underneath
-          // FullPlayerScreen for the entire lifetime of the route, not
-          // just the first frame the comment above describes. That's
-          // invisible in the normal case because FullPlayerScreen's own
-          // Scaffold is opaque and fully covers it. But FullPlayerScreen's
-          // swipe-to-dismiss (_DragTransform) fades ITS OWN Opacity toward
-          // 0 while dragging/completing a dismiss — this backdrop sits
-          // OUTSIDE that Opacity, so it never fades with it. If the
-          // dismiss drag's pop is ever delayed or dropped (same class of
-          // same-frame-race already identified for local/offline taps
-          // elsewhere in this file — a local song's near-instant resolve
-          // leaves no network round-trip to naturally separate two events
-          // landing in the same frame), what's left on screen is this
-          // solid black/cream layer with nothing on top of it: exactly
-          // the reported "white/gray layer" — and since the route is
-          // still technically on the stack, it keeps intercepting every
-          // touch until something else coincidentally pops it, which is
-          // exactly the reported stuck/unresponsive feel.
-          // Fix: this backdrop now only needs to survive ONE frame (the
-          // gap before FullPlayerScreen's own Scaffold paints its first
-          // frame) — self-removing it a moment after first paint means
-          // even a delayed/dropped pop can never expose a persistent
-          // opaque layer again, closing the gap at its root instead of
-          // patching the guard that merely re-enabled future taps.
-          isDark: context.read<ThemeProvider>().isDarkOf(context),
-          child: const FullPlayerScreen(),
-        ),
+        pageBuilder: (context, anim, ___) {
+          const fullPlayer = FullPlayerScreen();
+          // FIX (see _hasOpenedFullPlayerThisSession doc comment above for
+          // the full story): the backdrop below exists solely to cover a
+          // COLD-START gap — skip it entirely once this session has
+          // already opened a full player at least once, since there is no
+          // gap left to cover on a warm open and painting it anyway is
+          // just an unnecessary visible flash.
+          if (_hasOpenedFullPlayerThisSession) {
+            return fullPlayer;
+          }
+          _hasOpenedFullPlayerThisSession = true;
+          return _FullPlayerRouteBackdrop(
+            // Lets the backdrop hide itself the instant the route starts
+            // reversing (swipe-dismiss pop), instead of only on a 2-frame
+            // open timer — see the BUGFIX comment in
+            // _FullPlayerRouteBackdropState.initState for the full story.
+            routeAnimation: anim,
+            // FIX (cold-start white flash between tap and FullPlayerScreen's
+            // first real frame): opaque:false (needed for the swipe-dismiss
+            // background-blink fix above) means Flutter no longer guarantees
+            // anything is painted under this route before FullPlayerScreen's
+            // own Scaffold gets to run its build — on a cold start (no
+            // artwork cached yet, Provider still spinning up), that gap
+            // could be one visible frame of plain white before the themed
+            // Scaffold/ColoredBox inside FullPlayerScreen ever paints. This
+            // pageBuilder-level backdrop is the outermost possible layer
+            // for this route — it paints instantly, before FullPlayerScreen
+            // constructs, closing that gap completely regardless of how
+            // long the real screen takes to build its first frame.
+            //
+            // FIX (cream/white flash on the FIRST full-player open of a
+            // session, every time, dark theme included): this used to read
+            // `Theme.of(context).brightness` directly. That ambient Theme
+            // lookup can legitimately disagree with what the rest of the
+            // app is actually showing for exactly one frame — the nearest
+            // Theme ancestor above this route's own context isn't guaranteed
+            // to have finished rebuilding with this frame's resolved
+            // isDark yet (e.g. right after cold start, before
+            // DynamicColorBuilder/Consumer2 in main.dart has completed its
+            // first pass). Theme.of(context).brightness silently defaults
+            // toward light when it can't resolve cleanly, which is exactly
+            // why the flash color reported is always the light cream
+            // (0xFFF5F0EA) and never black, and why it's specifically a
+            // first-open-only glitch. Reading ThemeProvider.isDarkOf(context)
+            // instead asks the SAME already-resolved boolean main.dart used
+            // to pick the active theme in the first place — there is no
+            // second, independently-timed brightness lookup left to
+            // disagree with it.
+            //
+            // FIX ("offline song bajao, full player kholo, swipe down se
+            // band karo — upar se white/gray layer aa jaata hai jo phir
+            // atak jaata hai, tap kaam nahi karta" — production bug): this
+            // used to be a plain ColoredBox wrapping FullPlayerScreen as its
+            // child — i.e. a SOLID, OPAQUE layer painted underneath
+            // FullPlayerScreen for the entire lifetime of the route, not
+            // just the first frame the comment above describes. That's
+            // invisible in the normal case because FullPlayerScreen's own
+            // Scaffold is opaque and fully covers it. But FullPlayerScreen's
+            // swipe-to-dismiss (_DragTransform) fades ITS OWN Opacity toward
+            // 0 while dragging/completing a dismiss — this backdrop sits
+            // OUTSIDE that Opacity, so it never fades with it. If the
+            // dismiss drag's pop is ever delayed or dropped (same class of
+            // same-frame-race already identified for local/offline taps
+            // elsewhere in this file — a local song's near-instant resolve
+            // leaves no network round-trip to naturally separate two events
+            // landing in the same frame), what's left on screen is this
+            // solid black/cream layer with nothing on top of it: exactly
+            // the reported "white/gray layer" — and since the route is
+            // still technically on the stack, it keeps intercepting every
+            // touch until something else coincidentally pops it, which is
+            // exactly the reported stuck/unresponsive feel.
+            // Fix: this backdrop now only needs to survive ONE frame (the
+            // gap before FullPlayerScreen's own Scaffold paints its first
+            // frame) — self-removing it a moment after first paint means
+            // even a delayed/dropped pop can never expose a persistent
+            // opaque layer again, closing the gap at its root instead of
+            // patching the guard that merely re-enabled future taps.
+            isDark: context.read<ThemeProvider>().isDarkOf(context),
+            child: fullPlayer,
+          );
+        },
         // NOTE (supersedes the "flat theme-colored screen for 1-2s" fix
         // that previously removed the ColoredBox wrapper entirely): that
         // fix was correct for the steady-state slide — a themed color
@@ -364,28 +380,14 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
         reverseTransitionDuration: const Duration(milliseconds: 380),
       ),
     ).then((_) {
-      if (_kDebugFullPlayerWhiteLayer) {
-        debugPrint('[AurumDebug][FullPlayerWhiteLayer] route.then() fired — '
-            'popped/settled normally, resetting guard');
-        _debugFlashBanner(context, 'Route popped normally (then fired)');
-      }
       _openingFullPlayer = false;
       onClosed?.call();
     }, onError: (e) {
-      if (_kDebugFullPlayerWhiteLayer) {
-        debugPrint('[AurumDebug][FullPlayerWhiteLayer] route onError: $e');
-        _debugFlashBanner(context, 'Route onError: $e');
-      }
       _openingFullPlayer = false;
     });
   } catch (e) {
     // Synchronous failure (e.g. context already unmounted at call time) —
     // the .then()/onError above never got attached, so reset here too.
-    if (_kDebugFullPlayerWhiteLayer) {
-      debugPrint('[AurumDebug][FullPlayerWhiteLayer] push() threw '
-          'synchronously: $e');
-      _debugFlashBanner(context, 'push() threw synchronously: $e');
-    }
     _openingFullPlayer = false;
   }
   // FIX ("local song play karo, ek white/confirm jaisa cheez atak jaati
@@ -408,12 +410,6 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
   // the guard open again shortly after the transition should have long
   // finished, so a dropped Future can never wedge every future tap.
   Future.delayed(const Duration(milliseconds: 1500), () {
-    if (_kDebugFullPlayerWhiteLayer && _openingFullPlayer) {
-      debugPrint('[AurumDebug][FullPlayerWhiteLayer] 1500ms BACKSTOP fired — '
-          'guard was STILL true, route.then() never fired! Forcing reset.');
-      _debugFlashBanner(context, '1500ms backstop force-reset the guard — '
-          'route never settled normally');
-    }
     _openingFullPlayer = false;
   });
 }

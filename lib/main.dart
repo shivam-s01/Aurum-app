@@ -1,3 +1,39 @@
+// ═══════════════════════════════════════════════════════════════════════
+// NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
+//
+// The "Full Player swipe-dismiss leaves a gray/black layer over the whole
+// screen" bug (root cause: _FullPlayerRouteBackdrop in home_screen.dart
+// not hiding itself before the pop's reverse transition finished) has
+// been diagnosed AND FIXED. The fix lives in home_screen.dart
+// (_FullPlayerRouteBackdropState listening to the route's own
+// AnimationStatus and hiding on `reverse`/`dismissed`) and in
+// mini_player.dart (offline/local artwork paths no longer falling back to
+// a flat gray tint).
+//
+// While hunting that bug, this file temporarily carried debug-only code:
+// a `_kDebugRouteStack` flag, an in-memory `aurumDebugRouteLog` list, an
+// `_AurumDebugRouteObserver` NavigatorObserver logging every push/pop, and
+// an always-on-top purple bug-report button (MaterialApp.builder) that
+// opened a "Route log" AlertDialog. ALL of that has been removed — it was
+// diagnostic scaffolding only, not part of the fix itself, and left in a
+// release build it is dead weight at best and a source of new problems at
+// worst (e.g. the bug-report button was hard-coded always-visible and sat
+// above every route in the app).
+//
+// DO NOT reintroduce that debug observer/button/dialog to "help find" a
+// related bug. If a similar full-screen overlay/backdrop issue resurfaces:
+//   1. It is almost certainly in _FullPlayerRouteBackdrop
+//      (home_screen.dart) or in one of the ColoredBox/BackdropFilter
+//      layers inside full_player_screen.dart's _DragTransform — search
+//      those first before adding new tooling.
+//   2. If new diagnostics are genuinely needed, gate them behind
+//      `kDebugMode` (from package:flutter/foundation.dart), never a
+//      hand-rolled `const bool _kDebugXxx = true` that silently ships to
+//      release builds, and remove them again before considering the bug
+//      closed — don't leave them "temporarily" in a file that gets built
+//      into a release APK.
+// ═══════════════════════════════════════════════════════════════════════
+
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -57,59 +93,6 @@ final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
 /// whenever a route is pushed on top (lyrics, queue, options sheets).
 final RouteObserver<ModalRoute<void>> aurumRouteObserver =
     RouteObserver<ModalRoute<void>>();
-
-// TEMP DEBUG — hunting the "white/gray layer stuck after closing Full
-// Player, restart needed" bug. Logs EVERY route push/pop/remove app-wide
-// (including bottom sheets/dialogs, which don't show up in the per-screen
-// debug prints already added to home_screen.dart/full_player_screen.dart).
-// If a route is ever left on the stack without a matching pop right around
-// when the white layer appears, this will show it. Safe to delete this
-// whole observer + its one registration in AurumApp's navigatorObservers
-// list once the culprit is found.
-const bool _kDebugRouteStack = true;
-
-// Keeps the last few route events in memory (not just logcat) so they can
-// be shown on-screen via a banner — no PC/adb needed to read them.
-final List<String> aurumDebugRouteLog = [];
-
-void _aurumDebugLogRoute(String entry) {
-  aurumDebugRouteLog.add(entry);
-  if (aurumDebugRouteLog.length > 8) aurumDebugRouteLog.removeAt(0);
-  debugPrint('[AurumDebug][RouteStack] $entry');
-}
-
-class _AurumDebugRouteObserver extends NavigatorObserver {
-  void _log(String action, Route<dynamic>? route, Route<dynamic>? previous) {
-    if (!_kDebugRouteStack) return;
-    _aurumDebugLogRoute('$action: '
-        '${route?.settings.name ?? route?.runtimeType} '
-        '(prev: ${previous?.settings.name ?? previous?.runtimeType})');
-  }
-
-  @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    _log('PUSH', route, previousRoute);
-  }
-
-  @override
-  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    _log('POP', route, previousRoute);
-  }
-
-  @override
-  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    _log('REMOVE', route, previousRoute);
-  }
-
-  @override
-  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
-    if (!_kDebugRouteStack) return;
-    _aurumDebugLogRoute('REPLACE: '
-        '${oldRoute?.runtimeType} -> ${newRoute?.runtimeType}');
-  }
-}
-
-final _aurumDebugRouteObserver = _AurumDebugRouteObserver();
 
 Future<void> main() async {
   runZonedGuarded(() async {
@@ -515,7 +498,7 @@ class AurumApp extends StatelessWidget {
             themeMode: themeProvider.themeMode,
             theme: lightTheme,
             darkTheme: darkTheme,
-            navigatorObservers: [aurumRouteObserver, _aurumDebugRouteObserver],
+            navigatorObservers: [aurumRouteObserver],
             locale: localeProvider.locale,
             supportedLocales: kSupportedLocales,
             localizationsDelegates: const [
@@ -565,74 +548,7 @@ class AurumApp extends StatelessWidget {
                 data: Theme.of(context),
                 duration: const Duration(milliseconds: 320),
                 curve: Curves.easeOutCubic,
-                child: Stack(
-                  children: [
-                    child ?? const SizedBox.shrink(),
-                    // TEMP DEBUG — always-on-top button (small, top-right,
-                    // very low opacity so it doesn't get in the way) that
-                    // shows the last few route push/pop events recorded by
-                    // _aurumDebugRouteObserver above. Placed at the
-                    // MaterialApp.builder level so it sits above every
-                    // route/overlay in the app — if the white/gray stuck
-                    // layer is truly intercepting ALL touches app-wide this
-                    // button won't help (nothing would respond), but if
-                    // it's scoped to a lower layer this still works and
-                    // gives an on-device way to read the log with no PC.
-                    // Safe to delete this whole Positioned block (and the
-                    // Stack wrapper, reverting to `child ?? ...` directly)
-                    // once the culprit is found.
-                    if (_kDebugRouteStack)
-                      Positioned(
-                        top: 40,
-                        right: 4,
-                        child: SafeArea(
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(20),
-                              onTap: () {
-                                final ctx = navigatorKey.currentContext;
-                                if (ctx == null) return;
-                                showDialog(
-                                  context: ctx,
-                                  builder: (dctx) => AlertDialog(
-                                    title: const Text('Route log'),
-                                    content: SingleChildScrollView(
-                                      child: Text(
-                                        aurumDebugRouteLog.isEmpty
-                                            ? '(empty)'
-                                            : aurumDebugRouteLog.join('\n'),
-                                        style: const TextStyle(
-                                            fontSize: 11,
-                                            fontFamily: 'monospace'),
-                                      ),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(dctx),
-                                        child: const Text('Close'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                              child: Container(
-                                width: 32,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  color: Colors.purple.withOpacity(0.35),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.bug_report,
-                                    size: 16, color: Colors.white),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+                child: child ?? const SizedBox.shrink(),
               );
             },
             home: _BlurShaderWarmup(

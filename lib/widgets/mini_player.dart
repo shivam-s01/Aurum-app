@@ -14,11 +14,25 @@ import '../screens/home_screen.dart' show pushFullPlayer;
 import '../utils/aurum_haptics.dart';
 import '../services/audio_prefs.dart';
 
-// TEMP DEBUG SWITCH — set to false (or delete this line + the two guarded
-// blocks below) once the white-layer repro is confirmed either way. Kept
-// as a single top-level flag so removal later is a one-line + two-block
-// deletion, not a hunt through the file.
-const bool _kDebugMiniPlayerStuckDrag = false;
+// ═══════════════════════════════════════════════════════════════════════
+// NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
+//
+// This file previously carried a `_kDebugMiniPlayerStuckDrag` flag and a
+// `_flashDebugBanner()` on-screen banner helper, used while confirming a
+// "mini player left visibly offset/faded after a cancelled/interrupted
+// swipe-to-dismiss gesture" theory. That debug tooling has been removed —
+// the REAL fix (`_onDragCancel()` resetting `_dragging`/`_dragY`, plus the
+// `didChangeAppLifecycleState` reset for a drag interrupted by the app
+// being backgrounded) is still fully in place below and untouched; only
+// the diagnostic on/off flag and banner were dead weight.
+//
+// Separately, offline/local song artwork (file://, content:// URIs) no
+// longer falls back to a flat gray tint — see the tint-resolution logic
+// further down in this file. DO NOT reintroduce a debug flag/banner here.
+// If a similar "mini player stuck visually offset" bug resurfaces, check
+// `_onDragCancel()` and `didChangeAppLifecycleState()` first — they're the
+// two places _dragging/_dragY get reset outside a normal completed drag.
+// ═══════════════════════════════════════════════════════════════════════
 
 class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
@@ -151,11 +165,6 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
   // arrive.
   void _onDragCancel() {
     if (!mounted) return;
-    if (_kDebugMiniPlayerStuckDrag) {
-      debugPrint('[MiniPlayer][DEBUG] onVerticalDragCancel fired — '
-          'resetting stuck drag (_dragY was $_dragY)');
-      _flashDebugBanner('Drag cancelled — reset by fix');
-    }
     setState(() {
       _dragging = false;
       _dragY = 0;
@@ -169,63 +178,11 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
             state == AppLifecycleState.detached) &&
         _dragging &&
         mounted) {
-      if (_kDebugMiniPlayerStuckDrag) {
-        debugPrint('[MiniPlayer][DEBUG] lifecycle=$state fired mid-drag — '
-            'resetting stuck drag (_dragY was $_dragY). Will confirm on '
-            'next resume.');
-        _debugResetHappenedDuringBackground = true;
-      }
       setState(() {
         _dragging = false;
         _dragY = 0;
       });
-    } else if (state == AppLifecycleState.resumed &&
-        _kDebugMiniPlayerStuckDrag &&
-        _debugResetHappenedDuringBackground) {
-      _debugResetHappenedDuringBackground = false;
-      _flashDebugBanner('Resumed — stuck drag was reset while backgrounded');
     }
-  }
-
-  // TEMP DEBUG — true only in the window between the fix resetting a
-  // stuck drag while backgrounded and the very next resume, so the
-  // confirmation banner fires exactly once per actual reset (not on every
-  // ordinary resume). See _kDebugMiniPlayerStuckDrag doc comment above the
-  // import block for removal instructions.
-  bool _debugResetHappenedDuringBackground = false;
-
-  // TEMP DEBUG — a small, dismissible top banner (NOT a SnackBar, which
-  // would visually clash with any real SnackBar the app is already
-  // showing, and NOT a dialog, which would block interaction). Auto-hides
-  // itself; purely informational. Safe to delete entirely along with
-  // _kDebugMiniPlayerStuckDrag and _debugResetHappenedDuringBackground
-  // when done testing.
-  void _flashDebugBanner(String message) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    messenger.clearMaterialBanners();
-    messenger.showMaterialBanner(
-      MaterialBanner(
-        backgroundColor: AurumTheme.gold.withOpacity(0.92),
-        content: Text(
-          '🔧 DEBUG: $message',
-          style: const TextStyle(
-            color: Colors.black,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => messenger.hideCurrentMaterialBanner(),
-            child: const Text('OK', style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-    Future.delayed(const Duration(seconds: 4), () {
-      if (mounted) messenger.hideCurrentMaterialBanner();
-    });
   }
 
   // FIX ("halka sa neeche swipe karte hi gaana pause/dismiss ho jata

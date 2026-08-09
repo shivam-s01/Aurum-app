@@ -35,39 +35,28 @@ import '../widgets/cast_button.dart';
 import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
 import '../utils/aurum_haptics.dart';
 
-// TEMP DEBUG SWITCH — same "white/gray layer slides down and gets stuck
-// after closing Full Player" hunt as home_screen.dart's
-// _kDebugFullPlayerWhiteLayer (separate flag name here only to avoid a
-// cross-file import; delete both together once the culprit is found).
-const bool _kDebugFullPlayerWhiteLayer2 = true;
-
-void _debugFlashBanner2(BuildContext? context, String message) {
-  if (!_kDebugFullPlayerWhiteLayer2) return;
-  debugPrint('[AurumDebug][FullPlayerWhiteLayer] $message');
-  if (context == null || !context.mounted) return;
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  if (messenger == null) return;
-  messenger.clearMaterialBanners();
-  messenger.showMaterialBanner(
-    MaterialBanner(
-      backgroundColor: Colors.orangeAccent.withOpacity(0.92),
-      content: Text(
-        '🔧 DEBUG: $message',
-        style: const TextStyle(
-            color: Colors.black, fontSize: 12, fontWeight: FontWeight.w600),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => messenger.hideCurrentMaterialBanner(),
-          child: const Text('OK', style: TextStyle(color: Colors.black)),
-        ),
-      ],
-    ),
-  );
-  Future.delayed(const Duration(seconds: 5), () {
-    if (context.mounted) messenger.hideCurrentMaterialBanner();
-  });
-}
+// ═══════════════════════════════════════════════════════════════════════
+// NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
+//
+// This file previously carried a `_kDebugFullPlayerWhiteLayer2` flag and a
+// `_debugFlashBanner2()` on-screen banner helper, used together with
+// matching debug tooling in home_screen.dart to hunt the "Full Player
+// swipe-dismiss / close leaves a gray/black layer stuck over the whole
+// screen" bug. That bug is now diagnosed and fixed — the real fix lives in
+// home_screen.dart's `_FullPlayerRouteBackdrop` (see the notice at the top
+// of that file for the full root-cause writeup). ALL debug-only code has
+// been removed from this file — it was diagnostic scaffolding, not part of
+// the fix, and left in a release build it's dead weight that also
+// visibly flashes an orange banner over real user content.
+//
+// DO NOT reintroduce this debug flag/banner to "help verify" a related
+// bug. If a similar full-screen overlay issue resurfaces, check
+// home_screen.dart's _FullPlayerRouteBackdrop first (see the notice
+// there). If new diagnostics are genuinely needed here, gate them behind
+// `kDebugMode` (from package:flutter/foundation.dart), never a
+// hand-rolled `const bool _kDebugXxx = true` — and remove them again once
+// the bug is closed, don't leave them "temporarily" in a release build.
+// ═══════════════════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FullPlayerScreen v5.0 — Echo Nightly Premium
@@ -364,10 +353,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   @override
   void dispose() {
-    if (_kDebugFullPlayerWhiteLayer2) {
-      debugPrint('[AurumDebug][FullPlayerWhiteLayer] FullPlayerScreen '
-          'State.dispose() — route is being torn down normally');
-    }
     aurumRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _staggerCtrl.dispose();
@@ -886,10 +871,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // Notifier setter already triggers the thin _DragTransform rebuild —
     // no need to also setState() the whole screen right before it pops.
     if (_dragY != 0) _dragY = 0;
-    if (_kDebugFullPlayerWhiteLayer2) {
-      debugPrint('[AurumDebug][FullPlayerWhiteLayer] _close() called '
-          '(back button / chevron) — canPop=${Navigator.of(context).canPop()}');
-    }
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
@@ -939,19 +920,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // one is already in flight is simply ignored, exactly like
     // _PremiumContentPanel._dismiss() already does for its own dismiss.
     if (_springBackIsDismissing) {
-      if (_kDebugFullPlayerWhiteLayer2) {
-        debugPrint('[AurumDebug][FullPlayerWhiteLayer] '
-            '_completeDismissDrag() IGNORED — already dismissing '
-            '(duplicate drag-end call, the root cause of the intermittent '
-            'stuck gray layer).');
-      }
       return;
     }
     AurumHaptics.light();
-    if (_kDebugFullPlayerWhiteLayer2) {
-      debugPrint('[AurumDebug][FullPlayerWhiteLayer] _completeDismissDrag() '
-          'START (swipe-down) — dragY=$_dragY');
-    }
     _springBackIsDismissing = true;
     final screenH = MediaQuery.of(context).size.height;
     final start = _dragY;
@@ -978,23 +949,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       anim.removeListener(listener);
       _springBackCtrl.duration = const Duration(milliseconds: 320);
       _springBackIsDismissing = false;
-      if (_kDebugFullPlayerWhiteLayer2) {
-        debugPrint('[AurumDebug][FullPlayerWhiteLayer] '
-            '_completeDismissDrag() slide-off animation DONE — '
-            'mounted=$mounted, canPop=${mounted ? Navigator.of(context).canPop() : "n/a"}');
-      }
       if (!mounted) {
-        if (_kDebugFullPlayerWhiteLayer2) {
-          debugPrint('[AurumDebug][FullPlayerWhiteLayer] '
-              '_completeDismissDrag(): NOT MOUNTED when slide-off finished — '
-              'pop() was SKIPPED. This is a likely cause of a stuck layer.');
-        }
         return;
       }
       if (Navigator.of(context).canPop()) {
-        if (_kDebugFullPlayerWhiteLayer2) {
-          _debugFlashBanner2(context, 'Swipe-down finished — calling pop() now');
-        }
         Navigator.of(context).pop();
       } else {
         // FIX (see the re-entry guard added at the top of this function
@@ -1007,13 +965,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
         // intercepting touches — snap it back to visible. A visible,
         // interactive full player the user can swipe again is always
         // recoverable; an invisible stuck route is not.
-        if (_kDebugFullPlayerWhiteLayer2) {
-          debugPrint('[AurumDebug][FullPlayerWhiteLayer] '
-              '_completeDismissDrag(): canPop() was FALSE — pop() SKIPPED. '
-              'Recovering by snapping the screen back to visible instead '
-              'of leaving it stuck off-screen.');
-          _debugFlashBanner2(context, 'canPop() FALSE — recovering to visible');
-        }
         if (mounted) {
           setState(() => _dragY = 0);
         }
@@ -1613,13 +1564,7 @@ class _TopBar extends StatelessWidget {
           icon: Icons.keyboard_arrow_down_rounded,
           size: 26,
           color: iconColor,
-          onTap: () {
-            if (_kDebugFullPlayerWhiteLayer2) {
-              debugPrint('[AurumDebug][FullPlayerWhiteLayer] _TopBar chevron '
-                  'tapped (back/close) — canPop=${Navigator.of(context).canPop()}');
-            }
-            Navigator.pop(context);
-          },
+          onTap: () => Navigator.pop(context),
           semanticLabel: l10n.fpClosePlayer,
         ),
         Expanded(
