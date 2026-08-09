@@ -54,7 +54,7 @@ import '../utils/aurum_haptics.dart';
 // report. Logs to logcat (`adb logcat | grep AurumDebug`) AND flashes an
 // on-screen MaterialBanner so it's visible without a PC attached. Safe to
 // delete this flag + every guarded block below once the culprit is found.
-const bool _kDebugFullPlayerWhiteLayer = false;
+const bool _kDebugFullPlayerWhiteLayer = true;
 
 void _debugFlashBanner(BuildContext? context, String message) {
   if (!_kDebugFullPlayerWhiteLayer) return;
@@ -2228,8 +2228,27 @@ class _OfflineContent extends StatelessWidget {
     // Downloads" card — keyed by local file path, the one identifier both
     // sources actually share.
     final scannedPaths = lib.allSongs.map((s) => s.localPath).whereType<String>().toSet();
+    // BUGFIX ("downloaded song data off karke chalata hai to infinite
+    // loading spinner, kabhi play nahi hota"): this used to map straight
+    // to `d.song` — DownloadItem's own ORIGINAL online Song object, saved
+    // at download-start time with its `localPath` field still null (the
+    // actual downloaded file's path is stored separately on DownloadItem
+    // itself, see download_item.dart). `d.song.isLocal` is therefore
+    // FALSE for every card in this row, even though the file is fully
+    // downloaded — so tapping one from Home routed straight into
+    // PlayerProvider's ONLINE streaming path (resolveWithPatience's
+    // network branch in AurumAudioEngine.kt), which with no internet just
+    // retries forever with nothing to show but a spinner. The exact same
+    // song tapped from the Downloads/Library screen worked fine, because
+    // that screen already goes through DownloadProvider.offlineSongFor()
+    // — which merges d.localPath (the real downloaded file path) onto a
+    // copy of the song via copyWith(localPath: ...), making isLocal true
+    // and letting the native engine's isLocal shortcut hand back the
+    // file:// URI instantly, no network involved. Doing that same merge
+    // here means every entry point into a downloaded song — Home included
+    // — carries a working localPath, not just Downloads/Library.
     final appDownloadedSongs = downloads
-        .map((d) => d.song)
+        .map((d) => d.localPath != null ? d.song.copyWith(localPath: d.localPath) : d.song)
         .where((s) => s.localPath == null || !scannedPaths.contains(s.localPath))
         .toList();
 

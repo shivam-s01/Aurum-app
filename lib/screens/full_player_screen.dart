@@ -39,7 +39,7 @@ import '../utils/aurum_haptics.dart';
 // after closing Full Player" hunt as home_screen.dart's
 // _kDebugFullPlayerWhiteLayer (separate flag name here only to avoid a
 // cross-file import; delete both together once the culprit is found).
-const bool _kDebugFullPlayerWhiteLayer2 = false;
+const bool _kDebugFullPlayerWhiteLayer2 = true;
 
 void _debugFlashBanner2(BuildContext? context, String message) {
   if (!_kDebugFullPlayerWhiteLayer2) return;
@@ -917,6 +917,36 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // reads as one continuous motion instead of two.
   void _completeDismissDrag() {
     if (!mounted) return;
+    // FIX ("offline song, full player swipe-down se band karo — gray/white
+    // layer atak jaata hai, kabhi kaam karta hai kabhi nahi" — production
+    // bug): this had no re-entry guard at all, unlike _PremiumContentPanel
+    // ._dismiss() right below in this same file (which correctly checks
+    // _isDismissing first). A second onVerticalDragEnd landing while the
+    // first _completeDismissDrag()'s slide-off animation was still
+    // in-flight — e.g. a slightly jittery release, or two pointer events
+    // resolving to two drag-end callbacks — started a SECOND independent
+    // animation on _springBackCtrl (reset() + forward() again), racing the
+    // first one's own whenCompleteOrCancel callback. Whichever finishes
+    // first calls Navigator.pop() and the route is gone; the other one's
+    // callback then runs against a screen that's already been popped —
+    // `mounted` can still read true for a frame or two mid-pop-animation,
+    // but `canPop()` is now false, so the SECOND callback's pop is
+    // silently skipped (see the debug log path below) with nothing left
+    // to recover it. That's exactly why this was intermittent: it only
+    // needed a second callback to land, which doesn't happen on every
+    // swipe. Guarding re-entry here means only the FIRST dismiss ever
+    // starts an animation or attempts a pop — any duplicate call while
+    // one is already in flight is simply ignored, exactly like
+    // _PremiumContentPanel._dismiss() already does for its own dismiss.
+    if (_springBackIsDismissing) {
+      if (_kDebugFullPlayerWhiteLayer2) {
+        debugPrint('[AurumDebug][FullPlayerWhiteLayer] '
+            '_completeDismissDrag() IGNORED — already dismissing '
+            '(duplicate drag-end call, the root cause of the intermittent '
+            'stuck gray layer).');
+      }
+      return;
+    }
     AurumHaptics.light();
     if (_kDebugFullPlayerWhiteLayer2) {
       debugPrint('[AurumDebug][FullPlayerWhiteLayer] _completeDismissDrag() '
@@ -966,11 +996,27 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           _debugFlashBanner2(context, 'Swipe-down finished — calling pop() now');
         }
         Navigator.of(context).pop();
-      } else if (_kDebugFullPlayerWhiteLayer2) {
-        debugPrint('[AurumDebug][FullPlayerWhiteLayer] '
-            '_completeDismissDrag(): canPop() was FALSE — pop() SKIPPED. '
-            'Screen likely stuck fully off-screen (invisible, still on stack).');
-        _debugFlashBanner2(context, 'canPop() FALSE — pop skipped, likely stuck');
+      } else {
+        // FIX (see the re-entry guard added at the top of this function
+        // for the actual root cause — a duplicate call racing the first
+        // pop). This branch is the backstop for any OTHER path that could
+        // still leave canPop() false here (e.g. something else on the
+        // stack already popped this route first): rather than silently
+        // giving up and leaving the screen slid fully off-screen but
+        // still technically mounted/on the stack — invisible, but still
+        // intercepting touches — snap it back to visible. A visible,
+        // interactive full player the user can swipe again is always
+        // recoverable; an invisible stuck route is not.
+        if (_kDebugFullPlayerWhiteLayer2) {
+          debugPrint('[AurumDebug][FullPlayerWhiteLayer] '
+              '_completeDismissDrag(): canPop() was FALSE — pop() SKIPPED. '
+              'Recovering by snapping the screen back to visible instead '
+              'of leaving it stuck off-screen.');
+          _debugFlashBanner2(context, 'canPop() FALSE — recovering to visible');
+        }
+        if (mounted) {
+          setState(() => _dragY = 0);
+        }
       }
     });
   }
