@@ -169,6 +169,57 @@ class RecommendationEngine {
   // Prevents old listening habits from dominating new ones.
   static const double _decayFactor = 0.92;
 
+  // PERF FIX ("app gets slower the longer it's used"): _plays/_completes/
+  // _skips/_lastPlayedAt/_albumPlays are keyed by song id and, before this
+  // fix, had NO size cap — every unique song ever played added one more
+  // permanent entry, for the lifetime of the app install. The doc comment
+  // above topPlayedSongIds() (Section: "Recommendation Intelligence
+  // System — home-section-facing getters") already documents the
+  // intended assumption that these "stay small (a few hundred entries
+  // even for a heavy listener)" — that was the design intent, just never
+  // actually enforced anywhere. Two compounding costs as these grew past
+  // that: (1) _saveAll() JSON-encodes every one of these maps in full on
+  // EVERY single play/complete/skip event — a bigger map means a bigger
+  // encode, every time; (2) topPlayedSongIds()/rediscoverCandidateIds()
+  // sort the entire map on every Home load — a bigger map means a slower
+  // sort, every load. Both scale directly with how long/heavily the app
+  // has been used, matching that exact symptom.
+  //
+  // Fix: after every _saveAll(), prune song-keyed maps down to this cap,
+  // dropping the least-recently-played entries first (same "oldest falls
+  // off first" pattern _homeShown already uses above). _lastPlayedAt is
+  // the natural recency signal already tracked for every song, so pruning
+  // by it means the songs kept are exactly the ones every existing
+  // getter (recentlyPlayedSongIds, rediscoverCandidateIds, etc.) actually
+  // cares about — nothing user-visible changes, only truly stale entries
+  // (a song not played in a very long time, sitting far past ~500 more
+  // recently-active songs) are dropped from tracking.
+  static const int _maxTrackedSongs = 500;
+
+  static void _pruneTrackedSongs() {
+    if (_plays.length <= _maxTrackedSongs) return;
+    // Rank every currently-tracked song id by recency. A song present in
+    // _plays but never given a _lastPlayedAt entry (shouldn't normally
+    // happen — onSongStarted always sets both together — but defensive
+    // against any future call path that doesn't) sorts as oldest so it's
+    // pruned before any song with real recency data.
+    final ids = _plays.keys.toList()
+      ..sort((a, b) =>
+          (_lastPlayedAt[a] ?? 0).compareTo(_lastPlayedAt[b] ?? 0));
+    final toDrop = ids.length - _maxTrackedSongs;
+    if (toDrop <= 0) return;
+    final dropIds = ids.take(toDrop).toSet();
+    _plays.removeWhere((k, _) => dropIds.contains(k));
+    _completes.removeWhere((k, _) => dropIds.contains(k));
+    _skips.removeWhere((k, _) => dropIds.contains(k));
+    _replays.removeWhere((k, _) => dropIds.contains(k));
+    _lastPlayedAt.removeWhere((k, _) => dropIds.contains(k));
+    // _albumPlays is keyed by album name, not song id, so it isn't pruned
+    // here — it naturally stays small (bounded by unique album count, not
+    // by every song ever played) and dropping it by song-id logic would
+    // be wrong anyway.
+  }
+
   // FIX ("Up Next: same songs come back, just format/reupload changed"):
   // generateQueries() used to be fully deterministic per song — same
   // artist name, same static mood phrase, and _pickSimilarArtist was
@@ -2399,6 +2450,10 @@ class RecommendationEngine {
   // ---------------------------------------------------------------------------
 
   static Future<void> _saveAll() async {
+    // See _pruneTrackedSongs() doc comment above — keeps the song-keyed
+    // maps below bounded before every encode+write, rather than letting
+    // them grow forever across the life of the app install.
+    _pruneTrackedSongs();
     final p = await SharedPreferences.getInstance();
     await Future.wait([
       p.setString(_kPlays,     jsonEncode(_plays)),

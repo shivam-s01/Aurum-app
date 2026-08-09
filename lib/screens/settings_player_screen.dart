@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -1357,7 +1358,15 @@ class _DurationChip extends StatelessWidget {
 }
 
 // =============================================================================
-// Equalizer Screen
+// Equalizer Screen — production redesign
+//
+// Scope note: this class was rebuilt visually/UX-wise only. All existing
+// persistence keys ('eq_preset', 'eq_band_$i', 'bass_boost',
+// 'volume_normalization'), the preset table, band frequencies, and the
+// applyAudioEffects()/bandGainsDb pipeline are unchanged — see _load(),
+// _saveValues(), and _applyPreset() below, which are the same logic as
+// before with one additive extension (bassBoostPercent, see its own doc
+// comment) layered on top, never replacing it.
 // =============================================================================
 class EqualizerScreen extends StatefulWidget {
   final NativeAudioEngine? audioEngine;
@@ -1378,8 +1387,73 @@ class EqualizerScreenState extends State<EqualizerScreen> {
     'Electronic': [5.0,4.0,1.0,0.0,-2.0,1.0,0.0,2.0,4.0,5.0],
   };
 
-  List<double> _values = List.filled(10, 0.0);
-  String _selectedPreset = 'Flat';
+  // Approximate center frequency of each band, used only to place points
+  // on the response graph (log-spaced x-axis) — purely presentational,
+  // does not feed back into the real DSP path in any way.
+  static const _bandFreqsHz = [32,64,125,250,500,1000,2000,4000,8000,16000];
+
+  // ── Isolated rebuild state ──────────────────────────────────────────────
+  // Band values, the selected preset name, and the Bass Boost percentage
+  // live in ValueNotifiers rather than plain setState fields. This is a
+  // PERFORMANCE-ONLY change — same data, same persistence keys, same
+  // applyAudioEffects() wiring below — but it means dragging a band
+  // slider or a curve node only rebuilds the small ValueListenableBuilder
+  // around that value (see build() below), instead of rebuilding the
+  // entire Equalizer screen (preset card, bass boost card, all 10 other
+  // sliders, the graph) on every drag frame. Matters for staying smooth
+  // at 60fps on the low-end devices Aurum targets, especially since the
+  // curve's CustomPaint and 10 sliders would otherwise all repaint on
+  // every single pixel of a drag.
+  final ValueNotifier<List<double>> _valuesNotifier =
+      ValueNotifier<List<double>>(List.filled(10, 0.0));
+  final ValueNotifier<String> _presetNotifier = ValueNotifier<String>('Flat');
+  final ValueNotifier<double> _bassBoostNotifier = ValueNotifier<double>(0.0);
+
+  bool _loaded = false;
+
+  List<double> get _values => _valuesNotifier.value;
+  String get _selectedPreset => _presetNotifier.value;
+  double get _bassBoostPercent => _bassBoostNotifier.value;
+
+  // Max additive dB this slider can contribute at 100%, split across the
+  // two lowest bands (sub-bass heavier than bass, same shape the existing
+  // 'Bass Boost' preset and native BASS_BOOST_SUB_BASS_EXTRA_MB/
+  // BASS_BOOST_BASS_EXTRA_MB constants already use). Kept well inside the
+  // ±12dB slider range and the native ceiling so headroom is preserved
+  // even when layered on top of an already-boosted manual curve.
+  //
+  // WHY THIS APPROACH (not a native bassBoostIntensity parameter): the
+  // native side (AurumAudioEffects.kt) already exposes
+  // android.media.audiofx.BassBoost.setStrength() internally, but only
+  // ever drives it from Premium Sound's own internal fade fraction —
+  // there is no existing MethodChannel parameter for a user-controllable
+  // bass strength, and adding one would mean touching native Kotlin AND
+  // every other call site of applyAudioEffects() across the app to keep
+  // them all passing a correct value, which is far riskier to get right
+  // than reusing a pipeline that's already fully wired end to end. The
+  // existing, already-proven-safe path this screen DOES have full
+  // control over is bandGainsDb — the same 10 values already flowing
+  // through applyAudioEffects() into the native EQ, which already
+  // double-clamps (K_CAP ceiling, then the device's real bandLevelRange)
+  // and arms the limiter whenever bass gain is added (see _ap2/_ap3 in
+  // AurumAudioEffects.kt). Scaling an additive low-frequency curve into
+  // that existing, already-safe pipeline is the smallest technically
+  // correct implementation available without native changes, and — since
+  // it's plain EQ band gain, not a second parallel effect — it can never
+  // go stale relative to what SettingsPlayerScreen's own
+  // Bass Boost/Volume Normalization toggles send, because every call
+  // site already sends bandGainsDb as part of the same call.
+  //
+  // "Must not overwrite manual EQ": _effectiveBandGains() below always
+  // starts from the user's real _values (their 10-band edits or preset,
+  // whichever they last set) and ADDS the bass curve on top only for
+  // bands 0-1 (32Hz/64Hz) — it never replaces _values itself, so turning
+  // Bass Boost back to 0% always returns exactly to the user's own curve,
+  // and a manual edit to any band (including 0/1) after setting Bass
+  // Boost simply becomes the new base that the same percentage is added
+  // on top of, same as any additive layer should behave.
+  static const double _kBassBoostSubBassMaxDb = 4.0;
+  static const double _kBassBoostBassMaxDb = 3.0;
 
   @override
   void initState() {
@@ -1387,124 +1461,742 @@ class EqualizerScreenState extends State<EqualizerScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _valuesNotifier.dispose();
+    _presetNotifier.dispose();
+    _bassBoostNotifier.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
     if (!mounted) return;
-    setState(() {
-      _selectedPreset = p.getString('eq_preset') ?? 'Flat';
-      _values = List.generate(10, (i) => p.getDouble('eq_band_$i') ?? 0.0);
-    });
+    _presetNotifier.value = p.getString('eq_preset') ?? 'Flat';
+    _valuesNotifier.value = List.generate(10, (i) => p.getDouble('eq_band_$i') ?? 0.0);
+    _bassBoostNotifier.value = (p.getDouble('eq_bass_boost_percent') ?? 0.0).clamp(0.0, 100.0);
+    setState(() => _loaded = true);
+  }
+
+  /// The 10 band values actually sent to the native engine — the user's
+  /// real _values with the Bass Boost percentage additively layered onto
+  /// bands 0-1 only. See _kBassBoostSubBassMaxDb's doc comment above for
+  /// why this never overwrites _values itself.
+  List<double> _effectiveBandGains() {
+    final values = _values;
+    final percent = _bassBoostPercent;
+    if (percent <= 0) return values;
+    final fraction = percent / 100.0;
+    final out = List<double>.from(values);
+    out[0] = (out[0] + _kBassBoostSubBassMaxDb * fraction).clamp(-12.0, 12.0);
+    out[1] = (out[1] + _kBassBoostBassMaxDb * fraction).clamp(-12.0, 12.0);
+    return out;
   }
 
   Future<void> _saveValues() async {
     final p = await SharedPreferences.getInstance();
     await p.setString('eq_preset', _selectedPreset);
+    final values = _values;
     for (int i = 0; i < 10; i++) {
-      await p.setDouble('eq_band_$i', _values[i]);
+      await p.setDouble('eq_band_$i', values[i]);
     }
-    // Bass Boost / Volume Normalization toggles live in
+    await p.setDouble('eq_bass_boost_percent', _bassBoostPercent);
+    // Bass Boost (on/off toggle) / Volume Normalization toggles live in
     // SettingsPlayerScreen's state, not here — read the persisted values
     // fresh so a custom EQ curve edit doesn't accidentally clobber them.
-    final bassBoost = p.getBool('bass_boost') ?? false;
+    final bassBoostToggle = p.getBool('bass_boost') ?? false;
     final volNorm = p.getBool('volume_normalization') ?? false;
     await widget.audioEngine?.applyAudioEffects(
-      bassBoost: bassBoost,
+      bassBoost: bassBoostToggle,
       volumeNormalization: volNorm,
-      bandGainsDb: _values,
+      bandGainsDb: _effectiveBandGains(),
     );
   }
 
   void _applyPreset(String name) {
-    setState(() {
-      _selectedPreset = name;
-      _values = List.from(_presets[name]!);
-    });
+    AurumHaptics.selection();
+    _presetNotifier.value = name;
+    _valuesNotifier.value = List<double>.from(_presets[name]!);
     _saveValues();
+  }
+
+  void _resetAll() {
+    AurumHaptics.light();
+    _bassBoostNotifier.value = 0.0;
+    _applyPreset('Flat');
+  }
+
+  void _onBassBoostChanged(double v) {
+    _bassBoostNotifier.value = v;
+  }
+
+  void _onBandChanged(int i, double v) {
+    // Mutate a fresh list (not in place) so ValueNotifier's identity
+    // check still fires a notification, then push the single changed
+    // value back.
+    final next = List<double>.from(_valuesNotifier.value);
+    next[i] = v;
+    _valuesNotifier.value = next;
+    if (_presetNotifier.value != 'Custom') _presetNotifier.value = 'Custom';
+  }
+
+  void _openPresetSheet(BuildContext context) {
+    AurumHaptics.light();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.45),
+      builder: (_) => _PresetSheet(
+        presets: _presets.keys.toList(),
+        selected: _selectedPreset,
+        onSelect: (name) {
+          Navigator.pop(context);
+          _applyPreset(name);
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+
+    if (!_loaded) {
+      // Brief loading state while the first SharedPreferences read
+      // resolves — same data source _load() always used, just an
+      // explicit frame for it instead of showing default/zeroed values
+      // for a flash before the real ones arrive.
+      return Scaffold(
+        backgroundColor: AurumTheme.bgOf(context),
+        appBar: AppBar(
+          backgroundColor: AurumTheme.bgOf(context),
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back_ios_new_rounded,
+                color: AurumTheme.textPrimaryOf(context), size: 20),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Text(l10n.spEqualizerTitle,
+              style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 18, fontWeight: FontWeight.w600)),
+        ),
+        body: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
-      appBar: _appBar(context, l10n.spEqualizerTitle, actions: [
-        TextButton(
-          onPressed: () => _applyPreset('Flat'),
-          child: Text(l10n.spEqReset, style: const TextStyle(color: AurumTheme.gold, fontSize: 14)),
+      appBar: AppBar(
+        backgroundColor: AurumTheme.bgOf(context),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              color: AurumTheme.textPrimaryOf(context), size: 20),
+          onPressed: () => Navigator.pop(context),
         ),
-      ]),
+        title: Text(l10n.spEqualizerTitle,
+            style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 18, fontWeight: FontWeight.w600)),
+        actions: [
+          // Subtle utility action, not a filled button — matches the
+          // spec's "Reset should feel like a subtle utility action, not
+          // unnecessarily large or button-like".
+          TextButton(
+            onPressed: _resetAll,
+            child: Text(l10n.spEqReset,
+                style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 14)),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
+          // ── PRESET (compact selector) ──
+          // Only this row rebuilds when the preset name changes (e.g. a
+          // band drag flips it to "Custom") — everything else below is
+          // untouched by that change.
           _sectionLabel(l10n.spEqPresets),
-          Wrap(
-            spacing: 8, runSpacing: 8,
-            children: _presets.keys.map((preset) {
-              final sel = _selectedPreset == preset;
-              return GestureDetector(
-                onTap: () => _applyPreset(preset),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: sel ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgCardOf(context),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
-                      width: sel ? 1 : 0.5,
-                    ),
-                  ),
-                  child: Text(preset,
-                      style: TextStyle(
-                        color: sel ? AurumTheme.gold : AurumTheme.textSecondaryOf(context),
-                        fontSize: 13, fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
-                      )),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 24),
-          _sectionLabel(l10n.spEq10Band),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AurumTheme.bgCardOf(context),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+          ValueListenableBuilder<String>(
+            valueListenable: _presetNotifier,
+            builder: (context, preset, _) => _PresetSelector(
+              selected: preset,
+              onTap: () => _openPresetSheet(context),
             ),
-            child: Column(
-              children: List.generate(10, (i) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(children: [
-                  SizedBox(
-                      width: 44,
-                      child: Text(_bands[i],
-                          style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11),
-                          textAlign: TextAlign.right)),
-                  Expanded(
-                    child: Slider(
-                      value: _values[i],
-                      min: -12, max: 12, divisions: 24,
-                      onChanged: (v) => setState(() {
-                        _values[i] = v;
-                        _selectedPreset = 'Custom';
-                      }),
-                      onChangeEnd: (_) => _saveValues(),
-                    ),
-                  ),
-                  SizedBox(
-                      width: 38,
-                      child: Text(
-                        '${_values[i] >= 0 ? '+' : ''}${_values[i].toStringAsFixed(0)}dB',
-                        style: TextStyle(
-                          color: _values[i] == 0 ? AurumTheme.textMutedOf(context) : AurumTheme.gold,
-                          fontSize: 10, fontWeight: FontWeight.w600,
-                        ),
-                      )),
-                ]),
-              )),
+          ),
+
+          const SizedBox(height: 22),
+
+          // ── BASS BOOST ──
+          // Only this card rebuilds while the Bass Boost slider is
+          // dragged — the 10-band list and curve never repaint for it.
+          _sectionLabel('BASS BOOST'),
+          ValueListenableBuilder<double>(
+            valueListenable: _bassBoostNotifier,
+            builder: (context, percent, _) => _BassBoostCard(
+              percent: percent,
+              onChanged: _onBassBoostChanged,
+              onChangeEnd: (_) => _saveValues(),
+            ),
+          ),
+
+          const SizedBox(height: 22),
+
+          // ── EQ RESPONSE VISUALIZATION ──
+          // Only the curve (a single lightweight CustomPaint) rebuilds
+          // when any band value OR the bass boost percentage changes —
+          // combining both notifiers with Listenable.merge so it stays
+          // accurate to what's actually being sent to the engine without
+          // needing its own separate state copy.
+          _sectionLabel(l10n.spEq10Band),
+          ListenableBuilder(
+            listenable: Listenable.merge([_valuesNotifier, _bassBoostNotifier]),
+            builder: (context, _) => _EqResponseGraph(
+              bandFreqsHz: _bandFreqsHz,
+              values: _effectiveBandGains(),
+              // Dragging a node edits the user's real band value (same
+              // path _onBandChanged/_saveValues already use for the row
+              // sliders below) — NOT the bass-boost-inflated display
+              // value above. The graph shows the effective (bass-boost-
+              // included) curve so it's an honest preview of what's
+              // actually being sent to the engine, but a drag always
+              // writes back to the same underlying _values the sliders
+              // edit, so Bass Boost's contribution is never accidentally
+              // baked into a manual band value.
+              onDragBand: _onBandChanged,
+              onDragEnd: (_) => _saveValues(),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // ── BAND CONTROLS ──
+          // Each row listens only to the shared values list (a single
+          // ValueListenableBuilder covering all 10 rows) — still far
+          // cheaper than the old design since this whole block no longer
+          // sits inside the same setState as the preset card, bass boost
+          // card, and curve above.
+          ValueListenableBuilder<List<double>>(
+            valueListenable: _valuesNotifier,
+            builder: (context, values, _) => _EqBandList(
+              bands: _bands,
+              values: values,
+              onChanged: _onBandChanged,
+              onChangeEnd: (_) => _saveValues(),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Compact preset selector row — tapping opens _PresetSheet. Replaces the
+// old full-width Wrap of pills with a single, calmer row that still shows
+// the active preset name at a glance.
+// ─────────────────────────────────────────────────────────────────────────
+class _PresetSelector extends StatelessWidget {
+  final String selected;
+  final VoidCallback onTap;
+  const _PresetSelector({required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return AurumPressable(
+      scaleAmount: 0.98,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                selected,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Icon(Icons.keyboard_arrow_down_rounded,
+                color: AurumTheme.textMutedOf(context), size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Bottom sheet listing every existing preset (same table, same names) —
+// purely a presentation change from the old inline Wrap of pills.
+class _PresetSheet extends StatelessWidget {
+  final List<String> presets;
+  final String selected;
+  final ValueChanged<String> onSelect;
+  const _PresetSheet({
+    required this.presets,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                color: AurumTheme.dividerOf(context),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 4),
+              child: Row(
+                children: [
+                  Text('PRESET',
+                      style: TextStyle(
+                          color: AurumTheme.accentOf(context),
+                          fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            ...presets.map((name) {
+              final sel = name == selected;
+              return InkWell(
+                onTap: () => onSelect(name),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(name,
+                            style: TextStyle(
+                              color: sel ? AurumTheme.accentOf(context) : AurumTheme.textPrimaryOf(context),
+                              fontSize: 15,
+                              fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
+                            )),
+                      ),
+                      if (sel)
+                        Icon(Icons.check_rounded, color: AurumTheme.accentOf(context), size: 18),
+                    ],
+                  ),
+                ),
+              );
+            }),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Bass Boost — single refined slider, 0-100%.
+// ─────────────────────────────────────────────────────────────────────────
+class _BassBoostCard extends StatelessWidget {
+  final double percent;
+  final ValueChanged<double> onChanged;
+  final ValueChanged<double> onChangeEnd;
+  const _BassBoostCard({
+    required this.percent,
+    required this.onChanged,
+    required this.onChangeEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = AurumTheme.accentOf(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      decoration: BoxDecoration(
+        color: AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Add extra low-end punch',
+                  style: TextStyle(
+                    color: AurumTheme.textMutedOf(context),
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+              Text(
+                '${percent.round()}%',
+                style: TextStyle(
+                  color: percent > 0 ? accent : AurumTheme.textMutedOf(context),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderThemeData(
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7, elevation: 1),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+              activeTrackColor: accent,
+              inactiveTrackColor: AurumTheme.dividerOf(context),
+              thumbColor: accent,
+              overlayColor: accent.withOpacity(0.12),
+            ),
+            child: Slider(
+              value: percent,
+              min: 0, max: 100,
+              onChanged: onChanged,
+              onChangeEnd: onChangeEnd,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// EQ response visualization — a lightweight CustomPainter drawing the
+// ACTUAL current band gains as a smooth curve over a log-frequency axis
+// (32Hz-16kHz) and a ±12dB grid. No decorative/fake curve — every point
+// is derived directly from `values`, the same array being sent to the
+// native engine. RepaintBoundary + a tight shouldRepaint keeps this cheap
+// even though it redraws on every band-slider drag.
+//
+// Interactive: dragging near a node updates that band's real value via
+// onDragBand — same callback/persistence path a manual slider drag
+// already uses (EqualizerScreenState._onBandChanged → _saveValues()), so
+// dragging on the curve and dragging the matching row slider are two
+// input paths into the exact same state, never a separate shadow value.
+// ─────────────────────────────────────────────────────────────────────────
+class _EqResponseGraph extends StatefulWidget {
+  final List<int> bandFreqsHz;
+  final List<double> values;
+  final void Function(int index, double value)? onDragBand;
+  final void Function(int index)? onDragEnd;
+  const _EqResponseGraph({
+    required this.bandFreqsHz,
+    required this.values,
+    this.onDragBand,
+    this.onDragEnd,
+  });
+
+  @override
+  State<_EqResponseGraph> createState() => _EqResponseGraphState();
+}
+
+class _EqResponseGraphState extends State<_EqResponseGraph> {
+  int? _activeBand;
+
+  static const double _minDb = -12;
+  static const double _maxDb = 12;
+
+  double _xFor(int freqHz, double width) {
+    final minLog = math.log(32);
+    final maxLog = math.log(16000);
+    final t = (math.log(freqHz) - minLog) / (maxLog - minLog);
+    return t.clamp(0.0, 1.0) * width;
+  }
+
+  /// Nearest band index to a horizontal touch position, so a drag
+  /// anywhere reasonably close to a node grabs that band rather than
+  /// requiring a pixel-perfect hit — small touch targets on a dense
+  /// 10-node graph would otherwise be hard to grab accurately.
+  int _nearestBandIndex(double touchX, double width) {
+    int best = 0;
+    double bestDist = double.infinity;
+    for (int i = 0; i < widget.bandFreqsHz.length; i++) {
+      final d = (_xFor(widget.bandFreqsHz[i], width) - touchX).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  double _dbForY(double y, double height) {
+    final t = 1.0 - (y / height);
+    return (_minDb + t.clamp(0.0, 1.0) * (_maxDb - _minDb)).clamp(_minDb, _maxDb);
+  }
+
+  void _handleTouch(Offset local, Size size, {required bool isEnd}) {
+    if (widget.onDragBand == null) return;
+    if (isEnd) {
+      if (_activeBand != null) widget.onDragEnd?.call(_activeBand!);
+      setState(() => _activeBand = null);
+      return;
+    }
+    final band = _activeBand ?? _nearestBandIndex(local.dx, size.width);
+    final db = _dbForY(local.dy, size.height);
+    setState(() => _activeBand = band);
+    widget.onDragBand!(band, (db * 2).round() / 2); // snap to 0.5dB, matches row sliders' divisions
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = AurumTheme.accentOf(context);
+    return RepaintBoundary(
+      child: Container(
+        height: 120,
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final size = Size(constraints.maxWidth, constraints.maxHeight);
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanStart: widget.onDragBand == null
+                  ? null
+                  : (d) => _handleTouch(d.localPosition, size, isEnd: false),
+              onPanUpdate: widget.onDragBand == null
+                  ? null
+                  : (d) => _handleTouch(d.localPosition, size, isEnd: false),
+              onPanEnd: widget.onDragBand == null
+                  ? null
+                  : (_) => _handleTouch(Offset.zero, size, isEnd: true),
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: _EqCurvePainter(
+                  freqs: widget.bandFreqsHz,
+                  values: widget.values,
+                  gridColor: AurumTheme.dividerOf(context),
+                  curveColor: accent,
+                  isDark: isDark,
+                  activeBand: _activeBand,
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _EqCurvePainter extends CustomPainter {
+  final List<int> freqs;
+  final List<double> values;
+  final Color gridColor;
+  final Color curveColor;
+  final bool isDark;
+  final int? activeBand;
+
+  _EqCurvePainter({
+    required this.freqs,
+    required this.values,
+    required this.gridColor,
+    required this.curveColor,
+    required this.isDark,
+    this.activeBand,
+  });
+
+  static const double _minDb = -12;
+  static const double _maxDb = 12;
+
+  double _xFor(int freqHz, double width) {
+    // Log-scaled x-axis: 32Hz-16kHz spans a 9-octave range (log2(16000/32)),
+    // matching how real graphic EQs lay out frequency, not linear Hz.
+    final minLog = math.log(32);
+    final maxLog = math.log(16000);
+    final t = (math.log(freqHz) - minLog) / (maxLog - minLog);
+    return t.clamp(0.0, 1.0) * width;
+  }
+
+  double _yFor(double db, double height) {
+    final t = (db - _minDb) / (_maxDb - _minDb);
+    return height - t.clamp(0.0, 1.0) * height;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // Grid: 0dB center line (slightly stronger) + two subtle guide lines
+    // above/below. Kept minimal per spec — no dense grid, no labels
+    // cluttering the curve itself.
+    final gridPaint = Paint()
+      ..color = gridColor
+      ..strokeWidth = 1;
+    final zeroPaint = Paint()
+      ..color = gridColor.withOpacity(isDark ? 0.9 : 1.0)
+      ..strokeWidth = 1;
+    canvas.drawLine(Offset(0, h / 2), Offset(w, h / 2), zeroPaint);
+    canvas.drawLine(Offset(0, h * 0.15), Offset(w, h * 0.15), gridPaint);
+    canvas.drawLine(Offset(0, h * 0.85), Offset(w, h * 0.85), gridPaint);
+
+    // Build the curve through each band's actual current value — this IS
+    // the real EQ state, not a decorative approximation.
+    final points = <Offset>[];
+    for (int i = 0; i < freqs.length && i < values.length; i++) {
+      points.add(Offset(_xFor(freqs[i], w), _yFor(values[i], h)));
+    }
+    if (points.isEmpty) return;
+
+    // Smooth the polyline through the band points with a simple Catmull-
+    // Rom-style spline so it reads as a continuous frequency response
+    // rather than a jagged connect-the-dots line — still 100% derived
+    // from the real values above, purely a rendering smoothing pass.
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (int i = 0; i < points.length - 1; i++) {
+      final p0 = points[i == 0 ? i : i - 1];
+      final p1 = points[i];
+      final p2 = points[i + 1];
+      final p3 = points[i + 2 < points.length ? i + 2 : i + 1];
+      final cp1 = Offset(p1.dx + (p2.dx - p0.dx) / 6, p1.dy + (p2.dy - p0.dy) / 6);
+      final cp2 = Offset(p2.dx - (p3.dx - p1.dx) / 6, p2.dy - (p3.dy - p1.dy) / 6);
+      path.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, p2.dx, p2.dy);
+    }
+
+    final curvePaint = Paint()
+      ..color = curveColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(path, curvePaint);
+
+    // Node dots at each band's real position — doubles as the visual
+    // anchor for the "which frequency am I looking at" read. The node
+    // currently being dragged (if any) draws slightly larger with a soft
+    // halo ring so there's clear feedback on which one is active —
+    // still just two cheap drawCircle calls, no gradients/glow.
+    final nodePaint = Paint()..color = curveColor;
+    for (int i = 0; i < points.length; i++) {
+      final isActive = i == activeBand;
+      if (isActive) {
+        final haloPaint = Paint()..color = curveColor.withOpacity(0.18);
+        canvas.drawCircle(points[i], 8, haloPaint);
+      }
+      canvas.drawCircle(points[i], isActive ? 3.5 : 2.5, nodePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_EqCurvePainter old) =>
+      !_listEquals(old.values, values) ||
+      old.gridColor != gridColor ||
+      old.curveColor != curveColor ||
+      old.isDark != isDark ||
+      old.activeBand != activeBand;
+
+  static bool _listEquals(List<double> a, List<double> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Compact 10-band list — same bands/frequencies/±12dB range/persistence
+// as before, laid out tighter with precise one-decimal dB formatting.
+// ─────────────────────────────────────────────────────────────────────────
+class _EqBandList extends StatelessWidget {
+  final List<String> bands;
+  final List<double> values;
+  final void Function(int index, double value) onChanged;
+  final void Function(double value) onChangeEnd;
+  const _EqBandList({
+    required this.bands,
+    required this.values,
+    required this.onChanged,
+    required this.onChangeEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = AurumTheme.accentOf(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+      ),
+      child: Column(
+        children: List.generate(bands.length, (i) {
+          final v = values[i];
+          return SizedBox(
+            height: 34,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 48,
+                  child: Text(
+                    bands[i],
+                    style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11.5),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 2.5,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6, elevation: 1),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                      activeTrackColor: v == 0 ? AurumTheme.textMutedOf(context) : accent,
+                      inactiveTrackColor: AurumTheme.dividerOf(context),
+                      thumbColor: v == 0 ? AurumTheme.textMutedOf(context) : accent,
+                      overlayColor: accent.withOpacity(0.12),
+                    ),
+                    child: Slider(
+                      value: v,
+                      min: -12, max: 12, divisions: 48, // 0.5dB steps for finer control
+                      onChanged: (val) => onChanged(i, val),
+                      onChangeEnd: onChangeEnd,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 50,
+                  child: Text(
+                    '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: v == 0 ? AurumTheme.textMutedOf(context) : accent,
+                      fontSize: 11, fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
       ),
     );
   }

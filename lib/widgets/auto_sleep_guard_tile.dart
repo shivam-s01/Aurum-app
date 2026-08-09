@@ -107,7 +107,17 @@ class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
             color: AurumTheme.gold.withOpacity(0.1),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: const Icon(Icons.battery_saver_rounded, color: AurumTheme.gold, size: 18),
+          // FIX ("Auto Sleep Guard looks copy-pasted from Battery Saver"):
+          // this used to be Icons.battery_saver_rounded — the exact same
+          // icon Battery Saver Mode's own tile/sheet use (see
+          // battery_saver_mode_tile.dart). Auto Sleep Guard pauses
+          // playback after inactivity, a completely different concept
+          // from battery-driven behavior; sharing the battery icon made
+          // the two features visually indistinguishable at a glance, one
+          // of the two clearest "these were built from the same template
+          // and never differentiated" tells. bedtime_rounded (a moon/
+          // sleep glyph) matches what this feature actually represents.
+          child: const Icon(Icons.bedtime_rounded, color: AurumTheme.gold, size: 18),
         ),
         title: Text(
           l10n.asgTileTitle,
@@ -248,7 +258,9 @@ class _AutoSleepGuardSheetState extends State<_AutoSleepGuardSheet> {
                     gradient: AurumTheme.goldGradient,
                     borderRadius: BorderRadius.circular(11),
                   ),
-                  child: const Icon(Icons.battery_saver_rounded, color: Colors.black, size: 20),
+                  // See the tile leading-icon FIX comment above — same
+                  // battery-icon mixup, same fix, here in the sheet header.
+                  child: const Icon(Icons.bedtime_rounded, color: Colors.black, size: 20),
                 ),
                 const SizedBox(width: 12),
                 Text(

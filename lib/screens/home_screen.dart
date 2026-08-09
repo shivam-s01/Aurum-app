@@ -2202,14 +2202,34 @@ class _StaggeredSectionState extends State<_StaggeredSection>
     // far this session, not raw list position — so a late-arriving section
     // in a list that already has 15 cached entries doesn't inherit a huge
     // index-based delay it doesn't need.
+    //
+    // PERF FIX ("cold start still laggy for the first 5-15s while
+    // scrolling"): on a genuine first-ever launch (empty cache), ALL
+    // 15-19 sections are "new" at once, each scheduling its own
+    // Future.delayed + AnimationController.forward() — up to ~1.8s of
+    // staggered timers whose forward() calls land back-to-back exactly
+    // while the user is already scrolling. Every one of those is a real
+    // animating widget competing for frame time on top of normal scroll
+    // work, which is exactly the jank window being reported. Sections
+    // past a small cap now skip the entrance animation and simply appear
+    // — by the time 6+ sections have streamed in the user is already
+    // scrolling past the earlier ones and would never see a slow-arriving
+    // section's fade play out anyway, so this trades an invisible cosmetic
+    // flourish for real scroll smoothness during the one window that
+    // actually matters.
+    const maxAnimatedSections = 6;
     if (_seenSections.contains(widget.sectionId)) {
       _ctrl.value = 1.0;
     } else {
       final newSectionOrder = _seenSections.length;
       _seenSections.add(widget.sectionId);
-      Future.delayed(Duration(milliseconds: 50 + newSectionOrder * 70), () {
-        if (mounted) _ctrl.forward();
-      });
+      if (newSectionOrder >= maxAnimatedSections) {
+        _ctrl.value = 1.0;
+      } else {
+        Future.delayed(Duration(milliseconds: 50 + newSectionOrder * 70), () {
+          if (mounted) _ctrl.forward();
+        });
+      }
     }
   }
 
