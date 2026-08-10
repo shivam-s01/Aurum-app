@@ -2315,9 +2315,9 @@ class ApiService {
       'aap', 'aaye', 'aaya', 'aayi', 'hai', 'hain', 'mai', 'main', 'mein',
       'mera', 'meri', 'mere', 'tera', 'teri', 'tere', 'uska', 'uski', 'uske',
       'iska', 'iski', 'iske', 'hum', 'humara', 'tum', 'tumhara', 'aur',
-      'nahi', 'nahin', 'kya', 'kar', 'kya', 'kyun', 'kyu', 'kaise', 'kaisi',
+      'nahi', 'nahin', 'kya', 'kar', 'kyun', 'kyu', 'kaise', 'kaisi',
       'kaisa', 'jab', 'tab', 'yeh', 'woh', 'wo', 'ye', 'ka', 'ki', 'ke',
-      'ko', 'se', 'ki', 'hi', 'bhi', 'toh', 'to', 'na', 'wala', 'wali',
+      'ko', 'se', 'hi', 'bhi', 'toh', 'to', 'na', 'wala', 'wali',
       'wale', 'sab', 'sabhi', 'kisi', 'koi', 'kuch', 'ab', 'phir', 'thi',
       'tha', 'the', 'hoga', 'hogi', 'hoye', 'hoja', 'jaye', 'jaa', 'jao',
     };
