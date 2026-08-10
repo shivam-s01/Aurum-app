@@ -612,13 +612,16 @@ class _SearchScreenState extends State<SearchScreen>
       // but it's only ever allowed to fill _relatedResults (the "more
       // from this category" section below the direct matches).
       // _results itself only takes the deep pass's direct list when the
-      // live pass came up genuinely short — same 8-real-Saavn-hits bar
-      // as before — otherwise it stays the frozen live snapshot,
-      // untouched, exactly as it looked before enter was pressed.
-      final liveSaavnCount = liveSnapshotBeforeDeepSearch
-          .where((s) => s.source != SongSource.youtube)
-          .length;
-      final keepLiveSnapshot = liveSaavnCount >= 8;
+      // live pass came up genuinely short — otherwise it stays the frozen
+      // live snapshot, untouched, exactly as it looked before enter was
+      // pressed.
+      // YT-PRIMARY FIX: this used to count ONLY Saavn hits (Saavn was
+      // primary, so a Saavn-thin live snapshot correctly meant "not good
+      // enough yet"). Now that YT leads, counting Saavn alone would keep
+      // freezing snapshots as "too thin" even when YT already filled them
+      // well — count every real hit (YT included) against the same bar.
+      final liveHitCount = liveSnapshotBeforeDeepSearch.length;
+      final keepLiveSnapshot = liveHitCount >= 8;
 
       if (keepLiveSnapshot) {
         if (!mounted) return;
