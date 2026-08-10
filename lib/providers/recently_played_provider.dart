@@ -21,6 +21,7 @@
 //   All new methods are additive. Nothing removed.
 // =============================================================================
 
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
