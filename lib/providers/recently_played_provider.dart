@@ -34,7 +34,15 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   static const _boxName         = AppConstants.boxRecentlyPlayed;
   static const _kLastDecayDate  = 'aurum_rec_last_decay_date';
 
-  late Box<Map> _box;
+  // PERF/SAFETY FIX (cold-start race): see followed_artists_provider.dart's
+  // matching comment. history/playedIdSet/topArtists/etc already read the
+  // in-memory _history/_playedAtById state (safe, defaults to empty), but
+  // _persistHistory/_clearHistory touch _box directly — nullable +
+  // Completer keeps those crash-safe too. The window before init()
+  // finishes is small in practice but never fully zero, so it's
+  // guarded regardless.
+  Box<Map>? _box;
+  final Completer<Box<Map>> _boxReady = Completer<Box<Map>>();
   List<Song>    _history = [];
   // Tracks when each song currently in _history was (re-)played, so disk
   // order can be reconstructed independent of Hive's key iteration order.
@@ -60,7 +68,10 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   Future<void> init() async {
-    _box = await Hive.openBox<Map>(_boxName);
+    if (_boxReady.isCompleted) return;
+    final box = await Hive.openBox<Map>(_boxName);
+    _box = box;
+    _boxReady.complete(box);
     // ROOT FIX: ordering must not depend on Hive's internal key iteration
     // order — that only reflects insertion order when every write is a
     // full clear+rewrite-in-order, which the new diff-based persistence
@@ -68,7 +79,7 @@ class RecentlyPlayedProvider extends ChangeNotifier {
     // each stored entry carries its own `_playedAt` timestamp (added at
     // write time), and history order is reconstructed by sorting on that
     // — correct regardless of what order Hive happens to iterate keys in.
-    final entries = _box.values.map((m) {
+    final entries = box.values.map((m) {
       final map = Map<String, dynamic>.from(m);
       final playedAtMs = map['_playedAt'] as int?;
       return (
@@ -194,15 +205,16 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   // was already saved.
   // ---------------------------------------------------------------------------
   Future<void> _persistHistory() async {
+    final box = _box ?? await _boxReady.future;
     final keepIds = _history.map((s) => s.id).toSet();
-    final staleKeys = _box.keys.where((k) => !keepIds.contains(k)).toList();
+    final staleKeys = box.keys.where((k) => !keepIds.contains(k)).toList();
     for (final key in staleKeys) {
-      await _box.delete(key);
+      await box.delete(key);
     }
     for (final s in _history) {
       final json = s.toJson();
       json['_playedAt'] = _playedAtById[s.id] ?? DateTime.now().millisecondsSinceEpoch;
-      await _box.put(s.id, json);
+      await box.put(s.id, json);
     }
   }
 
@@ -281,7 +293,8 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   Future<void> _clearHistory() async {
     _history.clear();
     _playedAtById.clear();
-    await _box.clear();
+    final box = _box ?? await _boxReady.future;
+    await box.clear();
     notifyListeners();
   }
 

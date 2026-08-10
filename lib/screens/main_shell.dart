@@ -275,18 +275,22 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       // attached/resumed Activity — calling it too early was the likely
       // source of a crash-on-launch some devices hit.
       //
-      // BUGFIX: this used to safely run only after the splash animation
-      // had finished, because MainShell itself only mounted at that
-      // point. Since the splash fix that makes MainShell mount from
-      // frame 1 (so home-feed data starts loading immediately), this
-      // block would otherwise now fire while the splash is still
-      // visually playing on top — and worse, the Activity may not be
-      // in the exact same attached/resumed state this early, reviving
-      // the original crash risk. Delaying by the splash's own duration
-      // restores the original real-world timing (and the safety
-      // reasoning behind it) without holding back the home-feed loading
-      // that actually needed to move earlier.
-      await Future.delayed(const Duration(milliseconds: 2700));
+      // PERF FIX (2026-08 — "app takes ~30s after splash before it feels
+      // smooth"): this used to add an extra hardcoded 2700ms
+      // Future.delayed here, on top of the splash's own 2.7s animation,
+      // under the assumption that MainShell mounted from frame 1
+      // (alongside the splash) and therefore needed its own separate
+      // wait before the Activity was safely resumed enough for
+      // permission_handler. That assumption is stale: SplashScreen
+      // (see its SEQUENCING comment) now only builds/mounts widget.child
+      // — i.e. this MainShell — AFTER its own animation has already
+      // fully completed. By the time this initState even runs, the
+      // splash is long gone and the Activity has been resumed and
+      // interactive for a full frame already. The extra 2700ms here was
+      // pure dead time stacked on top of the splash's own 2.7s, reading
+      // to the user as "smooth for a moment, then ~30s more of stutter"
+      // while update-check/permissions/sync all sat idle waiting on a
+      // timer that no longer protected against anything.
       if (!mounted) return;
 
       final askedPermissions = prefs.getBool('asked_launch_permissions') ?? false;

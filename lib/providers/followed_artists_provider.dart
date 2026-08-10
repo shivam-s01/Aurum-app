@@ -13,32 +13,53 @@ import '../services/sync_service.dart';
 
 class FollowedArtistsProvider extends ChangeNotifier {
   static const _boxName = 'aurum_followed_artists';
-  late Box<Map> _box;
+  // PERF/SAFETY FIX (cold-start race): _box used to be `late Box<Map>`,
+  // populated only once init()'s `await Hive.openBox` completes. Every
+  // read below (isFollowing, followed, toggleFollow) touched _box
+  // directly with no guard — a widget (song_tile.dart, artist_screen.dart)
+  // reading isFollowing() in the window between "provider constructed"
+  // and "box actually open" would hit a LateInitializationError and
+  // crash. Nullable + null-safe reads below close that window: any
+  // access before the box opens now returns a safe empty/false default
+  // instead of throwing, exactly matching what _isLoading == true
+  // already signals to callers.
+  Box<Map>? _box;
   bool _isLoading = true;
 
   bool get isLoading => _isLoading;
 
-  List<Map<String, dynamic>> get followed => _box.values
+  List<Map<String, dynamic>> get followed => (_box?.values ?? const [])
       .map((m) => Map<String, dynamic>.from(m))
       .toList()
       .reversed
       .toList();
 
+  // Lets any mutation method await the box being ready instead of
+  // crashing or silently no-op-ing if it's ever called in the (now
+  // very small, but non-zero) window before init() finishes — e.g. a
+  // user tapping Follow on ArtistScreen in the first instant after a
+  // cold start. init() itself already assigns _box directly rather
+  // than going through this, so there's no self-deadlock.
+  final Completer<Box<Map>> _boxReady = Completer<Box<Map>>();
+
   Future<void> init() async {
+    if (_boxReady.isCompleted) return;
     _box = await Hive.openBox<Map>(_boxName);
+    _boxReady.complete(_box);
     _isLoading = false;
     notifyListeners();
   }
 
-  bool isFollowing(String artistId) => _box.containsKey(artistId);
+  bool isFollowing(String artistId) => _box?.containsKey(artistId) ?? false;
 
   Future<void> toggleFollow({
     required String artistId,
     required String name,
     required String imageUrl,
   }) async {
+    final box = _box ?? await _boxReady.future;
     if (isFollowing(artistId)) {
-      await _box.delete(artistId);
+      await box.delete(artistId);
       unawaited(SyncService.instance.pushUnfollowedArtist(artistId));
     } else {
       final data = {
@@ -46,7 +67,7 @@ class FollowedArtistsProvider extends ChangeNotifier {
         'name': name,
         'imageUrl': imageUrl,
       };
-      await _box.put(artistId, data);
+      await box.put(artistId, data);
       unawaited(SyncService.instance.pushFollowedArtist(data));
     }
     notifyListeners();
@@ -61,7 +82,8 @@ class FollowedArtistsProvider extends ChangeNotifier {
     required String imageUrl,
   }) async {
     if (isFollowing(artistId)) return;
-    await _box.put(artistId, {
+    final box = _box ?? await _boxReady.future;
+    await box.put(artistId, {
       'id': artistId,
       'name': name,
       'imageUrl': imageUrl,
@@ -71,7 +93,8 @@ class FollowedArtistsProvider extends ChangeNotifier {
 
   /// Wipes all followed artists — local only, called on sign-out.
   Future<void> clearAll() async {
-    await _box.clear();
+    final box = _box ?? await _boxReady.future;
+    await box.clear();
     notifyListeners();
   }
 }

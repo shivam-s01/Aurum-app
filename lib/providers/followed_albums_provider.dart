@@ -15,24 +15,31 @@ import '../services/sync_service.dart';
 
 class FollowedAlbumsProvider extends ChangeNotifier {
   static const _boxName = 'aurum_followed_albums';
-  late Box<Map> _box;
+  // PERF/SAFETY FIX (cold-start race): see followed_artists_provider.dart's
+  // matching comment — same reasoning applies here. Nullable _box + a
+  // Completer let every read/write stay crash-safe even in the (now
+  // shorter, but non-zero) window before init()'s Hive.openBox resolves.
+  Box<Map>? _box;
   bool _isLoading = true;
+  final Completer<Box<Map>> _boxReady = Completer<Box<Map>>();
 
   bool get isLoading => _isLoading;
 
-  List<Map<String, dynamic>> get followed => _box.values
+  List<Map<String, dynamic>> get followed => (_box?.values ?? const [])
       .map((m) => Map<String, dynamic>.from(m))
       .toList()
       .reversed
       .toList();
 
   Future<void> init() async {
+    if (_boxReady.isCompleted) return;
     _box = await Hive.openBox<Map>(_boxName);
+    _boxReady.complete(_box);
     _isLoading = false;
     notifyListeners();
   }
 
-  bool isFollowing(String albumId) => _box.containsKey(albumId);
+  bool isFollowing(String albumId) => _box?.containsKey(albumId) ?? false;
 
   Future<void> toggleFollow({
     required String albumId,
@@ -46,8 +53,9 @@ class FollowedAlbumsProvider extends ChangeNotifier {
     bool isMix = false,
     List<Song> songs = const [],
   }) async {
+    final box = _box ?? await _boxReady.future;
     if (isFollowing(albumId)) {
-      await _box.delete(albumId);
+      await box.delete(albumId);
       if (!isMix) {
         unawaited(SyncService.instance.pushUnfollowedAlbum(albumId));
       }
@@ -59,7 +67,7 @@ class FollowedAlbumsProvider extends ChangeNotifier {
         'isMix': isMix,
         if (isMix) 'songs': jsonEncode(songs.map((s) => s.toJson()).toList()),
       };
-      await _box.put(albumId, data);
+      await box.put(albumId, data);
       if (!isMix) {
         unawaited(SyncService.instance.pushFollowedAlbum(data));
       }
@@ -70,7 +78,7 @@ class FollowedAlbumsProvider extends ChangeNotifier {
   /// Rehydrates the snapshotted song list for a saved mix entry.
   /// Returns an empty list for real albums (those re-fetch by id instead).
   List<Song> songsFor(String albumId) {
-    final raw = _box.get(albumId);
+    final raw = _box?.get(albumId);
     if (raw == null) return [];
     final data = Map<String, dynamic>.from(raw);
     if (data['isMix'] != true) return [];
@@ -91,7 +99,8 @@ class FollowedAlbumsProvider extends ChangeNotifier {
     required String artworkUrl,
   }) async {
     if (isFollowing(albumId)) return;
-    await _box.put(albumId, {
+    final box = _box ?? await _boxReady.future;
+    await box.put(albumId, {
       'id': albumId,
       'name': name,
       'artworkUrl': artworkUrl,
@@ -101,7 +110,8 @@ class FollowedAlbumsProvider extends ChangeNotifier {
 
   /// Wipes all followed albums — local only, called on sign-out.
   Future<void> clearAll() async {
-    await _box.clear();
+    final box = _box ?? await _boxReady.future;
+    await box.clear();
     notifyListeners();
   }
 }

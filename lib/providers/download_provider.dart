@@ -31,7 +31,14 @@ class DownloadProvider extends ChangeNotifier {
   final NativeAudioEngine _engine;
   DownloadProvider(this._engine);
 
-  late Box<Map> _box;
+  // PERF/SAFETY FIX (cold-start race): see followed_artists_provider.dart's
+  // matching comment. isDownloaded/isDownloading/statusOf/offlineSongFor
+  // already read the in-memory _items map (safe, defaults to {}), but
+  // _persist/retry/deleteDownload touch _box directly — nullable +
+  // Completer keeps those crash-safe too — this window is small in
+  // practice but never fully zero, so it's guarded regardless.
+  Box<Map>? _box;
+  final Completer<Box<Map>> _boxReady = Completer<Box<Map>>();
   final Map<String, DownloadItem> _items = {}; // keyed by song.id
   final Map<String, CancelToken> _cancelTokens = {};
 
@@ -65,9 +72,11 @@ class DownloadProvider extends ChangeNotifier {
 
   Future<void> init() async {
     if (_initialized) return;
-    _box = await Hive.openBox<Map>(_boxName);
+    final box = await Hive.openBox<Map>(_boxName);
+    _box = box;
+    _boxReady.complete(box);
 
-    for (final raw in _box.values) {
+    for (final raw in box.values) {
       try {
         final item = DownloadItem.fromJson(Map<String, dynamic>.from(raw));
         // Any download that was mid-flight when the app died is now stale.
@@ -110,7 +119,8 @@ class DownloadProvider extends ChangeNotifier {
     // instead of failing completely silently; the in-memory state still
     // reflects the truth for the current session either way.
     try {
-      await _box.put(item.song.id, item.toJson());
+      final box = _box ?? await _boxReady.future;
+      await box.put(item.song.id, item.toJson());
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[Aurum] DownloadProvider: failed to persist ${item.song.id}: $e');
@@ -381,7 +391,8 @@ class DownloadProvider extends ChangeNotifier {
 
   Future<void> retry(Song song) async {
     _items.remove(song.id);
-    await _box.delete(song.id);
+    final box = _box ?? await _boxReady.future;
+    await box.delete(song.id);
     await download(song);
   }
 
@@ -392,7 +403,8 @@ class DownloadProvider extends ChangeNotifier {
       if (await f.exists()) await f.delete();
     }
     _items.remove(songId);
-    await _box.delete(songId);
+    final box = _box ?? await _boxReady.future;
+    await box.delete(songId);
     await NotificationService.instance.cancelProgress(songId);
     notifyListeners();
   }

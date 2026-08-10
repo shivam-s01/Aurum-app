@@ -20,25 +20,33 @@ import '../models/song.dart';
 
 class SavedMixesProvider extends ChangeNotifier {
   static const _boxName = 'aurum_saved_mixes';
-  late Box<String> _box;
+  // PERF/SAFETY FIX (cold-start race): see followed_artists_provider.dart's
+  // matching comment — nullable _box + a Completer keep every read/write
+  // crash-safe in the (now shorter, but non-zero) window before init()'s
+  // Hive.openBox resolves, now that all 7 Hive-backed providers open
+  // concurrently instead of one after another.
+  Box<String>? _box;
   bool _isLoading = true;
+  final Completer<Box<String>> _boxReady = Completer<Box<String>>();
 
   bool get isLoading => _isLoading;
 
   /// Saved mixes, most-recently-saved first.
-  List<Map<String, dynamic>> get saved => _box.values
+  List<Map<String, dynamic>> get saved => (_box?.values ?? const [])
       .map((raw) => Map<String, dynamic>.from(jsonDecode(raw) as Map))
       .toList()
       .reversed
       .toList();
 
   Future<void> init() async {
+    if (_boxReady.isCompleted) return;
     _box = await Hive.openBox<String>(_boxName);
+    _boxReady.complete(_box);
     _isLoading = false;
     notifyListeners();
   }
 
-  bool isSaved(String mixId) => _box.containsKey(mixId);
+  bool isSaved(String mixId) => _box?.containsKey(mixId) ?? false;
 
   Future<void> toggleSave({
     required String mixId,
@@ -47,8 +55,9 @@ class SavedMixesProvider extends ChangeNotifier {
     required String emoji,
     required List<Song> songs,
   }) async {
+    final box = _box ?? await _boxReady.future;
     if (isSaved(mixId)) {
-      await _box.delete(mixId);
+      await box.delete(mixId);
     } else {
       final data = {
         'id': mixId,
@@ -60,14 +69,14 @@ class SavedMixesProvider extends ChangeNotifier {
         // hitting the network every time the user reopens a saved mix.
         'songs': songs.map((s) => s.toJson()).toList(),
       };
-      await _box.put(mixId, jsonEncode(data));
+      await box.put(mixId, jsonEncode(data));
     }
     notifyListeners();
   }
 
   /// Rehydrates the stored song list for a saved mix back into [Song]s.
   List<Song> songsFor(String mixId) {
-    final raw = _box.get(mixId);
+    final raw = _box?.get(mixId);
     if (raw == null) return [];
     final data = Map<String, dynamic>.from(jsonDecode(raw) as Map);
     final list = (data['songs'] as List?) ?? [];
@@ -78,7 +87,8 @@ class SavedMixesProvider extends ChangeNotifier {
 
   /// Wipes all saved mixes — local only, called on sign-out.
   Future<void> clearAll() async {
-    await _box.clear();
+    final box = _box ?? await _boxReady.future;
+    await box.clear();
     notifyListeners();
   }
 }

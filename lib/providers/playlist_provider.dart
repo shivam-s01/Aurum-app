@@ -111,7 +111,14 @@ class AurumPlaylist {
 
 class PlaylistProvider extends ChangeNotifier {
   static const _boxName = 'aurum_playlists';
-  late Box<Map> _box;
+  // PERF/SAFETY FIX (cold-start race): see followed_artists_provider.dart's
+  // matching comment. playlists/count/playlistsContaining/etc already
+  // read the in-memory _playlists list (safe, defaults to []), but the
+  // mutation methods below touch _box directly — nullable + Completer
+  // keeps those crash-safe too. The window before init() finishes is
+  // small in practice but never fully zero, so it's guarded regardless.
+  final Completer<Box<Map>> _boxReady = Completer<Box<Map>>();
+  Box<Map>? _box;
   List<AurumPlaylist> _playlists = [];
   bool _isLoading = true;
 
@@ -122,8 +129,11 @@ class PlaylistProvider extends ChangeNotifier {
   // ── Init ──────────────────────────────────────────────────────────────────
 
   Future<void> init() async {
-    _box = await Hive.openBox<Map>(_boxName);
-    _playlists = _box.values
+    if (_boxReady.isCompleted) return;
+    final box = await Hive.openBox<Map>(_boxName);
+    _box = box;
+    _boxReady.complete(box);
+    _playlists = box.values
         .map((m) => AurumPlaylist.fromJson(Map<String, dynamic>.from(m)))
         .toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -181,7 +191,8 @@ class PlaylistProvider extends ChangeNotifier {
       }
     }
     _playlists.removeWhere((p) => p.id == id);
-    await _box.delete(id);
+    final box = _box ?? await _boxReady.future;
+    await box.delete(id);
     unawaited(SyncService.instance.pushPlaylistDeleted(id));
     notifyListeners();
   }
@@ -341,7 +352,8 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   Future<void> _persistLocalOnly(AurumPlaylist pl) async {
-    await _box.put(pl.id, pl.toJson());
+    final box = _box ?? await _boxReady.future;
+    await box.put(pl.id, pl.toJson());
   }
 
   Future<void> _persist(AurumPlaylist pl) async {
@@ -373,7 +385,8 @@ class PlaylistProvider extends ChangeNotifier {
 
   /// Wipes all playlists — local only, called on sign-out.
   Future<void> clearAll() async {
-    await _box.clear();
+    final box = _box ?? await _boxReady.future;
+    await box.clear();
     _playlists = [];
     notifyListeners();
   }
