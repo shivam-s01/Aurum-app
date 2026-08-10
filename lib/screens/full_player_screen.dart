@@ -2558,9 +2558,16 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
     if (playing) {
       _scrollX += dt * _waveSpeed;
       final drift = targetScrollX - _scrollX;
-      // Only pull toward the real position if they've drifted apart by
-      // more than ~120ms of travel — small blend, never a hard snap.
-      if (drift.abs() > _waveSpeed * 0.12) {
+      final driftAbs = drift.abs();
+      // Small gaps (normal position-ticker catch-up) blend in gently so
+      // the correction is invisible. Large gaps — a new song starting,
+      // or a seek landing far from where we were — snap immediately;
+      // gradually blending a multi-second gap would show the wave
+      // visibly crawling toward the correct spot for a second or more,
+      // which reads as broken, not smooth.
+      if (driftAbs > _waveSpeed * 3.0) {
+        _scrollX = targetScrollX;
+      } else if (driftAbs > _waveSpeed * 0.12) {
         _scrollX += drift * (dt * 4).clamp(0.0, 1.0);
       }
     } else {
