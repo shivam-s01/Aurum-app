@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -277,12 +278,11 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             options: const ['Primary', 'White', 'Accent'],
             onChanged: (v) { setState(() => _playerButtonColors = v!); _save('player_button_colors', v!); context.read<ThemeProvider>().setPlayerButtonColorMode(v); },
           ),
-          _dropdownTile(context,
+          _sliderStylePickerTile(context,
             title: l10n.saPlayerSliderStyle,
             subtitle: l10n.saPlayerSliderStyleSubtitle,
             value: _playerSliderStyle,
-            options: const ['Slim', 'Thick', 'Rounded', 'Waveform'],
-            onChanged: (v) { setState(() => _playerSliderStyle = v!); _save('player_slider_style', v!); context.read<ThemeProvider>().setPlayerSliderStyle(v); },
+            onChanged: (v) { setState(() => _playerSliderStyle = v); _save('player_slider_style', v); context.read<ThemeProvider>().setPlayerSliderStyle(v); },
           ),
           _inlineSwitch(context,
             title: l10n.saShowBlurredBg,
@@ -731,6 +731,370 @@ Widget _inlineSwitch(
     ),
   );
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Player Slider Style — tap-to-open bottom sheet, 2x2 grid of live-preview
+// cards. Each card renders a mini "stage" that mirrors the real full player
+// backdrop (dark artwork-blur gradient) with the seekbar drawn using the
+// EXACT track/thumb geometry used in full_player_screen.dart's _SeekBar,
+// so what the user sees here is what they'll get, not an approximation.
+// Flat matte cards, no glow/shadow — border-only selected state, muted
+// title that brightens on select. Tap applies + closes immediately.
+Widget _sliderStylePickerTile(
+  BuildContext context, {
+  required String title,
+  required String subtitle,
+  required String value,
+  required ValueChanged<String> onChanged,
+}) {
+  return Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    decoration: BoxDecoration(
+      color: AurumTheme.bgCardOf(context),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+    ),
+    child: Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          AurumHaptics.selection();
+          _showSliderStyleSheet(context, value, onChanged);
+        },
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+          title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
+          subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(value, style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
+            const SizedBox(width: 2),
+            Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.gold, size: 18),
+          ]),
+        ),
+      ),
+    ),
+  );
+}
+
+void _showSliderStyleSheet(
+  BuildContext context,
+  String current,
+  ValueChanged<String> onChanged,
+) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (sheetCtx) => _SliderStyleSheet(current: current, onChanged: onChanged),
+  );
+}
+
+class _SliderStyleSheet extends StatefulWidget {
+  final String current;
+  final ValueChanged<String> onChanged;
+  const _SliderStyleSheet({required this.current, required this.onChanged});
+  @override
+  State<_SliderStyleSheet> createState() => _SliderStyleSheetState();
+}
+
+class _SliderStyleSheetState extends State<_SliderStyleSheet>
+    with SingleTickerProviderStateMixin {
+  late String _selected = widget.current;
+  late final AnimationController _ticker = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 6),
+  )..repeat();
+
+  static const _styles = ['Slim', 'Thick', 'Rounded', 'Waveform'];
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  void _select(String style) {
+    if (_selected == style) return;
+    AurumHaptics.selection();
+    setState(() => _selected = style);
+    widget.onChanged(style);
+    Future.delayed(const Duration(milliseconds: 130), () {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final bottomInset = MediaQuery.of(context).viewPadding.bottom;
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(10, 0, 10, 0),
+        padding: EdgeInsets.fromLTRB(16, 10, 16, 12 + bottomInset),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 34, height: 3.5,
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: AurumTheme.textMutedOf(context).withAlpha(60),
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(l10n.saPlayerSliderStyle,
+              style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w700)),
+          ),
+          const SizedBox(height: 3),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(l10n.saPlayerSliderStyleSubtitle,
+              style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12.5)),
+          ),
+          const SizedBox(height: 16),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            childAspectRatio: 1.08,
+            children: _styles.map((s) => _SliderStyleCard(
+              style: s,
+              selected: _selected == s,
+              ticker: _ticker,
+              onTap: () => _select(s),
+            )).toList(),
+          ),
+          const SizedBox(height: 14),
+          Text('Tap a style to apply instantly',
+            style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 10.5, fontWeight: FontWeight.w500)),
+        ]),
+      ),
+    );
+  }
+}
+
+class _SliderStyleCard extends StatelessWidget {
+  final String style;
+  final bool selected;
+  final AnimationController ticker;
+  final VoidCallback onTap;
+  const _SliderStyleCard({
+    required this.style,
+    required this.selected,
+    required this.ticker,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final mutedTitle = AurumTheme.textMutedOf(context);
+    final brightTitle = AurumTheme.textPrimaryOf(context);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B0B11),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: selected ? AurumTheme.gold.withAlpha(115) : Colors.white.withAlpha(14),
+          width: selected ? 1.1 : 0.7,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Mini "stage" — mimics the real full player's dark
+              // artwork-blur backdrop so the preview isn't floating on a
+              // flat card; it's a faithful miniature of the real screen.
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      center: const Alignment(-0.4, -0.5),
+                      radius: 1.1,
+                      colors: [
+                        AurumTheme.gold.withAlpha(30),
+                        const Color(0xFF0E0E15),
+                      ],
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: FractionallySizedBox(
+                    widthFactor: 0.74,
+                    child: AnimatedBuilder(
+                      animation: ticker,
+                      builder: (_, __) => _miniPreview(style, ticker.value),
+                    ),
+                  ),
+                ),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: Colors.white.withAlpha(10), width: 0.6)),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Row(children: [
+                  Expanded(
+                    child: Text(style,
+                      style: TextStyle(
+                        color: selected ? brightTitle : mutedTitle,
+                        fontSize: 12.5, fontWeight: FontWeight.w600,
+                        letterSpacing: -0.05,
+                      )),
+                  ),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    width: 16, height: 16,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected ? AurumTheme.gold : Colors.transparent,
+                      border: Border.all(
+                        color: selected ? AurumTheme.gold : Colors.white.withAlpha(36),
+                        width: 1.3,
+                      ),
+                    ),
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 130),
+                      opacity: selected ? 1 : 0,
+                      child: const Icon(Icons.check_rounded, size: 11, color: Color(0xFF050508)),
+                    ),
+                  ),
+                ]),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Sine-wave progress used for a smooth back-and-forth demo sweep instead
+  // of a hard reset-to-zero loop — reads as calm/ambient, not busy.
+  double _sweep(double t) {
+    final phase = math.sin(t * 2 * math.pi);
+    return 0.14 + (phase + 1) / 2 * 0.72; // eases between 0.14–0.86
+  }
+
+  Widget _miniPreview(String style, double t) {
+    final progress = _sweep(t);
+
+    if (style == 'Waveform') {
+      return SizedBox(
+        height: 20,
+        child: CustomPaint(
+          painter: _MiniWavePainter(progress: progress, scrollX: t * 90),
+          size: const Size(double.infinity, 20),
+        ),
+      );
+    }
+
+    double trackHeight;
+    double thumbRadius;
+    switch (style) {
+      case 'Slim':
+        trackHeight = 1.5; thumbRadius = 4.0; break;
+      case 'Thick':
+        trackHeight = 5.5; thumbRadius = 6.0; break;
+      case 'Rounded':
+      default:
+        trackHeight = 3.0; thumbRadius = 5.0;
+    }
+
+    return SizedBox(
+      height: 20,
+      child: LayoutBuilder(builder: (_, c) {
+        final w = c.maxWidth;
+        final thumbX = (w * progress).clamp(thumbRadius, w - thumbRadius);
+        return Stack(alignment: Alignment.centerLeft, children: [
+          Container(
+            height: trackHeight,
+            width: w,
+            decoration: BoxDecoration(color: Colors.white.withAlpha(40), borderRadius: BorderRadius.circular(trackHeight)),
+          ),
+          Container(
+            height: trackHeight,
+            width: thumbX,
+            decoration: BoxDecoration(color: Colors.white.withAlpha(235), borderRadius: BorderRadius.circular(trackHeight)),
+          ),
+          Positioned(
+            left: (thumbX - thumbRadius).clamp(0.0, w - thumbRadius * 2),
+            child: Container(
+              width: thumbRadius * 2,
+              height: thumbRadius * 2,
+              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+            ),
+          ),
+        ]);
+      }),
+    );
+  }
+}
+
+// Mirrors full_player_screen.dart's _WaveformPainter math (10% amplitude,
+// same wavelength ratio, flat unplayed tail, playhead dot) at miniature
+// scale so the waveform preview isn't a stand-in shape but the same curve.
+class _MiniWavePainter extends CustomPainter {
+  final double progress;
+  final double scrollX;
+  const _MiniWavePainter({required this.progress, required this.scrollX});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerY = size.height / 2;
+    final progressX = size.width * progress;
+    final maxAmp = size.height * 0.34; // slightly boosted for legibility at this scale
+    const wavelength = 13.0;
+    final k = (2 * math.pi) / wavelength;
+
+    const gap = 4.0;
+    if (progressX + gap < size.width) {
+      final trackPaint = Paint()
+        ..color = Colors.white.withAlpha(40)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(Offset(progressX + gap, centerY), Offset(size.width - 3, centerY), trackPaint);
+    }
+
+    final activePath = Path();
+    bool started = false;
+    for (double x = 0; x <= progressX; x += 1.5) {
+      final y = centerY + math.sin(k * (x - scrollX)) * maxAmp;
+      if (!started) { activePath.moveTo(x, y); started = true; } else { activePath.lineTo(x, y); }
+    }
+    final activePaint = Paint()
+      ..color = Colors.white.withAlpha(235)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(activePath, activePaint);
+
+    final headY = centerY + math.sin(k * (progressX - scrollX)) * maxAmp;
+    canvas.drawCircle(Offset(progressX, headY), 2.6, Paint()..color = Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(covariant _MiniWavePainter old) =>
+      old.progress != progress || old.scrollX != scrollX;
+}
+
 
 Widget _dropdownTile(
   BuildContext context, {

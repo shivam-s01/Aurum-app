@@ -2582,17 +2582,25 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
               }
               return GestureDetector(
                 behavior: HitTestBehavior.opaque,
+                // Only the horizontal-drag recognizer is registered here —
+                // NOT onTapDown/onTapUp alongside it. Having both competing
+                // in the same gesture arena was the actual bug behind "tap
+                // se aage nahi badhta": a tap has a tiny bit of finger
+                // movement in it, so Flutter's arena sometimes resolved it
+                // toward the tap recognizer, sometimes toward drag, and a
+                // "lost" tap recognizer eats the touch with no callback
+                // firing at all — reads as "only click-and-hold/drag
+                // works, plain tap does nothing." A drag recognizer alone
+                // already fires onHorizontalDragStart for a zero-distance
+                // touch-and-release, so it covers taps too — no separate
+                // tap handler needed, and no more two-recognizer race.
                 onHorizontalDragStart: (d) {
                   widget.onDragStart();
                   handleUpdate(d.localPosition);
                 },
                 onHorizontalDragUpdate: (d) => handleUpdate(d.localPosition),
                 onHorizontalDragEnd: (_) => widget.onDragEnd(widget.dragValue ?? progress),
-                onTapDown: (d) {
-                  widget.onDragStart();
-                  handleUpdate(d.localPosition);
-                },
-                onTapUp: (_) => widget.onDragEnd(widget.dragValue ?? progress),
+                onHorizontalDragCancel: () => widget.onDragEnd(widget.dragValue ?? progress),
                 child: CustomPaint(
                   size: Size(width, 32),
                   painter: _WaveformPainter(
@@ -2676,8 +2684,14 @@ class _WaveformPainter extends CustomPainter {
       );
     }
 
-    // Active (played) portion: sinusoidal wave, constant wavelength/speed,
-    // synced to real audio position via scrollX.
+    // Active (played) portion: single sinusoidal wave, constant
+    // wavelength/speed, synced to real audio position via scrollX — this
+    // is deliberately ONE clean frequency, matching Google's own squiggly
+    // slider (Android 13+ media controls / Play Store & Files app
+    // progress). Google's version reads as premium not because of a
+    // complex waveform, but because of stroke thickness that breathes
+    // with the wave (see strokeWidth below) — that's the piece this was
+    // missing, not the wave shape itself.
     final activePath = Path();
     bool started = false;
     for (double x = 0; x <= progressX; x += 2) {
@@ -2689,15 +2703,24 @@ class _WaveformPainter extends CustomPainter {
         activePath.lineTo(x, y);
       }
     }
+
+    // Google's squiggly slider gets its "alive" feel from the stroke
+    // itself gently thickening and thinning as the wave scrolls, not from
+    // the wave's shape or a glow. One uniform stroke width per frame here
+    // (not per-point) — cheap, and at this line thickness (~3px) a
+    // per-point taper wouldn't read as visually different anyway.
+    final breathe = (math.sin((scrollX * 0.6) * (math.pi / wavelength)) * 0.4 + 0.6);
     final activePaint = Paint()
       ..color = activeColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.4
+      ..strokeWidth = 3.0 + 0.8 * breathe * ampAnim
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(activePath, activePaint);
 
-    // Playhead dot rides on the wave.
+    // Playhead dot rides on the wave — same solid dot as Google's slider
+    // uses at the drag handle, no glow (Google's own version doesn't use
+    // one either at this size).
     final headY = centerY + math.sin(k * (progressX - scrollX)) * (maxAmp * ampAnim);
     canvas.drawCircle(
       Offset(progressX, headY),
