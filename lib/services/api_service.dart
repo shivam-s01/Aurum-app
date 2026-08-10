@@ -3029,7 +3029,34 @@ class ApiService {
     return _searchYt(query, limit: limit);
   }
 
+  // FEATURE (YT Music-quality metadata): search now goes through the
+  // Cloudflare Worker's /api/yt-music-search route FIRST — that calls
+  // YouTube Music's own internal API (WEB_REMIX client), so title/artist/
+  // thumbnail arrive exactly as YT Music itself shows them: real artist
+  // (not channel/uploader name), no "Official Video"/"Lyrics" junk, clean
+  // square high-res album art, real duration.
+  //
+  // PLAYBACK IS UNCHANGED: these Song objects carry streamUrl:null and
+  // source:SongSource.youtube exactly like the old path — when the user
+  // taps play, the existing resolveYtStream()/_ytStreamById() chain
+  // resolves the actual audio the same way it always has, keyed off the
+  // same YouTube videoId. Only where the metadata (title/artist/art) came
+  // from has changed.
+  //
+  // youtube_explode_dart search remains as the fallback — if the worker
+  // route is slow, empty, or errors, results are exactly what they were
+  // before this change (zero regression risk).
   static Future<List<Song>> _searchYt(String query, {int limit = 30}) async { // 15->30 pro level
+    try {
+      final ytMusic = await Future.any<List<Song>>([
+        _searchYtMusic(query, limit),
+        Future.delayed(const Duration(seconds: 5), () => <Song>[]),
+      ]);
+      if (ytMusic.isNotEmpty) return ytMusic;
+    } catch (e) {
+      _log('[_searchYt] yt-music-search error, falling back: $e');
+    }
+
     try {
       final videos = await Future.any<List<Video>>([
         _searchYtPaged(query, limit),
@@ -3052,6 +3079,65 @@ class ApiService {
       _log('[_searchYt] Error: $e');
     }
     return [];
+  }
+
+  // Calls the Worker's YT Music search proxy and maps its clean JSON
+  // straight into Song objects. Mirrors _songFromYtVideo's shape exactly
+  // (same fields, same source enum) so every downstream consumer — dedup,
+  // recommendation scoring, song tiles, the full player — needs zero
+  // changes to handle these results.
+  static Future<List<Song>> _searchYtMusic(String query, int limit) async {
+    try {
+      final uri = Uri.parse(
+        '$_saavn/api/yt-music-search?query=${Uri.encodeComponent(query)}&limit=$limit',
+      );
+      final resp = await http.get(uri).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) return [];
+      final data = jsonDecode(resp.body);
+      if (data['success'] != true) return [];
+      final results = (data['data']?['results'] as List?) ?? [];
+      return results
+          .map<Song>((r) {
+            final rawArtist = _cleanText((r['artist'] ?? '').toString());
+            return Song(
+              id: (r['videoId'] ?? '').toString(),
+              title: _cleanText((r['title'] ?? '').toString()),
+              // FIX: YT Music's artist run isn't always present (a handful
+              // of results only carry album/duration in the second flex
+              // column) — an empty artist here would render as a blank/
+              // awkward chip in song_tile.dart and full_player_screen.dart
+              // (both special-case 'Unknown', not ''). Falls back to the
+              // same sentinel every other source in this file already
+              // uses so downstream widgets treat it identically.
+              artist: rawArtist.isNotEmpty ? rawArtist : 'Unknown',
+              album: _cleanText((r['album'] ?? '').toString()),
+              artworkUrl: (r['image'] ?? '').toString(),
+              streamUrl: null,
+              duration: r['duration'] is int ? r['duration'] as int : null,
+              source: SongSource.youtube,
+              // FIX (critical — was silently emptying every home-feed
+              // section and quick-search YT slot): RecommendationEngine.
+              // isPremiumQuality() hard-rejects ANY SongSource.youtube
+              // song with viewCount == null (see recommendation_engine.
+              // dart) — that gate exists to filter out raw/unverified
+              // YouTube search results, but these songs already came from
+              // YT Music's own curated "Songs" catalog (real releases
+              // only, not the open video index), so they're trustworthy
+              // by construction. A sentinel comfortably above
+              // _minViewsForPremiumFeed keeps every one of the 8 call
+              // sites in this file that gate on isPremiumQuality() (home
+              // feed sections, quick-search merge, related-songs,
+              // auto-queue, dedup) treating these exactly like a
+              // verified-popular upload instead of dropping them all.
+              viewCount: 1000000,
+            );
+          })
+          .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+          .toList();
+    } catch (e) {
+      _log('[_searchYtMusic] Error: $e');
+      return [];
+    }
   }
 
   static Future<List<Video>> _searchYtPaged(String query, int limit) async {
