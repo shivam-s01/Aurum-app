@@ -195,6 +195,27 @@ class _WorkerHealth {
   }
 }
 
+// Lightweight, SEPARATE health tracker for the YT Music search route
+// specifically (kept apart from _WorkerHealth above, which only governs
+// stream/playback resolution) — a worker that's down for search doesn't
+// necessarily mean playback is down too, and vice versa. Short cooldowns
+// only (never long backoff like playback's tracker) since search health
+// can flap quickly and a stale "dead" mark would wrongly suppress YT
+// results for longer than the outage actually lasted.
+class _YtSearchHealth {
+  static DateTime? _skipUntil;
+  static bool get isLikelyDown {
+    final until = _skipUntil;
+    if (until == null) return false;
+    if (DateTime.now().isAfter(until)) { _skipUntil = null; return false; }
+    return true;
+  }
+  static void markFailure() {
+    _skipUntil = DateTime.now().add(const Duration(seconds: 20));
+  }
+  static void markSuccess() { _skipUntil = null; }
+}
+
 
 class ApiService {
 
@@ -2279,6 +2300,30 @@ class ApiService {
     final queryWords = qNormSp.split(' ').where((w) => w.length > 2).toList();
     final queryWordSet = queryWords.toSet();
 
+    // FIX ("Raja Hindustani" surfacing every random Bhojpuri/regional song
+    // with the word "Raja" in it; "Aaye ho mere jindgi mai" surfacing any
+    // title sharing only filler words "aaye"/"ho"/"mere"): connector/filler
+    // words ("ho", "hai", "mai", "mein", "aaye", "ke", "ki", "ka", "se",
+    // "ko", "ye", "wo", "nahi", "kya", "kar") appear in a huge fraction of
+    // Hindi/Bhojpuri song titles and carry almost no identifying power —
+    // scoring them the same as a real content word ("raja", "hindustani",
+    // "jindagi") is what let unrelated titles clear the relevance floor on
+    // pure word overlap. Excluding them from the coverage/distinctive-word
+    // math below means a match now has to come from words that actually
+    // identify the song, not just words every third title happens to share.
+    const _fillerWords = {
+      'aap', 'aaye', 'aaya', 'aayi', 'hai', 'hain', 'mai', 'main', 'mein',
+      'mera', 'meri', 'mere', 'tera', 'teri', 'tere', 'uska', 'uski', 'uske',
+      'iska', 'iski', 'iske', 'hum', 'humara', 'tum', 'tumhara', 'aur',
+      'nahi', 'nahin', 'kya', 'kar', 'kya', 'kyun', 'kyu', 'kaise', 'kaisi',
+      'kaisa', 'jab', 'tab', 'yeh', 'woh', 'wo', 'ye', 'ka', 'ki', 'ke',
+      'ko', 'se', 'ki', 'hi', 'bhi', 'toh', 'to', 'na', 'wala', 'wali',
+      'wale', 'sab', 'sabhi', 'kisi', 'koi', 'kuch', 'ab', 'phir', 'thi',
+      'tha', 'the', 'hoga', 'hogi', 'hoye', 'hoja', 'jaye', 'jaa', 'jao',
+    };
+    final distinctiveQueryWords =
+        queryWordSet.where((w) => !_fillerWords.contains(w)).toSet();
+
     // FIX (single-word queries under-scored vs. multi-word ones): the
     // bag-of-words/phrase-order block below only runs when queryWords.length
     // > 1, so a genuine one-word search (e.g. just "Zaalima") never got past
@@ -2382,20 +2427,29 @@ class ApiService {
         score -= 40;
       }
 
-      // FIX ("kisi disco mai jaaye" surfacing unrelated bhajan/devotional
-      // titles ahead of/instead of the real song): a title that only
-      // shares 1-2 common connector words with a 4+ word query — "mai",
-      // "jaaye", "hai", "ho" — was clearing the floor purely on those
-      // stray overlaps, with no real requirement that the DISTINCTIVE
-      // words (the ones that actually identify the song — "disco",
-      // "kisi") matched anything. Exactly-at-50%-coverage titles used to
-      // dodge the < 0.5 penalty above while still banking the phrase-order
-      // bonus for a short, generic 2-word run. Requiring the query's own
-      // most distinctive (longest) word(s) to be present — not just any
-      // half of the words — filters out coincidental-overlap titles that
-      // technically clear the coverage bar on connector words alone.
-      if (queryWords.length >= 4) {
-        final distinctiveWords = ([...queryWords]..sort((a, b) => b.length.compareTo(a.length)))
+      // FIX ("Raja Hindustani" surfacing every Bhojpuri song with "Raja" in
+      // the title; "kisi disco mai jaaye" surfacing unrelated bhajan/
+      // devotional titles; "Aaye ho mere jindgi mai" surfacing anything
+      // sharing only "aaye"/"ho"/"mere"): a title that only shares common
+      // connector/filler words with the query — "mai", "hai", "ho", "mere",
+      // or in the 2-word case just one generic word like "raja" — was
+      // clearing the floor purely on those stray overlaps, with no real
+      // requirement that the DISTINCTIVE words (the ones that actually
+      // identify the song — "disco", "kisi", "hindustani", "jindagi")
+      // matched anything. Lowered from a 4+-word-only gate to 2+ words, and
+      // now sourced from distinctiveQueryWords (filler words excluded)
+      // instead of raw queryWords by length — a 2-word query like "Raja
+      // Hindustani" used to get NO distinctive-word protection at all
+      // (gate only fired at 4+ words), letting "Hamar Raja Bhang Pike"
+      // qualify on the word "raja" alone. Falls back to the longest raw
+      // query words only if every word turned out to be filler (e.g. a
+      // query that's ALL connector words — rare, but must not crash on an
+      // empty distinctive set).
+      if (queryWords.length >= 2) {
+        final sourceWords = distinctiveQueryWords.isNotEmpty
+            ? distinctiveQueryWords
+            : queryWordSet;
+        final distinctiveWords = ([...sourceWords]..sort((a, b) => b.length.compareTo(a.length)))
             .take(2)
             .toList();
         final distinctiveMatched = distinctiveWords.every((w) =>
@@ -2974,25 +3028,11 @@ class ApiService {
   // ===========================================================================
   // YOUTUBE SEARCH
   // ===========================================================================
-  // Known official music-label / publisher channel names (lowercased,
-  // partial match). No verified-badge field is exposed by
-  // youtube_explode_dart's Video object, so this is the only zero-latency
-  // signal available — pure string match against the channel/author name,
-  // no extra API call, so it costs nothing on speed.
-  static const List<String> _officialChannelMarkers = [
-    't-series', 'zee music', 'sony music', 'saregama', 'tips official',
-    'tips music', 'speed records', 'desi music factory', 'shemaroo',
-    'venus', 'eros now music', 'yrf', 'jjust music', 'white hill music',
-    'times music', 'muzik one', 'goldmines', 'ultra music', 'divo',
-    'universal music', 'sony music south', 'aditya music', 'lahari music',
-    'think music', 'zee music south', 'wave music', 'atlantic records',
-    'republic records', 'columbia records', 'interscope', 'def jam',
-    'rca records', 'capitol records', 'warner records',
-  ];
-
+  // Official-channel check now delegates to RecommendationEngine's single
+  // source of truth (isKnownOfficialChannel) so the marker list only needs
+  // maintaining in one place — see recommendation_engine.dart.
   static bool _isOfficialChannel(String channelName) {
-    final c = channelName.toLowerCase();
-    return _officialChannelMarkers.any((m) => c.contains(m));
+    return RecommendationEngine.isKnownOfficialChannel(channelName);
   }
 
   /// Public entry point for MusicSource (see music_source.dart) — a thin,
@@ -3018,39 +3058,70 @@ class ApiService {
   // youtube_explode_dart search remains as the fallback — if the worker
   // route is slow, empty, or errors, results are exactly what they were
   // before this change (zero regression risk).
+  //
+  // STABILITY FIX ("search mein YT clean/stable nahi aa raha, Saavn hi
+  // dikh raha hai"): worker and explode_dart fallback used to run
+  // SEQUENTIALLY — worker got up to 5s, and only if it came back empty did
+  // explode_dart get its own up-to-8s window on top, for a worst case of
+  // ~13s total. Callers (quickSearch's 6s timeout, search()'s 10s timeout
+  // on the whole _searchYt call) would often kill the call before that
+  // sequential fallback ever finished, so a merely-slow (not dead) worker
+  // silently produced ZERO YT results for that search — exactly the
+  // "Saavn hi aa raha hai" symptom. Both paths now fire in TRUE parallel
+  // and the first one to return a non-empty list wins — worst case is
+  // bounded by whichever is faster, never their sum, and a slow worker no
+  // longer blocks explode_dart from covering for it in time.
   static Future<List<Song>> _searchYt(String query, {int limit = 30}) async { // 15->30 pro level
-    try {
-      final ytMusic = await Future.any<List<Song>>([
-        _searchYtMusic(query, limit),
-        Future.delayed(const Duration(seconds: 5), () => <Song>[]),
-      ]);
-      if (ytMusic.isNotEmpty) return ytMusic;
-    } catch (e) {
-      _log('[_searchYt] yt-music-search error, falling back: $e');
-    }
+    final ytMusicFuture = _searchYtMusic(query, limit)
+        .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+        .catchError((e) {
+          _log('[_searchYt] yt-music-search error, falling back: $e');
+          return <Song>[];
+        });
+    final explodeFuture = _searchYtPaged(query, limit)
+        .timeout(const Duration(seconds: 5), onTimeout: () => <Video>[])
+        .catchError((e) {
+          _log('[_searchYt] explode_dart error: $e');
+          return <Video>[];
+        })
+        .then((videos) {
+          // Official-channel uploads first — same list, just reordered, so
+          // when we later `.take(limit)` or dedup by title, the cleanest/
+          // most premium (official) version of a song wins over a random
+          // reupload.
+          videos.sort((a, b) {
+            final aOfficial = _isOfficialChannel(a.author) ? 0 : 1;
+            final bOfficial = _isOfficialChannel(b.author) ? 0 : 1;
+            return aOfficial.compareTo(bOfficial);
+          });
+          // QUALITY GATE ("random personal-channel junk uploads in
+          // search"): explode_dart is the LOW-TRUST fallback tier — it
+          // only ever wins when the YT Music worker's curated catalog came
+          // back empty for this query. Apply the same quality/junk-title
+          // filters here, at the source, instead of trusting every caller
+          // downstream to catch it — a channel that isn't an official
+          // label AND doesn't clear the raised unofficial-channel view
+          // floor, or a title that matches the junk-upload/hashtag-spam
+          // pattern, never gets returned from this function at all.
+          final mapped = videos.map(_songFromYtVideo).where((s) {
+            if (s.id.isEmpty || s.title.isEmpty) return false;
+            if (RecommendationEngine.isLowQualityUpload(s.title)) return false;
+            if (RecommendationEngine.isNonMusicContent(s)) return false;
+            if (!RecommendationEngine.isPremiumQuality(s)) return false;
+            return true;
+          }).toList();
+          return mapped.take(limit).toList();
+        });
 
-    try {
-      final videos = await Future.any<List<Video>>([
-        _searchYtPaged(query, limit),
-        Future.delayed(const Duration(seconds: 8), () => <Video>[]),
-      ]);
-      // Official-channel uploads first — same list, just reordered, so
-      // when we later `.take(limit)` or dedup by title, the cleanest/most
-      // premium (official) version of a song wins over a random reupload.
-      videos.sort((a, b) {
-        final aOfficial = _isOfficialChannel(a.author) ? 0 : 1;
-        final bOfficial = _isOfficialChannel(b.author) ? 0 : 1;
-        return aOfficial.compareTo(bOfficial);
-      });
-      return videos
-          .take(limit)
-          .map(_songFromYtVideo)
-          .where((s) => s.id.isNotEmpty)
-          .toList();
-    } catch (e) {
-      _log('[_searchYt] Error: $e');
-    }
-    return [];
+    final results = await Future.wait([ytMusicFuture, explodeFuture]);
+    final ytMusicResult = results[0];
+    final explodeResult = results[1];
+    // YT Music worker wins when it has anything at all — its metadata
+    // (real artist, clean title, square art) is strictly higher quality
+    // than explode_dart's raw video title/channel-name shape. explode_dart
+    // only ever fills in when the worker came back genuinely empty.
+    if (ytMusicResult.isNotEmpty) return ytMusicResult;
+    return explodeResult;
   }
 
   // Calls the Worker's YT Music search proxy and maps its clean JSON
@@ -3059,16 +3130,21 @@ class ApiService {
   // recommendation scoring, song tiles, the full player — needs zero
   // changes to handle these results.
   static Future<List<Song>> _searchYtMusic(String query, int limit) async {
+    // Fast-skip: if the worker route has failed recently, don't spend up
+    // to 5s discovering that again on every keystroke — go straight to
+    // empty so _searchYt's parallel race lets explode_dart win immediately
+    // instead of waiting out a doomed request first.
+    if (_YtSearchHealth.isLikelyDown) return [];
     try {
       final uri = Uri.parse(
         '$_saavn/api/yt-music-search?query=${Uri.encodeComponent(query)}&limit=$limit',
       );
       final resp = await http.get(uri).timeout(const Duration(seconds: 5));
-      if (resp.statusCode != 200) return [];
+      if (resp.statusCode != 200) { _YtSearchHealth.markFailure(); return []; }
       final data = jsonDecode(resp.body);
-      if (data['success'] != true) return [];
+      if (data['success'] != true) { _YtSearchHealth.markFailure(); return []; }
       final results = (data['data']?['results'] as List?) ?? [];
-      return results
+      final songs = results
           .map<Song>((r) {
             final rawArtist = _cleanText((r['artist'] ?? '').toString());
             return Song(
@@ -3106,8 +3182,18 @@ class ApiService {
           })
           .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
           .toList();
+      if (songs.isNotEmpty) {
+        _YtSearchHealth.markSuccess();
+      } else {
+        // Empty-but-200 (query genuinely has no YT Music hits) shouldn't
+        // count as a route failure — only mark down on real HTTP/parse
+        // errors below, so a rare/niche query doesn't wrongly trip the
+        // cooldown for the NEXT (unrelated) query.
+      }
+      return songs;
     } catch (e) {
       _log('[_searchYtMusic] Error: $e');
+      _YtSearchHealth.markFailure();
       return [];
     }
   }
@@ -5105,7 +5191,75 @@ class ApiService {
     out = out.replaceAll(RegExp(r'^\s*[-|•]\s*'), '');
     out = out.replaceAll(RegExp(r'\s*[-|•]\s*$'), '');
     out = out.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+    out = _titleCaseIfShouting(out);
     return out;
+  }
+
+  // FIX ("DEEWANA DIL", "SHREYA GHOSHAL, ANU MALIK, & DEV KOHLI" showing
+  // all-caps in search results — worker's own upstream data, not junk we
+  // inject, but not "Spotify/YT Music production level" clean either):
+  // some metadata sources return the whole title/artist string in caps.
+  // Real YT Music/Spotify normalize this to title case for display.
+  // Deliberately narrow trigger — only fires when the string has NO
+  // lowercase letters at all AND at least one multi-letter word, so it
+  // never touches a normal mixed-case title, a title that's ALREADY
+  // correctly cased, or a short genuine acronym-only string sitting next
+  // to normal text (mixed case means at least one lowercase letter is
+  // present, which skips the rewrite entirely).
+  static String _titleCaseIfShouting(String s) {
+    if (s.isEmpty) return s;
+    final hasLower = s.contains(RegExp(r'[a-z]'));
+    final hasMultiLetterWord = s.contains(RegExp(r'[A-Za-z]{2,}'));
+    if (hasLower || !hasMultiLetterWord) return s;
+    // Small words that stay lowercase mid-title (standard title-case
+    // convention) unless they're the first word — "Dil Hai Ki Manta Nahi"
+    // style already reads fine either way, this just matches the
+    // convention real music-metadata providers use for English words.
+    const _lowerMidWords = {
+      'a', 'an', 'the', 'of', 'in', 'on', 'at', 'to', 'for', 'and',
+      'or', 'nor', 'but', 'is', 'as', 'by', 'de', 'da',
+    };
+    // Known acronyms/initialisms that should stay fully uppercase rather
+    // than being title-cased into a real word ("DJ" -> "Dj", "MTV" ->
+    // "Mtv", "OST" -> "Ost" all read as mistakes, not clean titles).
+    const _keepUppercaseWords = {
+      'dj', 'mtv', 'ost', 'hd', '4k', '8k', 'edm', 'rnb', 'ep', 'lp',
+      'tv', 'fm', 'ft', 'vs', 'dvd', 'cd', 'usa', 'uk', 'ai',
+    };
+    final words = s.split(' ');
+    final rebuilt = <String>[];
+    for (var i = 0; i < words.length; i++) {
+      final w = words[i];
+      if (w.isEmpty) { rebuilt.add(w); continue; }
+      // Leave punctuation-only tokens ("&", "-", "|") untouched.
+      if (!w.contains(RegExp(r'[A-Za-z]'))) { rebuilt.add(w); continue; }
+      final lower = w.toLowerCase();
+      final bareWord = lower.replaceAll(RegExp(r'[^a-z]'), '');
+      if (_keepUppercaseWords.contains(bareWord)) {
+        rebuilt.add(w); // already uppercase in the source (we only run when all-caps)
+        continue;
+      }
+      if (i != 0 && _lowerMidWords.contains(bareWord)) {
+        rebuilt.add(lower);
+        continue;
+      }
+      // Capitalize first letter of each alphabetic run inside the token,
+      // so "kohli," -> "Kohli," and "o'brien" -> "O'Brien"-shaped tokens
+      // stay correct even with trailing punctuation or an apostrophe.
+      final buf = StringBuffer();
+      var capitalizeNext = true;
+      for (final ch in lower.split('')) {
+        if (RegExp(r'[a-z]').hasMatch(ch)) {
+          buf.write(capitalizeNext ? ch.toUpperCase() : ch);
+          capitalizeNext = false;
+        } else {
+          buf.write(ch);
+          capitalizeNext = true;
+        }
+      }
+      rebuilt.add(buf.toString());
+    }
+    return rebuilt.join(' ');
   }
 
   static int? _parseInt(dynamic d) {

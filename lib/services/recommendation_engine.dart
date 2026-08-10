@@ -1295,6 +1295,7 @@ class RecommendationEngine {
   /// broad queries like "top hindi songs 2025 2026" that Saavn's search
   /// matches loosely against any title containing those words/years.
   static bool isLowQualityUpload(String title) {
+    if (_hashtagSpamPattern.hasMatch(title)) return true;
     return _junkUploadPattern.hasMatch(title);
   }
 
@@ -1304,9 +1305,25 @@ class RecommendationEngine {
     r'freestyle|panwadi|wedding dance|vivah geet|shaadi geet|'
     r'jukebox 20\d\d|mp3 song|whatsapp status|status video|'
     r'trending status|viral video song|dance video|'
-    r'gana 20\d\d|new gana|superhit gana|bhojpuri gana)\b',
+    r'gana 20\d\d|new gana|superhit gana|bhojpuri gana|'
+    // TIGHTENED ("search mein raw/junk YT uploads aa rahe hain" — explode_dart
+    // fallback path titles like "X song Khesari Lal Y...", "X Full Dance
+    // Video...", "X Trending Bhojpuri #...", "X superb dance bhojpuri",
+    // "X Ho Dj Remix Song...", "X Haar Hasli Nathuni..." slipping past the
+    // old narrower list): generic personal-upload/reaction/compilation
+    // phrasing that real official song uploads essentially never use in
+    // their own title (official uploads say the song name plus artist/movie,
+    // not "full dance video" or "superb dance").
+    r'full dance video|superb dance|dj remix song|trending bhojpuri|'
+    r'reaction video|cover version|cover song|dance cover|'
+    r'stage show|live show|orchestra|nonstop dj|nonstop mix)\b',
     caseSensitive: false,
   );
+
+  // Hashtag-spam titles ("...#dineshlalyadav #bhojpuri #trending") are a
+  // strong personal-upload/clickbait signal a real song release title never
+  // carries — official/label titles don't hashtag-stuff.
+  static final RegExp _hashtagSpamPattern = RegExp(r'(#\S+\s*){2,}');
 
   // ---------------------------------------------------------------------------
   // PREMIUM QUALITY GATE — the real Spotify/YouTube-Music-style signal.
@@ -1332,6 +1349,17 @@ class RecommendationEngine {
   // views) do not.
   static const int _minViewsForPremiumFeed = 100000;
 
+  // TIGHTENED ("random personal-channel uploads — 'Abhishek kumar',
+  // 'radhe kushawaha vlog', 'DRK Vibration Club' — clearing the search
+  // quality bar with junk-titled videos"): a non-official/non-label
+  // channel can still rack up 100k+ views on a viral personal Bhojpuri/
+  // regional upload without the content itself being a clean, correctly-
+  // labeled song — the view floor alone doesn't catch this class. Small/
+  // unverified channels now need a materially higher bar; only known
+  // official label/label-adjacent channels (_officialChannelMarkers below,
+  // checked via isKnownOfficialChannel) get the lower, standard floor.
+  static const int _minViewsForUnofficialChannel = 500000;
+
   // Real songs are rarely under 90s (that's a ringtone/status clip length).
   // Upper bound is generous — qawwali/ghazal tracks legitimately run long —
   // and only exists to catch actual jukebox/full-album compilations mislabeled
@@ -1339,19 +1367,66 @@ class RecommendationEngine {
   static const int _minDurationSeconds = 90;
   static const int _maxDurationSeconds = 1200;
 
+  // Single source of truth for known official music-label/publisher
+  // channel names (lowercased, partial match). api_service.dart's
+  // _isOfficialChannel delegates to isKnownOfficialChannel below instead
+  // of keeping its own copy, so this list only needs maintaining here.
+  static const List<String> _officialChannelMarkers = [
+    't-series', 'zee music', 'sony music', 'saregama', 'tips official',
+    'tips music', 'speed records', 'desi music factory', 'shemaroo',
+    'venus', 'eros now music', 'yrf', 'jjust music', 'white hill music',
+    'times music', 'muzik one', 'goldmines', 'ultra music', 'divo',
+    'universal music', 'sony music south', 'aditya music', 'lahari music',
+    'think music', 'zee music south', 'wave music', 'atlantic records',
+    'republic records', 'columbia records', 'interscope', 'def jam',
+    'rca records', 'capitol records', 'warner records',
+  ];
+
+  static bool isKnownOfficialChannel(String channelName) {
+    final c = channelName.toLowerCase();
+    return _officialChannelMarkers.any((m) => c.contains(m));
+  }
+
   /// True if `song` meets the bar for a premium home-feed section.
-  /// For YouTube: requires a minimum view count AND a sane song-length
-  /// duration. For Saavn/local: only the existing duration sanity check
-  /// applies (no view-count data available from that source).
+  /// For YouTube: requires a minimum view count (higher for unverified/
+  /// personal channels than for known official/label channels) AND a sane
+  /// song-length duration — a missing duration is treated as a fail (same
+  /// as a missing view count) rather than silently skipped. For Saavn/
+  /// local: only the existing duration sanity check applies (no view-count
+  /// data available from that source), and a missing duration there is
+  /// tolerated since Saavn's own catalog doesn't always expose it — a
+  /// missing duration on Saavn isn't a red flag the way it is on YouTube
+  /// (a real API/parse gap, not evidence of a live stream or short clip).
   static bool isPremiumQuality(Song song) {
-    if (song.duration != null) {
-      if (song.duration! < _minDurationSeconds) return false;
-      if (song.duration! > _maxDurationSeconds) return false;
-    }
     if (song.source == SongSource.youtube) {
       // No view count at all (fetch failed/hidden) — don't trust it blind.
       if (song.viewCount == null) return false;
-      if (song.viewCount! < _minViewsForPremiumFeed) return false;
+      final requiredViews = isKnownOfficialChannel(song.artist)
+          ? _minViewsForPremiumFeed
+          : _minViewsForUnofficialChannel;
+      if (song.viewCount! < requiredViews) return false;
+      // FIX ("live stream / premiere / short teaser clip with high views
+      // slipping through" — a missing duration on YouTube usually means a
+      // live stream or premiere, neither of which the min/max duration
+      // check below can catch since it only runs when duration is
+      // present): a real regular video upload always carries a duration;
+      // its absence here is itself the red flag, not a reason to skip the
+      // sanity check entirely. Scoped to the untrusted/unofficial tier
+      // only (same split as the view-count floor above) — the YT Music
+      // worker's own curated "Songs" catalog is trustworthy by
+      // construction (see the viewCount:1000000 sentinel in
+      // _searchYtMusic) and already carries a real duration on every
+      // normal response; an official-channel result missing duration here
+      // is far more likely a rare worker-side parse gap than an actual
+      // live stream, so it isn't penalized the same way an unverified
+      // channel's missing duration is.
+      if (song.duration == null && !isKnownOfficialChannel(song.artist)) {
+        return false;
+      }
+    }
+    if (song.duration != null) {
+      if (song.duration! < _minDurationSeconds) return false;
+      if (song.duration! > _maxDurationSeconds) return false;
     }
     return true;
   }
