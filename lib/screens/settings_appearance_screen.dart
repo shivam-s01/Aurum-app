@@ -867,7 +867,7 @@ class _SliderStyleSheetState extends State<_SliderStyleSheet>
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: 10,
             crossAxisSpacing: 10,
-            childAspectRatio: 1.08,
+            childAspectRatio: 1.28,
             children: _styles.map((s) => _SliderStyleCard(
               style: s,
               selected: _selected == s,
@@ -907,8 +907,8 @@ class _SliderStyleCard extends StatelessWidget {
         color: const Color(0xFF0B0B11),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: selected ? AurumTheme.gold.withAlpha(115) : Colors.white.withAlpha(14),
-          width: selected ? 1.1 : 0.7,
+          color: selected ? AurumTheme.gold.withAlpha(90) : Colors.white.withAlpha(14),
+          width: selected ? 1.0 : 0.7,
         ),
       ),
       clipBehavior: Clip.antiAlias,
@@ -919,27 +919,22 @@ class _SliderStyleCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Mini "stage" — mimics the real full player's dark
-              // artwork-blur backdrop so the preview isn't floating on a
-              // flat card; it's a faithful miniature of the real screen.
+              // Mini "stage" — flat dark surface, same tone as the real
+              // full player's base backdrop. No gradient/glow: a real
+              // player screen reads as a calm dark surface, not a
+              // decorative purple glow — that's what read as "AI-made".
               Expanded(
                 child: Container(
-                  decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                      center: const Alignment(-0.4, -0.5),
-                      radius: 1.1,
-                      colors: [
-                        AurumTheme.gold.withAlpha(30),
-                        const Color(0xFF0E0E15),
-                      ],
-                    ),
-                  ),
+                  color: const Color(0xFF0C0C13),
                   alignment: Alignment.center,
                   child: FractionallySizedBox(
-                    widthFactor: 0.74,
+                    widthFactor: 0.72,
                     child: AnimatedBuilder(
                       animation: ticker,
-                      builder: (_, __) => _miniPreview(style, ticker.value),
+                      builder: (_, __) => Opacity(
+                        opacity: _sweepOpacity(ticker.value),
+                        child: _miniPreview(style, ticker.value),
+                      ),
                     ),
                   ),
                 ),
@@ -984,11 +979,20 @@ class _SliderStyleCard extends StatelessWidget {
     );
   }
 
-  // Sine-wave progress used for a smooth back-and-forth demo sweep instead
-  // of a hard reset-to-zero loop — reads as calm/ambient, not busy.
-  double _sweep(double t) {
-    final phase = math.sin(t * 2 * math.pi);
-    return 0.14 + (phase + 1) / 2 * 0.72; // eases between 0.14–0.86
+  // Forward-only progress: 0 → 1 then hard-resets to 0, matching how a
+  // real seek bar actually behaves (plays forward, never rewinds on its
+  // own). A sine-based back-and-forth here read as the slider glitching
+  // in reverse, so this stays strictly monotonic within each loop.
+  // Small opacity dip right at the reset point hides the jump-cut instead
+  // of showing a visible snap back to the start.
+  double _sweep(double t) => t;
+
+  double _sweepOpacity(double t) {
+    // Fade out over the last ~6% and fade back in over the first ~6% of
+    // each loop, so the 1→0 reset happens while invisible.
+    if (t > 0.94) return (1.0 - t) / 0.06;
+    if (t < 0.06) return t / 0.06;
+    return 1.0;
   }
 
   Widget _miniPreview(String style, double t) {
@@ -998,7 +1002,7 @@ class _SliderStyleCard extends StatelessWidget {
       return SizedBox(
         height: 20,
         child: CustomPaint(
-          painter: _MiniWavePainter(progress: progress, scrollX: t * 90),
+          painter: _MiniWavePainter(progress: progress, scrollX: t * 26),
           size: const Size(double.infinity, 20),
         ),
       );
@@ -1058,8 +1062,8 @@ class _MiniWavePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final centerY = size.height / 2;
     final progressX = size.width * progress;
-    final maxAmp = size.height * 0.34; // slightly boosted for legibility at this scale
-    const wavelength = 13.0;
+    final maxAmp = size.height * 0.16; // matches the real player's calm "barely there" ripple
+    const wavelength = 15.0;
     final k = (2 * math.pi) / wavelength;
 
     const gap = 4.0;

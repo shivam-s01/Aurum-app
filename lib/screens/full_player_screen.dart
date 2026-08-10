@@ -2539,9 +2539,35 @@ class _WaveformSeekBarState extends State<_WaveformSeekBar>
     final dt = (dtMs / 1000.0).clamp(0.0, 0.05);
 
     final playing = widget.player.isPlaying && !widget.dragging;
-    // Phase is anchored to real audio position so the wave stays perfectly
-    // in sync with the music, independent of frame timing/jank.
-    _scrollX = (widget.player.position.inMilliseconds / 1000.0) * _waveSpeed;
+
+    // FIX (wave stutters like it's being dragged by hand): _scrollX used
+    // to be re-derived every single frame straight from
+    // widget.player.position, but that position only actually changes in
+    // ~500ms steps (see player_provider.dart's local position ticker) —
+    // so the wave held dead still for ~30 frames, then snapped forward,
+    // over and over. That snap-then-freeze pattern is exactly what reads
+    // as janky/laggy instead of gliding.
+    //
+    // Now _scrollX advances every frame by real elapsed time (dt), same
+    // as any smooth 60fps animation — it doesn't wait for a new position
+    // value to move at all. The real position is only used to correct
+    // drift (seek, resume, or the coarse ticker jumping further than one
+    // frame's worth of travel), and even then it's blended in gently
+    // rather than snapped, so a correction never reads as a visible jump.
+    final targetScrollX = (widget.player.position.inMilliseconds / 1000.0) * _waveSpeed;
+    if (playing) {
+      _scrollX += dt * _waveSpeed;
+      final drift = targetScrollX - _scrollX;
+      // Only pull toward the real position if they've drifted apart by
+      // more than ~120ms of travel — small blend, never a hard snap.
+      if (drift.abs() > _waveSpeed * 0.12) {
+        _scrollX += drift * (dt * 4).clamp(0.0, 1.0);
+      }
+    } else {
+      // Paused (or dragging): follow the real/seek position exactly so
+      // the wave doesn't keep drifting on its own while audio is static.
+      _scrollX = targetScrollX;
+    }
 
     final target = playing ? 1.0 : 0.0;
     final next = _ampAnim + (target - _ampAnim) * (dt * 6).clamp(0.0, 1.0);
