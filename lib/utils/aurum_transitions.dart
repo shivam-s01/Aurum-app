@@ -43,6 +43,40 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObser
   double? _dragStartX;
   bool _dragging = false;
 
+  // ROOT FIX (white/gray wash — can appear on ANY screen, not just
+  // Shorts): every handler above (_onDragCancel, _onDragEnd,
+  // didChangeAppLifecycleState, dispose) only resets the controller if
+  // `_dragging` is still true when THAT handler fires. But
+  // HorizontalDragGestureRecognizer can lose the gesture arena to a
+  // competing vertical Scrollable/PageView (main app has plenty —
+  // ListView, PageView, mini-player drag-up, etc.) in a way that fires
+  // NONE of onEnd/onCancel/dispose/lifecycle on this recognizer at all —
+  // the arena just silently reassigns the pointer to the winner. When
+  // that happens, `_dragging` never flips back to false and
+  // animationController.value can sit at whatever partial fraction the
+  // first few pixels of drag reached, with no in-app signal left to
+  // correct it. That stray value is what a downstream secondaryAnimation
+  // consumer (any screen behind this route) paints as a permanent
+  // translucent gray/white scrim, on any screen, without a full drag
+  // ever completing.
+  // Fix: don't rely solely on recognizer callbacks. Independently watch
+  // every frame while `_dragging` is true; if the pointer stream goes
+  // quiet (no update for longer than a real drag ever pauses) the arena
+  // was silently lost — snap back to fully-open immediately, same as
+  // the existing onCancel path.
+  static const Duration _staleDragTimeout = Duration(milliseconds: 120);
+  DateTime? _lastDragUpdate;
+
+  void _watchdogTick(Duration _) {
+    if (!_dragging || _lastDragUpdate == null) return;
+    if (DateTime.now().difference(_lastDragUpdate!) > _staleDragTimeout) {
+      _dragging = false;
+      widget.animationController.value = 1.0;
+      return;
+    }
+    WidgetsBinding.instance.scheduleFrameCallback(_watchdogTick);
+  }
+
   bool get _enabled =>
       AurumMotion.enabled && AudioPrefs.backAnimations;
 
@@ -88,6 +122,7 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObser
             state == AppLifecycleState.detached) &&
         _dragging) {
       _dragging = false;
+      _lastDragUpdate = null;
       widget.animationController.value = 1.0;
     }
   }
@@ -102,6 +137,8 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObser
     if (_dragging) {
       widget.animationController.value = 1.0;
     }
+    _dragging = false;
+    _lastDragUpdate = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -112,10 +149,13 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObser
     if (!Navigator.of(context).canPop()) return;
     _dragStartX = details.globalPosition.dx;
     _dragging = true;
+    _lastDragUpdate = DateTime.now();
+    WidgetsBinding.instance.scheduleFrameCallback(_watchdogTick);
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
     if (!_dragging) return;
+    _lastDragUpdate = DateTime.now();
     final width = MediaQuery.of(context).size.width;
     if (width <= 0) return;
     // Controller runs 0 (fully pushed/visible) -> 1 (fully open, i.e. the
@@ -147,6 +187,7 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObser
   void _onDragCancel() {
     if (!_dragging) return;
     _dragging = false;
+    _lastDragUpdate = null;
     final remaining = 1.0 - widget.animationController.value;
     final settleMs = (AurumMotion.long1.inMilliseconds * remaining)
         .clamp(80.0, AurumMotion.long1.inMilliseconds.toDouble())
@@ -159,6 +200,7 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObser
   void _onDragEnd(DragEndDetails details) {
     if (!_dragging) return;
     _dragging = false;
+    _lastDragUpdate = null;
     final navigator = Navigator.of(context);
     final velocity = details.velocity.pixelsPerSecond.dx;
     // Pop if the swipe carried past the halfway point OR was a fast enough
@@ -249,6 +291,20 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
     required WidgetBuilder builder,
     RouteSettings? settings,
     bool fullscreenDialog = false,
+    // FIX (Shorts feed permanent gray/white wash on tap): the left-edge
+    // swipe-back gesture below runs a HorizontalDragGestureRecognizer that
+    // competes in the same gesture arena as any vertical PageView the
+    // pushed screen contains (e.g. Shorts' vertical reels feed). A swipe
+    // that isn't perfectly vertical lets this recognizer partially claim
+    // the pointer; if it then loses the arena or the gesture otherwise
+    // doesn't cleanly resolve, animationController.value can freeze at a
+    // stray mid-range fraction instead of settling to 0/1 — that stuck
+    // value is what painted as a permanent translucent gray/white scrim.
+    // Screens whose primary gesture is itself horizontal or
+    // vertical-paging (Shorts) should opt out of this wrapper entirely
+    // rather than risk the arena conflict; they already have their own
+    // explicit close (X) button.
+    bool enableEdgeSwipeBack = true,
   }) : super(
           settings: settings,
           fullscreenDialog: fullscreenDialog,
@@ -334,6 +390,7 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
             // transition frame-by-frame as the finger drags.
             final routeController = ModalRoute.of(context)?.controller;
             if (routeController == null) return content;
+            if (!enableEdgeSwipeBack) return content;
             return _EdgeSwipeBack(
               animationController: routeController,
               child: content,
@@ -351,11 +408,13 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
     BuildContext context,
     Widget screen, {
     bool fullscreenDialog = false,
+    bool enableEdgeSwipeBack = true,
   }) {
     return Navigator.of(context).push<T>(
       AurumPageRoute<T>(
         builder: (_) => screen,
         fullscreenDialog: fullscreenDialog,
+        enableEdgeSwipeBack: enableEdgeSwipeBack,
       ),
     );
   }

@@ -870,6 +870,26 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   void _close() {
     if (!mounted) return;
     AurumHaptics.light();
+    // FIX (mini player → full player, queue still loading → back →
+    // stuck gray/white layer, intermittent): _close() is the X-button /
+    // system-back path. _completeDismissDrag() is the swipe-to-dismiss
+    // path. Both independently call Navigator.pop() on this same route.
+    // _completeDismissDrag() already guards its OWN re-entry via
+    // _springBackIsDismissing, but _close() never checked that flag — so
+    // if a swipe-to-dismiss was already mid-flight (its off-screen slide
+    // animation running, pop scheduled for when that finishes) and back
+    // was pressed in that same window, _close() popped immediately here,
+    // while _completeDismissDrag()'s whenCompleteOrCancel callback was
+    // still pending. That callback later found `canPop()` false (this
+    // route was already gone) and fell into its own recovery branch,
+    // calling `setState(() => _dragY = 0)` on a route that was already in
+    // the middle of being torn down — a setState racing route disposal
+    // instead of a clean single pop, which is exactly the kind of race
+    // that leaves a stray half-transitioned frame (the reported stuck
+    // gray/white layer) rather than a clean dismissal. Reusing the same
+    // guard here means only ONE of the two paths ever gets to pop —
+    // whichever lands first — and the other simply no-ops.
+    if (_springBackIsDismissing) return;
     // Notifier setter already triggers the thin _DragTransform rebuild —
     // no need to also setState() the whole screen right before it pops.
     if (_dragY != 0) _dragY = 0;
@@ -976,9 +996,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   Future<void> _onPlayTap(PlayerProvider player) async {
     AurumHaptics.heavy();
-    await _playBtnCtrl.forward();
-    await _playBtnCtrl.reverse();
-    player.togglePlay();
+    // STABILITY FIX (play/pause button feels like it "bumps"/lags on
+    // tap): this used to await the full press-in (110ms) AND
+    // press-out (110ms) squish animation — a fixed 220ms of pure
+    // animation time — BEFORE calling togglePlay() at all. That is a
+    // real, felt input delay on every single tap, stacked on top of
+    // the icon-swap animation togglePlay() itself triggers once state
+    // updates. Firing togglePlay() immediately (not awaited — the
+    // press squish is purely cosmetic and shouldn't block the actual
+    // state change) means the icon starts responding as soon as
+    // physically possible, with the button's own squish playing
+    // concurrently rather than gating it.
+    unawaited(player.togglePlay());
+    unawaited(_playBtnCtrl.forward().then((_) => _playBtnCtrl.reverse()));
   }
 
   void _openPanel({int initialTab = 0}) {

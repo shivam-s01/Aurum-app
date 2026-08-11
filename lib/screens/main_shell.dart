@@ -77,6 +77,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         AurumPageRoute(
           builder: (_) => const ShortsEntry(),
           fullscreenDialog: true,
+          // Shorts' own vertical PageView conflicts with the left-edge
+          // swipe-back gesture recognizer (see AurumPageRoute) and was
+          // causing the feed to get stuck with a permanent gray/white
+          // scrim on tap. Shorts already has its own explicit close (X)
+          // button, so the edge-swipe gesture isn't needed here.
+          enableEdgeSwipeBack: false,
         ),
       );
       return;

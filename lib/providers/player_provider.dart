@@ -1826,6 +1826,33 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       await _engine.pause();
     } else {
       _isPlaying = true;
+      // STABILITY FIX ("pause/play button click karne pe bump/jhatka
+      // hota hai" — every tap, not just slow resumes): _isLoading used to
+      // flip true immediately, unconditionally, on every single resume —
+      // even the overwhelmingly common case where audio is already
+      // buffered and _engine.play() resolves in a few milliseconds. The
+      // play button's icon is wrapped in an AnimatedSwitcher (200ms
+      // scale+fade both ways) that swaps to a spinner the instant
+      // isLoading flips, then swaps BACK to the pause icon the instant
+      // the near-instant play() call resolves a moment later — two
+      // consecutive 200ms icon-swap animations firing back-to-back on
+      // what the user experiences as a single tap. That double-swap is
+      // exactly the visible "bump". A genuinely slow resume (real
+      // re-buffer, network drop, long-idle stream-URL expiry — the case
+      // this flag exists for, per the comment below) still needs the
+      // spinner so the tap doesn't look like it silently did nothing.
+      // The fix: only surface isLoading if the engine call hasn't
+      // resolved within a short grace window — long enough that a normal
+      // instant resume never shows it (closing the bump), short enough
+      // that a real stall still gets its loading feedback almost as fast
+      // as before.
+      bool resolved = false;
+      unawaited(Future.delayed(const Duration(milliseconds: 120), () {
+        if (!resolved && _isPlaying) {
+          _isLoading = true;
+          notifyListeners();
+        }
+      }));
       // SMOOTHNESS: resuming after the app sat backgrounded a while (or
       // after a network drop) can need a brief re-buffer before audio
       // actually resumes — during that gap _isPlaying was already true
@@ -1836,8 +1863,6 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // state with no sound and no feedback. The real state event corrects
       // isLoading the instant playback genuinely resumes, same as it
       // already does for every other loading transition in this file.
-      _isLoading = true;
-      notifyListeners();
       // FIX (spinner stuck forever on resume after a long idle period —
       // e.g. tapping Auto Sleep Guard's "Resume" action, or any resume
       // where the loaded stream URL has since expired, JioSaavn/YouTube
@@ -1852,7 +1877,13 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // leave the UI spinning with no way out.
       try {
         await _engine.play().timeout(const Duration(seconds: 8));
+        resolved = true;
+        if (_isLoading) {
+          _isLoading = false;
+          notifyListeners();
+        }
       } catch (e) {
+        resolved = true;
         _isLoading = false;
         _playbackError = 'Couldn\'t resume playback. Tap to retry.';
         notifyListeners();
