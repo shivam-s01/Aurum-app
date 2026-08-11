@@ -1801,16 +1801,40 @@ class ApiService {
           if (ytId == null) return <Song>[];
           final related = await NativeRelatedVideos.getRelated(ytId)
               .timeout(const Duration(seconds: 8), onTimeout: () => <YtRelatedVideo>[]);
-          return related.map((r) => Song(
-                id: r.videoId,
-                title: r.title,
-                artist: r.uploaderName,
-                album: '',
-                artworkUrl: 'https://i.ytimg.com/vi/${r.videoId}/hqdefault.jpg',
-                source: SongSource.youtube,
-                duration: r.durationSecs,
-                viewCount: r.viewCount,
-              )).toList();
+          // FIX (raw "You Might Also Like" titles): showing uncleaned
+          // "प्यार हुआ इक़रार हुआ | Pyar Hua Ikrar Hua..." and channel-style
+          // artist names like "Shemaroo Romantic Songs", "HD Songs
+          // Bollywood", "Goldmines Gaane Sune Ansune" — this signal comes
+          // straight from YouTube's own related-videos graph, a completely
+          // separate data path from the worker/explode_dart search
+          // functions above; it never passed through _cleanText() the way
+          // every other YT-sourced title in this file does, so none of the
+          // bracket-tag/pipe-separator/channel-suffix stripping applied
+          // here. Also apply the same quality gates the search path
+          // applies (isLowQualityUpload / isNonMusicContent /
+          // isPremiumQuality) — this signal was never filtered at all
+          // before, so a low-quality personal-channel upload from
+          // YouTube's related graph could surface in "You Might Also Like"
+          // even though the equivalent search path already screens it out.
+          return related
+              .map((r) => Song(
+                    id: r.videoId,
+                    title: _cleanText(r.title),
+                    artist: _cleanText(r.uploaderName),
+                    album: '',
+                    artworkUrl: 'https://i.ytimg.com/vi/${r.videoId}/hqdefault.jpg',
+                    source: SongSource.youtube,
+                    duration: r.durationSecs,
+                    viewCount: r.viewCount,
+                  ))
+              .where((s) {
+                if (s.id.isEmpty || s.title.isEmpty) return false;
+                if (RecommendationEngine.isLowQualityUpload(s.title)) return false;
+                if (RecommendationEngine.isNonMusicContent(s)) return false;
+                if (!RecommendationEngine.isPremiumQuality(s)) return false;
+                return true;
+              })
+              .toList();
         } catch (_) {
           return <Song>[];
         }
@@ -2292,7 +2316,26 @@ class ApiService {
 
     if (titleNorm == qNorm)                score += 100;
     else if (artistNorm == qNorm)          score += 80;
-    else if (titleNorm.startsWith(qNorm))  score += 60;
+    else if (titleNorm.startsWith(qNorm))  {
+      score += 60;
+      // FIX ("mujhse mohabbat ka" surfacing "Mujhse Mohabbat Ka Izhaar"
+      // ahead of the real, well-known "Mujhse Mohabbat Ka" song when both
+      // are startsWith matches and the shorter/exact one either wasn't
+      // returned by the backend for this query or tied on every other
+      // signal): among startsWith matches, prefer the title that is
+      // CLOSER in length to the query — a title extending only slightly
+      // past what the person typed reads as an exact/near-exact match,
+      // while a title extending it into a materially different, longer
+      // song name is a weaker match even though it also technically
+      // starts with the query. Capped at +8 (kept below the score gap to
+      // the true 100-point exact-match tier) so it only breaks ties
+      // between startsWith candidates — it never lets a long, barely-
+      // related title outrank a real exact match, and never fires when
+      // titleNorm == qNorm is already true (that branch already returned
+      // the full 100).
+      final extraChars = titleNorm.length - qNorm.length;
+      score += (8 - extraChars.clamp(0, 8)).toDouble();
+    }
     else if (artistNorm.startsWith(qNorm)) score += 40;
     else if (titleNorm.contains(qNorm))    score += 20;
     else if (artistNorm.contains(qNorm))   score += 10;
@@ -3220,6 +3263,78 @@ class ApiService {
       _log('[_searchYtPaged] Error: $e');
     }
     return videos;
+  }
+
+  // ===========================================================================
+  // YOUTUBE PLAYLIST IMPORT — pull songs from a public YouTube/YT Music
+  // playlist URL or bare ID, same as fetchSaavnPlaylistById does for Saavn.
+  // ===========================================================================
+  //
+  // Accepts either a bare playlist ID or a full YouTube/YouTube Music
+  // playlist URL (watch?v=...&list=..., playlist?list=..., music.youtube.com
+  // equivalents) — extracts the `list` param the same way a person would
+  // paste a link they copied from the YouTube app share sheet.
+  //
+  // Reuses _songFromYtVideo (same title/artist _cleanText + thumbnail +
+  // viewCount mapping every other YT-sourced song in this file goes
+  // through) so playlist songs get identical clean-title treatment to
+  // search results — no separate/uncleaned path introduced here.
+  //
+  // Quality gate is intentionally looser than search's isPremiumQuality
+  // view-count floor: a person importing a specific playlist has already
+  // curated it themselves (it's not an open-ended recommendation surface
+  // the way search/home are), so an unofficial-channel song with modest
+  // views shouldn't be silently dropped from a playlist they explicitly
+  // chose to import. Still filters genuine junk (isLowQualityUpload,
+  // isNonMusicContent) and duplicates — those signal a bad/spam upload
+  // regardless of whether the user picked it deliberately.
+  static String? _extractYtPlaylistId(String input) {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return null;
+    // Bare ID already (YT playlist IDs are alphanumeric/-/_  and commonly
+    // start with PL/OLAK5uy/RD/UU/LL/FL — but don't over-validate the
+    // prefix, just accept anything that isn't a URL).
+    if (!trimmed.contains('://') && !trimmed.contains('.')) return trimmed;
+    try {
+      final uri = Uri.parse(trimmed);
+      final listParam = uri.queryParameters['list'];
+      if (listParam != null && listParam.isNotEmpty) return listParam;
+    } catch (_) {
+      // fall through to null below
+    }
+    return null;
+  }
+
+  static Future<List<Song>> fetchYtPlaylistSongs(String playlistUrlOrId,
+      {int limit = 100}) async {
+    final playlistId = _extractYtPlaylistId(playlistUrlOrId);
+    if (playlistId == null || playlistId.isEmpty) return [];
+    try {
+      final videos = await _yt.playlists
+          .getVideos(playlistId)
+          .take(limit)
+          .toList()
+          .timeout(const Duration(seconds: 20), onTimeout: () => <Video>[]);
+      if (videos.isEmpty) return [];
+
+      final seenIds = <String>{};
+      final seenTitles = <String>{};
+      final result = <Song>[];
+      for (final v in videos) {
+        final s = _songFromYtVideo(v);
+        if (s.id.isEmpty || s.title.isEmpty) continue;
+        if (!seenIds.add(s.id)) continue;
+        if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
+        if (RecommendationEngine.isNonMusicContent(s)) continue;
+        final tk = _normTitle(s.title);
+        if (!seenTitles.add(tk)) continue;
+        result.add(s);
+      }
+      return result;
+    } catch (e) {
+      _log('[fetchYtPlaylistSongs] $playlistUrlOrId error: $e');
+      return [];
+    }
   }
 
   /// Builds a home-feed section straight from YouTube search — used for
@@ -4453,10 +4568,52 @@ class ApiService {
     try {
       final d = body['data'] as Map<String, dynamic>;
 
-      final topSongs = ((d['topSongs'] as List?) ?? [])
+      final saavnTopSongs = ((d['topSongs'] as List?) ?? [])
           .whereType<Map>()
           .map((s) => _songFromSaavn(Map<String, dynamic>.from(s)))
           .toList();
+
+      // FIX (artist page only ever showed Saavn's own topSongs — no YouTube
+      // songs, even when Saavn's catalog for that artist was thin/stale):
+      // fold in a YouTube search for "<artist name> songs" the same way
+      // _saavnSectionV4 blends Saavn+YT for home sections, using the same
+      // already-clean _searchYt() (worker-first, explode_dart fallback,
+      // both _cleanText'd and quality-gated) rather than introducing a new
+      // uncleaned path. Kept as a best-effort addition — if the YT search
+      // fails or times out, the page still renders with Saavn's topSongs
+      // alone rather than failing the whole artist fetch.
+      final artistNameForYt = (d['name'] ?? '').toString();
+      final ytTopSongs = artistNameForYt.isEmpty
+          ? <Song>[]
+          : await _searchYt('$artistNameForYt songs', limit: 30)
+              .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
+              .catchError((_) => <Song>[]);
+
+      final seenIds = <String>{};
+      final seenTitles = <String>{};
+      final topSongs = <Song>[];
+      // Saavn first (the artist's own catalog is the authoritative source),
+      // YT fills in behind it — same dedup pattern as every other merge
+      // point in this file (isSameSongSmart against every accepted title,
+      // not just an exact-string check, so reuploads with slightly
+      // different title formatting don't slip through as "different"
+      // songs).
+      final seenRawTitles = <String>[];
+      for (final s in [...saavnTopSongs, ...ytTopSongs]) {
+        if (!seenIds.add(s.id)) continue;
+        final tk = _normTitle(s.title);
+        if (!seenTitles.add(tk)) continue;
+        var isDup = false;
+        for (final seenRaw in seenRawTitles) {
+          if (RecommendationEngine.isSameSongSmart(s.title, seenRaw)) {
+            isDup = true;
+            break;
+          }
+        }
+        if (isDup) continue;
+        seenRawTitles.add(s.title);
+        topSongs.add(s);
+      }
 
       final topAlbums = ((d['topAlbums'] as List?) ?? [])
           .whereType<Map>()

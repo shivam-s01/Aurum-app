@@ -510,10 +510,76 @@ class PlaylistsScreen extends StatelessWidget {
       description: l10n.libraryLoginToOrganizeDesc,
       requiresLoginOnly: true,
       onAllowed: () async {
-        await showDialog(
+        // CHANGE ("Library screen me Import from YouTube button/dialog"):
+        // the "+" FAB used to go straight to _CreatePlaylistDialog. Rather
+        // than adding a second, competing FAB (visual clutter, and the
+        // Spotify/YT Music pattern for "more than one way to start a
+        // playlist" is a picker sheet, not more buttons on the screen),
+        // the FAB now opens this same bottom-sheet-picker pattern already
+        // used for cover-image source (_changeCover above) — "Create
+        // Playlist" and "Import from YouTube" as two rows, same rounded
+        // sheet chrome the rest of the app already uses everywhere a
+        // choice is presented.
+        final choice = await showModalBottomSheet<String>(
           context: context,
-          builder: (_) => _CreatePlaylistDialog(),
+          backgroundColor: Colors.transparent,
+          builder: (ctx) => Container(
+            decoration: BoxDecoration(
+              color: AurumTheme.bgElevatedOf(ctx),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 12),
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AurumTheme.textMutedOf(ctx).withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    leading: Icon(Icons.add_circle_outline_rounded,
+                        color: AurumTheme.gold),
+                    title: Text(l10n.libraryCreatePlaylist,
+                        style: TextStyle(
+                            color: AurumTheme.textPrimaryOf(ctx),
+                            fontWeight: FontWeight.w600)),
+                    onTap: () => Navigator.pop(ctx, 'create'),
+                  ),
+                  ListTile(
+                    leading: Icon(Icons.link_rounded,
+                        color: AurumTheme.gold),
+                    title: Text(l10n.libraryImportFromYoutube,
+                        style: TextStyle(
+                            color: AurumTheme.textPrimaryOf(ctx),
+                            fontWeight: FontWeight.w600)),
+                    onTap: () => Navigator.pop(ctx, 'import_yt'),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          ),
         );
+
+        if (!context.mounted) return;
+        if (choice == 'create') {
+          await showDialog(
+            context: context,
+            builder: (_) => _CreatePlaylistDialog(),
+          );
+        } else if (choice == 'import_yt') {
+          await showDialog(
+            context: context,
+            builder: (_) => _ImportYtPlaylistDialog(),
+          );
+        }
       },
     );
   }
@@ -1770,6 +1836,144 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
         PlaylistDetailScreen(playlistId: pl.id),
       );
     }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Import from YouTube Dialog
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// Mirrors _CreatePlaylistDialog's structure/chrome exactly (same
+// AlertDialog shape, same gold-gradient action button, same
+// AurumFocusField keyboard-timing fix, same scrollable:true for
+// keyboard-safe resizing) so this reads as a native part of the app
+// rather than a bolted-on feature — the person creating a playlist and
+// the person importing one should see the same visual language.
+//
+// Three states surfaced inline, no separate error dialog/snackbar
+// needed for the common case:
+//   1. idle        — paste field + Import button
+//   2. importing    — button shows the same AurumM3Loader spinner
+//                     _CreatePlaylistDialog uses while creating
+//   3. error        — inline red helper text under the field explaining
+//                     what went wrong (invalid link vs. empty playlist),
+//                     field stays editable so the person can just fix
+//                     the pasted text and retry without reopening
+//                     anything.
+class _ImportYtPlaylistDialog extends StatefulWidget {
+  const _ImportYtPlaylistDialog();
+
+  @override
+  State<_ImportYtPlaylistDialog> createState() =>
+      _ImportYtPlaylistDialogState();
+}
+
+class _ImportYtPlaylistDialogState extends State<_ImportYtPlaylistDialog> {
+  final _linkCtrl = TextEditingController();
+  bool _importing = false;
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _linkCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return AlertDialog(
+      backgroundColor: AurumTheme.bgElevatedOf(context),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      scrollable: true,
+      title: Text(l10n.libraryImportFromYoutube,
+          style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontWeight: FontWeight.w800)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l10n.libraryImportFromYoutubeDesc,
+            style: TextStyle(
+              color: AurumTheme.textMutedOf(context),
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          AurumFocusField(
+            builder: (focusNode) => _AurumTextField(
+              controller: _linkCtrl,
+              focusNode: focusNode,
+              label: l10n.libraryYoutubePlaylistLinkLabel,
+            ),
+          ),
+          if (_errorText != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _errorText!,
+              style: const TextStyle(color: Colors.redAccent, fontSize: 12.5),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _importing ? null : () => Navigator.pop(context),
+          child: Text(l10n.commonCancel,
+              style: TextStyle(color: AurumTheme.textMutedOf(context))),
+        ),
+        AurumPressable(
+          onTap: _importing ? null : () => _import(l10n),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: AurumTheme.goldGradient,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: _importing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: Center(child: AurumM3Loader(width: 16, height: 2)))
+                : Text(l10n.commonImport,
+                    style: TextStyle(
+                        color: AurumTheme.bgOf(context),
+                        fontWeight: FontWeight.w700)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _import(AppLocalizations l10n) async {
+    final link = _linkCtrl.text.trim();
+    if (link.isEmpty) {
+      setState(() => _errorText = l10n.libraryYoutubeLinkEmptyError);
+      return;
+    }
+    setState(() {
+      _importing = true;
+      _errorText = null;
+    });
+    final playlist = await context
+        .read<PlaylistProvider>()
+        .importYtPlaylist(link);
+    if (!mounted) return;
+    if (playlist == null) {
+      setState(() {
+        _importing = false;
+        _errorText = l10n.libraryYoutubeImportFailedError;
+      });
+      return;
+    }
+    Navigator.pop(context);
+    AurumPageRoute.to(
+      context,
+      PlaylistDetailScreen(playlistId: playlist.id),
+    );
   }
 }
 

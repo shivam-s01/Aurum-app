@@ -16,6 +16,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/song.dart';
 import '../services/sync_service.dart';
+import '../services/api_service.dart';
 
 // ── Model ────────────────────────────────────────────────────────────────────
 
@@ -324,6 +325,38 @@ class PlaylistProvider extends ChangeNotifier {
     pl.updatedAt = DateTime.now();
     unawaited(_persist(pl));
     notifyListeners();
+  }
+
+  // ── Import from YouTube ──────────────────────────────────────────────────
+
+  /// Creates a new local playlist from a pasted YouTube/YouTube Music
+  /// playlist URL or bare playlist ID, using ApiService.fetchYtPlaylistSongs
+  /// (already _cleanText'd + quality-gated — see api_service.dart). Returns
+  /// null if the URL/ID didn't resolve to any songs (invalid link, private/
+  /// deleted playlist, or a genuinely empty one) so the caller can show an
+  /// error instead of silently creating an empty playlist.
+  ///
+  /// [name] defaults to the playlist ID itself when not given — the caller
+  /// (import UI) should prefer passing the actual YouTube playlist title if
+  /// it has one available; ApiService's playlist fetch only returns songs,
+  /// not the playlist's own title, so this provider can't infer a better
+  /// default on its own.
+  Future<AurumPlaylist?> importYtPlaylist(String playlistUrlOrId,
+      {String? name}) async {
+    final songs = await ApiService.fetchYtPlaylistSongs(playlistUrlOrId);
+    if (songs.isEmpty) return null;
+
+    final playlist = AurumPlaylist(
+      id: _generateId(),
+      name: (name == null || name.trim().isEmpty)
+          ? 'Imported Playlist'
+          : name.trim(),
+      songs: songs,
+    );
+    _playlists.insert(0, playlist);
+    await _persist(playlist);
+    notifyListeners();
+    return playlist;
   }
 
   // ── Query ─────────────────────────────────────────────────────────────────
