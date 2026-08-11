@@ -181,6 +181,16 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _refreshRequestedForCurrentStuck = false;
 
   void _startLoadingWatchdog() {
+    // FIX (same battery-drain family as _localPositionTicker below): this
+    // was only ever cancelled in dispose(), so once _isLoading went true
+    // even once, it ran every 2s for the rest of the app's process
+    // lifetime — screen off, backgrounded, didn't matter. Cheap per-tick,
+    // but "cheap x forever x background" is still real background CPU
+    // wake-ups Android's battery stats count against the app. Gate it
+    // behind foreground the same way; a stuck-loading state that started
+    // in the foreground will correctly resume being watched the moment
+    // the app is foregrounded again via didChangeAppLifecycleState.
+    if (!_isAppInForeground) return;
     _loadingWatchdog ??= Timer.periodic(const Duration(seconds: 2), (_) {
       if (!_isLoading) {
         _refreshRequestedForCurrentStuck = false;
@@ -218,11 +228,47 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     // cheap, non-destructive, and the fastest path to recovery.
     if (state == AppLifecycleState.resumed) {
       _engine.refreshState();
+      _isAppInForeground = true;
+      // Ticker was intentionally stopped while backgrounded (see below) —
+      // resume it now if we're still actually playing, so the seek bar
+      // interpolation is live again the instant the player screen is
+      // visible instead of waiting for the next native position event.
+      if (_isPlaying) _startLocalPositionTicker();
+      if (_isLoading) _startLoadingWatchdog();
+      return;
     }
+    // FIX (battery drain: this ticker was firing every 500ms — 2x/sec,
+    // ~7200 times/hr — completely unconditionally on _isPlaying, with NO
+    // regard for whether the app was even in the foreground. Each tick
+    // calls notifyListeners(), which rebuilds every widget subscribed to
+    // PlayerProvider. On a phone with the screen off / app backgrounded,
+    // nothing was ever visibly consuming that seek-bar interpolation —
+    // it exists purely so the seek bar looks smooth on the full player
+    // screen — yet it kept running full-speed in the background for as
+    // long as playback continued, which for a music app can be hours.
+    // That's what showed up as disproportionate "background" battery/CPU
+    // usage in Android's battery stats despite low actual screen-on time.
+    // Stopping it here (paused/inactive/detached) costs nothing: the real
+    // position still updates correctly from native player-state events
+    // (onPositionDiscontinuity, periodic native ticks that already exist
+    // in AurumAudioEngine), this local ticker only smooths the UI between
+    // those events for the seek bar the user can currently see.
+    _isAppInForeground = false;
+    _stopLocalPositionTicker();
+    _loadingWatchdog?.cancel();
+    _loadingWatchdog = null;
   }
 
 
+  // Tracks whether the app is currently in the foreground. Starts true —
+  // by the time PlayerProvider exists the app is already visible (this
+  // isn't constructed from a background isolate), and the very first
+  // didChangeAppLifecycleState callback will correct it if that's ever
+  // not the case.
+  bool _isAppInForeground = true;
+
   void _startLocalPositionTicker() {
+    if (!_isAppInForeground) return;
     if (_localPositionTicker?.isActive == true) return;
     _localPositionTicker = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (!_isPlaying) return;
