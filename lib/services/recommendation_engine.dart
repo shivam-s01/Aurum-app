@@ -1296,8 +1296,33 @@ class RecommendationEngine {
   /// matches loosely against any title containing those words/years.
   static bool isLowQualityUpload(String title) {
     if (_hashtagSpamPattern.hasMatch(title)) return true;
+    if (_handleMentionPattern.hasMatch(title)) return true;
+    if (_descriptionStyleTitlePattern.hasMatch(title)) return true;
     return _junkUploadPattern.hasMatch(title);
   }
+
+  // FIX ("Allah Kare Dil Na Lage Kisise is a son...", "ALLAH KARE DIL NA
+  // LAGE @MsLofiShorts" ranking above the real song in search): these two
+  // shapes slipped past every existing check because _junkUploadPattern is
+  // all specific slang words (bhojpuri/wedding/freestyle etc.) — neither
+  // title contains any of those words, and _scoreSearchResult actually
+  // scores them HIGH because they literally repeat the full query text.
+  // Two generic shapes real official releases essentially never use in
+  // their own title, regardless of language/genre:
+  //   - an @channel-handle mention baked into the title itself (real
+  //     label/official uploads put the channel in the byline, never
+  //     inline in the title text)
+  //   - description-style phrasing ("is a song from", "is a cover of",
+  //     "is sung by") — a real song title is just the song name, not a
+  //     sentence describing it; this phrasing is a strong signal of an
+  //     auto-generated or reaction/explainer-style upload rather than the
+  //     song itself.
+  static final RegExp _handleMentionPattern = RegExp(r'@\w+');
+  static final RegExp _descriptionStyleTitlePattern = RegExp(
+    r'\b(is a song (?:from|by|of)|is a cover (?:of|by)|is sung by|'
+    r'is the (?:title|first|debut) (?:song|track)|song is (?:from|by))\b',
+    caseSensitive: false,
+  );
 
   static final RegExp _junkUploadPattern = RegExp(
     r'\b(naya dhamaka|dhamaka 20\d\d|happy new year|nav varsh|'

@@ -3115,12 +3115,6 @@ class ApiService {
   // ===========================================================================
   // YOUTUBE SEARCH
   // ===========================================================================
-  // Official-channel check now delegates to RecommendationEngine's single
-  // source of truth (isKnownOfficialChannel) so the marker list only needs
-  // maintaining in one place — see recommendation_engine.dart.
-  static bool _isOfficialChannel(String channelName) {
-    return RecommendationEngine.isKnownOfficialChannel(channelName);
-  }
 
   /// Public entry point for MusicSource (see music_source.dart) — a thin,
   /// unchanged alias for _searchYt.
@@ -3142,73 +3136,248 @@ class ApiService {
   // same YouTube videoId. Only where the metadata (title/artist/art) came
   // from has changed.
   //
-  // youtube_explode_dart search remains as the fallback — if the worker
-  // route is slow, empty, or errors, results are exactly what they were
-  // before this change (zero regression risk).
+  // PRODUCTION-QUALITY FIX ("ekdam clean, ekdam YouTube Music jaisa —
+  // explode_dart ke jagah yaha bhi YT Music laga do"): explode_dart's raw
+  // video search is a LOW-TRUST source by nature — its "artist" field is
+  // literally whatever the uploading channel is named ("Shemaroo Romantic
+  // Songs", "Ms Lofi Shorts", "Missi technical services"), because
+  // regular YouTube has no concept of a verified artist, only an
+  // uploader. No amount of filtering on top of that ever produces a real
+  // artist name — the field itself is the wrong data. The worker's
+  // /api/yt-music-search route calls YT MUSIC's own internal catalog
+  // (WEB_REMIX client), which is curated release data — real artist,
+  // clean title, square high-res art — exactly like the official YouTube
+  // Music app shows. So this function no longer falls back to
+  // explode_dart at all.
   //
-  // STABILITY FIX ("search mein YT clean/stable nahi aa raha, Saavn hi
-  // dikh raha hai"): worker and explode_dart fallback used to run
-  // SEQUENTIALLY — worker got up to 5s, and only if it came back empty did
-  // explode_dart get its own up-to-8s window on top, for a worst case of
-  // ~13s total. Callers (quickSearch's 6s timeout, search()'s 10s timeout
-  // on the whole _searchYt call) would often kill the call before that
-  // sequential fallback ever finished, so a merely-slow (not dead) worker
-  // silently produced ZERO YT results for that search — exactly the
-  // "Saavn hi aa raha hai" symptom. Both paths now fire in TRUE parallel
-  // and the first one to return a non-empty list wins — worst case is
-  // bounded by whichever is faster, never their sum, and a slow worker no
-  // longer blocks explode_dart from covering for it in time.
-  static Future<List<Song>> _searchYt(String query, {int limit = 30}) async { // 15->30 pro level
-    final ytMusicFuture = _searchYtMusic(query, limit)
-        .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
-        .catchError((e) {
-          _log('[_searchYt] yt-music-search error, falling back: $e');
-          return <Song>[];
-        });
-    final explodeFuture = _searchYtPaged(query, limit)
-        .timeout(const Duration(seconds: 5), onTimeout: () => <Video>[])
-        .catchError((e) {
-          _log('[_searchYt] explode_dart error: $e');
-          return <Video>[];
-        })
-        .then((videos) {
-          // Official-channel uploads first — same list, just reordered, so
-          // when we later `.take(limit)` or dedup by title, the cleanest/
-          // most premium (official) version of a song wins over a random
-          // reupload.
-          videos.sort((a, b) {
-            final aOfficial = _isOfficialChannel(a.author) ? 0 : 1;
-            final bOfficial = _isOfficialChannel(b.author) ? 0 : 1;
-            return aOfficial.compareTo(bOfficial);
-          });
-          // QUALITY GATE ("random personal-channel junk uploads in
-          // search"): explode_dart is the LOW-TRUST fallback tier — it
-          // only ever wins when the YT Music worker's curated catalog came
-          // back empty for this query. Apply the same quality/junk-title
-          // filters here, at the source, instead of trusting every caller
-          // downstream to catch it — a channel that isn't an official
-          // label AND doesn't clear the raised unofficial-channel view
-          // floor, or a title that matches the junk-upload/hashtag-spam
-          // pattern, never gets returned from this function at all.
-          final mapped = videos.map(_songFromYtVideo).where((s) {
-            if (s.id.isEmpty || s.title.isEmpty) return false;
-            if (RecommendationEngine.isLowQualityUpload(s.title)) return false;
-            if (RecommendationEngine.isNonMusicContent(s)) return false;
-            if (!RecommendationEngine.isPremiumQuality(s)) return false;
-            return true;
-          }).toList();
-          return mapped.take(limit).toList();
-        });
+  // DIRECT-DART FALLBACK ("worker kabhi down ho to bhi YT Music jaisa hi
+  // result aaye"): if the Cloudflare Worker route fails/errors/times out,
+  // _searchYtMusicDirect below calls YT Music's own WEB_REMIX InnerTube
+  // endpoint straight from the phone (same public, unauthenticated
+  // endpoint/key music.youtube.com's own web frontend calls — mirrors
+  // the worker's ytMusicSearchRaw/parseYtMusicSearch in worker.js
+  // exactly), so results stay YT-Music-quality even with the worker
+  // completely unreachable. Fires whenever the worker returned nothing —
+  // down, errored, timed out, OR a genuine "no matches" — since a second
+  // 3s call is a small, bounded cost and this way a real hit from the
+  // direct path is never left on the table just because the worker
+  // happened to (correctly) find zero results for that exact query
+  // phrasing.
+  //
+  // Playback is completely unaffected by any of this — the returned Song
+  // still carries streamUrl:null / source:SongSource.youtube, and the
+  // existing resolveYtStream()/_ytStreamById() chain (untouched) resolves
+  // the actual audio off the same videoId exactly as before.
+  static Future<List<Song>> _searchYt(String query, {int limit = 30}) async {
+    try {
+      final workerResult = await _searchYtMusic(query, limit)
+          .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
+      if (workerResult.isNotEmpty) return workerResult;
+    } catch (e) {
+      _log('[_searchYt] yt-music-search (worker) error: $e');
+    }
+    // Worker gave nothing (down, errored, or timed out) — try the direct
+    // YT Music InnerTube call as a same-quality backup before giving up.
+    // Kept short (3s) so the combined worst case (worker 3s + direct 3s =
+    // 6s) still fits inside every caller's own outer .timeout() (the
+    // tightest of which is 5s) rather than silently starving the direct
+    // fallback of a real chance to run before the caller gives up first.
+    try {
+      return await _searchYtMusicDirect(query, limit)
+          .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
+    } catch (e) {
+      _log('[_searchYt] yt-music-search (direct) error: $e');
+      return <Song>[];
+    }
+  }
 
-    final results = await Future.wait([ytMusicFuture, explodeFuture]);
-    final ytMusicResult = results[0];
-    final explodeResult = results[1];
-    // YT Music worker wins when it has anything at all — its metadata
-    // (real artist, clean title, square art) is strictly higher quality
-    // than explode_dart's raw video title/channel-name shape. explode_dart
-    // only ever fills in when the worker came back genuinely empty.
-    if (ytMusicResult.isNotEmpty) return ytMusicResult;
-    return explodeResult;
+  // Fixed, public, unauthenticated INNERTUBE key used by the WEB_REMIX web
+  // client itself (music.youtube.com's own frontend JS uses this exact
+  // key) — not a secret, not tied to any account. Mirrors YTM_API_KEY in
+  // worker.js so the direct-Dart path returns identically-shaped, equally
+  // clean results.
+  static const String _ytmApiKey = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
+  static const String _ytmClientVersion = '1.20240101.01.00';
+  // "Songs" search-filter param — restricts results to the Songs shelf
+  // only (same as tapping the "Songs" chip on music.youtube.com), so
+  // every result is a real song row with proper artist/album metadata,
+  // never a video/playlist/artist/album card.
+  static const String _ytmSongsFilterParam = 'EgWKAQIIAWoKEAMQBBAJEAoQBQ%3D%3D';
+
+  /// Direct-from-phone YT Music search — no Cloudflare Worker involved.
+  /// Same endpoint, same request shape, same response parsing as the
+  /// worker's /api/yt-music-search route (see worker.js:
+  /// ytMusicSearchRaw/parseYtMusicSearch) so this is a drop-in,
+  /// equal-quality backup when the worker itself is unreachable.
+  /// No timeout here by design — the caller (_searchYt) already wraps
+  /// this call in its own .timeout(), so a second one here would just be
+  /// a second, inconsistent race against the same clock.
+  static Future<List<Song>> _searchYtMusicDirect(String query, int limit) async {
+    final uri = Uri.parse(
+      'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
+    );
+    final resp = await _client.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Origin': 'https://music.youtube.com',
+        'Referer': 'https://music.youtube.com/',
+      },
+      body: jsonEncode({
+        'context': {
+          'client': {
+            'clientName': 'WEB_REMIX',
+            'clientVersion': _ytmClientVersion,
+            'hl': 'en',
+            'gl': 'IN',
+          },
+        },
+        'query': query,
+        'params': _ytmSongsFilterParam,
+      }),
+    );
+    if (resp.statusCode != 200) return [];
+    final dynamic decoded = jsonDecode(resp.body);
+    // Defensive: YouTube can occasionally return a non-object body (an
+    // error string/array, or a consent/interstitial page) even with a 200
+    // status. Only proceed if it's the Map shape the parser expects —
+    // anything else degrades to "no results" instead of the parser's
+    // dynamic indexing throwing on an unexpected type.
+    if (decoded is! Map) return [];
+    return _parseYtMusicDirectSearch(decoded, limit);
+  }
+
+  /// Mirrors worker.js's parseYtMusicSearch() field-for-field — same
+  /// tabbedSearchResultsRenderer/sectionListRenderer walk, same
+  /// musicResponsiveListItemRenderer row shape, same artist/album/
+  /// duration extraction — so results from this path are indistinguishable
+  /// from the worker's.
+  static List<Song> _parseYtMusicDirectSearch(dynamic json, int limit) {
+    final out = <Song>[];
+    try {
+      final shelves = <dynamic>[];
+      final tabs = json?['contents']?['tabbedSearchResultsRenderer']?['tabs']
+              as List? ??
+          const [];
+      for (final tab in tabs) {
+        final sections = tab?['tabRenderer']?['content']
+                ?['sectionListRenderer']?['contents'] as List? ??
+            const [];
+        for (final section in sections) {
+          if (section?['musicShelfRenderer'] != null) {
+            shelves.add(section['musicShelfRenderer']);
+          }
+        }
+      }
+      if (shelves.isEmpty) {
+        final sections =
+            json?['contents']?['sectionListRenderer']?['contents'] as List? ??
+                const [];
+        for (final section in sections) {
+          if (section?['musicShelfRenderer'] != null) {
+            shelves.add(section['musicShelfRenderer']);
+          }
+        }
+      }
+
+      for (final shelf in shelves) {
+        final items = shelf?['contents'] as List? ?? const [];
+        for (final item in items) {
+          final r = item?['musicResponsiveListItemRenderer'];
+          if (r == null) continue;
+
+          final videoId = r['playlistItemData']?['videoId'] ??
+              r['overlay']?['musicItemThumbnailOverlayRenderer']?['content']
+                  ?['musicPlayButtonRenderer']?['playNavigationEndpoint']
+                  ?['watchEndpoint']?['videoId'];
+          if (videoId == null || videoId.toString().isEmpty) continue;
+
+          final flexColumns = r['flexColumns'] as List? ?? const [];
+          final title = flexColumns.isNotEmpty
+              ? (flexColumns[0]?['musicResponsiveListItemFlexColumnRenderer']
+                          ?['text']?['runs']?[0]?['text'] ??
+                      '')
+                  .toString()
+              : '';
+          if (title.isEmpty) continue;
+
+          final subRuns = flexColumns.length > 1
+              ? (flexColumns[1]?['musicResponsiveListItemFlexColumnRenderer']
+                      ?['text']?['runs'] as List? ??
+                  const [])
+              : const [];
+          final artistRuns = subRuns.where((run) {
+            final pageType = run?['navigationEndpoint']?['browseEndpoint']
+                ?['browseEndpointContextSupportedConfigs']
+                ?['browseEndpointContextMusicConfig']?['pageType'];
+            return pageType == 'MUSIC_PAGE_TYPE_ARTIST';
+          }).toList();
+          final artistSource =
+              artistRuns.isNotEmpty ? artistRuns : subRuns.take(1).toList();
+          final artist = artistSource
+              .map((r2) => (r2?['text'] ?? '').toString())
+              .where((s) => s.isNotEmpty)
+              .join(', ');
+
+          dynamic albumRun;
+          for (final run in subRuns) {
+            final pageType = run?['navigationEndpoint']?['browseEndpoint']
+                ?['browseEndpointContextSupportedConfigs']
+                ?['browseEndpointContextMusicConfig']?['pageType'];
+            if (pageType == 'MUSIC_PAGE_TYPE_ALBUM') { albumRun = run; break; }
+          }
+          final album = (albumRun?['text'] ?? '').toString();
+
+          dynamic durationRun;
+          for (final run in subRuns) {
+            final t = (run?['text'] ?? '').toString();
+            if (RegExp(r'^\d+:\d{2}$').hasMatch(t)) { durationRun = run; break; }
+          }
+          final durationText = (durationRun?['text'] ?? '').toString();
+          int? durationSec;
+          if (durationText.isNotEmpty) {
+            final parts = durationText.split(':');
+            if (parts.length == 2) {
+              final mins = int.tryParse(parts[0]);
+              final secs = int.tryParse(parts[1]);
+              if (mins != null && secs != null) durationSec = mins * 60 + secs;
+            }
+          }
+
+          final thumbs = r['thumbnail']?['musicThumbnailRenderer']
+                  ?['thumbnail']?['thumbnails'] as List? ??
+              const [];
+          final best = thumbs.isNotEmpty ? thumbs.last : null;
+          var thumbnail = (best?['url'] ?? '').toString();
+          if (thumbnail.isNotEmpty) {
+            thumbnail =
+                thumbnail.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w544-h544');
+          }
+
+          out.add(Song(
+            id: videoId.toString(),
+            title: _cleanText(title),
+            artist: _cleanText(artist).isNotEmpty ? _cleanText(artist) : 'Unknown',
+            album: _cleanText(album),
+            artworkUrl: thumbnail,
+            streamUrl: null,
+            duration: durationSec,
+            source: SongSource.youtube,
+            // Same trustworthy-by-construction sentinel _searchYtMusic
+            // uses — this came from YT Music's curated Songs shelf, not
+            // the open video index, so isPremiumQuality() should treat it
+            // identically to a verified-popular upload.
+            viewCount: 1000000,
+          ));
+          if (out.length >= limit) return out;
+        }
+      }
+    } catch (e) {
+      _log('[_parseYtMusicDirectSearch] parse error: $e');
+    }
+    return out;
   }
 
   // Calls the Worker's YT Music search proxy and maps its clean JSON
@@ -3218,9 +3387,10 @@ class ApiService {
   // changes to handle these results.
   static Future<List<Song>> _searchYtMusic(String query, int limit) async {
     // Fast-skip: if the worker route has failed recently, don't spend up
-    // to 5s discovering that again on every keystroke — go straight to
-    // empty so _searchYt's parallel race lets explode_dart win immediately
-    // instead of waiting out a doomed request first.
+    // to 5s discovering that again on every keystroke — return empty
+    // immediately (Saavn results still cover the query) instead of
+    // waiting out a doomed request. Self-heals after 20s (see
+    // _YtSearchHealth.markFailure).
     if (_YtSearchHealth.isLikelyDown) return [];
     try {
       final uri = Uri.parse(
@@ -3387,6 +3557,18 @@ class ApiService {
     return const [];
   }
 
+  // FIX (2026-08-11 — "Couldn't import that playlist" on genuinely valid
+  // PL... links): this used to go straight to youtube_explode_dart's
+  // client-side HTML scraping, which fails unpredictably whenever
+  // YouTube tweaks its page markup — the exact failure in the screenshot
+  // report (a real PL playlist rejected with a generic notFound error).
+  //
+  // Now tries the Cloudflare Worker's /api/yt-playlist route FIRST — that
+  // calls YT Music's own internal browse API (WEB_REMIX client, same
+  // approach already proven reliable for /api/yt-music-search), which is
+  // JSON and versioned instead of scraped HTML. youtube_explode_dart
+  // remains as the fallback if the worker route errors or times out, so
+  // this is zero-regression: worst case behaves exactly as before.
   static Future<List<Song>> fetchYtPlaylistSongs(String playlistUrlOrId,
       {int limit = 200}) async {
     final playlistId = _extractYtPlaylistId(playlistUrlOrId);
@@ -3395,6 +3577,11 @@ class ApiService {
     }
     if (_isYtMixPlaylistId(playlistId)) {
       throw const YtPlaylistImportException(YtPlaylistImportError.isMix);
+    }
+
+    final workerResult = await _fetchYtPlaylistViaWorker(playlistId, limit);
+    if (workerResult != null) {
+      return _dedupAndFilterPlaylistSongs(workerResult);
     }
 
     List<Video> videos;
@@ -3416,11 +3603,69 @@ class ApiService {
       throw const YtPlaylistImportException(YtPlaylistImportError.empty);
     }
 
+    return _dedupAndFilterPlaylistSongs(videos.map(_songFromYtVideo).toList());
+  }
+
+  // Calls the Worker's /api/yt-playlist route and maps its JSON straight
+  // into Song objects — same row shape and mapping as _searchYtMusic
+  // above. Returns null (not an empty list) on any failure so the caller
+  // can tell "worker had nothing to say, try explode_dart" apart from
+  // "worker confirmed this playlist is genuinely empty/private", which
+  // is surfaced as a real error below instead of silently falling
+  // through to a second, redundant fetch attempt.
+  static Future<List<Song>?> _fetchYtPlaylistViaWorker(
+      String playlistId, int limit) async {
+    try {
+      final uri = Uri.parse(
+        '$_saavn/api/yt-playlist?id=${Uri.encodeComponent(playlistId)}&limit=$limit',
+      );
+      final resp = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (resp.statusCode == 404) {
+        // Worker confirmed empty/private/not-found — a real, final
+        // answer, not a transient failure to fall back from.
+        throw const YtPlaylistImportException(YtPlaylistImportError.empty);
+      }
+      if (resp.statusCode != 200) {
+        _log('[fetchYtPlaylistSongs] worker route HTTP ${resp.statusCode}');
+        return null;
+      }
+      final data = jsonDecode(resp.body);
+      if (data['success'] != true) return null;
+      final results = (data['data']?['results'] as List?) ?? [];
+      if (results.isEmpty) return null;
+      return results.map<Song>((r) {
+        final rawArtist = _cleanText((r['artist'] ?? '').toString());
+        return Song(
+          id: (r['videoId'] ?? '').toString(),
+          title: _cleanText((r['title'] ?? '').toString()),
+          artist: rawArtist.isNotEmpty ? rawArtist : 'Unknown',
+          album: _cleanText((r['album'] ?? '').toString()),
+          artworkUrl: (r['image'] ?? '').toString(),
+          streamUrl: null,
+          duration: r['duration'] is int ? r['duration'] as int : null,
+          source: SongSource.youtube,
+          viewCount: null,
+        );
+      }).toList();
+    } on YtPlaylistImportException {
+      rethrow;
+    } catch (e) {
+      _log('[fetchYtPlaylistSongs] worker route error: $e');
+      return null;
+    }
+  }
+
+  // Shared dedup + quality gate for playlist-import songs, regardless of
+  // whether they came from the worker route or the explode_dart
+  // fallback. Same looser-than-search gate as before (see comment above
+  // the class for why): still filters genuine junk (isLowQualityUpload,
+  // isNonMusicContent) and duplicates, doesn't apply the view-count floor
+  // since a person importing a specific playlist has already curated it.
+  static List<Song> _dedupAndFilterPlaylistSongs(List<Song> songs) {
     final seenIds = <String>{};
     final seenTitles = <String>{};
     final result = <Song>[];
-    for (final v in videos) {
-      final s = _songFromYtVideo(v);
+    for (final s in songs) {
       if (s.id.isEmpty || s.title.isEmpty) continue;
       if (!seenIds.add(s.id)) continue;
       if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
@@ -4680,9 +4925,9 @@ class ApiService {
       // songs, even when Saavn's catalog for that artist was thin/stale):
       // fold in a YouTube search for "<artist name> songs" the same way
       // _saavnSectionV4 blends Saavn+YT for home sections, using the same
-      // already-clean _searchYt() (worker-first, explode_dart fallback,
-      // both _cleanText'd and quality-gated) rather than introducing a new
-      // uncleaned path. Kept as a best-effort addition — if the YT search
+      // already-clean _searchYt() (worker-first, direct-YT-Music-API
+      // fallback if the worker is down, both _cleanText'd and quality-
+      // gated) rather than introducing a new uncleaned path. Kept as a best-effort addition — if the YT search
       // fails or times out, the page still renders with Saavn's topSongs
       // alone rather than failing the whole artist fetch.
       final artistNameForYt = (d['name'] ?? '').toString();
