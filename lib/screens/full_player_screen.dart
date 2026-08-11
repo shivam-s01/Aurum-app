@@ -979,7 +979,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     await _playBtnCtrl.forward();
     await _playBtnCtrl.reverse();
     player.togglePlay();
-    _triggerArtworkAnimation();
   }
 
   void _openPanel({int initialTab = 0}) {
@@ -1279,6 +1278,34 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               targetBg2: _targetBg2,
                               targetBg3: _targetBg3,
                               targetBg4: _targetBg4,
+                              // FIX ("blur background wale swipe-down mein
+                              // solid wale se alag ek layer/flash dikhta
+                              // hai, jabki solid mein nahi"): Solid mode has
+                              // zero active controllers behind it — just one
+                              // flat ColoredBox — so a dismiss-drag composites
+                              // cleanly every frame on any device. Blur/
+                              // Gradient mode additionally runs the Ken
+                              // Burns pan/zoom (breatheCtrl, an 18s loop)
+                              // stacked underneath _DragTransform's own
+                              // transform+opacity the whole time the player
+                              // is open — including mid-swipe. Two
+                              // independently-driven transforms compositing
+                              // at once, on top of the single most expensive
+                              // paint layer on this screen, is exactly the
+                              // kind of thing that drops a frame on a
+                              // low-end device — and a dropped/late frame
+                              // during a fast multi-layer composite reads as
+                              // a stray layer flash for an instant, which
+                              // Solid mode structurally can't produce.
+                              // Freezing the Ken Burns motion for the
+                              // duration of the drag removes that second
+                              // moving transform, leaving only
+                              // _DragTransform's own — matching Solid mode's
+                              // simplicity exactly while a finger is down,
+                              // with the slow drift resuming the instant the
+                              // gesture ends (spring-back or completed
+                              // dismiss).
+                              isDragging: _isDragging,
                             ),
                           ),
                           SafeArea(
@@ -1735,7 +1762,20 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
 
   @override
   Widget build(BuildContext context) {
-    final maxArtSize = (widget.w - widget.hPad * 2).clamp(0.0, widget.h * 0.42);
+    // Artwork's own visual size uses a tighter, dedicated inset than
+    // widget.hPad (28dp — shared with title/seekbar/controls below for
+    // their own horizontal padding and this widget's drag-gesture
+    // hitbox). Spotify/Apple Music render the cover at roughly 88-92% of
+    // screen width; the old maxArtSize (driven by the same 28dp used
+    // everywhere else) landed closer to 86%, which reads slightly small
+    // next to those references. Sizing just the artwork tighter — while
+    // leaving widget.hPad, and everything built from it, untouched —
+    // gets the cover noticeably closer to that proportion without
+    // cramping the title text or control row, which still use the wider
+    // padding they were already tuned for.
+    const artworkVisualPad = 18.0;
+    final maxArtSize =
+        (widget.w - artworkVisualPad * 2).clamp(0.0, widget.h * 0.46);
     // FIX (shadow direction wrong depending on artwork, not app theme):
     // this softened the artwork's drop shadow on Theme.of(context).
     // brightness — but this shadow's job is to lift the artwork off the
@@ -1761,7 +1801,7 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
           onHorizontalDragEnd: swipeEnabled ? (_) => _handleDragEnd() : null,
           onHorizontalDragCancel: swipeEnabled ? _animateSnapBack : null,
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: widget.hPad),
+            padding: const EdgeInsets.symmetric(horizontal: artworkVisualPad),
             child: Center(
               child: SizedBox(
                 width: maxArtSize,
@@ -5047,7 +5087,10 @@ class _LyricsPageState extends State<_LyricsPage> {
                 textAlign: style.position == 'Left' ? TextAlign.left : TextAlign.center,
                 style: TextStyle(
                   color: lyricsColor,
-                  fontSize: style.textSize + 6,
+                  // FIX: was style.textSize + 6, same size-vs-setting
+                  // mismatch as the synced view below — now truthful to
+                  // what the user picked in settings.
+                  fontSize: style.textSize,
                   height: style.lineSpacing,
                   fontWeight: FontWeight.w500,
                   letterSpacing: 0.1,
@@ -5147,14 +5190,19 @@ class _SyncedLyricsView extends StatelessWidget {
             if (line.text.isEmpty) {
               return const SizedBox(height: 22);
             }
-            // Base size bumped up from the raw style.textSize — Spotify's
-            // lyrics screen runs noticeably larger than a body-text size
-            // like the 16sp default here, and the jump from inactive to
-            // active is bigger too (was +2, now +4) so the currently
-            // playing line reads as unmistakably the focal point rather
-            // than a slightly-bolder line among equals.
-            final baseSize = style.textSize + 8;
-            final activeSize = baseSize + 4;
+            // FIX ("full lyrics panel is bigger than the Settings →
+            // Player & Audio lyrics size slider says"): this previously
+            // added a flat +8 to style.textSize (then +4 more for the
+            // active line), so a user who picked 16sp actually got 24–28sp
+            // on screen — the size on screen never matched the number they
+            // set. Now the base line genuinely IS style.textSize, so the
+            // slider is truthful at every setting. The active line still
+            // gets a proportional (not flat) bump — 12% larger — so it
+            // stays the clear focal point at any chosen size without the
+            // absolute offset overpowering small settings or barely
+            // registering on large ones.
+            final baseSize = style.textSize;
+            final activeSize = baseSize * 1.12;
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 3),
               child: GestureDetector(
@@ -5428,6 +5476,7 @@ class _BgLayer extends StatelessWidget {
   final AnimationController breatheCtrl;
   final Color startBg1, startBg2, startBg3, startBg4;
   final Color targetBg1, targetBg2, targetBg3, targetBg4;
+  final bool isDragging;
 
   const _BgLayer({
     required this.song,
@@ -5441,6 +5490,7 @@ class _BgLayer extends StatelessWidget {
     required this.targetBg2,
     required this.targetBg3,
     required this.targetBg4,
+    this.isDragging = false,
   });
 
   // FIX (lag): this used to be built entirely inside the AnimatedBuilder
@@ -5520,6 +5570,7 @@ class _BgLayer extends StatelessWidget {
                   song: song,
                   isLight: isLight,
                   breatheCtrl: breatheCtrl,
+                  isDragging: isDragging,
                 ),
               );
 
@@ -5685,12 +5736,14 @@ class _StaticBlurArtwork extends StatelessWidget {
   final Song song;
   final bool isLight;
   final AnimationController? breatheCtrl;
+  final bool isDragging;
 
   const _StaticBlurArtwork({
     super.key,
     required this.song,
     required this.isLight,
     this.breatheCtrl,
+    this.isDragging = false,
   });
 
   @override
@@ -5718,6 +5771,18 @@ class _StaticBlurArtwork extends StatelessWidget {
     // 1.14x zoom, larger pan distances scaled to the actual screen size
     // rather than fixed pixels) while staying well inside the 1.55x base
     // overscan so blurred edges are still never exposed.
+    //
+    // FIX (stray layer/flash on swipe-down in Blur/Gradient mode, absent
+    // in Solid mode): this AnimatedBuilder keeps ticking the whole time
+    // the full player is open, including mid-drag — stacking its own
+    // Transform on top of _DragTransform's during a swipe, which Solid
+    // mode (zero controllers) never has to do. Freezing `t` at its
+    // current value for the duration of a drag (rather than letting it
+    // keep advancing) removes that second live transform exactly when
+    // frame budget is tightest, without a visible jump — it simply holds
+    // still and resumes smoothly from the same point once the gesture
+    // ends.
+    double? frozenKenBurnsT;
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -5727,8 +5792,18 @@ class _StaticBlurArtwork extends StatelessWidget {
             animation: ctrl,
             builder: (context, child) {
               final animsOn = AudioPrefs.enableAnimationsNotifier.value;
-              final tRaw = animsOn ? ctrl.value : 0.5; // 0→1→0 (reverse: true)
-              final t = Curves.easeInOut.transform(tRaw);
+              double t;
+              if (isDragging) {
+                // Hold whatever value was last computed rather than
+                // re-sampling ctrl.value every frame while dragging.
+                t = frozenKenBurnsT ??= Curves.easeInOut.transform(
+                  animsOn ? ctrl.value : 0.5,
+                );
+              } else {
+                frozenKenBurnsT = null;
+                final tRaw = animsOn ? ctrl.value : 0.5; // 0→1→0 (reverse: true)
+                t = Curves.easeInOut.transform(tRaw);
+              }
 
               // Zoom breathes between 1.0x and 1.14x on top of the base
               // 1.55x already applied inside the core widget — clearly
