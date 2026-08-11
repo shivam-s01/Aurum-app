@@ -38,6 +38,7 @@ import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/playlist_provider.dart';
+import '../services/api_service.dart' show YtPlaylistImportException, YtPlaylistImportError;
 import '../providers/premium_provider.dart';
 import '../providers/auth_provider.dart';
 import '../models/download_item.dart';
@@ -112,6 +113,18 @@ class LibraryScreen extends StatelessWidget {
       backgroundColor: AurumTheme.bgOf(context),
       automaticallyImplyLeading: false,
       actions: [
+        IconButton(
+          icon: Icon(Icons.link_rounded,
+              color: AurumTheme.textSecondaryOf(context)),
+          tooltip: l10n.libraryImportFromYoutube,
+          onPressed: () {
+            AurumHaptics.light();
+            showDialog(
+              context: context,
+              builder: (_) => _ImportYtPlaylistDialog(),
+            );
+          },
+        ),
         IconButton(
           icon: Icon(Icons.settings_outlined,
               color: AurumTheme.textSecondaryOf(context)),
@@ -510,76 +523,10 @@ class PlaylistsScreen extends StatelessWidget {
       description: l10n.libraryLoginToOrganizeDesc,
       requiresLoginOnly: true,
       onAllowed: () async {
-        // CHANGE ("Library screen me Import from YouTube button/dialog"):
-        // the "+" FAB used to go straight to _CreatePlaylistDialog. Rather
-        // than adding a second, competing FAB (visual clutter, and the
-        // Spotify/YT Music pattern for "more than one way to start a
-        // playlist" is a picker sheet, not more buttons on the screen),
-        // the FAB now opens this same bottom-sheet-picker pattern already
-        // used for cover-image source (_changeCover above) — "Create
-        // Playlist" and "Import from YouTube" as two rows, same rounded
-        // sheet chrome the rest of the app already uses everywhere a
-        // choice is presented.
-        final choice = await showModalBottomSheet<String>(
+        await showDialog(
           context: context,
-          backgroundColor: Colors.transparent,
-          builder: (ctx) => Container(
-            decoration: BoxDecoration(
-              color: AurumTheme.bgElevatedOf(ctx),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 12),
-                  Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AurumTheme.textMutedOf(ctx).withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ListTile(
-                    leading: Icon(Icons.add_circle_outline_rounded,
-                        color: AurumTheme.gold),
-                    title: Text(l10n.libraryCreatePlaylist,
-                        style: TextStyle(
-                            color: AurumTheme.textPrimaryOf(ctx),
-                            fontWeight: FontWeight.w600)),
-                    onTap: () => Navigator.pop(ctx, 'create'),
-                  ),
-                  ListTile(
-                    leading: Icon(Icons.link_rounded,
-                        color: AurumTheme.gold),
-                    title: Text(l10n.libraryImportFromYoutube,
-                        style: TextStyle(
-                            color: AurumTheme.textPrimaryOf(ctx),
-                            fontWeight: FontWeight.w600)),
-                    onTap: () => Navigator.pop(ctx, 'import_yt'),
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-            ),
-          ),
+          builder: (_) => _CreatePlaylistDialog(),
         );
-
-        if (!context.mounted) return;
-        if (choice == 'create') {
-          await showDialog(
-            context: context,
-            builder: (_) => _CreatePlaylistDialog(),
-          );
-        } else if (choice == 'import_yt') {
-          await showDialog(
-            context: context,
-            builder: (_) => _ImportYtPlaylistDialog(),
-          );
-        }
       },
     );
   }
@@ -1958,14 +1905,31 @@ class _ImportYtPlaylistDialogState extends State<_ImportYtPlaylistDialog> {
       _importing = true;
       _errorText = null;
     });
-    final playlist = await context
-        .read<PlaylistProvider>()
-        .importYtPlaylist(link);
+    AurumPlaylist? playlist;
+    String errorMessage = l10n.libraryYoutubeImportFailedError;
+    try {
+      playlist =
+          await context.read<PlaylistProvider>().importYtPlaylist(link);
+    } on YtPlaylistImportException catch (e) {
+      errorMessage = switch (e.reason) {
+        YtPlaylistImportError.invalidLink =>
+          l10n.libraryYoutubeImportInvalidLinkError,
+        YtPlaylistImportError.isMix => l10n.libraryYoutubeImportMixError,
+        YtPlaylistImportError.network =>
+          l10n.libraryYoutubeImportNetworkError,
+        YtPlaylistImportError.empty ||
+        YtPlaylistImportError.notFound =>
+          l10n.libraryYoutubeImportFailedError,
+      };
+      playlist = null;
+    } catch (_) {
+      playlist = null;
+    }
     if (!mounted) return;
     if (playlist == null) {
       setState(() {
         _importing = false;
-        _errorText = l10n.libraryYoutubeImportFailedError;
+        _errorText = errorMessage;
       });
       return;
     }

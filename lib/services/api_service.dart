@@ -217,6 +217,50 @@ class _YtSearchHealth {
 }
 
 
+// ══════════════════════════════════════════════════════════════════════════
+// YouTube playlist import — typed failure reasons
+// ══════════════════════════════════════════════════════════════════════════
+//
+// fetchYtPlaylistSongs used to collapse every failure mode (bad link, a
+// YouTube Mix with no fixed track list, network/parse failure, a playlist
+// that's genuinely empty) into a single `[]` return, so the import dialog
+// could only ever show one generic "Couldn't import" message no matter
+// what actually went wrong. That made the real problem (e.g. pasting a
+// Mix link, which can never work) indistinguishable from a transient
+// network hiccup (which just needs a retry). This throws instead, so the
+// UI layer can map each reason to accurate, actionable copy.
+enum YtPlaylistImportError {
+  /// The pasted text isn't a recognizable playlist URL or ID — no `list=`
+  /// query param, and not a bare ID either.
+  invalidLink,
+
+  /// The link resolved to a YouTube Mix / radio / watch-history pseudo-
+  /// playlist (IDs starting RD/UL/LM). These are generated on-demand by
+  /// YouTube and have no fixed, enumerable track list — there is nothing
+  /// to import, this isn't a bug.
+  isMix,
+
+  /// The playlist ID looked valid but YouTube returned zero videos —
+  /// either it's private/deleted, or it's a real playlist with 0 songs.
+  empty,
+
+  /// The playlist ID looked valid but the fetch itself failed (parsing
+  /// error, YouTube-side hiccup, unexpected response shape) after a
+  /// retry already happened.
+  notFound,
+
+  /// Request timed out both attempts — almost always the device's
+  /// connection, not YouTube.
+  network,
+}
+
+class YtPlaylistImportException implements Exception {
+  final YtPlaylistImportError reason;
+  const YtPlaylistImportException(this.reason);
+  @override
+  String toString() => 'YtPlaylistImportException($reason)';
+}
+
 class ApiService {
 
   /// Flip to true right before you start restarting/redeploying the
@@ -3288,6 +3332,17 @@ class ApiService {
   // chose to import. Still filters genuine junk (isLowQualityUpload,
   // isNonMusicContent) and duplicates — those signal a bad/spam upload
   // regardless of whether the user picked it deliberately.
+  /// Playlist IDs that begin with these prefixes are YouTube's
+  /// auto-generated Mixes/radio ("RD..." — including the personalized
+  /// "RDMM..." and mood-radio "RDCLAK5uy_..." variants) or the
+  /// watch-history/"my mix" pseudo-playlists. None of these have a fixed,
+  /// enumerable track list — YouTube generates them on the fly per-request,
+  /// so there is nothing stable to import. Detected up front so the person
+  /// gets a specific, correct explanation instead of a generic failure
+  /// after a wasted round-trip to YouTube.
+  static bool _isYtMixPlaylistId(String id) =>
+      id.startsWith('RD') || id.startsWith('UL') || id.startsWith('LM');
+
   static String? _extractYtPlaylistId(String input) {
     final trimmed = input.trim();
     if (trimmed.isEmpty) return null;
@@ -3305,36 +3360,84 @@ class ApiService {
     return null;
   }
 
-  static Future<List<Song>> fetchYtPlaylistSongs(String playlistUrlOrId,
-      {int limit = 100}) async {
-    final playlistId = _extractYtPlaylistId(playlistUrlOrId);
-    if (playlistId == null || playlistId.isEmpty) return [];
-    try {
-      final videos = await _yt.playlists
-          .getVideos(playlistId)
-          .take(limit)
-          .toList()
-          .timeout(const Duration(seconds: 20), onTimeout: () => <Video>[]);
-      if (videos.isEmpty) return [];
-
-      final seenIds = <String>{};
-      final seenTitles = <String>{};
-      final result = <Song>[];
-      for (final v in videos) {
-        final s = _songFromYtVideo(v);
-        if (s.id.isEmpty || s.title.isEmpty) continue;
-        if (!seenIds.add(s.id)) continue;
-        if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
-        if (RecommendationEngine.isNonMusicContent(s)) continue;
-        final tk = _normTitle(s.title);
-        if (!seenTitles.add(tk)) continue;
-        result.add(s);
+  /// Single retry with a short backoff for transient failures (flaky
+  /// mobile network, momentary YouTube rate-limit) — matches the pattern
+  /// already used for Saavn cold-start hosts elsewhere in this file.
+  /// Only retries once: a second consecutive failure is treated as a
+  /// real error, not worth stalling the import dialog further for.
+  static Future<List<Video>> _fetchPlaylistVideosWithRetry(
+      String playlistId, int limit) async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final videos = await _yt.playlists
+            .getVideos(playlistId)
+            .take(limit)
+            .toList()
+            .timeout(const Duration(seconds: 20));
+        return videos;
+      } catch (e) {
+        _log('[fetchYtPlaylistSongs] attempt ${attempt + 1} failed: $e');
+        if (attempt == 0) {
+          await Future.delayed(const Duration(milliseconds: 600));
+          continue;
+        }
+        rethrow;
       }
-      return result;
-    } catch (e) {
-      _log('[fetchYtPlaylistSongs] $playlistUrlOrId error: $e');
-      return [];
     }
+    return const [];
+  }
+
+  static Future<List<Song>> fetchYtPlaylistSongs(String playlistUrlOrId,
+      {int limit = 200}) async {
+    final playlistId = _extractYtPlaylistId(playlistUrlOrId);
+    if (playlistId == null || playlistId.isEmpty) {
+      throw const YtPlaylistImportException(YtPlaylistImportError.invalidLink);
+    }
+    if (_isYtMixPlaylistId(playlistId)) {
+      throw const YtPlaylistImportException(YtPlaylistImportError.isMix);
+    }
+
+    List<Video> videos;
+    try {
+      videos = await _fetchPlaylistVideosWithRetry(playlistId, limit);
+    } on TimeoutException catch (e) {
+      _log('[fetchYtPlaylistSongs] $playlistId timed out: $e');
+      throw const YtPlaylistImportException(YtPlaylistImportError.network);
+    } catch (e) {
+      _log('[fetchYtPlaylistSongs] $playlistId error: $e');
+      // youtube_explode_dart throws for both "not found" and transient
+      // parsing failures with overlapping message text, so this can't be
+      // split further client-side — surface as a generic failure rather
+      // than guessing.
+      throw const YtPlaylistImportException(YtPlaylistImportError.notFound);
+    }
+
+    if (videos.isEmpty) {
+      throw const YtPlaylistImportException(YtPlaylistImportError.empty);
+    }
+
+    final seenIds = <String>{};
+    final seenTitles = <String>{};
+    final result = <Song>[];
+    for (final v in videos) {
+      final s = _songFromYtVideo(v);
+      if (s.id.isEmpty || s.title.isEmpty) continue;
+      if (!seenIds.add(s.id)) continue;
+      if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
+      if (RecommendationEngine.isNonMusicContent(s)) continue;
+      final tk = _normTitle(s.title);
+      if (!seenTitles.add(tk)) continue;
+      result.add(s);
+    }
+
+    if (result.isEmpty) {
+      // Every video was filtered out by the quality/dedup gates above —
+      // distinct from "YouTube gave us nothing" (empty) so this can be
+      // messaged differently later if needed; for now it maps to the
+      // same empty-playlist copy since the end state is the same.
+      throw const YtPlaylistImportException(YtPlaylistImportError.empty);
+    }
+    return result;
   }
 
   /// Builds a home-feed section straight from YouTube search — used for

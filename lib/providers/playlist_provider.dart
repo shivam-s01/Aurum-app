@@ -341,6 +341,12 @@ class PlaylistProvider extends ChangeNotifier {
   /// it has one available; ApiService's playlist fetch only returns songs,
   /// not the playlist's own title, so this provider can't infer a better
   /// default on its own.
+  /// Throws [YtPlaylistImportException] on failure (invalid link, Mix,
+  /// empty playlist, network/parse error) so the caller can show the
+  /// exact reason. Only returns null in the (should-be-impossible) case
+  /// where the fetch call itself returns without either songs or a
+  /// thrown exception, kept as a defensive fallback rather than a normal
+  /// path — callers should primarily catch YtPlaylistImportException.
   Future<AurumPlaylist?> importYtPlaylist(String playlistUrlOrId,
       {String? name}) async {
     final songs = await ApiService.fetchYtPlaylistSongs(playlistUrlOrId);

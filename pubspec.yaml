@@ -1,7 +1,7 @@
 name: aurum_music
 description: Aurum Music - Premium Gold Music Experience
 publish_to: 'none'
-version: 2.3.1+344
+version: 2.3.2+345
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -38,7 +38,7 @@ dependencies:
   html: ^0.15.4
 
   # YouTube
-  youtube_explode_dart: ^2.2.1
+  youtube_explode_dart: ^3.1.0
 
   # UI
   scrollable_positioned_list: ^0.3.8
