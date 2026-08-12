@@ -264,7 +264,17 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, l10n.settingsPrivacy),
       body: ListView(
-        physics: const BouncingScrollPhysics(),
+        // AlwaysScrollableScrollPhysics wraps BouncingScrollPhysics so the
+        // bounce still fires even when the content is shorter than the
+        // viewport — e.g. before App Lock is turned on, the PIN/biometric/
+        // auto-lock sub-rows aren't rendered and this list can be short
+        // enough to fit the screen with nothing left to scroll. Plain
+        // BouncingScrollPhysics only bounces once content actually
+        // overflows; on a short list it silently does nothing, which read
+        // as this screen feeling "stuck" compared to longer screens where
+        // content naturally overflows and the same physics line works
+        // without this wrapper.
+        physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
           for (int i = 0; i < rows.length; i++)

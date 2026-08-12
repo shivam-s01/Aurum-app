@@ -15,6 +15,7 @@ import '../theme/aurum_theme.dart';
 import '../providers/auth_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../services/audio_prefs.dart';
 
 class PremiumScreen extends StatefulWidget {
   const PremiumScreen({super.key});
@@ -87,23 +88,46 @@ class _PremiumScreenState extends State<PremiumScreen>
 
     WidgetsBinding.instance.addObserver(this);
 
+    // PERF: this is the single busiest screen for concurrent decorative
+    // animation (glow + shimmer + particle, all continuous, on top of the
+    // entrance/press/countdown controllers) — exactly the case the global
+    // Appearance -> Animations toggle exists for on low-end devices. Every
+    // other continuous-loop animation in the app (home banner shimmer,
+    // full player breathe) already gates on
+    // AudioPrefs.enableAnimationsNotifier; this screen previously didn't,
+    // so turning the toggle off still left 3 x 60fps loops running here.
+    final animsOn = AudioPrefs.enableAnimationsNotifier.value;
+
     _glowCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
-    )..repeat(reverse: true);
+    );
     _glow = CurvedAnimation(parent: _glowCtrl, curve: Curves.easeInOutSine);
 
     _shimmerCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2800),
-    )..repeat();
+    );
     _shimmer =
         CurvedAnimation(parent: _shimmerCtrl, curve: Curves.easeInOutSine);
 
     _particleCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 8000),
-    )..repeat();
+    );
+
+    if (animsOn) {
+      _glowCtrl.repeat(reverse: true);
+      _shimmerCtrl.repeat();
+      _particleCtrl.repeat();
+    } else {
+      // Hold each at a static mid-value instead of leaving it at 0, so the
+      // glow/shimmer/particle visuals still render (just frozen) rather
+      // than popping to an off/empty state with animations disabled.
+      _glowCtrl.value = 0.5;
+      _shimmerCtrl.value = 0.5;
+      _particleCtrl.value = 0.0;
+    }
 
     _pressCtrl = AnimationController(
       vsync: this,
@@ -127,6 +151,7 @@ class _PremiumScreenState extends State<PremiumScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      if (!AudioPrefs.enableAnimationsNotifier.value) return;
       if (!_glowCtrl.isAnimating) _glowCtrl.repeat(reverse: true);
       if (!_shimmerCtrl.isAnimating) _shimmerCtrl.repeat();
       if (!_particleCtrl.isAnimating) _particleCtrl.repeat();

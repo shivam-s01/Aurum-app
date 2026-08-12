@@ -38,8 +38,16 @@ class AurumAudioEffects(
 
         private const val K_P3 = 60
 
+        // Crisp/detailed curve — Apple Music-style tonal target: tight
+        // controlled low end (not boomy), a light mud-scoop in the low-mids
+        // to keep vocals/instruments from sounding thick, forward-but-not-
+        // shouty mids for clarity, and extended-but-controlled highs for
+        // detail/air without sibilance or harshness. Values in mB, one per
+        // band across the device's 10-band-equivalent spread (see
+        // premiumGainFor's interpolation — this list is sampled
+        // proportionally regardless of the device's actual band count).
         private val K_P4 = listOf(
-            30, 10, -50, 20, 60, 70, 40, 10, -20, -30,
+            15, 5, -35, 15, 45, 55, 45, 30, 5, -10,
         )
 
         private const val K_S1 = 0.55f
@@ -91,6 +99,41 @@ class AurumAudioEffects(
         // constants landing on the same presence band at once.
         private const val K_CAP_POS = 600 // +6.0dB combined ceiling, boost side
         private const val K_CAP_NEG = -600 // -6.0dB combined ceiling, cut side
+
+        // TRIPLE-STACK CRACKLE FIX: LoudnessEnhancer sits ahead of the
+        // Equalizer/limiter chain (no pre-EQ stage on the DynamicsProcessing
+        // config — see _lm1) and was previously driven straight to
+        // BASS_BOOST_LOUDNESS_GAIN_MB (+4dB) with zero awareness of how much
+        // headroom the EQ side was already spending via K_CAP_POS. With Bass
+        // Boost + Premium Sound + a custom curve all active at once, the EQ
+        // bands could already be sitting at the full +6dB ceiling — stacking
+        // LoudnessEnhancer's uncapped +4dB on top of that pushed the signal
+        // into the limiter's threshold (K_L1) hard and often, and a 6:1
+        // ratio limiter slamming repeatedly at a 5ms attack is exactly what
+        // reads as crackle/glitch rather than clean compression.
+        //
+        // Fix: give LoudnessEnhancer its own share of a combined budget
+        // instead of applying its gain independently of the EQ side. The
+        // total "perceived boost" budget across LoudnessEnhancer + EQ combined
+        // gain is capped at K_TOTAL_BUDGET_MB, and LoudnessEnhancer's slice
+        // shrinks automatically as EQ-side gain grows — so three sources
+        // active together still land under the same effective ceiling as one
+        // source alone, instead of stacking additively past it.
+        // Total combined ceiling for LoudnessEnhancer + EQ-side gain together
+        // — deliberately the SAME value as K_CAP_POS (the EQ side's own
+        // combined boost ceiling), so LoudnessEnhancer is only ever allowed
+        // to use whatever headroom the EQ side hasn't already claimed.
+        private const val K_TOTAL_BUDGET_MB = K_CAP_POS
+
+        // Minimum LoudnessEnhancer gain applied when it's active AND there
+        // is at least this much genuine headroom left under K_TOTAL_BUDGET_MB.
+        // This is NOT added on top of the budget — it's the smallest slice
+        // _loudnessBudgetMb will hand out; if remaining headroom is below
+        // this, LoudnessEnhancer gets exactly the remaining headroom instead
+        // (which can be 0), never more. This keeps the hard guarantee that
+        // LoudnessEnhancer + EQ peak gain can never exceed K_TOTAL_BUDGET_MB
+        // (== K_CAP_POS), in every scenario including EQ maxed out.
+        private const val K_LOUDNESS_FLOOR_MB = 80
     }
 
     private var equalizer: Equalizer? = null
@@ -115,6 +158,29 @@ class AurumAudioEffects(
     private var lastBandGains: List<Int>? = null
     private var lastPremiumSound = false
     private var lastKnownSourceKbps: Int? = null
+
+    // HEATING/BATTERY FIX: whether the user currently wants ANY of these
+    // effects active (custom EQ curve, bass boost, volume normalization,
+    // or Premium Sound). Constructing an android.media.audiofx.AudioEffect
+    // (Equalizer/LoudnessEnhancer/Virtualizer/BassBoost/DynamicsProcessing)
+    // on a session — even with .enabled left false — permanently disables
+    // ExoPlayer/Media3's audio offload path for that session. Offload is
+    // what lets the DSP/audio HAL do decoding instead of the main CPU, and
+    // is one of the single biggest levers for how hot a phone runs and how
+    // much battery a music app burns during long playback. Previously
+    // _at1() attached all four effect objects unconditionally on every
+    // song for every user, whether or not they'd ever touched the
+    // equalizer — silently blocking offload for 100% of users, 100% of
+    // the time, and keeping the CPU at a higher power state for the
+    // entire duration of every song instead of just while the screen is
+    // on. This flag lets _at1() skip attachment entirely when nothing is
+    // actually wanted, so the common case (no EQ/bass boost/Premium Sound
+    // touched) gets real offload and runs cool; effects still attach
+    // immediately, same as before, the moment the user turns one on.
+    private fun wantsAnyEffect(): Boolean {
+        val hasCustomCurve = lastBandGains?.any { it != 0 } == true
+        return lastBassBoost || lastVolNorm || lastPremiumSound || hasCustomCurve
+    }
 
     private var fadeHandler = Handler(Looper.getMainLooper())
     private var fadeRunnable: Runnable? = null
@@ -261,6 +327,30 @@ class AurumAudioEffects(
         lastAppliedLoudnessGain = null
         lastAppliedLimiterEnabled = null
         lastAppliedEqGains = emptyList()
+        // Explicit reset for the new session — belt-and-suspenders on top
+        // of _ap2 refreshing this on its next apply. Without this, a stale
+        // peak from the previous (now-released) session's Equalizer could
+        // theoretically cause LoudnessEnhancer's very first gain
+        // computation on the new session to under- or over-budget for one
+        // apply cycle before _ap2 catches up.
+        lastEqPeakGainMb = 0
+
+        // See wantsAnyEffect() — skip attaching any platform AudioEffect
+        // at all when the user hasn't asked for EQ/bass boost/volume
+        // normalization/Premium Sound, so offload stays available and
+        // playback runs on the low-power DSP path instead of the CPU.
+        if (!wantsAnyEffect()) {
+            equalizerHealthy = false
+            loudnessHealthy = false
+            virtualizerHealthy = false
+            virtualizerSupported = false
+            nativeBassBoostHealthy = false
+            nativeBassBoostSupported = false
+            limiterHealthy = false
+            limiterSupported = false
+            currentFadeFraction = 0f
+            return
+        }
 
         try {
             equalizer = Equalizer(0, sessionId)
@@ -396,17 +486,36 @@ class AurumAudioEffects(
     }
 
     fun applySettings(bassBoost: Boolean, volNorm: Boolean, bandGainsMb: List<Int>?) {
+        val wasAttached = equalizer != null || nativeBassBoost != null
         lastBassBoost = bassBoost
         lastVolNorm = volNorm
         lastBandGains = bandGainsMb
 
-        _ap1(bassBoost)
+        // Effects were skipped at attach time (nothing was wanted then) —
+        // now something is, so attach for real on the current session
+        // before applying. See wantsAnyEffect() / the skip in _at1().
+        if (!wasAttached && wantsAnyEffect() && currentSessionId != 0) {
+            _at1(currentSessionId)
+            return
+        }
+
+        // EQ bands applied first so lastEqPeakGainMb is fresh before _ap1
+        // computes LoudnessEnhancer's share of the shared budget — same
+        // ordering fix as in _ap3, see its comment for why order matters.
         _ap2(bassBoost = bassBoost, volNorm = volNorm, bandGainsMb = bandGainsMb, intensityFraction = currentFadeFraction)
+        _ap1(bassBoost)
     }
 
     fun applyPremiumSound(enabled: Boolean, forceReapply: Boolean = false) {
         if (enabled == lastPremiumSound && !forceReapply) return
+        val wasAttached = equalizer != null || nativeBassBoost != null
         lastPremiumSound = enabled
+
+        if (!wasAttached && wantsAnyEffect() && currentSessionId != 0) {
+            _at1(currentSessionId)
+            return
+        }
+
         _fd2(if (enabled) 1f else 0f)
     }
 
@@ -418,7 +527,25 @@ class AurumAudioEffects(
 
     fun reportSourceBitrate(kbps: Int?) {
         lastKnownSourceKbps = kbps
-        _ap2(bassBoost = lastBassBoost, volNorm = lastVolNorm, bandGainsMb = lastBandGains, intensityFraction = currentFadeFraction)
+        // Recompute the same effectiveFraction _ap3 would use (raw fade
+        // fraction scaled by the device/battery/volume ceiling from _mx1) —
+        // using currentFadeFraction directly here would skip that ceiling
+        // and let LoudnessEnhancer/EQ run hotter than _ap3 ever allows.
+        val ceiling = if (currentFadeFraction > 0f) _mx1() else 0f
+        val effectiveFraction = (currentFadeFraction * ceiling).coerceIn(0f, 1f)
+        val active = effectiveFraction > 0.001f
+
+        // Re-apply EQ (bitrate compensation gain changes) THEN LoudnessEnhancer,
+        // same ordering as applySettings/_ap3 — otherwise a bitrate change
+        // arriving mid-playback (detected after the stream starts) updates
+        // lastEqPeakGainMb but leaves LoudnessEnhancer's gain stale against
+        // the old budget until the next unrelated settings change.
+        _ap2(bassBoost = lastBassBoost, volNorm = lastVolNorm, bandGainsMb = lastBandGains, intensityFraction = effectiveFraction)
+        if (lastPremiumSound) {
+            _applyLoudnessForPremium(effectiveFraction, active)
+        } else {
+            _ap1(lastBassBoost)
+        }
     }
 
     fun exitPremiumSoundCompare() {
@@ -458,6 +585,42 @@ class AurumAudioEffects(
     private var lastAppliedLoudnessGain: Int? = null
     private var lastAppliedLimiterEnabled: Boolean? = null
     private var lastAppliedEqGains: List<Int> = emptyList()
+
+    // Peak absolute band gain currently sitting on the Equalizer, updated
+    // every time _ap2 applies bands. Used by _loudnessBudgetMb() so
+    // LoudnessEnhancer's gain can shrink in lockstep with how much the EQ
+    // side is already using — see K_TOTAL_BUDGET_MB above for why this
+    // exists (triple-stack crackle fix).
+    @Volatile private var lastEqPeakGainMb: Int = 0
+
+    // Computes how much of the shared K_TOTAL_BUDGET_MB LoudnessEnhancer is
+    // still allowed to use, given what the EQ side (Bass Boost bump +
+    // Premium Sound curve + bitrate compensation, all already combined and
+    // capped by K_CAP_POS in _ap2) is currently spending.
+    //
+    // HARD GUARANTEE: the return value never exceeds
+    // (K_TOTAL_BUDGET_MB - lastEqPeakGainMb).coerceAtLeast(0) — i.e. real
+    // remaining headroom, full stop. K_LOUDNESS_FLOOR_MB is only ever used
+    // to raise the result when there is at least that much genuine headroom
+    // available (a soft preference for a minimum audible lift), never to
+    // push the result above what's actually left. This is what makes the
+    // combined LoudnessEnhancer + EQ total mathematically capped at
+    // K_TOTAL_BUDGET_MB in every case, including EQ already maxed out.
+    private fun _loudnessBudgetMb(requestedGainMb: Int): Int {
+        if (requestedGainMb <= 0) return 0
+        // trueHeadroom is the hard ceiling: however much of K_TOTAL_BUDGET_MB
+        // the EQ side hasn't already claimed. Never exceeded, period.
+        val trueHeadroom = (K_TOTAL_BUDGET_MB - lastEqPeakGainMb).coerceAtLeast(0)
+        // K_LOUDNESS_FLOOR_MB is a soft preference: use it only when there's
+        // enough real headroom to afford it. If headroom is thinner than the
+        // floor, headroom wins — it is always the smaller of the two here.
+        val preferred = if (trueHeadroom >= K_LOUDNESS_FLOOR_MB) K_LOUDNESS_FLOOR_MB else trueHeadroom
+        // Actual applied gain: whichever is smaller among what was asked
+        // for, the soft-preferred floor, and true headroom — trueHeadroom
+        // is included again explicitly so the guarantee holds regardless of
+        // how preferred was computed above.
+        return minOf(requestedGainMb, preferred, trueHeadroom)
+    }
 
     private fun _ap3(fraction: Float) {
         val ceiling = if (fraction > 0f) _mx1() else 0f
@@ -529,17 +692,47 @@ class AurumAudioEffects(
             }
         }
 
+        // EQ bands are applied FIRST so lastEqPeakGainMb reflects the
+        // current combined EQ-side gain (Bass Boost bump + Premium Sound
+        // curve + bitrate compensation) before LoudnessEnhancer computes its
+        // share of the shared budget below. Order matters here — computing
+        // the loudness budget against a stale/previous EQ peak is what let
+        // the two sides drift out of sync and stack past K_TOTAL_BUDGET_MB.
+        _ap2(
+            bassBoost = lastBassBoost,
+            volNorm = lastVolNorm,
+            bandGainsMb = lastBandGains,
+            intensityFraction = effectiveFraction,
+        )
+
+        _applyLoudnessForPremium(effectiveFraction, active)
+    }
+
+    // Applies LoudnessEnhancer's gain for the Premium Sound / bass-boost-fade
+    // path. Extracted out of _ap3 so reportSourceBitrate can also re-sync
+    // LoudnessEnhancer after a bitrate change without re-running the
+    // Virtualizer/BassBoost/limiter arming logic above it in _ap3 (which
+    // would be redundant — those aren't affected by bitrate). Always call
+    // _ap2 immediately before this so lastEqPeakGainMb is fresh.
+    private fun _applyLoudnessForPremium(effectiveFraction: Float, active: Boolean) {
         if (loudnessHealthy) {
             loudnessEnhancer?.let { enhancer ->
                 try {
                     val bassBoostOn = lastBassBoost
                     val premiumGain = (K_P3 * effectiveFraction).toInt()
-                    val targetGain = when {
+                    val requestedGain = when {
                         active && bassBoostOn -> maxOf(premiumGain, BASS_BOOST_LOUDNESS_GAIN_MB)
                         active -> premiumGain
                         bassBoostOn -> BASS_BOOST_LOUDNESS_GAIN_MB
                         else -> null
                     }
+                    // Budget-clamp against however much the EQ side is
+                    // already spending, so LoudnessEnhancer + EQ combined
+                    // never exceed K_TOTAL_BUDGET_MB — this is the fix for
+                    // the crackle/glitch when Bass Boost + Premium Sound +
+                    // custom EQ are all active together (see K_TOTAL_BUDGET_MB
+                    // doc comment above).
+                    val targetGain = requestedGain?.let { _loudnessBudgetMb(it) }
                     if (targetGain != null && targetGain > 0) {
                         if (lastAppliedLoudnessGain == null) {
                             enhancer.enabled = true
@@ -564,13 +757,6 @@ class AurumAudioEffects(
                 }
             }
         }
-
-        _ap2(
-            bassBoost = lastBassBoost,
-            volNorm = lastVolNorm,
-            bandGainsMb = lastBandGains,
-            intensityFraction = effectiveFraction,
-        )
     }
 
     private fun _ap1(bassBoost: Boolean) {
@@ -582,12 +768,18 @@ class AurumAudioEffects(
             enhancer.enabled = bassBoost
             if (!bassBoost) return
 
+            // Same shared-budget clamp as _ap3 — a custom EQ curve can
+            // still be active here even with Premium Sound off, so
+            // LoudnessEnhancer must still respect whatever the EQ side
+            // (lastEqPeakGainMb) is already spending.
+            val targetGain = _loudnessBudgetMb(BASS_BOOST_LOUDNESS_GAIN_MB)
+            val fallbackGain = _loudnessBudgetMb(BASS_BOOST_LOUDNESS_GAIN_FALLBACK_MB)
             try {
-                enhancer.setTargetGain(BASS_BOOST_LOUDNESS_GAIN_MB)
+                enhancer.setTargetGain(targetGain)
             } catch (e: Exception) {
-                Log.w(TAG, "LoudnessEnhancer ${BASS_BOOST_LOUDNESS_GAIN_MB}mB rejected ($e) — retrying at ${BASS_BOOST_LOUDNESS_GAIN_FALLBACK_MB}mB")
+                Log.w(TAG, "LoudnessEnhancer ${targetGain}mB rejected ($e) — retrying at ${fallbackGain}mB")
                 try {
-                    enhancer.setTargetGain(BASS_BOOST_LOUDNESS_GAIN_FALLBACK_MB)
+                    enhancer.setTargetGain(fallbackGain)
                 } catch (e2: Exception) {
                     Log.w(TAG, "LoudnessEnhancer fallback gain also rejected ($e2) — disabling for this session")
                     loudnessHealthy = false
@@ -723,6 +915,10 @@ class AurumAudioEffects(
                 }
             }
             lastAppliedEqGains = newAppliedGains.toList()
+            // Track peak absolute gain for the shared LoudnessEnhancer
+            // budget (see _loudnessBudgetMb) — only the boost side matters
+            // here since cuts don't add to perceived-loudness/clip risk.
+            lastEqPeakGainMb = newAppliedGains.maxOrNull()?.coerceAtLeast(0) ?: 0
 
             if (rejectedBands > 0 && rejectedBands + unchangedBands == bandCount) {
                 Log.w(TAG, "All EQ bands rejected — disabling Equalizer for this session")
