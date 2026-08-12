@@ -346,12 +346,12 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                 // Spotify-style stacked look instead of floating.
                 //
                 // Docked style (Settings → Appearance → "Nav Bar Style"):
-                // zero padding on every side — mini player sits flush
-                // edge-to-edge, flush against the nav bar right below it,
-                // matching Spotify's classic stacked-flat look instead of
-                // Aurum's floating pill.
+                // still edge-to-edge (no side margins, square corners) but
+                // with a small 3px bottom gap instead of zero — reads as a
+                // deliberate stacked layout rather than the two bars
+                // literally fused together with no seam at all.
                 padding: docked
-                    ? EdgeInsets.zero
+                    ? const EdgeInsets.only(bottom: 3)
                     : const EdgeInsets.fromLTRB(16, 0, 16, 4),
                 child: ClipRRect(
                   borderRadius:
@@ -416,7 +416,7 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                             // BackdropFilter's blur actually be visible.
                             final solidBg =
                                 _tintColor ?? AurumTheme.bgCardOf(context);
-                            final barBg = blurSigma <= 0
+                            final barBg = (docked || blurSigma <= 0)
                                 ? solidBg
                                 : baseTint.withValues(
                                     alpha: isDark ? 0.42 : 0.62,
@@ -461,8 +461,10 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                               // readable text against whatever color this
                               // specific song's artwork actually painted.
                               child: _miniPlayerContent(context, player,
-                                  onTint: (blurSigma <= 0 ? solidBg : baseTint)
-                                              .computeLuminance() >
+                                  onTint: ((docked || blurSigma <= 0)
+                                              ? solidBg
+                                              : baseTint)
+                                          .computeLuminance() >
                                           0.5
                                       ? Colors.black
                                       : Colors.white,
@@ -474,8 +476,13 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                             // continuous GPU cost. sigma == 0 (user set via
                             // Settings → Appearance → "Mini Player Blur")
                             // skips BackdropFilter entirely for the cheapest
-                            // possible steady-state render.
-                            if (blurSigma <= 0) return content;
+                            // possible steady-state render. Docked mode
+                            // ALWAYS skips it too, regardless of the blur
+                            // slider — Docked is meant to be the flat,
+                            // lightweight classic look, and the whole point
+                            // (both visually and for perf) is that it never
+                            // pays for glass/blur at all.
+                            if (docked || blurSigma <= 0) return content;
                             return BackdropFilter(
                               filter: ImageFilter.blur(
                                   sigmaX: blurSigma, sigmaY: blurSigma),
@@ -510,11 +517,12 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
   /// [compact] (Docked nav bar style only — see AudioPrefs.navBarStyleNotifier)
   /// renders the same content at JioSaavn-style thin-strip proportions:
   /// smaller artwork, tighter type, and smaller control icons, matching the
-  /// shorter 52px container height used for Docked mode. Every value below
-  /// is just a size swap — no widgets are added or removed between the two
-  /// modes, so there's no extra tree to keep in sync and no new layout path
-  /// that could overflow independently of the existing (already
-  /// battle-tested) one.
+  /// shorter 52px container height used for Docked mode. It also swaps the
+  /// full prev/play/next transport row for just Play/Pause + a Close (✕)
+  /// button — the compact-strip control set most streaming apps' docked
+  /// mini players use, and simpler to render reliably at 52px than three
+  /// tap targets. Floating mode's prev/play/next row is completely
+  /// unaffected — this only ever runs when compact is true.
   Widget _miniPlayerContent(BuildContext context, PlayerProvider player,
       {required Color onTint, bool compact = false}) {
     final song = player.currentSong!;
@@ -570,27 +578,41 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                   ),
                 ),
                 SizedBox(width: gapBeforeControls),
-                _ControlBtn(
-                  icon: Icons.skip_previous_rounded,
-                  onTap: () {
-                    AurumHaptics.selection();
-                    player.skipPrev();
-                  },
-                  size: controlSize,
-                  color: secondaryOnTint,
-                ),
-                SizedBox(width: controlGap),
-                _PlayBtn(player: player, compact: compact),
-                SizedBox(width: controlGap),
-                _ControlBtn(
-                  icon: Icons.skip_next_rounded,
-                  onTap: () {
-                    AurumHaptics.selection();
-                    player.skipNext();
-                  },
-                  size: controlSize,
-                  color: secondaryOnTint,
-                ),
+                if (compact) ...[
+                  _PlayBtn(player: player, compact: true),
+                  SizedBox(width: controlGap),
+                  _ControlBtn(
+                    icon: Icons.close_rounded,
+                    onTap: () {
+                      AurumHaptics.selection();
+                      player.stopAndClear();
+                    },
+                    size: controlSize,
+                    color: secondaryOnTint,
+                  ),
+                ] else ...[
+                  _ControlBtn(
+                    icon: Icons.skip_previous_rounded,
+                    onTap: () {
+                      AurumHaptics.selection();
+                      player.skipPrev();
+                    },
+                    size: controlSize,
+                    color: secondaryOnTint,
+                  ),
+                  SizedBox(width: controlGap),
+                  _PlayBtn(player: player, compact: false),
+                  SizedBox(width: controlGap),
+                  _ControlBtn(
+                    icon: Icons.skip_next_rounded,
+                    onTap: () {
+                      AurumHaptics.selection();
+                      player.skipNext();
+                    },
+                    size: controlSize,
+                    color: secondaryOnTint,
+                  ),
+                ],
               ],
             ),
           ),

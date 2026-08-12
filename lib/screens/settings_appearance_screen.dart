@@ -268,8 +268,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // ── Player ──
           _sectionLabel(l10n.saPlayer),
           _dropdownTile(context,
-            title: 'Nav Bar Style',
-            subtitle: 'Floating capsule or Spotify-style docked bar',
+            title: 'Nav Bar & Mini Player Style',
+            subtitle: 'Floating: rounded, blurred capsule. Docked: classic flat bar, edge-to-edge, no blur.',
             value: _navBarStyle,
             options: const ['Floating', 'Docked'],
             onChanged: (v) { setState(() => _navBarStyle = v!); _save('nav_bar_style', v!); AudioPrefs.setNavBarStyle(v); },
