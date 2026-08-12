@@ -442,71 +442,75 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             ),
           ]),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Row(
             children: fonts.entries.map((e) {
               final sel = _fontStyle == e.key;
               final locked = premiumFonts.contains(e.key) && !isSignedIn;
-              // 3 per row on the first row, remaining wrap to next row —
-              // (width - 2*14 padding - 2*8 spacing) / 3
-              final cardWidth = (MediaQuery.of(context).size.width - 28 - 32 - 16) / 3;
-              return SizedBox(
-                width: cardWidth,
-                child: AurumPressable(
-                  scaleAmount: 0.96,
-                  onTap: () {
-                    if (locked) {
-                      PremiumGate.show(context,
-                        feature: l10n.saFontUnlockFeature(e.key),
-                        description: l10n.saFontUnlockDesc,
-                        requiresLoginOnly: true,
-                      );
-                      return;
-                    }
-                    if (_fontStyle == e.key) return;
-                    if (_fontTransitionInFlight) return;
-                    _applyFontWithTransition(context, e.key);
-                  },
-                  child: Stack(children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
-                          width: sel ? 1 : 0.5,
+              final isLast = e.key == fonts.keys.last;
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: isLast ? 0 : 6),
+                  child: AurumPressable(
+                    scaleAmount: 0.96,
+                    onTap: () {
+                      if (locked) {
+                        PremiumGate.show(context,
+                          feature: l10n.saFontUnlockFeature(e.key),
+                          description: l10n.saFontUnlockDesc,
+                          requiresLoginOnly: true,
+                        );
+                        return;
+                      }
+                      if (_fontStyle == e.key) return;
+                      if (_fontTransitionInFlight) return;
+                      _applyFontWithTransition(context, e.key);
+                    },
+                    child: Stack(children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 2),
+                        decoration: BoxDecoration(
+                          color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: sel ? AurumTheme.gold.withOpacity(0.6) : AurumTheme.dividerOf(context),
+                            width: sel ? 1 : 0.5,
+                          ),
                         ),
-                      ),
-                      child: Column(children: [
-                        Text(
-                          e.value,
-                          style: previewStyle(
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              e.value,
+                              style: previewStyle(
+                                e.key,
+                                color: locked
+                                    ? AurumTheme.textMutedOf(context).withOpacity(0.5)
+                                    : (sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
                             e.key,
-                            color: locked
-                                ? AurumTheme.textMutedOf(context).withOpacity(0.5)
-                                : (sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context)),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: locked
+                                  ? AurumTheme.textMutedOf(context).withOpacity(0.4)
+                                  : (sel ? AurumTheme.gold : AurumTheme.textMutedOf(context)),
+                              fontSize: 10.5,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          e.key,
-                          style: TextStyle(
-                            color: locked
-                                ? AurumTheme.textMutedOf(context).withOpacity(0.4)
-                                : (sel ? AurumTheme.gold : AurumTheme.textMutedOf(context)),
-                            fontSize: 11,
-                          ),
-                        ),
-                      ]),
-                    ),
-                    if (locked)
-                      Positioned(
-                        top: 6, right: 14,
-                        child: Icon(Icons.lock_rounded, size: 13, color: AurumTheme.gold.withOpacity(0.7)),
+                        ]),
                       ),
-                  ]),
+                      if (locked)
+                        Positioned(
+                          top: 6, right: 6,
+                          child: Icon(Icons.lock_rounded, size: 12, color: AurumTheme.gold.withOpacity(0.7)),
+                        ),
+                    ]),
+                  ),
                 ),
               );
             }).toList(),

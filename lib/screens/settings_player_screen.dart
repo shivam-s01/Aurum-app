@@ -505,6 +505,12 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, l10n.settingsPlayerAudio),
       body: ListView(
+        // Was missing the BouncingScrollPhysics every other settings
+        // screen uses — without it this list fell back to Android's
+        // default ClampingScrollPhysics (hard-stops at the edges, no
+        // overscroll give), which is what made this one screen feel
+        // stuck/rigid compared to the rest of Settings.
+        physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
 
@@ -1633,6 +1639,7 @@ class EqualizerScreenState extends State<EqualizerScreen> {
         ],
       ),
       body: ListView(
+        physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
           // ── PRESET (compact selector) ──

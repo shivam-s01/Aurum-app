@@ -71,7 +71,15 @@ class _SettingsLanguageScreenState extends State<SettingsLanguageScreen> {
                 fontWeight: FontWeight.w600)),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+        // Was missing BouncingScrollPhysics + the 100px bottom clearance
+        // every other settings screen uses — without them this list used
+        // Android's default ClampingScrollPhysics (hard-stops at the
+        // edges, no overscroll give) and its last row sat right at the
+        // very bottom edge instead of clearing the floating nav bar,
+        // which is what made this one screen feel "stuck" compared to
+        // the rest of Settings.
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 0, 4, 16),

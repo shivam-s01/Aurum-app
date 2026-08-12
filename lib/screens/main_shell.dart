@@ -747,6 +747,20 @@ class _AurumBottomNavBar extends StatelessWidget {
                               AnimatedDefaultTextStyle(
                                 duration: const Duration(milliseconds: 180),
                                 style: TextStyle(
+                                  // FIX ("nav bar font doesn't change with
+                                  // the Appearance → Font Style setting"):
+                                  // this TextStyle was built from scratch
+                                  // with no fontFamily, so it always fell
+                                  // back to Flutter's plain default glyphs
+                                  // no matter what font the user picked —
+                                  // resolvedTextTheme() only reaches text
+                                  // that inherits from Theme.of(context)
+                                  // .textTheme, and a bare TextStyle here
+                                  // doesn't. Pulling the family off the
+                                  // already-resolved theme keeps this
+                                  // label in sync with every other font
+                                  // change across the app.
+                                  fontFamily: Theme.of(context).textTheme.bodySmall?.fontFamily,
                                   fontSize: 11,
                                   height: 1.0,
                                   fontWeight: selected
