@@ -8,6 +8,7 @@ import '../services/recommendation_engine.dart';
 import '../providers/recently_played_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../widgets/aurum_focus_field.dart';
+import '../widgets/aurum_settings_tile.dart';
 import '../utils/aurum_haptics.dart';
 
 class SettingsPrivacyScreen extends StatefulWidget {
@@ -124,6 +125,141 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
       );
     }
 
+    // Built as a flat list (instead of inline in `children:`) so every
+    // row — including conditional ones like the PIN sub-rows — can be
+    // wrapped in AurumStaggerItem with a clean sequential index. That's
+    // what gives the page its cascading "alive" entrance instead of
+    // every row appearing at once.
+    final rows = <Widget>[
+      // ── APP LOCK ──────────────────────────────────────────────────
+      _sectionLabel(l10n.sprAppLock),
+      AurumSettingsTile.switchTile(context,
+        icon: Icons.lock_rounded,
+        title: l10n.sprAppLockTitle,
+        subtitle: _appLockPin.isEmpty
+            ? l10n.sprAppLockSubtitleSet
+            : l10n.sprAppLockSubtitleChange,
+        value: _appLock,
+        onChanged: (v) async {
+          if (v && _appLockPin.isEmpty) {
+            // Must set PIN first
+            _showPinSheet(context);
+            return;
+          }
+          setState(() => _appLock = v);
+          await _save('app_lock_enabled', v);
+        },
+      ),
+      if (_appLock || _appLockPin.isNotEmpty) ...[
+        AurumSettingsTile.nav(context,
+          icon: Icons.pin_rounded,
+          title: _appLockPin.isEmpty ? l10n.sprSetPin : l10n.sprChangePin,
+          subtitle: _appLockPin.isEmpty
+              ? l10n.sprSetPinSubtitle
+              : l10n.sprChangePinSubtitle,
+          onTap: () { AurumHaptics.light(); _showPinSheet(context); },
+        ),
+        AurumSettingsTile.switchTile(context,
+          icon: Icons.fingerprint_rounded,
+          title: l10n.sprBiometricUnlock,
+          subtitle: l10n.sprBiometricUnlockSubtitle,
+          value: _biometricLock,
+          onChanged: (v) {
+            setState(() => _biometricLock = v);
+            _save('biometric_lock', v);
+          },
+        ),
+        AurumSettingsTile.dropdown(context,
+          icon: Icons.timer_rounded,
+          title: l10n.sprAutoLockAfter,
+          subtitle: l10n.sprAutoLockAfterSubtitle,
+          value: _lockDelayKey,
+          options: _delayKeys,
+          optionLabel: (key) => _delayLabel(l10n, key),
+          onChanged: (v) async {
+            setState(() => _lockDelayKey = v!);
+            await _save('lock_delay_key', v!);
+            const delays = {
+              'immediately': 0, 'after1': 1, 'after5': 5,
+              'after10': 10, 'after30': 30,
+            };
+            final p = await SharedPreferences.getInstance();
+            await p.setInt('lock_delay_mins', delays[v] ?? 10);
+          },
+        ),
+        AurumSettingsTile.switchTile(context,
+          icon: Icons.music_note_rounded,
+          title: l10n.sprDontLockWhilePlaying,
+          subtitle: l10n.sprDontLockWhilePlayingSubtitle,
+          value: _dontLockPlaying,
+          onChanged: (v) {
+            setState(() => _dontLockPlaying = v);
+            _save('dont_lock_while_playing', v);
+          },
+        ),
+      ],
+
+      // ── INCOGNITO ─────────────────────────────────────────────────
+      _sectionLabel(l10n.sprIncognito),
+      AurumSettingsTile.switchTile(context,
+        icon: Icons.visibility_off_rounded,
+        title: l10n.sprIncognitoMode,
+        subtitle: l10n.sprIncognitoModeSubtitle,
+        value: _incognitoMode,
+        onChanged: (v) {
+          setState(() => _incognitoMode = v);
+          _save('incognito_mode', v);
+          AudioPrefs.setIncognito(v);
+        },
+      ),
+      if (_incognitoMode)
+        _infoTile(context,
+          icon: Icons.info_outline_rounded,
+          message: l10n.sprIncognitoOnInfo,
+          color: AurumTheme.gold,
+        ),
+      AurumSettingsTile.switchTile(context,
+        icon: Icons.bar_chart_rounded,
+        title: l10n.sprHideListeningStats,
+        subtitle: l10n.sprHideListeningStatsSubtitle,
+        value: _hideListenStats,
+        onChanged: (v) {
+          setState(() => _hideListenStats = v);
+          _save('hide_listen_stats', v);
+          AudioPrefs.setHideListenStats(v);
+        },
+      ),
+
+      // ── CLEAR DATA ────────────────────────────────────────────────
+      _sectionLabel(l10n.sprClearData),
+      AurumSettingsTile.danger(context,
+        icon: Icons.history_rounded,
+        title: l10n.sprClearHistory,
+        subtitle: l10n.sprClearHistorySubtitle,
+        onTap: () { AurumHaptics.medium(); _confirmClear(context, l10n, l10n.sprHistoryTitle, () async {
+          await context.read<RecentlyPlayedProvider>().clearHistory();
+        }); },
+      ),
+      AurumSettingsTile.danger(context,
+        icon: Icons.recommend_rounded,
+        title: l10n.sprResetRecommendations,
+        subtitle: l10n.sprResetRecommendationsSubtitle,
+        onTap: () { AurumHaptics.medium(); _confirmClear(context, l10n, l10n.sprRecommendationsTitle, () async {
+          await RecommendationEngine.resetAll();
+        }); },
+      ),
+      AurumSettingsTile.danger(context,
+        icon: Icons.delete_sweep_rounded,
+        title: l10n.sprClearAllData,
+        subtitle: l10n.sprClearAllDataSubtitle,
+        onTap: () { AurumHaptics.heavy(); _confirmClear(context, l10n, l10n.sprAllAppDataTitle, () async {
+          final p = await SharedPreferences.getInstance();
+          await p.clear();
+        }); },
+        isDanger: true,
+      ),
+    ];
+
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, l10n.settingsPrivacy),
@@ -131,134 +267,8 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
-
-          // ── APP LOCK ──────────────────────────────────────────────────
-          _sectionLabel(l10n.sprAppLock),
-          _switchTile(context,
-            icon: Icons.lock_rounded,
-            title: l10n.sprAppLockTitle,
-            subtitle: _appLockPin.isEmpty
-                ? l10n.sprAppLockSubtitleSet
-                : l10n.sprAppLockSubtitleChange,
-            value: _appLock,
-            onChanged: (v) async {
-              if (v && _appLockPin.isEmpty) {
-                // Must set PIN first
-                _showPinSheet(context);
-                return;
-              }
-              setState(() => _appLock = v);
-              await _save('app_lock_enabled', v);
-            },
-          ),
-          if (_appLock || _appLockPin.isNotEmpty) ...[
-            _navTile(context,
-              icon: Icons.pin_rounded,
-              title: _appLockPin.isEmpty ? l10n.sprSetPin : l10n.sprChangePin,
-              subtitle: _appLockPin.isEmpty
-                  ? l10n.sprSetPinSubtitle
-                  : l10n.sprChangePinSubtitle,
-              onTap: () { AurumHaptics.light(); _showPinSheet(context); },
-            ),
-            _switchTile(context,
-              icon: Icons.fingerprint_rounded,
-              title: l10n.sprBiometricUnlock,
-              subtitle: l10n.sprBiometricUnlockSubtitle,
-              value: _biometricLock,
-              onChanged: (v) {
-                setState(() => _biometricLock = v);
-                _save('biometric_lock', v);
-              },
-            ),
-            _dropdownTile(context,
-              icon: Icons.timer_rounded,
-              title: l10n.sprAutoLockAfter,
-              subtitle: l10n.sprAutoLockAfterSubtitle,
-              value: _lockDelayKey,
-              options: _delayKeys,
-              optionLabel: (key) => _delayLabel(l10n, key),
-              onChanged: (v) async {
-                setState(() => _lockDelayKey = v!);
-                await _save('lock_delay_key', v!);
-                const delays = {
-                  'immediately': 0, 'after1': 1, 'after5': 5,
-                  'after10': 10, 'after30': 30,
-                };
-                final p = await SharedPreferences.getInstance();
-                await p.setInt('lock_delay_mins', delays[v] ?? 10);
-              },
-            ),
-            _switchTile(context,
-              icon: Icons.music_note_rounded,
-              title: l10n.sprDontLockWhilePlaying,
-              subtitle: l10n.sprDontLockWhilePlayingSubtitle,
-              value: _dontLockPlaying,
-              onChanged: (v) {
-                setState(() => _dontLockPlaying = v);
-                _save('dont_lock_while_playing', v);
-              },
-            ),
-          ],
-
-          // ── INCOGNITO ─────────────────────────────────────────────────
-          _sectionLabel(l10n.sprIncognito),
-          _switchTile(context,
-            icon: Icons.visibility_off_rounded,
-            title: l10n.sprIncognitoMode,
-            subtitle: l10n.sprIncognitoModeSubtitle,
-            value: _incognitoMode,
-            onChanged: (v) {
-              setState(() => _incognitoMode = v);
-              _save('incognito_mode', v);
-              AudioPrefs.setIncognito(v);
-            },
-          ),
-          if (_incognitoMode)
-            _infoTile(context,
-              icon: Icons.info_outline_rounded,
-              message: l10n.sprIncognitoOnInfo,
-              color: AurumTheme.gold,
-            ),
-          _switchTile(context,
-            icon: Icons.bar_chart_rounded,
-            title: l10n.sprHideListeningStats,
-            subtitle: l10n.sprHideListeningStatsSubtitle,
-            value: _hideListenStats,
-            onChanged: (v) {
-              setState(() => _hideListenStats = v);
-              _save('hide_listen_stats', v);
-              AudioPrefs.setHideListenStats(v);
-            },
-          ),
-
-          // ── CLEAR DATA ────────────────────────────────────────────────
-          _sectionLabel(l10n.sprClearData),
-          _dangerTile(context,
-            icon: Icons.history_rounded,
-            title: l10n.sprClearHistory,
-            subtitle: l10n.sprClearHistorySubtitle,
-            onTap: () { AurumHaptics.medium(); _confirmClear(context, l10n, l10n.sprHistoryTitle, () async {
-              await context.read<RecentlyPlayedProvider>().clearHistory();
-            }); },
-          ),
-          _dangerTile(context,
-            icon: Icons.recommend_rounded,
-            title: l10n.sprResetRecommendations,
-            subtitle: l10n.sprResetRecommendationsSubtitle,
-            onTap: () { AurumHaptics.medium(); _confirmClear(context, l10n, l10n.sprRecommendationsTitle, () async {
-              await RecommendationEngine.resetAll();
-            }); },
-          ),
-          _dangerTile(context,
-            icon: Icons.delete_sweep_rounded,
-            title: l10n.sprClearAllData,
-            subtitle: l10n.sprClearAllDataSubtitle,
-            onTap: () { AurumHaptics.heavy(); _confirmClear(context, l10n, l10n.sprAllAppDataTitle, () async {
-              final p = await SharedPreferences.getInstance();
-              await p.clear();
-            }); },
-            isDanger: true,
-          ),
+          for (int i = 0; i < rows.length; i++)
+            AurumStaggerItem(index: i, child: rows[i]),
         ],
       ),
     );
@@ -452,133 +462,6 @@ Widget _sectionLabel(String label) => Padding(
   padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
   child: Text(label, style: const TextStyle(color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
 );
-
-Widget _switchTile(BuildContext context, {
-  required IconData icon, required String title, required String subtitle,
-  required bool value, required ValueChanged<bool> onChanged,
-}) {
-  return Container(
-    margin: const EdgeInsets.only(bottom: 8),
-    decoration: BoxDecoration(
-      color: AurumTheme.bgCardOf(context),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-    ),
-    child: ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-      leading: Container(
-        width: 38, height: 38,
-        decoration: BoxDecoration(
-          color: value ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: value ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
-      ),
-      title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-      trailing: Switch(value: value, onChanged: onChanged, activeColor: AurumTheme.gold),
-    ),
-  );
-}
-
-Widget _navTile(BuildContext context, {
-  required IconData icon, required String title, required String subtitle,
-  required VoidCallback onTap,
-}) {
-  return Container(
-    margin: const EdgeInsets.only(bottom: 8),
-    decoration: BoxDecoration(
-      color: AurumTheme.bgCardOf(context),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-    ),
-    child: ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-      leading: Container(
-        width: 38, height: 38,
-        decoration: BoxDecoration(
-          color: AurumTheme.gold.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: AurumTheme.gold, size: 18),
-      ),
-      title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-      trailing: Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 20),
-    ),
-  );
-}
-
-Widget _dangerTile(BuildContext context, {
-  required IconData icon, required String title, required String subtitle,
-  required VoidCallback onTap, bool isDanger = false,
-}) {
-  return Container(
-    margin: const EdgeInsets.only(bottom: 8),
-    decoration: BoxDecoration(
-      color: AurumTheme.bgCardOf(context),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(
-        color: isDanger ? Colors.redAccent.withOpacity(0.3) : AurumTheme.dividerOf(context),
-        width: isDanger ? 1 : 0.5,
-      ),
-    ),
-    child: ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-      leading: Container(
-        width: 38, height: 38,
-        decoration: BoxDecoration(
-          color: Colors.redAccent.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: Colors.redAccent, size: 18),
-      ),
-      title: Text(title, style: TextStyle(
-        color: isDanger ? Colors.redAccent : AurumTheme.textPrimaryOf(context),
-        fontSize: 14, fontWeight: FontWeight.w500,
-      )),
-      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-      trailing: Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 20),
-    ),
-  );
-}
-
-Widget _dropdownTile(BuildContext context, {
-  required IconData icon, required String title, required String subtitle,
-  required String value, required List<String> options, required ValueChanged<String?> onChanged,
-  String Function(String)? optionLabel,
-}) {
-  final label = optionLabel ?? (String o) => o;
-  return Container(
-    margin: const EdgeInsets.only(bottom: 8),
-    decoration: BoxDecoration(
-      color: AurumTheme.bgCardOf(context),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-    ),
-    child: ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-      leading: Container(
-        width: 38, height: 38,
-        decoration: BoxDecoration(color: AurumTheme.gold.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-        child: Icon(icon, color: AurumTheme.gold, size: 18),
-      ),
-      title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-      trailing: DropdownButton<String>(
-        value: value,
-        underline: const SizedBox(),
-        dropdownColor: AurumTheme.bgCardOf(context),
-        style: TextStyle(color: AurumTheme.gold, fontSize: 12, fontWeight: FontWeight.w600),
-        icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.gold, size: 18),
-        items: options.map((o) => DropdownMenuItem(value: o, child: Text(label(o)))).toList(),
-        onChanged: onChanged,
-      ),
-    ),
-  );
-}
 
 Widget _infoTile(BuildContext context, {
   required IconData icon, required String message, required Color color,

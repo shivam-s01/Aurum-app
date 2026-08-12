@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/theme_provider.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/premium_gate.dart';
 import '../widgets/aurum_pressable.dart';
+import '../widgets/aurum_loader.dart';
 import '../services/audio_prefs.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
@@ -37,6 +39,11 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   bool _showLyricsOnPlayer = true;
   // New
   String _fontStyle = 'Default';
+  // Guards against a rapid second font tap starting a second transition
+  // (and a second dialog) while the first one is still loading/pending —
+  // without this, fast double-taps on two different fonts could stack
+  // two showDialog calls and leave one scrim orphaned on screen.
+  bool _fontTransitionInFlight = false;
   String _nowPlayingCardStyle = 'Card';
   String _artworkShape = 'Rounded';
   // Animations
@@ -390,13 +397,27 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       'Default':  'Aa',
       'Rounded':  'Aa',
       'Mono':     'Aa',
+      'Sans':     'Aa',
+      'Serif':    'Aa',
     };
-    const fontFamilies = {
-      'Default': null,
-      'Rounded': 'Nunito',
-      'Mono':    'RobotoMono',
-    };
-    const premiumFonts = {'Rounded', 'Mono'};
+    const premiumFonts = {'Rounded', 'Mono', 'Sans', 'Serif'};
+
+    // Preview glyph style per font. These are Google Fonts, downloaded/
+    // cached at runtime — passing a bare `fontFamily: 'Manrope'` string
+    // does nothing without the font bundled as a static asset (it was
+    // silently falling back to the default font for every preview card,
+    // including the pre-existing Rounded/Mono ones). GoogleFonts.getFont
+    // resolves the actual cached/downloading font correctly.
+    TextStyle previewStyle(String key, {required Color color}) {
+      const base = TextStyle(fontSize: 22, fontWeight: FontWeight.w700);
+      switch (key) {
+        case 'Rounded': return GoogleFonts.nunito(textStyle: base, color: color);
+        case 'Mono':    return GoogleFonts.robotoMono(textStyle: base, color: color);
+        case 'Sans':    return GoogleFonts.manrope(textStyle: base, color: color);
+        case 'Serif':   return GoogleFonts.playfairDisplay(textStyle: base, color: color);
+        default:        return base.copyWith(color: color);
+      }
+    }
 
     return Builder(builder: (context) {
       final isSignedIn = context.watch<AuthProvider>().isSignedIn;
@@ -421,11 +442,17 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             ),
           ]),
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: fonts.entries.map((e) {
               final sel = _fontStyle == e.key;
               final locked = premiumFonts.contains(e.key) && !isSignedIn;
-              return Expanded(
+              // 3 per row on the first row, remaining wrap to next row —
+              // (width - 2*14 padding - 2*8 spacing) / 3
+              final cardWidth = (MediaQuery.of(context).size.width - 28 - 32 - 16) / 3;
+              return SizedBox(
+                width: cardWidth,
                 child: AurumPressable(
                   scaleAmount: 0.96,
                   onTap: () {
@@ -437,13 +464,12 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                       );
                       return;
                     }
-                    setState(() => _fontStyle = e.key);
-                    _save('font_style', e.key);
-                    context.read<ThemeProvider>().setFontStyle(e.key);
+                    if (_fontStyle == e.key) return;
+                    if (_fontTransitionInFlight) return;
+                    _applyFontWithTransition(context, e.key);
                   },
                   child: Stack(children: [
                     Container(
-                      margin: const EdgeInsets.only(right: 8),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: BoxDecoration(
                         color: sel ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
@@ -456,12 +482,11 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                       child: Column(children: [
                         Text(
                           e.value,
-                          style: TextStyle(
-                            fontFamily: fontFamilies[e.key],
+                          style: previewStyle(
+                            e.key,
                             color: locked
                                 ? AurumTheme.textMutedOf(context).withOpacity(0.5)
                                 : (sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context)),
-                            fontSize: 22, fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -489,6 +514,96 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
         ]),
       ));
     });
+  }
+
+  // ── Font change transition ─────────────────────────────────────────────
+  // Applying a Google Font swaps the entire app TextTheme, which used to
+  // happen instantly on tap — felt cheap/abrupt for something this
+  // visually large. Now shows a brief M3 loading state (dim scrim +
+  // circular progress) before committing the change, matching how
+  // premium apps (Spotify/YT Music settings) gate heavier theme changes
+  // behind a beat of feedback instead of an instant jump-cut.
+  Future<void> _applyFontWithTransition(BuildContext context, String fontKey) async {
+    _fontTransitionInFlight = true;
+    AurumHaptics.light();
+    final themeProvider = context.read<ThemeProvider>();
+
+    // Capture the dialog's own Navigator via a dedicated context passed
+    // out through the builder, instead of reusing the tile's `context`
+    // to pop later. If the user backs out of this screen while the font
+    // is still loading, the screen's own BuildContext/State becomes
+    // invalid, but the dialog route is independent of it — popping via
+    // this screen's `context` after the screen unmounts would either
+    // throw or (with rootNavigator:true) risk popping the wrong route
+    // entirely. Grabbing the dialog's context off its own builder keeps
+    // the pop scoped to exactly the route we opened.
+    BuildContext? dialogContext;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (dCtx) {
+        dialogContext = dCtx;
+        return const _FontLoadingOverlay();
+      },
+    );
+
+    // Wait for the actual font to finish loading — not a fixed timer.
+    // GoogleFonts.pendingFonts() resolves only once the requested font's
+    // HTTP fetch (or cache read) has completed and it's ready to render,
+    // so the dialog now tracks real load state instead of guessing a
+    // duration: fast connections/cached fonts close quickly, slow
+    // connections keep the spinner up until the font is actually ready
+    // — either way the font never applies before it can render, so
+    // there's no flash-to-fallback-font frame once the dialog closes.
+    //
+    // A small minimum floor keeps the spinner from strobing on/off in a
+    // single frame when the font is already cached, which reads as a
+    // glitch rather than "smooth" — 350ms is short enough to still feel
+    // instant, long enough to always render as a deliberate beat.
+    final loadFont = () {
+      switch (fontKey) {
+        case 'Rounded': return GoogleFonts.pendingFonts([GoogleFonts.nunito()]);
+        case 'Mono':    return GoogleFonts.pendingFonts([GoogleFonts.robotoMono()]);
+        case 'Sans':    return GoogleFonts.pendingFonts([GoogleFonts.manrope()]);
+        case 'Serif':   return GoogleFonts.pendingFonts([GoogleFonts.playfairDisplay()]);
+        default:        return Future<List<String>>.value(const []);
+      }
+    }();
+    final minFloor = Future.delayed(const Duration(milliseconds: 350));
+
+    // If the font fetch ever fails (offline, blocked network, etc.) fall
+    // back to just the floor delay instead of hanging the dialog open
+    // forever — the font still applies (GoogleFonts silently falls back
+    // to the platform default glyphs when it can't fetch), so the user
+    // always gets an unstuck UI even without a network.
+    await Future.wait([
+      loadFont.catchError((_) => <String>[]),
+      minFloor,
+    ]);
+
+    // Only touch this screen's own state if it's still alive — but the
+    // dialog must close regardless of whether the settings screen is
+    // still mounted, otherwise navigating away mid-transition leaves an
+    // undismissable scrim stuck on top of whatever screen the user is
+    // now on.
+    // themeProvider.setFontStyle() already persists to SharedPreferences
+    // internally (see theme_provider.dart) — a separate _save() call here
+    // would just be a redundant second write to the same key on every
+    // font change.
+    if (mounted) setState(() => _fontStyle = fontKey);
+    themeProvider.setFontStyle(fontKey);
+
+    // Prefer popping via the dialog's own captured context (scoped to
+    // exactly the route we opened). Fall back to the tile's context only
+    // if the dialog somehow never reported one back — belt-and-braces
+    // against ever leaving the scrim stuck on screen.
+    if (dialogContext != null && dialogContext!.mounted) {
+      Navigator.of(dialogContext!).pop();
+    } else if (context.mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+    _fontTransitionInFlight = false;
   }
 
   // ── Now Playing Card Style ────────────────────────────────────────────────
@@ -1161,4 +1276,46 @@ Widget _sliderTile(
       ]),
     ),
   );
+}
+
+// ── Font change loading overlay ──────────────────────────────────────────
+// Uses the app's own AurumM3Loader — the same fluid morphing M3 bar shown
+// under the search bar and on the home feed while content loads — so this
+// reads as the same "Aurum is working" moment everywhere instead of
+// introducing a second, different-looking spinner just for fonts.
+// Purely presentational; the actual font apply/save happens in
+// _applyFontWithTransition once the real font load resolves.
+class _FontLoadingOverlay extends StatelessWidget {
+  const _FontLoadingOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.all(40),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 32),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 24, offset: const Offset(0, 8)),
+          ],
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(
+            width: 120,
+            child: AurumM3Loader(height: 3),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            AppLocalizations.of(context)!.saApplyingFont,
+            style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ]),
+      ),
+    );
+  }
 }

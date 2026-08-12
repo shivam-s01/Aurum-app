@@ -415,7 +415,8 @@
   "saCustomAccentColorsFeature": "Custom Accent Colors",
   "saCustomAccentColorsDesc": "Sign in with Google to unlock more accent colors.",
   "saAppFont": "App Font",
-  "saRoundedMonoSignIn": "Rounded & Mono = Sign in",
+  "saRoundedMonoSignIn": "Premium fonts = Sign in",
+  "saApplyingFont": "Applying font…",
   "saFontUnlockFeature": "{font} Font",
   "@saFontUnlockFeature": {
     "description": "Feature name for premium gate, e.g. 'Rounded Font'",

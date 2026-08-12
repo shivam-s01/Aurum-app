@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../widgets/aurum_settings_tile.dart';
+import '../widgets/aurum_pressable.dart';
 
 class SettingsStorageScreen extends StatefulWidget {
   const SettingsStorageScreen({super.key});
@@ -139,11 +141,8 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
       appBar: _appBar(context, l10n.settingsStorage),
       body: _loading
           ? const Center(child: AurumMorphLoader(size: 56))
-          : ListView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-              children: [
-
+          : Builder(builder: (context) {
+              final rows = <Widget>[
                 // ── DOWNLOADS ─────────────────────────────────────────────
                 _sectionLabel(l10n.ssDownloads),
                 _storageCard(context,
@@ -154,7 +153,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 ),
 
                 // Download Quality
-                _dropdownTile(context,
+                AurumSettingsTile.dropdown(context,
                   icon: Icons.high_quality_rounded,
                   title: l10n.ssDownloadQuality,
                   subtitle: l10n.ssDownloadQualitySubtitle,
@@ -164,7 +163,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 ),
 
                 // Auto-download liked songs
-                _switchTile(context,
+                AurumSettingsTile.switchTile(context,
                   icon: Icons.favorite_rounded,
                   title: l10n.ssAutoDownloadLiked,
                   subtitle: l10n.ssAutoDownloadLikedSubtitle,
@@ -173,7 +172,7 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                 ),
 
                 // WiFi only
-                _switchTile(context,
+                AurumSettingsTile.switchTile(context,
                   icon: Icons.wifi_rounded,
                   title: l10n.ssWifiOnly,
                   subtitle: l10n.ssWifiOnlySubtitle,
@@ -216,8 +215,16 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                   onClear: () { AurumHaptics.medium(); _confirmClear(context, l10n.ssImageCacheTitle, () => _clearDir('image_cache')); },
                   clearLabel: l10n.ssClearImageCache,
                 ),
-              ],
-            ),
+              ];
+              return ListView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                children: [
+                  for (int i = 0; i < rows.length; i++)
+                    AurumStaggerItem(index: i, child: rows[i]),
+                ],
+              );
+            }),
     );
   }
 
@@ -244,8 +251,9 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
             Text(used, style: const TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600)),
           ]),
           const SizedBox(height: 12),
-          GestureDetector(
+          AurumPressable(
             onTap: onClear,
+            scaleAmount: 0.97,
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 10),
@@ -305,8 +313,9 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
             child: AurumM3Loader(height: 6, borderRadius: 4),
           ),
           const SizedBox(height: 12),
-          GestureDetector(
+          AurumPressable(
             onTap: onClear,
+            scaleAmount: 0.97,
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 10),
@@ -341,66 +350,4 @@ Widget _sectionLabel(String label) => Padding(
   child: Text(label, style: const TextStyle(color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
 );
 
-Widget _switchTile(BuildContext context, {
-  required IconData icon, required String title, required String subtitle,
-  required bool value, required ValueChanged<bool> onChanged,
-}) {
-  return Container(
-    margin: const EdgeInsets.only(bottom: 8),
-    decoration: BoxDecoration(
-      color: AurumTheme.bgCardOf(context),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-    ),
-    child: ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-      leading: Container(
-        width: 38, height: 38,
-        decoration: BoxDecoration(
-          color: value ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: value ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
-      ),
-      title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-      trailing: Switch(value: value, onChanged: onChanged, activeColor: AurumTheme.gold),
-    ),
-  );
-}
 
-Widget _dropdownTile(BuildContext context, {
-  required IconData icon, required String title, required String subtitle,
-  required String value, required List<String> options, required ValueChanged<String?> onChanged,
-}) {
-  return Container(
-    margin: const EdgeInsets.only(bottom: 8),
-    decoration: BoxDecoration(
-      color: AurumTheme.bgCardOf(context),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-    ),
-    child: ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-      leading: Container(
-        width: 38, height: 38,
-        decoration: BoxDecoration(
-          color: AurumTheme.gold.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: AurumTheme.gold, size: 18),
-      ),
-      title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-      trailing: DropdownButton<String>(
-        value: value,
-        underline: const SizedBox(),
-        dropdownColor: AurumTheme.bgCardOf(context),
-        style: TextStyle(color: AurumTheme.gold, fontSize: 13, fontWeight: FontWeight.w600),
-        icon: Icon(Icons.keyboard_arrow_down_rounded, color: AurumTheme.gold, size: 18),
-        items: options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
-        onChanged: onChanged,
-      ),
-    ),
-  );
-}

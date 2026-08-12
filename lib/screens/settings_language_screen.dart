@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/locale_provider.dart';
 import '../widgets/aurum_pressable.dart';
+import '../widgets/aurum_settings_tile.dart';
+import '../widgets/aurum_loader.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 
@@ -29,9 +31,16 @@ class _SettingsLanguageScreenState extends State<SettingsLanguageScreen> {
     if (_switchingTo != null) return; // already mid-switch, ignore
     AurumHaptics.selection();
     setState(() => _switchingTo = locale?.languageCode ?? 'system');
-    // One frame gap so the spinner actually paints before the heavier
-    // locale rebuild starts on the same thread right after it.
-    await Future.delayed(const Duration(milliseconds: 16));
+    // A deliberate ~2s hold so the M3 morph spinner actually reads as
+    // "loading" rather than flashing for a single frame — the real
+    // locale swap below is near-instant on its own (it's an in-memory
+    // rebuild), so without this pause the row would just blink. This
+    // mirrors the same "always show *something* is happening" pattern
+    // used for the account/app-data operations elsewhere in Settings,
+    // just tuned to a longer, more deliberate duration since a language
+    // switch reflows every string in the app and deserves to feel like
+    // a real transition rather than an instant snap.
+    await Future.delayed(const Duration(milliseconds: 2000));
     if (!mounted) return;
     await context.read<LocaleProvider>().setLocale(locale);
     if (!mounted) return;
@@ -74,7 +83,9 @@ class _SettingsLanguageScreenState extends State<SettingsLanguageScreen> {
               ),
             ),
           ),
-          Container(
+          AurumStaggerItem(
+            index: 0,
+            child: Container(
             decoration: BoxDecoration(
               color: AurumTheme.bgCardOf(context),
               borderRadius: BorderRadius.circular(14),
@@ -109,6 +120,7 @@ class _SettingsLanguageScreenState extends State<SettingsLanguageScreen> {
                 }),
               ],
             ),
+          ),
           ),
         ],
       ),
@@ -151,20 +163,22 @@ class _LanguageRow extends StatelessWidget {
                 ),
               ),
             ),
-            if (loading)
-              SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation(AurumTheme.gold),
-                ),
-              )
-            else if (selected)
-              Icon(Icons.check_circle_rounded, color: AurumTheme.gold, size: 22)
-            else
-              Icon(Icons.circle_outlined,
-                  color: AurumTheme.textMutedOf(context).withValues(alpha: 0.4), size: 22),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 150),
+              transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+              child: loading
+                  ? const SizedBox(
+                      key: ValueKey('loading'),
+                      width: 20,
+                      height: 20,
+                      child: AurumMorphLoader(size: 20),
+                    )
+                  : selected
+                      ? Icon(Icons.check_circle_rounded, key: const ValueKey('sel'), color: AurumTheme.gold, size: 22)
+                      : Icon(Icons.circle_outlined,
+                          key: const ValueKey('unsel'),
+                          color: AurumTheme.textMutedOf(context).withValues(alpha: 0.4), size: 22),
+            ),
           ],
         ),
       ),

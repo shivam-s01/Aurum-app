@@ -8,6 +8,7 @@ import '../utils/constants.dart';
 import '../services/update_service.dart';
 import '../widgets/changelog_sheet.dart';
 import '../widgets/feedback_dialog.dart';
+import '../widgets/aurum_settings_tile.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 
@@ -182,6 +183,102 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+
+    final rows = <Widget>[
+      // App identity card
+      Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AurumTheme.gold.withOpacity(0.2), width: 0.5),
+          gradient: LinearGradient(
+            colors: [AurumTheme.gold.withOpacity(0.06), Colors.transparent],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Row(children: [
+          Container(
+            width: 56, height: 56,
+            decoration: BoxDecoration(
+              color: AurumTheme.gold.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+            ),
+            child: const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 28),
+          ),
+          const SizedBox(width: 16),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Aurum Music',
+              style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(
+              _version.isEmpty ? 'Loading...' : 'v$_version (build $_buildNumber)',
+              style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
+            ),
+          ]),
+        ]),
+      ),
+
+      _sectionLabel(l10n.abUpdate),
+      AurumSettingsTile.action(context,
+        icon: Icons.system_update_rounded,
+        title: l10n.abCheckForUpdate,
+        subtitle: l10n.abCheckForUpdateSubtitle,
+        onTap: () { AurumHaptics.light(); UpdateService.checkForUpdate(context); },
+      ),
+      AurumSettingsTile.action(context,
+        icon: Icons.history_rounded,
+        title: l10n.abChangelog,
+        subtitle: l10n.abChangelogSubtitle,
+        onTap: () { AurumHaptics.light(); ChangelogSheet.show(context); },
+      ),
+
+      _sectionLabel(l10n.abLegal),
+      AurumSettingsTile.action(context,
+        icon: Icons.privacy_tip_rounded,
+        title: l10n.abPrivacyPolicy,
+        subtitle: l10n.abPrivacyPolicySubtitle,
+        onTap: () { AurumHaptics.light(); _showPrivacyPolicy(); },
+      ),
+      AurumSettingsTile.action(context,
+        icon: Icons.description_rounded,
+        title: l10n.abTermsOfUse,
+        subtitle: l10n.abTermsOfUseSubtitle,
+        onTap: () { AurumHaptics.light(); _launch(AppConstants.termsOfUse); },
+      ),
+
+      _sectionLabel(l10n.abCommunity),
+      AurumSettingsTile.action(context,
+        icon: Icons.chat_bubble_rounded,
+        title: l10n.abSendFeedback,
+        subtitle: l10n.abSendFeedbackSubtitle,
+        onTap: () { AurumHaptics.light(); showFeedbackDialog(context); },
+      ),
+      AurumSettingsTile.action(context,
+        icon: Icons.share_rounded,
+        title: l10n.abShareApp,
+        subtitle: l10n.abShareAppSubtitle,
+        onTap: () { AurumHaptics.light(); _shareApp(); },
+      ),
+
+      _sectionLabel(l10n.abDeveloper),
+      AurumSettingsTile.action(context,
+        customIcon: _instagramIcon(),
+        title: l10n.abInstagram,
+        subtitle: '@shivam_shrma.01',
+        onTap: () { AurumHaptics.light(); _launch(AppConstants.instagram); },
+      ),
+      AurumSettingsTile.action(context,
+        customIcon: _telegramIcon(),
+        title: l10n.abTelegram,
+        subtitle: '@mr_s_s01',
+        onTap: () { AurumHaptics.light(); _launch(AppConstants.telegram); },
+      ),
+    ];
+
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, l10n.abAppTitle),
@@ -189,98 +286,8 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
-          // App identity card
-          Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AurumTheme.bgCardOf(context),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AurumTheme.gold.withOpacity(0.2), width: 0.5),
-              gradient: LinearGradient(
-                colors: [AurumTheme.gold.withOpacity(0.06), Colors.transparent],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Row(children: [
-              Container(
-                width: 56, height: 56,
-                decoration: BoxDecoration(
-                  color: AurumTheme.gold.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
-                ),
-                child: const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 28),
-              ),
-              const SizedBox(width: 16),
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Aurum Music',
-                  style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 4),
-                Text(
-                  _version.isEmpty ? 'Loading...' : 'v$_version (build $_buildNumber)',
-                  style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
-                ),
-              ]),
-            ]),
-          ),
-
-          _sectionLabel(l10n.abUpdate),
-          _actionTile(context,
-            icon: Icons.system_update_rounded,
-            title: l10n.abCheckForUpdate,
-            subtitle: l10n.abCheckForUpdateSubtitle,
-            onTap: () { AurumHaptics.light(); UpdateService.checkForUpdate(context); },
-          ),
-          _actionTile(context,
-            icon: Icons.history_rounded,
-            title: l10n.abChangelog,
-            subtitle: l10n.abChangelogSubtitle,
-            onTap: () { AurumHaptics.light(); ChangelogSheet.show(context); },
-          ),
-
-          _sectionLabel(l10n.abLegal),
-          _actionTile(context,
-            icon: Icons.privacy_tip_rounded,
-            title: l10n.abPrivacyPolicy,
-            subtitle: l10n.abPrivacyPolicySubtitle,
-            onTap: () { AurumHaptics.light(); _showPrivacyPolicy(); },
-          ),
-          _actionTile(context,
-            icon: Icons.description_rounded,
-            title: l10n.abTermsOfUse,
-            subtitle: l10n.abTermsOfUseSubtitle,
-            onTap: () { AurumHaptics.light(); _launch(AppConstants.termsOfUse); },
-          ),
-
-          _sectionLabel(l10n.abCommunity),
-          _actionTile(context,
-            icon: Icons.chat_bubble_rounded,
-            title: l10n.abSendFeedback,
-            subtitle: l10n.abSendFeedbackSubtitle,
-            onTap: () { AurumHaptics.light(); showFeedbackDialog(context); },
-          ),
-          _actionTile(context,
-            icon: Icons.share_rounded,
-            title: l10n.abShareApp,
-            subtitle: l10n.abShareAppSubtitle,
-            onTap: () { AurumHaptics.light(); _shareApp(); },
-          ),
-
-          _sectionLabel(l10n.abDeveloper),
-          _actionTile(context,
-            customIcon: _instagramIcon(),
-            title: l10n.abInstagram,
-            subtitle: '@shivam_shrma.01',
-            onTap: () { AurumHaptics.light(); _launch(AppConstants.instagram); },
-          ),
-          _actionTile(context,
-            customIcon: _telegramIcon(),
-            title: l10n.abTelegram,
-            subtitle: '@mr_s_s01',
-            onTap: () { AurumHaptics.light(); _launch(AppConstants.telegram); },
-          ),
+          for (int i = 0; i < rows.length; i++)
+            AurumStaggerItem(index: i, child: rows[i]),
         ],
       ),
     );
@@ -309,43 +316,6 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
         borderRadius: BorderRadius.circular(10),
       ),
       child: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
-    );
-  }
-
-  Widget _actionTile(
-    BuildContext context, {
-    IconData? icon,
-    Widget? customIcon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    Color? iconColor,
-  }) {
-    final color = iconColor ?? AurumTheme.gold;
-    final leading = customIcon ?? Container(
-      width: 38, height: 38,
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Icon(icon, color: color, size: 18),
-    );
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: AurumTheme.bgCardOf(context),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-      ),
-      child: ListTile(
-        onTap: onTap,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-        leading: leading,
-        title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-        subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-        trailing: Icon(Icons.arrow_forward_ios_rounded, color: AurumTheme.textMutedOf(context), size: 14),
-      ),
     );
   }
 

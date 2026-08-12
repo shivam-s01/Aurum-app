@@ -6,6 +6,9 @@ import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../widgets/aurum_pressable.dart';
+import '../widgets/aurum_settings_tile.dart';
+import '../utils/aurum_motion.dart';
 
 class SettingsNotificationsScreen extends StatefulWidget {
   const SettingsNotificationsScreen({super.key});
@@ -114,6 +117,115 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
       );
     }
 
+    final rows = <Widget>[
+      // ── BACKGROUND PLAYBACK ───────────────────────────────────────
+      // THE most impactful fix for "background mein gaana ruk jaata
+      // hai" on Realme/Xiaomi/other aggressive OEMs — those skins kill
+      // background services within minutes unless the user manually
+      // exempts the app from battery optimization. This can't be done
+      // silently; Android requires an explicit user-facing system
+      // dialog for this specific permission.
+      _sectionLabel(l10n.snBackgroundPlayback),
+      AurumPressable(
+        onTap: _batteryOptimizationIgnored
+            ? null
+            : () async {
+                final status = await Permission.ignoreBatteryOptimizations.request();
+                if (mounted) setState(() => _batteryOptimizationIgnored = status.isGranted);
+                // Some OEM skins (Realme/ColorOS, MIUI, etc.) don't
+                // honor the standard Android dialog reliably and
+                // need their own separate "auto-start"/"battery
+                // saver whitelist" screen — send the user to app
+                // settings as a fallback so they can find it
+                // manually if the standard prompt didn't stick.
+                if (mounted && !status.isGranted && status.isPermanentlyDenied) {
+                  openAppSettings();
+                }
+              },
+        scaleAmount: 0.98,
+        child: AnimatedContainer(
+          duration: AurumMotion.durationOrZero(AurumMotion.short2),
+          curve: AurumMotion.standard,
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: AurumTheme.bgCardOf(context),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
+          ),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+            leading: AnimatedContainer(
+              duration: AurumMotion.durationOrZero(AurumMotion.short2),
+              curve: AurumMotion.standard,
+              width: 38, height: 38,
+              decoration: BoxDecoration(
+                color: _batteryOptimizationIgnored
+                    ? AurumTheme.gold.withOpacity(0.15)
+                    : AurumTheme.bgOf(context),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                _batteryOptimizationIgnored
+                    ? Icons.battery_charging_full_rounded
+                    : Icons.battery_alert_rounded,
+                color: _batteryOptimizationIgnored
+                    ? AurumTheme.gold
+                    : AurumTheme.textMutedOf(context),
+                size: 18,
+              ),
+            ),
+            title: Text(
+              _batteryOptimizationIgnored
+                  ? l10n.snBgPlaybackEnabled
+                  : l10n.snAllowBgPlayback,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 14, fontWeight: FontWeight.w500,
+              ),
+            ),
+            subtitle: Text(
+              _batteryOptimizationIgnored
+                  ? l10n.snBgPlaybackEnabledDesc
+                  : l10n.snAllowBgPlaybackDesc,
+              style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12),
+            ),
+            trailing: _batteryOptimizationIgnored
+                ? Icon(Icons.check_circle_rounded, color: AurumTheme.gold, size: 20)
+                : Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 20),
+          ),
+        ),
+      ),
+
+      // ── PLAYER NOTIFICATION ───────────────────────────────────────
+      _sectionLabel(l10n.snPlayerNotification),
+      AurumSettingsTile.switchTile(context,
+        icon: Icons.notifications_rounded,
+        title: l10n.snShowMediaNotif,
+        subtitle: l10n.snShowMediaNotifSubtitle,
+        value: _showMediaNotif,
+        onChanged: (v) { setState(() => _showMediaNotif = v); _save('show_media_notif', v); AudioPrefs.showMediaNotif = v; },
+      ),
+      AurumSettingsTile.switchTile(context,
+        icon: Icons.image_rounded,
+        title: l10n.snShowArtwork,
+        subtitle: l10n.snShowArtworkSubtitle,
+        value: _showArtworkInNotif,
+        onChanged: (v) { setState(() => _showArtworkInNotif = v); _save('show_artwork_notif', v); AudioPrefs.showArtworkNotif = v; },
+      ),
+      AurumSettingsTile.switchTile(context,
+        icon: Icons.skip_previous_rounded,
+        title: l10n.snShowPrevButton,
+        subtitle: l10n.snShowPrevButtonSubtitle,
+        value: _showPrevButton,
+        onChanged: (v) { setState(() => _showPrevButton = v); _save('notif_show_prev', v); },
+      ),
+
+      // ── NOTIFICATION STYLE ────────────────────────────────────────
+      _sectionLabel(l10n.snNotificationStyle),
+      _styleTile(context, 'Compact', l10n.snStyleCompact, l10n.snStyleCompactDesc, Icons.notifications_none_rounded),
+      _styleTile(context, 'Expanded', l10n.snStyleExpanded, l10n.snStyleExpandedDesc, Icons.notifications_active_rounded),
+    ];
+
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       appBar: _appBar(context, l10n.settingsNotifications),
@@ -121,107 +233,8 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
-
-          // ── BACKGROUND PLAYBACK ───────────────────────────────────────
-          // THE most impactful fix for "background mein gaana ruk jaata
-          // hai" on Realme/Xiaomi/other aggressive OEMs — those skins kill
-          // background services within minutes unless the user manually
-          // exempts the app from battery optimization. This can't be done
-          // silently; Android requires an explicit user-facing system
-          // dialog for this specific permission.
-          _sectionLabel(l10n.snBackgroundPlayback),
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            decoration: BoxDecoration(
-              color: AurumTheme.bgCardOf(context),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-            ),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-              onTap: _batteryOptimizationIgnored
-                  ? null
-                  : () async {
-                      AurumHaptics.selection();
-                      final status = await Permission.ignoreBatteryOptimizations.request();
-                      if (mounted) setState(() => _batteryOptimizationIgnored = status.isGranted);
-                      // Some OEM skins (Realme/ColorOS, MIUI, etc.) don't
-                      // honor the standard Android dialog reliably and
-                      // need their own separate "auto-start"/"battery
-                      // saver whitelist" screen — send the user to app
-                      // settings as a fallback so they can find it
-                      // manually if the standard prompt didn't stick.
-                      if (mounted && !status.isGranted && status.isPermanentlyDenied) {
-                        openAppSettings();
-                      }
-                    },
-              leading: Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(
-                  color: _batteryOptimizationIgnored
-                      ? AurumTheme.gold.withOpacity(0.15)
-                      : AurumTheme.bgOf(context),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  _batteryOptimizationIgnored
-                      ? Icons.battery_charging_full_rounded
-                      : Icons.battery_alert_rounded,
-                  color: _batteryOptimizationIgnored
-                      ? AurumTheme.gold
-                      : AurumTheme.textMutedOf(context),
-                  size: 18,
-                ),
-              ),
-              title: Text(
-                _batteryOptimizationIgnored
-                    ? l10n.snBgPlaybackEnabled
-                    : l10n.snAllowBgPlayback,
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 14, fontWeight: FontWeight.w500,
-                ),
-              ),
-              subtitle: Text(
-                _batteryOptimizationIgnored
-                    ? l10n.snBgPlaybackEnabledDesc
-                    : l10n.snAllowBgPlaybackDesc,
-                style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12),
-              ),
-              trailing: _batteryOptimizationIgnored
-                  ? Icon(Icons.check_circle_rounded, color: AurumTheme.gold, size: 20)
-                  : Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 20),
-            ),
-          ),
-
-          // ── PLAYER NOTIFICATION ───────────────────────────────────────
-          _sectionLabel(l10n.snPlayerNotification),
-          _switchTile(context,
-            icon: Icons.notifications_rounded,
-            title: l10n.snShowMediaNotif,
-            subtitle: l10n.snShowMediaNotifSubtitle,
-            value: _showMediaNotif,
-            onChanged: (v) { setState(() => _showMediaNotif = v); _save('show_media_notif', v); AudioPrefs.showMediaNotif = v; },
-          ),
-          _switchTile(context,
-            icon: Icons.image_rounded,
-            title: l10n.snShowArtwork,
-            subtitle: l10n.snShowArtworkSubtitle,
-            value: _showArtworkInNotif,
-            onChanged: (v) { setState(() => _showArtworkInNotif = v); _save('show_artwork_notif', v); AudioPrefs.showArtworkNotif = v; },
-          ),
-          _switchTile(context,
-            icon: Icons.skip_previous_rounded,
-            title: l10n.snShowPrevButton,
-            subtitle: l10n.snShowPrevButtonSubtitle,
-            value: _showPrevButton,
-            onChanged: (v) { setState(() => _showPrevButton = v); _save('notif_show_prev', v); },
-          ),
-
-          // ── NOTIFICATION STYLE ────────────────────────────────────────
-          _sectionLabel(l10n.snNotificationStyle),
-          _styleTile(context, 'Compact', l10n.snStyleCompact, l10n.snStyleCompactDesc, Icons.notifications_none_rounded),
-          _styleTile(context, 'Expanded', l10n.snStyleExpanded, l10n.snStyleExpandedDesc, Icons.notifications_active_rounded),
+          for (int i = 0; i < rows.length; i++)
+            AurumStaggerItem(index: i, child: rows[i]),
         ],
       ),
     );
@@ -229,35 +242,46 @@ class _SettingsNotificationsScreenState extends State<SettingsNotificationsScree
 
   Widget _styleTile(BuildContext context, String style, String label, String sub, IconData icon) {
     final sel = _notifStyle == style;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: AurumTheme.bgCardOf(context),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: sel ? AurumTheme.gold.withOpacity(0.5) : AurumTheme.dividerOf(context),
-          width: sel ? 1 : 0.5,
-        ),
-      ),
-      child: ListTile(
-        onTap: () { AurumHaptics.selection(); setState(() => _notifStyle = style); _save('notif_style', style); },
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-        leading: Container(
-          width: 38, height: 38,
-          decoration: BoxDecoration(
-            color: sel ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
-            borderRadius: BorderRadius.circular(10),
+    return AurumPressable(
+      onTap: () { setState(() => _notifStyle = style); _save('notif_style', style); },
+      scaleAmount: 0.98,
+      child: AnimatedContainer(
+        duration: AurumMotion.durationOrZero(AurumMotion.short2),
+        curve: AurumMotion.standard,
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: sel ? AurumTheme.gold.withOpacity(0.5) : AurumTheme.dividerOf(context),
+            width: sel ? 1 : 0.5,
           ),
-          child: Icon(icon, color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
         ),
-        title: Text(label,
-          style: TextStyle(
-            color: sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
-            fontSize: 14, fontWeight: sel ? FontWeight.w600 : FontWeight.w400)),
-        subtitle: Text(sub, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-        trailing: Icon(
-          sel ? Icons.check_circle_rounded : Icons.circle_outlined,
-          color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 20),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+          leading: AnimatedContainer(
+            duration: AurumMotion.durationOrZero(AurumMotion.short2),
+            curve: AurumMotion.standard,
+            width: 38, height: 38,
+            decoration: BoxDecoration(
+              color: sel ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
+          ),
+          title: Text(label,
+            style: TextStyle(
+              color: sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
+              fontSize: 14, fontWeight: sel ? FontWeight.w600 : FontWeight.w400)),
+          subtitle: Text(sub, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
+          trailing: AnimatedSwitcher(
+            duration: AurumMotion.durationOrZero(AurumMotion.short2),
+            child: Icon(
+              sel ? Icons.check_circle_rounded : Icons.circle_outlined,
+              key: ValueKey(sel),
+              color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 20),
+          ),
+        ),
       ),
     );
   }
@@ -279,30 +303,4 @@ Widget _sectionLabel(String label) => Padding(
   child: Text(label, style: const TextStyle(color: AurumTheme.gold, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
 );
 
-Widget _switchTile(BuildContext context, {
-  required IconData icon, required String title, required String subtitle,
-  required bool value, required ValueChanged<bool> onChanged,
-}) {
-  return Container(
-    margin: const EdgeInsets.only(bottom: 8),
-    decoration: BoxDecoration(
-      color: AurumTheme.bgCardOf(context),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
-    ),
-    child: ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-      leading: Container(
-        width: 38, height: 38,
-        decoration: BoxDecoration(
-          color: value ? AurumTheme.gold.withOpacity(0.12) : AurumTheme.bgOf(context),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: value ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
-      ),
-      title: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500)),
-      subtitle: Text(subtitle, style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-      trailing: Switch(value: value, onChanged: onChanged, activeColor: AurumTheme.gold),
-    ),
-  );
-}
+

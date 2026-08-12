@@ -173,6 +173,10 @@ class ThemeProvider extends ChangeNotifier {
         return GoogleFonts.nunitoTextTheme(base);
       case 'Mono':
         return GoogleFonts.robotoMonoTextTheme(base);
+      case 'Sans':
+        return GoogleFonts.manropeTextTheme(base);
+      case 'Serif':
+        return GoogleFonts.playfairDisplayTextTheme(base);
       default:
         return base; // system default
     }
