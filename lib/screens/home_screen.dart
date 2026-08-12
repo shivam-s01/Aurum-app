@@ -190,12 +190,19 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
   @override
   Widget build(BuildContext context) {
     if (!_showBackdrop) return widget.child;
+    // FIX (permanent removal of cold-start white/cream flash): this used
+    // to branch on widget.isDark (itself read from ThemeProvider before
+    // its async SharedPreferences load may have resolved) to choose
+    // between black and the light cream 0xFFF5F0EA. On a cold start that
+    // race could land on the cream branch regardless of the user's
+    // actual saved theme, producing the reported white/cream flash right
+    // before the full player's first real frame. FullPlayerScreen's own
+    // Scaffold/ColoredBox now hardcode black for the same reason — this
+    // backdrop matches that so there's no seam between the two layers.
     return Stack(
       fit: StackFit.expand,
       children: [
-        ColoredBox(
-          color: widget.isDark ? Colors.black : const Color(0xFFF5F0EA),
-        ),
+        const ColoredBox(color: Colors.black),
         widget.child,
       ],
     );
@@ -2594,6 +2601,13 @@ class _ProfileAvatarButton extends StatelessWidget {
                     fit: BoxFit.cover,
                     memCacheWidth: 96,
                     memCacheHeight: 96,
+                    // FIX: same white/grey flash issue as the Trending
+                    // Playlists cards — without a `placeholder`,
+                    // CachedNetworkImage shows its own flat grey/white
+                    // box while the avatar is still downloading. Using
+                    // the themed default icon here instead keeps the
+                    // top-bar avatar looking intentional the whole time.
+                    placeholder: (_, __) => _defaultIcon(context),
                     errorWidget: (_, __, ___) => _defaultIcon(context),
                   )
                 : _defaultIcon(context),
@@ -3348,6 +3362,18 @@ class _PlaylistCardState extends State<_PlaylistCard> {
                   memCacheWidth: 300,
                   memCacheHeight: 300,
                   fadeInDuration: const Duration(milliseconds: 260),
+                  // FIX (white/grey flash while the real image bytes are
+                  // still downloading): CachedNetworkImage's own default
+                  // placeholder is a flat grey/white box — with no
+                  // `placeholder` specified here, that default was what
+                  // briefly showed up between "_artUrl resolved" and
+                  // "image bytes finished downloading", reading as a
+                  // broken/unstyled card on slow connections. Reusing the
+                  // same themed gradient fallback here means there's never
+                  // a moment where a plain white/grey rectangle is visible
+                  // — art fades in over the gradient instead of over a
+                  // generic placeholder.
+                  placeholder: (_, __) => _gradientFallback(p),
                   errorWidget: (_, __, ___) => _gradientFallback(p),
                 ),
               )

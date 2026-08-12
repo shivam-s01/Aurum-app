@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -53,26 +52,12 @@ class AurumArtwork extends StatelessWidget {
   // the blurred background" on its own.
   final bool isBlurredBackground;
 
-  // FIX (white flash on song tap / swipe-down dismiss / player collapse —
-  // hero disc artwork): _ShimmerPulse paints a hardcoded Colors.white
-  // overlay (see bottom of this file) on top of whatever themed Container
-  // wraps it. That's invisible at normal tile size (44-108px) but the full
-  // player's hero disc artwork renders this same widget at
-  // size: double.infinity with isBlurredBackground left at its default
-  // (false, since this ISN'T the blurred background layer — it's the
-  // sharp foreground disc) — so every time this widget remounts with a
-  // new ValueKey (new song via tap, or the same widget re-laying-out
-  // during the swipe-down dismiss animation / player-collapse transition,
-  // both of which can retrigger the content:// MethodChannel load or an
-  // Image.file decode), the white shimmer briefly paints at FULL SCREEN
-  // size instead of a small tile — that's the white flash. Worse/"stuck"
-  // specifically on local/offline songs because the content:// MediaStore
-  // getAlbumArt() call has no disk cache shortcut the way network art
-  // does, so _loaded can stay false for multiple frames instead of one.
-  // This flag lets any full-screen-sized, non-blurred call site (the hero
-  // disc art) opt out of the white shimmer specifically, without touching
-  // isBlurredBackground's existing (and correct) "skip the container
-  // entirely" behavior for the actual blurred background layer.
+  // NOTE: the loading state is now always a flat themed container with
+  // no pulsing overlay of any kind (see _shimmer() and the
+  // _ContentUriImage !_loaded branch below) — there is no shimmer left
+  // to suppress. This flag is kept only so existing call sites passing
+  // suppressWhiteShimmer: true/false elsewhere in the app don't need to
+  // be touched; it has no effect on what's painted.
   final bool suppressWhiteShimmer;
 
   const AurumArtwork({
@@ -202,21 +187,14 @@ class AurumArtwork extends StatelessWidget {
         ),
       );
 
-  // FIX (white/gray wash on full-player open — P1, same root cause as
-  // _ContentUriImageState's !_loaded branch in this file): this used to
-  // still paint a Container with color: AurumTheme.bgSurfaceOf even when
-  // isBlurredBackground was true — that flag only ever gated the
-  // _ShimmerPulse CHILD, never this container's own background color.
-  // The full-player's blurred background (_BlurredArtworkCore) wraps this
-  // in Transform.scale(1.55) + ImageFilter.blur(sigma 20-22): a flat
-  // color survives that untouched and reads as a full-screen wash for
-  // however long the real artwork takes to decode. _BgLayer
-  // (full_player_screen.dart _buildLight/_buildDark) already paints its
-  // own theme-correct base + vignette underneath this layer specifically
-  // to be the "nothing loaded yet" background — returning transparent
-  // here lets that show through instead of painting a second, wrong-
-  // colored layer on top of it. Non-blurred callers (tiles, mini player,
-  // the full player's own disc artwork) are unaffected.
+  // FIX (permanent removal of white/light shimmer flash): the loading
+  // state now paints ONLY this flat theme-colored container — no
+  // opacity-pulsing overlay on top of it at all. A pulsing layer, no
+  // matter what color it's tinted, briefly lightens whatever it sits
+  // over every animation cycle; the only way to guarantee it can never
+  // read as a white/light flash in any theme or lighting state is to
+  // not paint one. isBlurredBackground still stays transparent so the
+  // full player's own themed base/vignette shows through underneath.
   Widget _shimmer(BuildContext context, [bool suppress = false]) {
     if (isBlurredBackground) return const SizedBox.expand();
     return Container(
@@ -226,10 +204,6 @@ class AurumArtwork extends StatelessWidget {
         color: AurumTheme.bgSurfaceOf(context),
         borderRadius: BorderRadius.circular(borderRadius),
       ),
-      // suppress: full-screen hero call sites (e.g. FullPlayerScreen's
-      // disc artwork) skip the white pulse entirely — see
-      // suppressWhiteShimmer doc comment above. Small tiles keep it.
-      child: suppress ? const SizedBox.shrink() : const _ShimmerPulse(),
     );
   }
 }
@@ -485,6 +459,11 @@ class _ContentUriImageState extends State<_ContentUriImage> {
       if (widget.isBlurredBackground) {
         return const SizedBox.expand();
       }
+      // FIX (permanent removal of white/light shimmer flash): no
+      // pulsing overlay child at all now — just the flat themed
+      // container. A pulsing layer, whatever color it's tinted, briefly
+      // lightens on every cycle; not painting one is the only way this
+      // can never read as a white/light flash.
       return Container(
         width: widget.size,
         height: widget.size,
@@ -492,18 +471,6 @@ class _ContentUriImageState extends State<_ContentUriImage> {
           color: AurumTheme.bgSurfaceOf(context),
           borderRadius: BorderRadius.circular(widget.borderRadius),
         ),
-        // FIX (white flash — hero disc artwork, local/content:// songs):
-        // this is the actual root cause of the reported bug. See
-        // suppressWhiteShimmer doc comment in aurum_artwork.dart above the
-        // AurumArtwork widget. getAlbumArt() over MethodChannel has no
-        // disk-cache shortcut, so on a fresh mount (song tap, or this
-        // widget remounting during the swipe-down dismiss / collapse
-        // transition) _loaded stays false for one or more real frames —
-        // at full hero size that white pulse used to cover the entire
-        // screen instead of a small tile.
-        child: widget.suppressWhiteShimmer
-            ? const SizedBox.shrink()
-            : const _ShimmerPulse(),
       );
     }
 
@@ -540,86 +507,6 @@ class _ContentUriImageState extends State<_ContentUriImage> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
       child: widget.fadeIn ? _FadeInImage(child: memImage) : memImage,
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shimmer pulse — ONE shared AnimationController for all instances.
-// Previously each _ShimmerPulse had its own controller → 20-30 controllers
-// running simultaneously during list scroll. Now all instances share one
-// ValueNotifier driven by a single app-level ticker.
-// ─────────────────────────────────────────────────────────────────────────────
-class _ShimmerPulse extends StatelessWidget {
-  const _ShimmerPulse();
-
-  // Single shared notifier — value oscillates 0.03↔0.10 at 900ms
-  static final ValueNotifier<double> _opacity = ValueNotifier(0.03);
-  static AnimationController? _ctrl;
-  static int _refCount = 0;
-
-  static void _attach(TickerProvider vsync) {
-    _refCount++;
-    if (_ctrl != null) return;
-    _ctrl = AnimationController(
-      vsync: vsync,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-    _ctrl!.addListener(() {
-      final t = _ctrl!.value;
-      // FIX (same glitch as full_player_screen.dart's Ken Burns pan):
-      // _ctrl already reverses direction on its own via
-      // repeat(reverse: true). Layering Curves.easeInOut.transform() on
-      // that raw value re-eases something already changing direction —
-      // at each turnaround the controller's own velocity flip and the
-      // curve's steep slope combine into a visible snap in the shimmer
-      // pulse, most noticeable on the return stroke. A raised-cosine is
-      // smooth at both ends of a reversing triangle wave.
-      final curved = (1 - math.cos(t * math.pi)) / 2;
-      _opacity.value = 0.03 + curved * 0.07;
-    });
-  }
-
-  static void _detach() {
-    _refCount--;
-    if (_refCount <= 0) {
-      _ctrl?.dispose();
-      _ctrl = null;
-      _refCount = 0;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _ShimmerPulseInstance();
-  }
-}
-
-class _ShimmerPulseInstance extends StatefulWidget {
-  @override
-  State<_ShimmerPulseInstance> createState() => _ShimmerPulseInstanceState();
-}
-
-class _ShimmerPulseInstanceState extends State<_ShimmerPulseInstance>
-    with SingleTickerProviderStateMixin {
-  @override
-  void initState() {
-    super.initState();
-    _ShimmerPulse._attach(this);
-  }
-
-  @override
-  void dispose() {
-    _ShimmerPulse._detach();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<double>(
-      valueListenable: _ShimmerPulse._opacity,
-      builder: (_, opacity, __) =>
-          Container(color: Colors.white.withOpacity(opacity)),
     );
   }
 }

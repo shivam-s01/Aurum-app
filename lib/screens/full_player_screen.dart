@@ -1241,40 +1241,28 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               child: _DragTransform(
                 dragYListenable: _dragYNotifier,
                 child: Scaffold(
-                      // FIX (cold-start white flash on Home song tap): the
-                      // comment this replaces said "route's opaque:true" —
-                      // stale. pushFullPlayer() in home_screen.dart sets
-                      // opaque: false (a separate, correct fix for the
-                      // background-blink-during-swipe-dismiss bug). But
-                      // opaque:false means Flutter no longer guarantees this
-                      // Scaffold is the only thing painted for this frame —
-                      // combined with a cold app start (no cached artwork
-                      // palette yet, PlayerProvider still resolving), the
-                      // very first compositor frame of the slide-up
-                      // transition could land before this Scaffold's own
-                      // background color had actually painted, exposing raw
-                      // system-default white for exactly one frame. A
-                      // themed backgroundColor here was the first half of
-                      // the fix; instant is the other half — see the
-                      // ColoredBox below in the Stack, which paints a solid
-                      // color on the very first frame with no dependency on
-                      // this Scaffold's own paint timing.
-                      // FIX (first-open cream/white flash, matches the
-                      // pushFullPlayer fix in home_screen.dart): both reads
-                      // here used to be Theme.of(context).brightness, an
-                      // ambient lookup that can lag one frame behind
-                      // ThemeProvider's own resolved isDark right after
-                      // cold start — see isDarkOf's FIX comment in
-                      // theme_provider.dart for why. Reading isDarkOf(
-                      // context) here keeps this Scaffold's background in
-                      // permanent agreement with the ColoredBox
-                      // pushFullPlayer paints one layer below it, so there
-                      // is never a color to flash between even on the very
-                      // first open of a session.
-                      backgroundColor:
-                          context.watch<ThemeProvider>().isDarkOf(context)
-                              ? Colors.black
-                              : const Color(0xFFF5F0EA),
+                      // FIX (permanent removal of cold-start white/cream
+                      // flash — confirmed reproducible in every theme
+                      // mode): this used to branch on isDarkOf(context) to
+                      // decide between Colors.black and the light cream
+                      // 0xFFF5F0EA. That branch depended on ThemeProvider
+                      // having already resolved (it loads its saved mode
+                      // async via SharedPreferences), so on a cold start —
+                      // before that resolves — this could paint the cream
+                      // branch for one or more real frames regardless of
+                      // which mode the user actually has selected,
+                      // producing exactly the white/cream flash reported
+                      // ("full player khulne se 1-2 sec pehle white tint").
+                      // The player's own palette-driven _BgLayer below
+                      // already defaults to dark colors (_targetBg1 etc,
+                      // 0xFF0D0D18) before any artwork is extracted, and
+                      // stays dark-toned even in light theme once real
+                      // colors land — so a plain dark base here can never
+                      // visibly clash with what paints on top of it a
+                      // moment later, in any theme. Hardcoding dark
+                      // removes the race entirely instead of just timing
+                      // around it.
+                      backgroundColor: Colors.black,
                       body: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -1287,13 +1275,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                           // this Stack ever draws removes any possible gap
                           // frame during the route's slide-up on a cold
                           // start, when the artwork/palette-driven _BgLayer
-                          // below hasn't extracted real colors yet.
-                          ColoredBox(
-                            color:
-                                context.watch<ThemeProvider>().isDarkOf(context)
-                                    ? Colors.black
-                                    : const Color(0xFFF5F0EA),
-                          ),
+                          // below hasn't extracted real colors yet. Same
+                          // permanent-dark fix as backgroundColor above —
+                          // no theme-resolution race possible.
+                          const ColoredBox(color: Colors.black),
                           // Background: isolated repaint boundary
                           RepaintBoundary(
                             child: _BgLayer(
@@ -1334,7 +1319,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               // simplicity exactly while a finger is down,
                               // with the slow drift resuming the instant the
                               // gesture ends (spring-back or completed
-                              // dismiss).
+                              // dismiss). This is a perf-only freeze (it
+                              // doesn't hide the blur — see staticBlur's FIX
+                              // comment above for why the blur itself always
+                              // stays rendered), so it's fine for both drag
+                              // directions (dismiss and Up Next panel open)
+                              // to freeze it the same way.
                               isDragging: _isDragging,
                             ),
                           ),
@@ -1544,30 +1534,28 @@ class _DragTransform extends StatelessWidget {
     return ValueListenableBuilder<double>(
       valueListenable: dragYListenable,
       builder: (context, dragY, child) {
-        // FIX ("blur background swipe-down pe upar ek alag layer/ghost
-        // jaisa dikhta hai"): opacity used to start dropping from the very
-        // first pixel of drag (1.0 - dragY/screenH), so by ~30% of the
-        // swipe the player was already ~70% opaque — with Home's route
-        // painting live underneath (opaque:false, see pushFullPlayer's own
-        // FIX comment for why that's needed), that meant a blurred,
-        // static artwork photo was visibly blending with unrelated,
-        // live-moving Home content the whole way down. On solid-background
-        // mode this blend is barely visible (flat color into flat-ish
-        // background); on blur/gradient mode — a soft-edged translucent
-        // photograph — it reads exactly like a stray second layer stuck on
-        // top, which is what this was reported as.
-        // Real apps (Spotify/YT Music included) solve this the same way:
-        // the sheet drags as a fully-opaque solid card and only fades at
-        // the very end, once it's basically already off-screen. Delaying
-        // the opacity falloff to the last 25% of the drag means for the
-        // first 75% you see a clean, fully-opaque card sliding down with
-        // nothing showing through it — matching "jaise downhita hai same
-        // vaisa hi ho" — and the brief fade only kicks in once there's
-        // barely anything left on screen to blend with, so it's
-        // imperceptible instead of looking like a ghost layer.
+        // FIX ("Solid mode jaisa hi Blur mode ka background bhi — poore
+        // drag ke dauraan blur bana rahe jab tak dismiss COMPLETE na ho
+        // jaaye, sirf Home ke saath ghost/blend hone wala hissa clean
+        // ho"): opacity used to start dropping from the very first pixel
+        // of drag (1.0 - dragY/screenH), so by ~30% of the swipe the
+        // player was already ~70% opaque — with Home's route painting
+        // live underneath (opaque:false, see pushFullPlayer's own FIX
+        // comment for why that's needed), that meant a blurred, static
+        // artwork photo was visibly blending with unrelated, live-moving
+        // Home content the whole way down. Delaying the opacity falloff
+        // to the last 25% of the drag means the blur stays fully present
+        // and fully opaque — exactly as requested, present the entire
+        // way down, same as Solid mode's flat color — for the first 75%
+        // of the swipe, with nothing showing through it. Only in that
+        // final 25%, once the card is nearly off-screen anyway, does it
+        // fade — by then there's barely anything left on screen for it
+        // to blend with, so it reads as a clean finish rather than a
+        // ghost layer. This mirrors exactly how Solid mode already
+        // behaved; Blur mode now gets the same guarantee.
         final dismissProgress = (dragY / screenH).clamp(0.0, 1.0);
         final dragOpacity =
-            (1.0 - ((dismissProgress - 0.75) / 0.25).clamp(0.0, 1.0));
+            1.0 - ((dismissProgress - 0.75) / 0.25).clamp(0.0, 1.0);
         final dragScale =
             (1.0 - (dragY / 2200).clamp(0.0, 0.06)).clamp(0.0, 1.0);
         final ty = dragY.clamp(0.0, screenH);
@@ -1576,10 +1564,29 @@ class _DragTransform extends StatelessWidget {
           ..scale(dragScale, dragScale);
         return Opacity(
           opacity: dragOpacity,
-          child: Transform(
-            transform: matrix,
-            alignment: Alignment.center,
-            child: child,
+          // FIX ("background mein upar blur dikh raha hai screenshot mein
+          // — blur sirf full player ke apne area tak hi rahe, kabhi bahar/
+          // upar na jaaye"): the blurred-artwork layer inside _BgLayer
+          // (_BlurredArtworkCore) renders at Transform.scale(1.55) — a
+          // deliberate overscan so the blur's own soft edges never show a
+          // hard boundary. That overscan was never clipped anywhere in
+          // this widget tree, so once this outer Transform also
+          // translates the whole Scaffold during a dismiss drag, the
+          // scaled-up blur content that extends past the player's own
+          // screen bounds becomes visible above/around the player,
+          // overlapping Home's live route underneath (opaque:false) —
+          // exactly the stray blur strip seen in the report. Wrapping in
+          // ClipRect here guarantees nothing this widget paints, at any
+          // scale or translation, is ever visible outside the player's
+          // own rectangle — the overscan still does its job of avoiding a
+          // hard blur edge internally, it just can never leak past this
+          // boundary.
+          child: ClipRect(
+            child: Transform(
+              transform: matrix,
+              alignment: Alignment.center,
+              child: child,
+            ),
           ),
         );
       },
@@ -5783,6 +5790,23 @@ class _BgLayer extends StatelessWidget {
         // left underneath (L0 base + L2 palette tint/vignette) already
         // reads as a clean, intentional gradient background on its own
         // — this is the true zero-blur-cost path, not just a cheaper blur.
+        // FIX ("Solid mode jaisa hi Blur mode mein bhi — poore drag ke
+        // dauraan blur bana rahe, jab tak dismiss COMPLETE na ho jaaye;
+        // sirf background mein jo Home content ke saath ghost/blend
+        // dikhta tha wahi clean ho, blur khud nahi"): a previous attempt
+        // here hid the entire staticBlur subtree the instant isDragging
+        // went true — that matched Solid mode's LOOK but not what was
+        // actually asked for: the blur itself should stay fully present
+        // for the whole swipe, exactly like Solid mode's flat color stays
+        // present for the whole swipe. The actual problem was never the
+        // blur being visible — it was the blur staying non-opaque (see
+        // _DragTransform's opacity curve) long enough to visibly blend
+        // with Home's live route underneath. That's fixed at the opacity
+        // level in _DragTransform below (delayed to the very end of the
+        // drag), not by removing this layer. Reverted to always render
+        // when showBlur is on, regardless of isDragging — isDragging is
+        // still used inside _StaticBlurArtwork/_BlurredArtworkCore to
+        // freeze the Ken Burns motion (perf only, doesn't hide anything).
         final staticBlur = !showBlur
             ? const SizedBox.expand()
             : AnimatedSwitcher(

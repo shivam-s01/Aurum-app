@@ -60,15 +60,22 @@ class ShortsInfoOverlay extends StatelessWidget {
                   // without the multi-hundred-px waste.
                   memCacheWidth: 84,
                   memCacheHeight: 84,
+                  // FIX (white tint on Shorts info thumbnail): this used
+                  // Colors.white10 as both the loading placeholder and
+                  // error fallback — a white-tinted box, however faint,
+                  // reads as a light flash against the dark Shorts card
+                  // behind it while this 42x42 artwork is still
+                  // downloading. Switched to a solid dark theme color so
+                  // no white/light layer can ever show here.
                   placeholder: (_, __) => Container(
                     width: 42,
                     height: 42,
-                    color: Colors.white10,
+                    color: const Color(0xFF0A0A0A),
                   ),
                   errorWidget: (_, __, ___) => Container(
                     width: 42,
                     height: 42,
-                    color: Colors.white10,
+                    color: const Color(0xFF0A0A0A),
                     child: const Icon(Icons.music_note,
                         color: Colors.white38, size: 20),
                   ),

@@ -130,6 +130,13 @@ class _ProfileHero extends StatelessWidget {
                   // reason to decode a Google profile photo at its native
                   // resolution just to blur away all its detail.
                   memCacheWidth: 200,
+                  // FIX: same white/grey flash issue as elsewhere in the
+                  // app — without a `placeholder`, CachedNetworkImage's
+                  // own flat grey/white box would show across this whole
+                  // 310px hero while the Google profile photo is still
+                  // downloading. Reusing the themed gradient background
+                  // keeps this looking intentional instead of broken.
+                  placeholder: (_, __) => _gradientBg(),
                   errorWidget: (_, __, ___) => _gradientBg(),
                 ),
               )
