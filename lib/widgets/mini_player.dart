@@ -346,16 +346,16 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                 // Spotify-style stacked look instead of floating.
                 //
                 // Docked style (Settings → Appearance → "Nav Bar Style"):
-                // still edge-to-edge (no side margins, square corners) but
-                // with a small 3px bottom gap instead of zero — reads as a
-                // deliberate stacked layout rather than the two bars
-                // literally fused together with no seam at all.
+                // a small consistent 6px side margin (not full edge-to-edge)
+                // plus a small 3px bottom gap — matches the reference look
+                // of a classic docked bar that still breathes slightly off
+                // the screen edges instead of touching them directly.
                 padding: docked
-                    ? const EdgeInsets.only(bottom: 3)
+                    ? const EdgeInsets.fromLTRB(6, 0, 6, 3)
                     : const EdgeInsets.fromLTRB(16, 0, 16, 4),
                 child: ClipRRect(
                   borderRadius:
-                      docked ? BorderRadius.zero : BorderRadius.circular(28),
+                      docked ? BorderRadius.circular(10) : BorderRadius.circular(28),
                   // Spotify-style tinted background: smoothly cross-fades
                   // toward the current song's artwork color whenever it
                   // changes. TweenAnimationBuilder only runs its own short
@@ -422,29 +422,17 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                                     alpha: isDark ? 0.42 : 0.62,
                                   );
                             final content = Container(
-                              height: docked ? 52 : 68,
+                              height: docked ? 60 : 68,
                               decoration: BoxDecoration(
                                 color: barBg,
                                 borderRadius: docked
-                                    ? BorderRadius.zero
+                                    ? BorderRadius.circular(10)
                                     : BorderRadius.circular(28),
-                                border: docked
-                                    ? Border(
-                                        top: BorderSide(
-                                          color: (isDark
-                                                  ? Colors.white
-                                                  : Colors.black)
-                                              .withValues(alpha: 0.08),
-                                          width: 1,
-                                        ),
-                                      )
-                                    : Border.all(
-                                        color: (isDark
-                                                ? Colors.white
-                                                : Colors.black)
-                                            .withValues(alpha: 0.08),
-                                        width: 1,
-                                      ),
+                                border: Border.all(
+                                  color: (isDark ? Colors.white : Colors.black)
+                                      .withValues(alpha: 0.08),
+                                  width: 1,
+                                ),
                               ),
                               // FIX ("theme ke hisab se artwork awkward
                               // lagta hai"): title/artist text used to
@@ -527,14 +515,18 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
       {required Color onTint, bool compact = false}) {
     final song = player.currentSong!;
     final secondaryOnTint = onTint.withValues(alpha: 0.72);
-    final artSize = compact ? 34.0 : 44.0;
-    final artRadius = compact ? 7.0 : 10.0;
-    final titleSize = compact ? 12.0 : 13.0;
-    final artistSize = compact ? 10.0 : 11.0;
+    final artSize = compact ? 38.0 : 44.0;
+    final artRadius = compact ? 8.0 : 10.0;
+    final titleSize = compact ? 13.0 : 13.0;
+    final artistSize = compact ? 11.0 : 11.0;
     final gapAfterArt = compact ? 10.0 : 12.0;
-    final gapBeforeControls = compact ? 6.0 : 8.0;
-    final controlSize = compact ? 19.0 : 22.0;
-    final controlGap = compact ? 2.0 : 4.0;
+    final gapBeforeControls = compact ? 8.0 : 8.0;
+    final controlSize = compact ? 22.0 : 22.0;
+    // Docked's Play/Pause + Close pair needs real breathing room between
+    // them (matches the reference layout) — 2px read as the two icons
+    // being glued together. Floating's tighter 3-icon row (prev/play/next)
+    // keeps its own smaller gap since it has three targets to fit.
+    final controlGap = compact ? 14.0 : 4.0;
     return Column(
       children: [
         _MiniProgressBar(player: player, squareTop: compact),
@@ -637,9 +629,8 @@ class _MiniProgressBar extends StatelessWidget {
     return Selector<PlayerProvider, double>(
       selector: (_, p) => p.progress,
       builder: (context, progress, _) => ClipRRect(
-        borderRadius: squareTop
-            ? BorderRadius.zero
-            : const BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: BorderRadius.vertical(
+            top: Radius.circular(squareTop ? 10 : 28)),
         child: RepaintBoundary(
           child: LinearProgressIndicator(
             value: progress,
@@ -661,8 +652,8 @@ class _PlayBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = context.watch<ThemeProvider>().accentColor;
-    final btnSize = compact ? 30.0 : 36.0;
-    final iconSize = compact ? 17.0 : 20.0;
+    final btnSize = compact ? 34.0 : 36.0;
+    final iconSize = compact ? 18.0 : 20.0;
     if (player.isLoading) {
       return Opacity(
         opacity: 0.35,
