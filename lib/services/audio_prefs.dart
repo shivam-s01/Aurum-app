@@ -191,6 +191,20 @@ class AudioPrefs {
   static final ValueNotifier<double> miniPlayerBlurSigmaNotifier =
       ValueNotifier<double>(14.0);
 
+  /// 'Floating' (default) | 'Docked' — overall shape/placement of the
+  /// bottom nav bar + mini player stack. 'Floating' is Aurum's existing
+  /// look: side-margined rounded capsule nav bar with a separate rounded
+  /// mini player pill sitting snug above it. 'Docked' matches Spotify's
+  /// classic layout instead: both widgets go edge-to-edge (no side
+  /// margins, square corners) and sit flush against the bottom of the
+  /// screen with no gap between them — mini player directly on top of
+  /// the nav bar, nav bar directly on the screen edge. Purely visual —
+  /// tab structure (Home/Search/Shorts/Library), mini player content,
+  /// and all playback behavior are completely unchanged between modes.
+  /// Set from Settings → Appearance → "Nav Bar Style".
+  static final ValueNotifier<String> navBarStyleNotifier =
+      ValueNotifier<String>('Floating');
+
   // ── Battery Saver Mode ───────────────────────────────────────────────
   // A separate feature from the individual animation/background toggles
   // above — those stay exactly as the user set them. Battery Saver Mode
@@ -272,6 +286,7 @@ class AudioPrefs {
   static const _kDynamicColor  = 'dynamic_player_color';
   static const _kShowBlurBg    = 'show_blurred_bg';
   static const _kNavBarBlur    = 'nav_bar_blur_sigma';
+  static const _kNavBarStyle   = 'nav_bar_style';
   static const _kMiniPlayerBlur = 'mini_player_blur_sigma';
   static const _kPlayerBgStyle = 'player_bg_style';
   static const _kMiniPlayerBg  = 'mini_player_bg_style';
@@ -325,6 +340,7 @@ class AudioPrefs {
     navBarBlurSigmaNotifier.value = p.getDouble(_kNavBarBlur) ?? navBarBlurSigmaNotifier.value;
     miniPlayerBlurSigmaNotifier.value =
         p.getDouble(_kMiniPlayerBlur) ?? miniPlayerBlurSigmaNotifier.value;
+    navBarStyleNotifier.value = p.getString(_kNavBarStyle) ?? navBarStyleNotifier.value;
     playerBgStyleNotifier.value = p.getString(_kPlayerBgStyle) ?? playerBgStyleNotifier.value;
     miniPlayerBgStyleNotifier.value = p.getString(_kMiniPlayerBg) ?? miniPlayerBgStyleNotifier.value;
     bgGradientAnimationNotifier.value = p.getBool(_kBgGradAnim) ?? bgGradientAnimationNotifier.value;
@@ -486,6 +502,12 @@ class AudioPrefs {
     miniPlayerBlurSigmaNotifier.value = v;
     final p = await SharedPreferences.getInstance();
     await p.setDouble(_kMiniPlayerBlur, v);
+  }
+
+  static Future<void> setNavBarStyle(String v) async {
+    navBarStyleNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_kNavBarStyle, v);
   }
 
   static Future<void> setPlayerBgStyle(String v) async {

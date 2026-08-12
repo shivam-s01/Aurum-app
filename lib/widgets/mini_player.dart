@@ -333,16 +333,29 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
             offset: Offset(0, translateY),
             child: Opacity(
               opacity: opacity,
-              child: Padding(
+              child: ValueListenableBuilder<String>(
+                valueListenable: AudioPrefs.navBarStyleNotifier,
+                builder: (context, navStyle, _) {
+                  final docked = navStyle == 'Docked';
+                  return Padding(
                 // FIX ("mini player bahut upar/floaty lagta hai"): 8px
                 // bottom gap plus the nav bar's own internal padding
                 // stacked up to a visibly large empty gap between the
                 // mini player and the nav bar in the screenshot. Tightened
                 // to sit snug just above the nav bar, matching the tight
                 // Spotify-style stacked look instead of floating.
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                //
+                // Docked style (Settings → Appearance → "Nav Bar Style"):
+                // zero padding on every side — mini player sits flush
+                // edge-to-edge, flush against the nav bar right below it,
+                // matching Spotify's classic stacked-flat look instead of
+                // Aurum's floating pill.
+                padding: docked
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.fromLTRB(16, 0, 16, 4),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(28),
+                  borderRadius:
+                      docked ? BorderRadius.zero : BorderRadius.circular(28),
                   // Spotify-style tinted background: smoothly cross-fades
                   // toward the current song's artwork color whenever it
                   // changes. TweenAnimationBuilder only runs its own short
@@ -409,15 +422,29 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                                     alpha: isDark ? 0.42 : 0.62,
                                   );
                             final content = Container(
-                              height: 68,
+                              height: docked ? 52 : 68,
                               decoration: BoxDecoration(
                                 color: barBg,
-                                borderRadius: BorderRadius.circular(28),
-                                border: Border.all(
-                                  color: (isDark ? Colors.white : Colors.black)
-                                      .withValues(alpha: 0.08),
-                                  width: 1,
-                                ),
+                                borderRadius: docked
+                                    ? BorderRadius.zero
+                                    : BorderRadius.circular(28),
+                                border: docked
+                                    ? Border(
+                                        top: BorderSide(
+                                          color: (isDark
+                                                  ? Colors.white
+                                                  : Colors.black)
+                                              .withValues(alpha: 0.08),
+                                          width: 1,
+                                        ),
+                                      )
+                                    : Border.all(
+                                        color: (isDark
+                                                ? Colors.white
+                                                : Colors.black)
+                                            .withValues(alpha: 0.08),
+                                        width: 1,
+                                      ),
                               ),
                               // FIX ("theme ke hisab se artwork awkward
                               // lagta hai"): title/artist text used to
@@ -438,7 +465,8 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                                               .computeLuminance() >
                                           0.5
                                       ? Colors.black
-                                      : Colors.white),
+                                      : Colors.white,
+                                  compact: docked),
                             );
                             // PERF/HEAT SETTING: mini player is a persistent
                             // overlay on every screen, so its BackdropFilter
@@ -458,6 +486,8 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                     },
                   ),
                 ),
+              );
+                },
               ),
             ),
           ),
@@ -476,24 +506,41 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
   /// dark/light-mode text color, so a light album cover in dark mode (or
   /// vice versa) never produces low-contrast text on top of its own
   /// artwork-derived background.
+  ///
+  /// [compact] (Docked nav bar style only — see AudioPrefs.navBarStyleNotifier)
+  /// renders the same content at JioSaavn-style thin-strip proportions:
+  /// smaller artwork, tighter type, and smaller control icons, matching the
+  /// shorter 52px container height used for Docked mode. Every value below
+  /// is just a size swap — no widgets are added or removed between the two
+  /// modes, so there's no extra tree to keep in sync and no new layout path
+  /// that could overflow independently of the existing (already
+  /// battle-tested) one.
   Widget _miniPlayerContent(BuildContext context, PlayerProvider player,
-      {required Color onTint}) {
+      {required Color onTint, bool compact = false}) {
     final song = player.currentSong!;
     final secondaryOnTint = onTint.withValues(alpha: 0.72);
+    final artSize = compact ? 34.0 : 44.0;
+    final artRadius = compact ? 7.0 : 10.0;
+    final titleSize = compact ? 12.0 : 13.0;
+    final artistSize = compact ? 10.0 : 11.0;
+    final gapAfterArt = compact ? 10.0 : 12.0;
+    final gapBeforeControls = compact ? 6.0 : 8.0;
+    final controlSize = compact ? 19.0 : 22.0;
+    final controlGap = compact ? 2.0 : 4.0;
     return Column(
       children: [
-        _MiniProgressBar(player: player),
+        _MiniProgressBar(player: player, squareTop: compact),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
             child: Row(
               children: [
                 AurumArtwork(
                   url: song.artworkUrl,
-                  size: 44,
-                  borderRadius: 10,
+                  size: artSize,
+                  borderRadius: artRadius,
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: gapAfterArt),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -503,18 +550,18 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                         song.title,
                         style: TextStyle(
                           color: onTint,
-                          fontSize: 13,
+                          fontSize: titleSize,
                           fontWeight: FontWeight.w600,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 2),
+                      SizedBox(height: compact ? 1 : 2),
                       Text(
                         song.artist,
                         style: TextStyle(
                           color: secondaryOnTint,
-                          fontSize: 11,
+                          fontSize: artistSize,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -522,26 +569,26 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: gapBeforeControls),
                 _ControlBtn(
                   icon: Icons.skip_previous_rounded,
                   onTap: () {
                     AurumHaptics.selection();
                     player.skipPrev();
                   },
-                  size: 22,
+                  size: controlSize,
                   color: secondaryOnTint,
                 ),
-                const SizedBox(width: 4),
-                _PlayBtn(player: player),
-                const SizedBox(width: 4),
+                SizedBox(width: controlGap),
+                _PlayBtn(player: player, compact: compact),
+                SizedBox(width: controlGap),
                 _ControlBtn(
                   icon: Icons.skip_next_rounded,
                   onTap: () {
                     AurumHaptics.selection();
                     player.skipNext();
                   },
-                  size: 22,
+                  size: controlSize,
                   color: secondaryOnTint,
                 ),
               ],
@@ -555,14 +602,22 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
 
 class _MiniProgressBar extends StatelessWidget {
   final PlayerProvider player;
-  const _MiniProgressBar({required this.player});
+  // Docked mode has square corners on the container itself, so the
+  // progress bar's own top-rounding (which floating mode needs to match
+  // the pill's 28px radius) would just clip a rounded strip onto a square
+  // bar — mismatched and visually wrong. squareTop drops the rounding
+  // entirely for Docked, matching its flat/square container.
+  final bool squareTop;
+  const _MiniProgressBar({required this.player, this.squareTop = false});
 
   @override
   Widget build(BuildContext context) {
     return Selector<PlayerProvider, double>(
       selector: (_, p) => p.progress,
       builder: (context, progress, _) => ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: squareTop
+            ? BorderRadius.zero
+            : const BorderRadius.vertical(top: Radius.circular(28)),
         child: RepaintBoundary(
           child: LinearProgressIndicator(
             value: progress,
@@ -578,18 +633,21 @@ class _MiniProgressBar extends StatelessWidget {
 
 class _PlayBtn extends StatelessWidget {
   final PlayerProvider player;
-  const _PlayBtn({required this.player});
+  final bool compact;
+  const _PlayBtn({required this.player, this.compact = false});
 
   @override
   Widget build(BuildContext context) {
     final accent = context.watch<ThemeProvider>().accentColor;
+    final btnSize = compact ? 30.0 : 36.0;
+    final iconSize = compact ? 17.0 : 20.0;
     if (player.isLoading) {
       return Opacity(
         opacity: 0.35,
         child: SizedBox(
-          width: 36,
-          height: 36,
-          child: Icon(Icons.play_arrow_rounded, color: accent, size: 26),
+          width: btnSize,
+          height: btnSize,
+          child: Icon(Icons.play_arrow_rounded, color: accent, size: iconSize + 6),
         ),
       );
     }
@@ -601,8 +659,8 @@ class _PlayBtn extends StatelessWidget {
         player.togglePlay();
       },
       child: Container(
-        width: 36,
-        height: 36,
+        width: btnSize,
+        height: btnSize,
         decoration: BoxDecoration(
           color: accent,
           shape: BoxShape.circle,
@@ -617,7 +675,7 @@ class _PlayBtn extends StatelessWidget {
           // guarantees the icon stays visible against whatever color
           // is actually behind it.
           color: accent.computeLuminance() > 0.5 ? Colors.black : Colors.white,
-          size: 20,
+          size: iconSize,
         ),
       ),
     );

@@ -32,6 +32,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   bool _showBlurredBg = true;
   double _navBarBlurSigma = 24.0;
   double _miniPlayerBlurSigma = 14.0;
+  String _navBarStyle = 'Floating';
   // Lyrics
   String _lyricsTextPosition = 'Centre';
   double _lyricsTextSize = 16.0;
@@ -97,6 +98,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _showBlurredBg = p.getBool('show_blurred_bg') ?? true;
       _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 24.0;
       _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 14.0;
+      _navBarStyle = p.getString('nav_bar_style') ?? 'Floating';
       _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';
       _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;
       _lyricsLineSpacing = p.getDouble('lyrics_line_spacing') ?? 1.5;
@@ -265,6 +267,13 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
 
           // ── Player ──
           _sectionLabel(l10n.saPlayer),
+          _dropdownTile(context,
+            title: 'Nav Bar Style',
+            subtitle: 'Floating capsule or Spotify-style docked bar',
+            value: _navBarStyle,
+            options: const ['Floating', 'Docked'],
+            onChanged: (v) { setState(() => _navBarStyle = v!); _save('nav_bar_style', v!); AudioPrefs.setNavBarStyle(v); },
+          ),
           _dropdownTile(context,
             title: l10n.saPlayerBgStyle,
             subtitle: l10n.saPlayerBgStyleSubtitle,

@@ -1544,8 +1544,30 @@ class _DragTransform extends StatelessWidget {
     return ValueListenableBuilder<double>(
       valueListenable: dragYListenable,
       builder: (context, dragY, child) {
+        // FIX ("blur background swipe-down pe upar ek alag layer/ghost
+        // jaisa dikhta hai"): opacity used to start dropping from the very
+        // first pixel of drag (1.0 - dragY/screenH), so by ~30% of the
+        // swipe the player was already ~70% opaque — with Home's route
+        // painting live underneath (opaque:false, see pushFullPlayer's own
+        // FIX comment for why that's needed), that meant a blurred,
+        // static artwork photo was visibly blending with unrelated,
+        // live-moving Home content the whole way down. On solid-background
+        // mode this blend is barely visible (flat color into flat-ish
+        // background); on blur/gradient mode — a soft-edged translucent
+        // photograph — it reads exactly like a stray second layer stuck on
+        // top, which is what this was reported as.
+        // Real apps (Spotify/YT Music included) solve this the same way:
+        // the sheet drags as a fully-opaque solid card and only fades at
+        // the very end, once it's basically already off-screen. Delaying
+        // the opacity falloff to the last 25% of the drag means for the
+        // first 75% you see a clean, fully-opaque card sliding down with
+        // nothing showing through it — matching "jaise downhita hai same
+        // vaisa hi ho" — and the brief fade only kicks in once there's
+        // barely anything left on screen to blend with, so it's
+        // imperceptible instead of looking like a ghost layer.
+        final dismissProgress = (dragY / screenH).clamp(0.0, 1.0);
         final dragOpacity =
-            (1.0 - (dragY / screenH)).clamp(0.0, 1.0);
+            (1.0 - ((dismissProgress - 0.75) / 0.25).clamp(0.0, 1.0));
         final dragScale =
             (1.0 - (dragY / 2200).clamp(0.0, 0.06)).clamp(0.0, 1.0);
         final ty = dragY.clamp(0.0, screenH);
@@ -3050,7 +3072,29 @@ class _BottomPill extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Premium Play Button
 // ─────────────────────────────────────────────────────────────────────────────
-class _PremiumPlayButton extends StatelessWidget {
+// ─────────────────────────────────────────────────────────────────────────────
+// Play/Pause button — outward ripple ring on tap (Echo Nightly style).
+//
+// One-shot ring: a single AnimationController (300ms, not looping) fires
+// on every tap, expanding a thin circle from the button's own edge
+// outward while fading it out — same tap that also drives the existing
+// play⇄pause icon swap, so both read as one unified "press" moment
+// instead of two disconnected animations.
+//
+// LIGHTWEIGHT BY DESIGN (2GB-safe):
+//  • The controller only exists/ticks for the ~300ms after a tap — it is
+//    NOT a repeating/ambient animation like the background breathe loop,
+//    so it costs nothing while idle.
+//  • Drawn with a single CustomPaint stroke circle, not a Container/
+//    BoxShadow/DecoratedBox stack — one paint call, no extra compositing
+//    layers.
+//  • Wrapped in its own RepaintBoundary so the ~10 frames of ring
+//    animation only re-paint this small circle, not the button's own
+//    icon/shadow or anything else on the player screen.
+//  • IgnorePointer'd and painted behind the button content, so it never
+//    changes hit-testing or the button's existing tap behavior.
+// ─────────────────────────────────────────────────────────────────────────────
+class _PremiumPlayButton extends StatefulWidget {
   final bool isPlaying, isLoading;
   final Color bg1;
   final VoidCallback onTap;
@@ -3061,6 +3105,46 @@ class _PremiumPlayButton extends StatelessWidget {
     required this.bg1,
     required this.onTap,
   });
+
+  @override
+  State<_PremiumPlayButton> createState() => _PremiumPlayButtonState();
+}
+
+class _PremiumPlayButtonState extends State<_PremiumPlayButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _rippleCtrl;
+  late final Animation<double> _rippleRadius;
+  late final Animation<double> _rippleOpacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _rippleCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _rippleRadius = Tween<double>(begin: 34, end: 52).animate(
+      CurvedAnimation(parent: _rippleCtrl, curve: Curves.easeOut),
+    );
+    _rippleOpacity = Tween<double>(begin: 0.45, end: 0.0).animate(
+      CurvedAnimation(parent: _rippleCtrl, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _rippleCtrl.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    if (widget.isLoading) return;
+    // Restart from 0 every tap (fromStart, not forward) so rapid
+    // play/pause taps always show a fresh clean ring instead of a stale
+    // in-flight one jumping partway through.
+    _rippleCtrl.forward(from: 0);
+    widget.onTap();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3078,54 +3162,135 @@ class _PremiumPlayButton extends StatelessWidget {
         : Colors.black;
 
     return Semantics(
-      label: isPlaying ? l10n.fpPause : l10n.fpPlay,
+      label: widget.isPlaying ? l10n.fpPause : l10n.fpPlay,
       button: true,
       child: GestureDetector(
-        onTap: isLoading ? null : onTap,
+        onTap: _handleTap,
         behavior: HitTestBehavior.opaque,
-        child: Container(
+        child: SizedBox(
+          // LAYOUT FIX: kept at the original 68x68 — this sits in a
+          // Row(mainAxisAlignment: spaceBetween) alongside shuffle/prev/
+          // next, so growing this widget's own footprint (it was
+          // temporarily 112x112) would have pushed those neighbouring
+          // buttons apart and made the whole control row look
+          // asymmetric/cramped. The ring still needs to paint past this
+          // box's edge without being clipped — OverflowBox below lets it
+          // do that purely visually, with zero effect on how much space
+          // this widget claims in the Row.
           width: 68,
           height: 68,
-          decoration: BoxDecoration(
-            color: circleColor,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: circleColor.withAlpha(38),
-                blurRadius: 32,
-                spreadRadius: 2,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Ripple ring — behind the button, ignores hits, isolated
+              // repaint boundary so its ~10 animated frames never touch
+              // the rest of this screen's paint tree. OverflowBox gives
+              // it a 112x112 canvas to paint into (52px max radius + 2px
+              // stroke headroom) while the outer SizedBox above still
+              // only claims 68x68 in the parent Row's layout.
+              IgnorePointer(
+                child: OverflowBox(
+                  minWidth: 112,
+                  maxWidth: 112,
+                  minHeight: 112,
+                  maxHeight: 112,
+                  child: RepaintBoundary(
+                    child: AnimatedBuilder(
+                      animation: _rippleCtrl,
+                      builder: (context, _) => CustomPaint(
+                        size: const Size(112, 112),
+                        painter: _rippleCtrl.value == 0
+                            ? null
+                            : _RippleRingPainter(
+                                radius: _rippleRadius.value,
+                                opacity: _rippleOpacity.value,
+                                color: circleColor,
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-              BoxShadow(
-                color: bg1.withAlpha(128),
-                blurRadius: 18,
-                offset: const Offset(0, 6),
+              Container(
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  color: circleColor,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: circleColor.withAlpha(38),
+                      blurRadius: 32,
+                      spreadRadius: 2,
+                    ),
+                    BoxShadow(
+                      color: widget.bg1.withAlpha(128),
+                      blurRadius: 18,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  transitionBuilder: (child, anim) => ScaleTransition(
+                    scale: anim,
+                    child: FadeTransition(opacity: anim, child: child),
+                  ),
+                  child: widget.isLoading
+                      ? const SizedBox(
+                          key: ValueKey('loading'),
+                          width: 26,
+                          height: 26,
+                          child:
+                              Center(child: AurumM3Loader(width: 26, height: 2.5)),
+                        )
+                      : Icon(
+                          widget.isPlaying
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                          key: ValueKey(widget.isPlaying),
+                          color: iconColor,
+                          size: 36,
+                        ),
+                ),
               ),
             ],
-          ),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            transitionBuilder: (child, anim) => ScaleTransition(
-              scale: anim,
-              child: FadeTransition(opacity: anim, child: child),
-            ),
-            child: isLoading
-                ? const SizedBox(
-                    key: ValueKey('loading'),
-                    width: 26,
-                    height: 26,
-                    child: Center(child: AurumM3Loader(width: 26, height: 2.5)),
-                  )
-                : Icon(
-                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    key: ValueKey(isPlaying),
-                    color: iconColor,
-                    size: 36,
-                  ),
           ),
         ),
       ),
     );
   }
+}
+
+// Thin expanding ring — one stroke circle, no gradient/shadow, cheapest
+// possible way to draw this. shouldRepaint only true when values actually
+// change (they do, every frame, during the ~300ms it's active — but the
+// painter itself is never constructed at all while idle, since the
+// AnimatedBuilder above passes painter: null when _rippleCtrl.value == 0).
+class _RippleRingPainter extends CustomPainter {
+  final double radius;
+  final double opacity;
+  final Color color;
+
+  _RippleRingPainter({
+    required this.radius,
+    required this.opacity,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (opacity <= 0) return;
+    final paint = Paint()
+      ..color = color.withOpacity(opacity)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    canvas.drawCircle(size.center(Offset.zero), radius, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RippleRingPainter old) =>
+      old.radius != radius || old.opacity != opacity || old.color != color;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3778,8 +3943,20 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
         vsync: this, duration: const Duration(milliseconds: 280));
     _exitTranslate = Tween<double>(begin: 0, end: 1).animate(
         CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInCubic));
+    // FIX ("swipe up/down Up Next panel pe blur ek alag layer/ghost jaisa
+    // dikhta hai"): this used to run on the exact same 0→1 curve as
+    // _exitTranslate — so a tap-to-close (no drag, straight to _dismiss())
+    // faded this glass panel out while it was still mostly on-screen,
+    // blending into the full player behind it for the whole 280ms, same
+    // ghost-layer look as the drag case fixed above. Interval delays the
+    // fade to only the last 30% of the animation (translate is already
+    // most of the way through by then), matching the "hold solid, fade
+    // only right at the very end" behavior used everywhere else in this
+    // dismiss flow.
     _exitFade = Tween<double>(begin: 1, end: 0).animate(
-        CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInCubic));
+        CurvedAnimation(
+            parent: _exitCtrl,
+            curve: const Interval(0.7, 1.0, curve: Curves.easeInCubic)));
   }
 
   @override
@@ -3833,14 +4010,13 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     // showing the full player (and status bar) behind the sheet.
     final panelHeight =
         (screenH * 0.80).clamp(360.0, screenH - topInset - 56.0);
-    final dragFraction = (_dragY / screenH).clamp(0.0, 1.0);
-    final dragOpacity = (1.0 - dragFraction * 2.5).clamp(0.0, 1.0);
-    final scale = (1.0 - dragFraction * 0.06).clamp(0.88, 1.0);
-
-    // Exit animation (translate down + fade) layers on top of any
-    // drag-driven offset/opacity when the panel is being dismissed.
+    // NOTE: dragFraction/dragOpacity/scale/opacity are NOT computed here —
+    // this outer build() only runs once per gesture (see the PERF comment
+    // on the ValueListenableBuilder below); the real per-frame versions
+    // live inside that builder so a drag-update never reruns this whole
+    // method. Only exitOffsetY (driven by _exitCtrl, not _dragY) is needed
+    // at this scope.
     final exitOffsetY = _exitTranslate.value * screenH * 0.4;
-    final opacity = (dragOpacity * _exitFade.value).clamp(0.0, 1.0);
 
     // ── Theme-aware glass tint ──
     // Lowered alphas + a thin top highlight = genuine see-through glass
@@ -3884,8 +4060,30 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
         return ValueListenableBuilder<double>(
           valueListenable: _dragYNotifier,
           builder: (context, dragY, panelChild) {
+            // FIX ("swipe up/down Up Next panel pe blur ek alag layer/
+            // ghost jaisa dikhta hai, solid jaisa clean nahi"): opacity
+            // used to fall to 0 by just ~40% of a FULL-SCREEN-HEIGHT drag
+            // (dragFraction*2.5, where dragFraction = dragY/screenH), so
+            // this glass panel started fading into the full player behind
+            // it almost immediately — a soft blurred sheet dissolving into
+            // another blurred/artwork background reads exactly like a
+            // stray floating layer, same root cause as the main
+            // swipe-down dismiss fix above (see _DragTransform's FIX
+            // comment).
+            // NOTE: this panel's own dismiss threshold (see the handle's
+            // onVerticalDragEnd below) fires at just _dragY > 90px — a
+            // small fraction of screenH — so measuring fade progress
+            // against full screenH (as the down-dismiss fix does) would
+            // make live-drag opacity barely move at all before release,
+            // then jump straight to the separate _exitFade animation.
+            // Scaling against 90px (this panel's actual live-drag range)
+            // instead keeps the same "hold solid, only fade right at the
+            // very end" feel, correctly sized to how far this handle
+            // actually travels before letting go.
+            final panelDragFraction = (dragY / 90.0).clamp(0.0, 1.0);
             final dragFraction = (dragY / screenH).clamp(0.0, 1.0);
-            final dragOpacity = (1.0 - dragFraction * 2.5).clamp(0.0, 1.0);
+            final dragOpacity =
+                (1.0 - ((panelDragFraction - 0.75) / 0.25).clamp(0.0, 1.0));
             final scale = (1.0 - dragFraction * 0.06).clamp(0.88, 1.0);
             final opacity = (dragOpacity * _exitFade.value).clamp(0.0, 1.0);
             return Transform.translate(

@@ -619,17 +619,38 @@ class _AurumBottomNavBar extends StatelessWidget {
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Floating frosted-glass capsule: side margins so it doesn't touch
-    // the screen edges, ClipRRect + BackdropFilter for the blur, and a
-    // translucent tinted fill on top so page content underneath (visible
+    // Floating frosted-glass capsule (default): side margins so it doesn't
+    // touch the screen edges, ClipRRect + BackdropFilter for the blur, and
+    // a translucent tinted fill on top so page content underneath (visible
     // thanks to Scaffold's extendBody: true) reads as a soft blurred
     // smear rather than a flat opaque bar — the "paid app" look.
-    return SafeArea(
+    //
+    // Docked style (Settings → Appearance → "Nav Bar Style"): the
+    // Spotify-classic alternative — no side margins, square corners, flush
+    // against the bottom edge. Only geometry/decoration branch on the
+    // style; tab logic, highlight capsule, and tap handling below are
+    // completely unchanged either way.
+    return ValueListenableBuilder<String>(
+      valueListenable: AudioPrefs.navBarStyleNotifier,
+      builder: (context, navStyle, _) {
+        final docked = navStyle == 'Docked';
+        return SafeArea(
       top: false,
+      // FIX (potential tap-through bug on 3-button/gesture-nav devices):
+      // bottom safe-area padding must always be respected regardless of
+      // Docked/Floating style — turning it off would let the nav bar's
+      // tap targets slide under the system's own gesture/button bar on
+      // devices with a real inset there, making the bottom row of icons
+      // unreliable to tap. Docked only changes the bar's own visual shape
+      // (margins/radius/border) below — never the safe inset.
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+        padding: docked
+            ? EdgeInsets.zero
+            : const EdgeInsets.fromLTRB(16, 0, 16, 10),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: docked
+              ? BorderRadius.zero
+              : BorderRadius.circular(28),
           // PERF/HEAT SETTING: nav bar sits on screen on every tab, so its
           // BackdropFilter blur runs every single frame it's visible — a
           // real, continuous GPU cost that shows up as device heat on
@@ -649,24 +670,37 @@ class _AurumBottomNavBar extends StatelessWidget {
               // translucent "glass without the blur" look — so nothing
               // behind it shows through at all. Only the blurred variant
               // keeps the semi-transparent tint that lets BackdropFilter's
-              // blur actually be visible underneath.
+              // blur actually be visible underneath. Docked mode always
+              // reads as fully solid/opaque too, regardless of blur sigma —
+              // Spotify's docked bar has no glass look, it's a flat opaque
+              // bar sitting on the screen edge.
               final bar = Container(
                 height: _barHeight,
                 decoration: BoxDecoration(
-                  color: blurSigma <= 0
+                  color: (docked || blurSigma <= 0)
                       ? AurumTheme.bgCardOf(context)
                       : (isDark ? Colors.black : Colors.white)
                           .withValues(alpha: isDark ? 0.45 : 0.65),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(
-                    color: (isDark ? Colors.white : Colors.black)
-                        .withValues(alpha: 0.08),
-                    width: 1,
-                  ),
+                  borderRadius: docked
+                      ? BorderRadius.zero
+                      : BorderRadius.circular(28),
+                  border: docked
+                      ? Border(
+                          top: BorderSide(
+                            color: (isDark ? Colors.white : Colors.black)
+                                .withValues(alpha: 0.08),
+                            width: 1,
+                          ),
+                        )
+                      : Border.all(
+                          color: (isDark ? Colors.white : Colors.black)
+                              .withValues(alpha: 0.08),
+                          width: 1,
+                        ),
                 ),
                 child: navBarContent,
               );
-              if (blurSigma <= 0) return bar;
+              if (docked || blurSigma <= 0) return bar;
               return BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
                 child: bar,
@@ -786,6 +820,8 @@ class _AurumBottomNavBar extends StatelessWidget {
           ),
         ),
       ),
+    );
+      },
     );
   }
 }
