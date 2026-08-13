@@ -4266,9 +4266,9 @@ class ApiService {
         if (shelf == null) continue;
         final items = shelf['contents'] as List? ?? const [];
         for (final item in items) {
-          final r = item?['musicResponsiveListItemRenderer'];
-          final tw = item?['musicTwoRowItemRenderer'];
-          final node = r ?? tw;
+          final dynamic r = item?['musicResponsiveListItemRenderer'];
+          final dynamic tw = item?['musicTwoRowItemRenderer'];
+          final dynamic node = r ?? tw;
           if (node == null) continue;
 
           final browseId =
