@@ -45,6 +45,19 @@ class MixScreen extends StatefulWidget {
   final String emoji;
   final List<Song> songs;
 
+  // OPT-IN pull-to-refresh (2026-08-14): off by default so the other 3
+  // existing callers of this screen (home_screen.dart's other two
+  // MixScreen pushes, library_screen.dart) are completely unaffected —
+  // only the "Playlists For You" row's card tap sets these. When on,
+  // pulling down at the top of the song list fetches more songs
+  // related to `refreshSeed` (falls back to mixName if unset) via
+  // ApiService.fetchMixRefreshSongs() and APPENDS them below the
+  // existing list — Spotify/YT Music style, never replaces what's
+  // already there so scroll position and whatever's currently playing/
+  // visible never jumps.
+  final bool enableRefresh;
+  final String? refreshSeed;
+
   const MixScreen({
     super.key,
     required this.mixId,
@@ -52,6 +65,8 @@ class MixScreen extends StatefulWidget {
     required this.artworkUrl,
     required this.emoji,
     required this.songs,
+    this.enableRefresh = false,
+    this.refreshSeed,
   });
 
   @override
@@ -63,6 +78,13 @@ class _MixScreenState extends State<MixScreen> {
   // the header never looks broken while the network image decodes.
   Color _glow = const Color(0xFF1A1630);
   bool _shuffle = false;
+
+  // Mutable working copy of widget.songs — only ever grows (append-only
+  // on refresh, see _onRefresh), and only actually diverges from
+  // widget.songs when enableRefresh is true. Every other caller
+  // (enableRefresh: false) reads widget.songs directly everywhere below
+  // exactly as before, so this has zero effect on them.
+  late List<Song> _songs = widget.songs;
 
   @override
   void initState() {
@@ -88,12 +110,36 @@ class _MixScreenState extends State<MixScreen> {
     }
   }
 
+  /// Pull-to-refresh handler — only wired up when widget.enableRefresh
+  /// is true (see build()'s RefreshIndicator). Fetches songs related to
+  /// the mix's seed and appends whatever's genuinely new to the bottom
+  /// of the list. A refresh that turns up nothing new (seed exhausted,
+  /// transient failure) is silent — no error snackbar — since "no new
+  /// songs right now" isn't something a user pulling to refresh needs
+  /// interrupted for; the list just stays exactly as it was.
+  Future<void> _onRefresh() async {
+    final seed = (widget.refreshSeed?.trim().isNotEmpty ?? false)
+        ? widget.refreshSeed!.trim()
+        : widget.mixName;
+    final existingIds = _songs.map((s) => s.id).toList();
+    final more = await ApiService.fetchMixRefreshSongs(
+      seed: seed,
+      existingVideoIds: existingIds,
+    );
+    if (!mounted || more.isEmpty) return;
+    setState(() {
+      _songs = [..._songs, ...more];
+    });
+  }
+
   /// Derives up to 3 distinct artist names across the mix's songs — same
-  /// logic AlbumScreen uses to build its "GO TO" artist chips.
+  /// logic AlbumScreen uses to build its "GO TO" artist chips. Reads
+  /// _songs (not widget.songs) so artists from refresh-appended songs
+  /// are represented too, not just the original batch.
   List<String> get _creditedArtists {
     final seen = <String>{};
     final out = <String>[];
-    for (final s in widget.songs) {
+    for (final s in _songs) {
       final name = s.artist.trim();
       if (name.isEmpty) continue;
       for (final part in name.split(RegExp(r',|&|/'))) {
@@ -125,11 +171,14 @@ class _MixScreenState extends State<MixScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final player = context.read<PlayerProvider>();
-    final songs = widget.songs;
+    // Reads _songs (not widget.songs directly) so a pull-to-refresh
+    // append (see _onRefresh) shows up immediately — for every caller
+    // that doesn't set enableRefresh, _songs is simply widget.songs
+    // unchanged for the lifetime of this screen, so behavior is
+    // identical to before.
+    final songs = _songs;
 
-    return Scaffold(
-      backgroundColor: AurumTheme.bgOf(context),
-      body: CustomScrollView(
+    Widget body = CustomScrollView(
         slivers: [
           SliverAppBar(
             pinned: true,
@@ -401,9 +450,47 @@ class _MixScreenState extends State<MixScreen> {
                 childCount: songs.length,
               ),
             ),
+          // Subtle end-of-list marker only when refresh is enabled and
+          // there's something to end — mirrors Spotify's quiet "Pull to
+          // refresh for more" style hint instead of just trailing off
+          // into blank space, without implying auto-loading is happening.
+          if (widget.enableRefresh && songs.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: Text(
+                    l10n.mixPullForMore,
+                    style: TextStyle(
+                      color: AurumTheme.textMutedOf(context).withOpacity(0.6),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
-      ),
+      );
+
+    // enableRefresh wraps the exact same scroll view in a
+    // RefreshIndicator — CustomScrollView's physics already support the
+    // pull gesture, so this is purely additive and never runs for the
+    // other 3 existing MixScreen callers (default enableRefresh: false
+    // leaves `body` untouched above).
+    if (widget.enableRefresh) {
+      body = RefreshIndicator(
+        onRefresh: _onRefresh,
+        color: AurumTheme.gold,
+        backgroundColor: AurumTheme.bgElevatedOf(context),
+        child: body,
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: AurumTheme.bgOf(context),
+      body: body,
     );
   }
 
@@ -419,10 +506,11 @@ class _MixScreenState extends State<MixScreen> {
 
   /// Queues every song in the mix for download via DownloadProvider,
   /// skipping ones already downloaded/in-progress. Mirrors AlbumScreen's
-  /// bulk-download flow.
+  /// bulk-download flow. Reads _songs so refresh-appended songs are
+  /// included in "download all" too, not just the original batch.
   Future<void> _downloadMix(
       BuildContext context, DownloadProvider downloads) async {
-    final toQueue = widget.songs
+    final toQueue = _songs
         .where((s) =>
             !downloads.isDownloaded(s.id) && !downloads.isDownloading(s.id))
         .toList();
@@ -448,7 +536,7 @@ class _MixScreenState extends State<MixScreen> {
         mixId: widget.mixId,
         mixName: widget.mixName,
         artworkUrl: widget.artworkUrl,
-        songs: widget.songs,
+        songs: _songs,
         artists: _creditedArtists,
         rootContext: rootContext,
       ),

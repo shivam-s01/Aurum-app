@@ -3133,10 +3133,18 @@ class _YtPlaylistsForYouSection extends StatefulWidget {
       _YtPlaylistsForYouSectionState();
 }
 
+// Sentinel id for the always-present default chip — the personalized-
+// seed + generic-shelf mix this row showed before mood chips existed.
+// Kept selected by default (never an "unselected" chip state) so the
+// row never has a beat where nothing is highlighted — same reasoning
+// as Spotify/Echo always showing one active pill.
+const String _kMoodAll = '_all';
+
 class _YtPlaylistsForYouSectionState
     extends State<_YtPlaylistsForYouSection> {
   List<YtHomePlaylistCard>? _cards;
   bool _failed = false;
+  String _selectedMood = _kMoodAll;
 
   @override
   void initState() {
@@ -3149,7 +3157,8 @@ class _YtPlaylistsForYouSectionState
     super.didUpdateWidget(oldWidget);
     // Pull-to-refresh bumps refreshKey — refetch so this row rotates
     // along with every other section on refresh instead of staying
-    // stale.
+    // stale. Refresh keeps whatever mood was selected rather than
+    // silently resetting it back to "All".
     if (oldWidget.refreshKey != widget.refreshKey) {
       setState(() {
         _cards = null;
@@ -3161,17 +3170,39 @@ class _YtPlaylistsForYouSectionState
 
   Future<void> _load() async {
     try {
-      final cards = await ApiService.fetchYtMusicHomePlaylists(limit: 10)
-          .timeout(const Duration(seconds: 12));
+      // NO-REPEAT: ask the Worker to skip whatever this row has already
+      // shown recently (persisted across sessions), so refresh and mood
+      // switches actually surface something new instead of looping the
+      // same handful of cards.
+      final excludeIds = await HomePlaylistHistory.getShownIds();
+      final cards = await ApiService.fetchYtMusicHomePlaylists(
+        limit: 10,
+        mood: _selectedMood == _kMoodAll ? null : _selectedMood,
+        excludeIds: excludeIds,
+      ).timeout(const Duration(seconds: 12));
       if (!mounted) return;
       if (cards.isEmpty) {
         setState(() => _failed = true);
       } else {
-        setState(() => _cards = cards);
+        setState(() {
+          _cards = cards;
+          _failed = false;
+        });
       }
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     }
+  }
+
+  void _onMoodTap(String moodId) {
+    if (moodId == _selectedMood) return;
+    AurumHaptics.selection();
+    setState(() {
+      _selectedMood = moodId;
+      _cards = null;
+      _failed = false;
+    });
+    _load();
   }
 
   @override
@@ -3179,7 +3210,9 @@ class _YtPlaylistsForYouSectionState
     // Nothing to show and nothing coming — skip the whole section
     // rather than leaving an empty-but-titled row on screen. Matches
     // how other optional sections on this screen (e.g. offline row)
-    // handle the no-content case.
+    // handle the no-content case. Mood chips only render once there's
+    // at least been a successful load, so a first-load failure never
+    // shows a row of chips above an empty shelf.
     if (_failed && _cards == null) return const SizedBox.shrink();
 
     final l10n = AppLocalizations.of(context)!;
@@ -3200,7 +3233,12 @@ class _YtPlaylistsForYouSectionState
               letterSpacing: -0.2,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+          _MoodChipRow(
+            selectedMood: _selectedMood,
+            onTap: _onMoodTap,
+          ),
+          const SizedBox(height: 12),
           FadedHorizontalList(
             height: 130,
             controller: scrollController,
@@ -3214,12 +3252,81 @@ class _YtPlaylistsForYouSectionState
                     padding: const EdgeInsets.only(right: 16),
                     itemCount: cards.length,
                     itemBuilder: (_, i) => _YtHomePlaylistCardWidget(
-                      key: ValueKey('${cards[i].playlistId}_${widget.refreshKey}'),
+                      key: ValueKey(
+                          '${cards[i].playlistId}_${widget.refreshKey}_$_selectedMood'),
                       card: cards[i],
                     ),
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Mood chip row — Podcasts/Relax/Workout/Energize/etc, plus an always-
+// present "All" chip first. One chip is always selected (never a bare/
+// unselected row), matching the reference apps this row is modeled on.
+// Pure presentational row; all state lives in the parent section.
+// ══════════════════════════════════════════════════════════════════
+class _MoodChipRow extends StatelessWidget {
+  final String selectedMood;
+  final ValueChanged<String> onTap;
+  const _MoodChipRow({required this.selectedMood, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final chips = <HomeMoodChip>[
+      HomeMoodChip(_kMoodAll, l10n.homeMoodAll),
+      ...kHomeMoodChips,
+    ];
+    return SizedBox(
+      height: 34,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.only(right: 16),
+        itemCount: chips.length,
+        itemBuilder: (_, i) {
+          final chip = chips[i];
+          final selected = chip.id == selectedMood;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => onTap(chip.id),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AurumTheme.accentOf(context)
+                      : AurumTheme.bgCardOf(context),
+                  borderRadius: BorderRadius.circular(20),
+                  border: selected
+                      ? null
+                      : Border.all(
+                          color: AurumTheme.textPrimaryOf(context)
+                              .withOpacity(0.10),
+                          width: 1,
+                        ),
+                ),
+                child: Text(
+                  chip.label,
+                  style: TextStyle(
+                    color: selected
+                        ? Theme.of(context).colorScheme.onPrimary
+                        : AurumTheme.textPrimaryOf(context).withOpacity(0.85),
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -3310,6 +3417,15 @@ class _YtHomePlaylistCardWidgetState
           artworkUrl: widget.card.artworkUrl,
           emoji: '🎵',
           songs: songs,
+          // Only this call site (the "Playlists For You" card tap)
+          // turns pull-to-refresh on — the other 2 MixScreen pushes in
+          // this file and the one in library_screen.dart don't pass
+          // this, so they're completely unaffected. refreshSeed uses
+          // the card's own title (e.g. "90s Bollywood Hits") so a
+          // refresh pulls more songs matching that specific mix rather
+          // than a generic query.
+          enableRefresh: true,
+          refreshSeed: widget.card.title,
         ),
       );
     } on YtPlaylistImportException catch (_) {

@@ -296,6 +296,80 @@ class YtHomePlaylistCard {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// MOOD CHIPS for the "Playlists For You" row — mirrors the Worker's
+// MOOD_QUERY_MAP. Kept as a simple id->label map so the chip row can
+// be built directly from this without any other file needing to know
+// the id strings the Worker expects.
+// ═══════════════════════════════════════════════════════════════════
+class HomeMoodChip {
+  final String id;
+  final String label;
+  const HomeMoodChip(this.id, this.label);
+}
+
+const List<HomeMoodChip> kHomeMoodChips = [
+  // India-market chips first — matches MOOD_QUERY_MAP ids on the Worker
+  // exactly (see worker.js's mood-chip section comment for why these
+  // get dedicated chips instead of relying on the generic shelf).
+  HomeMoodChip('bollywood', 'Bollywood'),
+  HomeMoodChip('nineties', '90s'),
+  HomeMoodChip('trendingIndia', 'Trending'),
+  HomeMoodChip('podcasts', 'Podcasts'),
+  HomeMoodChip('relax', 'Relax'),
+  HomeMoodChip('workout', 'Workout'),
+  HomeMoodChip('energize', 'Energize'),
+  HomeMoodChip('romantic', 'Romantic'),
+  HomeMoodChip('party', 'Party'),
+  HomeMoodChip('focus', 'Focus'),
+  HomeMoodChip('sad', 'Sad'),
+];
+
+// ═══════════════════════════════════════════════════════════════════
+// NO-REPEAT HISTORY for the "Playlists For You" row — persists the
+// playlistIds already shown to the user (across app sessions, not just
+// in-memory) so pull-to-refresh and mood-chip switches surface fresh
+// playlists instead of looping the same handful. Capped at 30 ids:
+// large enough to avoid visible repeats across a few refresh cycles,
+// small enough to stay well under SharedPreferences' practical size
+// limits and not accumulate useless bloat over months of use.
+// ═══════════════════════════════════════════════════════════════════
+class HomePlaylistHistory {
+  static const _key = 'home_playlists_for_you_shown_ids';
+  static const _cap = 30;
+
+  static Future<List<String>> getShownIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getStringList(_key) ?? const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<void> recordShown(List<String> playlistIds) async {
+    if (playlistIds.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final existing = prefs.getStringList(_key) ?? const [];
+      // Newest ids go to the front; de-dup while preserving recency
+      // order, then trim to the cap so the oldest entries age out.
+      final merged = <String>[];
+      final seen = <String>{};
+      for (final id in [...playlistIds, ...existing]) {
+        if (seen.contains(id)) continue;
+        seen.add(id);
+        merged.add(id);
+        if (merged.length >= _cap) break;
+      }
+      await prefs.setStringList(_key, merged);
+    } catch (_) {
+      // Best-effort — a failed write just means this refresh cycle
+      // won't benefit from no-repeat, not worth surfacing to the user.
+    }
+  }
+}
+
 // Lightweight artist-card metadata for the home screen's artist strip —
 // sourced from the Worker's /api/yt-music-home-artists route (YT Music's
 // own FEmusic_home shelves). channelId is YouTube's own stable per-artist
@@ -3736,14 +3810,35 @@ class ApiService {
   // the old client-side filter this replaces, but applied before the
   // over-fetch/shuffle round-trip instead of after), so this no longer
   // needs to over-fetch and re-filter client-side.
-  static Future<List<YtHomePlaylistCard>> fetchYtMusicHomePlaylists(
-      {int limit = 10}) async {
+  // MOOD + NO-REPEAT (2026-08-13): `mood` — when non-null/non-empty —
+  // overrides the personalized-seed lookup entirely and asks the Worker
+  // for playlists matching that mood chip (Podcasts/Relax/Workout/etc,
+  // see kHomeMoodChips), same behavior as tapping a mood pill in
+  // Echo Music. `excludeIds`, when provided, is sent to the Worker so
+  // playlists already shown recently (tracked via HomePlaylistHistory)
+  // are filtered server-side before the response comes back — this is
+  // what makes pull-to-refresh and mood switches feel like they're
+  // surfacing something new instead of looping the same handful of
+  // cards. Both params are optional and additive: omitting them
+  // reproduces the exact prior behavior.
+  static Future<List<YtHomePlaylistCard>> fetchYtMusicHomePlaylists({
+    int limit = 10,
+    String? mood,
+    List<String>? excludeIds,
+  }) async {
     try {
       final seedArtists = RecommendationEngine.topAffinityArtists(count: 3);
       final seedParam = seedArtists.isEmpty
           ? ''
           : '&seed=${Uri.encodeQueryComponent(seedArtists.join(','))}';
-      final uri = Uri.parse('$_saavn/api/yt-music-home?limit=$limit$seedParam');
+      final moodParam = (mood == null || mood.isEmpty)
+          ? ''
+          : '&mood=${Uri.encodeQueryComponent(mood)}';
+      final excludeParam = (excludeIds == null || excludeIds.isEmpty)
+          ? ''
+          : '&exclude=${Uri.encodeQueryComponent(excludeIds.join(','))}';
+      final uri = Uri.parse(
+          '$_saavn/api/yt-music-home?limit=$limit$seedParam$moodParam$excludeParam');
       final resp = await http.get(uri).timeout(const Duration(seconds: 10));
       if (resp.statusCode != 200) {
         _log('[fetchYtMusicHomePlaylists] HTTP ${resp.statusCode}');
@@ -3752,22 +3847,99 @@ class ApiService {
       final data = jsonDecode(resp.body);
       if (data['success'] != true) return const [];
       final results = (data['data']?['results'] as List?) ?? [];
-      return results
+      final cards = results
           .map<YtHomePlaylistCard?>((r) {
             final playlistId = (r['playlistId'] ?? '').toString();
             final title = _cleanText((r['title'] ?? '').toString());
-            if (playlistId.isEmpty || title.isEmpty) return null;
+            final artworkUrl = (r['image'] ?? '').toString();
+            // Belt-and-suspenders client-side guard: even though the
+            // Worker now filters these out server-side, never render a
+            // card with no artwork — a title-only tile is the exact
+            // "blank card" look this row was fixed to eliminate.
+            if (playlistId.isEmpty || title.isEmpty || artworkUrl.isEmpty) {
+              return null;
+            }
             return YtHomePlaylistCard(
               playlistId: playlistId,
               title: title,
               subtitle: _cleanText((r['subtitle'] ?? '').toString()),
-              artworkUrl: (r['image'] ?? '').toString(),
+              artworkUrl: artworkUrl,
             );
           })
           .whereType<YtHomePlaylistCard>()
           .toList();
+
+      // Record what was actually shown so the next fetch (refresh or
+      // mood switch) can ask the Worker to exclude these.
+      if (cards.isNotEmpty) {
+        unawaited(
+          HomePlaylistHistory.recordShown(
+              cards.map((c) => c.playlistId).toList()),
+        );
+      }
+      return cards;
     } catch (e) {
       _log('[fetchYtMusicHomePlaylists] error: $e');
+      return const [];
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MIX REFRESH — powers pull-to-refresh inside a "Playlists For You" mix
+  // screen (see MixScreen's enableRefresh flag). Spotify/YT Music both
+  // APPEND fresh related songs on refresh rather than replacing the
+  // list — replacing would yank the scroll position and whatever the
+  // user is currently near, which reads as unstable rather than
+  // premium. Caller is responsible for appending the returned songs to
+  // the existing list (never overwriting it).
+  //
+  // `existingVideoIds` is sent as `exclude` so the Worker filters out
+  // anything already in the list server-side — the client never has to
+  // de-dup a mixed batch itself and never sees an immediate on-screen
+  // repeat right after a refresh.
+  // ═══════════════════════════════════════════════════════════════════
+  static Future<List<Song>> fetchMixRefreshSongs({
+    required String seed,
+    required List<String> existingVideoIds,
+    int limit = 15,
+  }) async {
+    if (seed.trim().isEmpty) return const [];
+    try {
+      final excludeParam = existingVideoIds.isEmpty
+          ? ''
+          : '&exclude=${Uri.encodeQueryComponent(existingVideoIds.join(','))}';
+      final uri = Uri.parse(
+        '$_saavn/api/mix-refresh?seed=${Uri.encodeComponent(seed)}&limit=$limit$excludeParam',
+      );
+      final resp = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (resp.statusCode != 200) return const [];
+      final data = jsonDecode(resp.body);
+      if (data['success'] != true) return const [];
+      final results = (data['data']?['results'] as List?) ?? [];
+      // Same mapping shape as _searchYtMusic — see that function's FIX
+      // comments for why artist falls back to 'Unknown' and why
+      // viewCount is seeded above the premium-quality threshold; kept
+      // consistent here so these songs behave identically downstream
+      // (song tiles, full player, queue, dedup).
+      return results
+          .map<Song>((r) {
+            final rawArtist = _cleanText((r['artist'] ?? '').toString());
+            return Song(
+              id: (r['videoId'] ?? '').toString(),
+              title: _cleanText((r['title'] ?? '').toString()),
+              artist: rawArtist.isNotEmpty ? rawArtist : 'Unknown',
+              album: _cleanText((r['album'] ?? '').toString()),
+              artworkUrl: (r['image'] ?? '').toString(),
+              streamUrl: null,
+              duration: r['duration'] is int ? r['duration'] as int : null,
+              source: SongSource.youtube,
+              viewCount: 1000000,
+            );
+          })
+          .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
+          .toList();
+    } catch (e) {
+      _log('[fetchMixRefreshSongs] error: $e');
       return const [];
     }
   }
