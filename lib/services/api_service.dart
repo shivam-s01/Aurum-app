@@ -4310,19 +4310,45 @@ class ApiService {
           final dynamic flexCol0 = r != null
               ? _safeIndex(r['flexColumns'] as List?, 0)
               : null;
-          final dynamic titleRuns = r != null
-              ? flexCol0?['musicResponsiveListItemFlexColumnRenderer']
-                  ?['text']?['runs']
-              : tw?['title']?['runs'];
+          dynamic titleRuns;
+          if (r != null) {
+            final dynamic flexRenderer = (flexCol0 is Map)
+                ? flexCol0['musicResponsiveListItemFlexColumnRenderer']
+                : null;
+            final dynamic textNode =
+                (flexRenderer is Map) ? flexRenderer['text'] : null;
+            titleRuns = (textNode is Map) ? textNode['runs'] : null;
+          } else {
+            final dynamic twTitle = (tw is Map) ? tw['title'] : null;
+            titleRuns = (twTitle is Map) ? twTitle['runs'] : null;
+          }
           final title = _firstRunText(titleRuns);
           if (title.isEmpty) continue;
           if (_isForeignShelfTitleDirect(title)) continue;
 
-          final dynamic thumbSourceRaw = r != null
-              ? r['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
-                  ?['thumbnails']
-              : tw?['thumbnailRenderer']?['musicThumbnailRenderer']
-                  ?['thumbnail']?['thumbnails'];
+          dynamic thumbSourceRaw;
+          if (r != null) {
+            final dynamic rThumbRenderer =
+                (r is Map) ? r['thumbnail'] : null;
+            final dynamic rMusicThumbRenderer = (rThumbRenderer is Map)
+                ? rThumbRenderer['musicThumbnailRenderer']
+                : null;
+            final dynamic rThumb = (rMusicThumbRenderer is Map)
+                ? rMusicThumbRenderer['thumbnail']
+                : null;
+            thumbSourceRaw = (rThumb is Map) ? rThumb['thumbnails'] : null;
+          } else {
+            final dynamic twThumbRenderer =
+                (tw is Map) ? tw['thumbnailRenderer'] : null;
+            final dynamic twMusicThumbRenderer = (twThumbRenderer is Map)
+                ? twThumbRenderer['musicThumbnailRenderer']
+                : null;
+            final dynamic twThumb = (twMusicThumbRenderer is Map)
+                ? twMusicThumbRenderer['thumbnail']
+                : null;
+            thumbSourceRaw =
+                (twThumb is Map) ? twThumb['thumbnails'] : null;
+          }
           final thumbSource = thumbSourceRaw is List ? thumbSourceRaw : null;
           final thumbs = thumbSource ?? const [];
           final best = thumbs.isNotEmpty ? thumbs.last : null;
