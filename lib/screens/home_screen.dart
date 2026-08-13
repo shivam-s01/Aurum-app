@@ -3144,6 +3144,7 @@ class _YtPlaylistsForYouSectionState
     extends State<_YtPlaylistsForYouSection> {
   List<YtHomePlaylistCard>? _cards;
   bool _failed = false;
+  bool _everLoadedOnce = false;
   String _selectedMood = _kMoodAll;
 
   @override
@@ -3171,13 +3172,17 @@ class _YtPlaylistsForYouSectionState
   Future<void> _load() async {
     try {
       // NO-REPEAT: ask the Worker to skip whatever this row has already
-      // shown recently (persisted across sessions), so refresh and mood
-      // switches actually surface something new instead of looping the
-      // same handful of cards.
-      final excludeIds = await HomePlaylistHistory.getShownIds();
+      // shown recently under THIS SPECIFIC mood (persisted across
+      // sessions, scoped per-mood — see HomePlaylistHistory), so
+      // refresh and mood switches actually surface something new
+      // instead of looping the same handful of cards, without one
+      // mood's history ever being able to starve a different mood's
+      // (often much smaller) result pool.
+      final currentMood = _selectedMood == _kMoodAll ? null : _selectedMood;
+      final excludeIds = await HomePlaylistHistory.getShownIds(currentMood);
       final cards = await ApiService.fetchYtMusicHomePlaylists(
         limit: 10,
-        mood: _selectedMood == _kMoodAll ? null : _selectedMood,
+        mood: currentMood,
         excludeIds: excludeIds,
       ).timeout(const Duration(seconds: 12));
       if (!mounted) return;
@@ -3187,6 +3192,7 @@ class _YtPlaylistsForYouSectionState
         setState(() {
           _cards = cards;
           _failed = false;
+          _everLoadedOnce = true;
         });
       }
     } catch (_) {
@@ -3213,7 +3219,21 @@ class _YtPlaylistsForYouSectionState
     // handle the no-content case. Mood chips only render once there's
     // at least been a successful load, so a first-load failure never
     // shows a row of chips above an empty shelf.
-    if (_failed && _cards == null) return const SizedBox.shrink();
+    // FIX (2026-08-14 — "Bollywood ya koi mood choose karne pe poora
+    // section invisible ho jaata tha"): pehle yahan condition thi
+    // `_failed && _cards == null`, jo TRUE ho jaati thi har baar jab
+    // koi mood switch fail/khaali result deta — kyunki _onMoodTap()
+    // mood switch karte hi _cards ko null kar deta hai (line ~3206),
+    // aur agar us mood ka fetch fail ho, poora row shrink ho jaata,
+    // as if section exist hi nahi karta. Ab hum sirf VERY FIRST load
+    // (jab koi mood kabhi successfully load hi nahi hua, matlab "All"
+    // khud fail ho gaya) pe hi poora section chhupate hain — kisi bhi
+    // baad ke mood switch ke fail hone pe row visible rehta hai aur
+    // ek proper "retry" state dikhata hai (neeche build me), jaisa
+    // Spotify/YT Music khud karte hain — section gayab nahi hota.
+    if (_failed && _cards == null && !_everLoadedOnce) {
+      return const SizedBox.shrink();
+    }
 
     final l10n = AppLocalizations.of(context)!;
     final scrollController = ScrollController();
@@ -3243,7 +3263,10 @@ class _YtPlaylistsForYouSectionState
             height: 130,
             controller: scrollController,
             child: cards == null
-                ? _YtPlaylistsForYouSkeleton(scrollController: scrollController)
+                ? (_failed
+                    ? _YtPlaylistsForYouRetry(onRetry: _load)
+                    : _YtPlaylistsForYouSkeleton(
+                        scrollController: scrollController))
                 : ListView.builder(
                     controller: scrollController,
                     scrollDirection: Axis.horizontal,
@@ -3355,6 +3378,51 @@ class _YtPlaylistsForYouSkeleton extends StatelessWidget {
             decoration: BoxDecoration(
               color: AurumTheme.bgCardOf(context),
               borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// FIX (2026-08-14): a mood switch that comes back empty/failed used to
+// make the ENTIRE "Playlists For You" section vanish (see the build()
+// comment above). Now that case renders this small inline retry tile
+// instead — row stays visible, user gets a one-tap way to try that
+// mood again, matches how the reference apps this row is modeled on
+// handle a failed shelf without hiding the whole shelf.
+class _YtPlaylistsForYouRetry extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _YtPlaylistsForYouRetry({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 130,
+      child: Center(
+        child: TextButton.icon(
+          onPressed: onRetry,
+          icon: Icon(Icons.refresh_rounded,
+              size: 18, color: AurumTheme.textSecondaryOf(context)),
+          label: Text(
+            // Hardcoded (not routed through l10n) deliberately — adding
+            // a new AppLocalizations key here would need .arb entries
+            // regenerated for every locale, which this fix can't safely
+            // do blind. Plain English string is a safe, zero-risk
+            // choice for a small retry affordance.
+            'Retry',
+            style: TextStyle(
+              color: AurumTheme.textSecondaryOf(context),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          style: TextButton.styleFrom(
+            backgroundColor: AurumTheme.bgCardOf(context),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
             ),
           ),
         ),
