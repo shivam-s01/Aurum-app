@@ -3726,10 +3726,24 @@ class ApiService {
   // above (same function already used for playlist import), so there's
   // no second/duplicate playlist-resolve code path to maintain.
   // ═══════════════════════════════════════════════════════════════════
+  // PERSONALIZED (2026-08-13): now passes `seed` — the user's own top
+  // affinity artists from RecommendationEngine (same listening-history
+  // signal already used to personalize fetchHome()'s song sections) — so
+  // the Worker can run real YT Music playlist/mix searches against what
+  // this specific user actually listens to, not just the generic global
+  // FEmusic_home shelf. Foreign-language shelf filtering now happens
+  // server-side in the Worker (shelf-title keyword match, same idea as
+  // the old client-side filter this replaces, but applied before the
+  // over-fetch/shuffle round-trip instead of after), so this no longer
+  // needs to over-fetch and re-filter client-side.
   static Future<List<YtHomePlaylistCard>> fetchYtMusicHomePlaylists(
       {int limit = 10}) async {
     try {
-      final uri = Uri.parse('$_saavn/api/yt-music-home?limit=$limit');
+      final seedArtists = RecommendationEngine.topAffinityArtists(count: 3);
+      final seedParam = seedArtists.isEmpty
+          ? ''
+          : '&seed=${Uri.encodeQueryComponent(seedArtists.join(','))}';
+      final uri = Uri.parse('$_saavn/api/yt-music-home?limit=$limit$seedParam');
       final resp = await http.get(uri).timeout(const Duration(seconds: 10));
       if (resp.statusCode != 200) {
         _log('[fetchYtMusicHomePlaylists] HTTP ${resp.statusCode}');
@@ -5042,7 +5056,10 @@ class ApiService {
     // Remove duplicates by displayName before picking
     final seen = <String>{};
     final deduped = shuffled.where((a) => seen.add(a.displayName)).toList();
-    final picked = deduped.take(12).toList();
+    // RAISED alongside fetchHomeArtistsCombined's YT-side limit — see
+    // that function's comment for why (artist strip was looking
+    // Saavn-only / too thin after merge/dedup at the old 12+12 caps).
+    final picked = deduped.take(20).toList();
 
     final results = await Future.wait(picked.map((a) async {
       // ── 1. Try Saavn (Node hosts, then Flask hosts) ──
@@ -5134,8 +5151,14 @@ class ApiService {
   // the YT entry — real shelf art tends to be fresher/higher-res than the
   // Saavn search-result or YouTube-thumbnail-scrape fallback.
   static Future<List<ArtistSimple>> fetchHomeArtistsCombined() async {
+    // RAISED (2026-08-13 — "artist sirf Saavn ke dikh rahe hai, YT se bhi
+    // increase karo"): was limit: 12 on both sides (~24 max after dedup,
+    // often less once same-name collisions between YT and Saavn merge
+    // down). Raised to 20 each (~40 max pre-dedup) so the merged strip
+    // reliably clears a 20-artist floor even after collisions and the
+    // occasional thin YT shelf response.
     final results = await Future.wait([
-      fetchYtMusicHomeArtists(limit: 12),
+      fetchYtMusicHomeArtists(limit: 20),
       fetchHomeArtists(),
     ]);
     final ytArtists = results[0] as List<YtHomeArtist>;

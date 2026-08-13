@@ -3297,7 +3297,10 @@ class _YtHomePlaylistCardWidgetState
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      if (songs.isEmpty) return;
+      if (songs.isEmpty) {
+        _showOpenFailedSnackBar(l10n);
+        return;
+      }
 
       AurumPageRoute.to(
         context,
@@ -3310,12 +3313,34 @@ class _YtHomePlaylistCardWidgetState
         ),
       );
     } on YtPlaylistImportException catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      // FIX: this used to just hide the loading snackbar and stop —
+      // tapping a card that failed to resolve looked completely dead,
+      // no feedback at all. Now surfaces the same "couldn't import"
+      // copy already used for the manual playlist-link import flow, so
+      // a failed tap at least tells the user something went wrong
+      // instead of silently doing nothing.
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        _showOpenFailedSnackBar(l10n);
+      }
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        _showOpenFailedSnackBar(l10n);
+      }
     } finally {
       if (mounted) setState(() => _opening = false);
     }
+  }
+
+  void _showOpenFailedSnackBar(AppLocalizations l10n) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(l10n.libraryYoutubeImportFailedError),
+        backgroundColor: AurumTheme.bgCardOf(context),
+      ),
+    );
   }
 
   @override
