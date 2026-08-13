@@ -441,43 +441,6 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-// ── Curated playlists shown as Spotify/JioSaavn-style cards ──
-// Each entry's `query` is deliberately genre/language-locked (not just
-// "top songs") so the songs actually inside the card match what its
-// title promises — e.g. "English Pop" must return English pop, not a
-// generic mixed bucket. `id` is a stable, non-localized key used for
-// routing/dedupe logic (see _fetchSongsForThisCard); `name` is the
-// display label. Names are plain strings (not l10n keys) — matching the
-// existing _PoolEntry pattern used by the dynamic home sections below —
-// so adding/renaming an editorial playlist never requires touching the
-// ARB translation files.
-List<_PlaylistMeta> _kCuratedPlaylists(AppLocalizations l10n) => [
-  _PlaylistMeta('90sBollywood', '90s Bollywood', '90s bollywood hit songs original', '📻', const Color(0xFF7B3F00)),
-  _PlaylistMeta('topHindiHits', 'Top Hindi Hits', 'top hindi songs 2025 2026', '🔥', const Color(0xFF8B1A1A)),
-  _PlaylistMeta('bollywoodLoveSongs', 'Bollywood Love Songs', 'bollywood love songs romantic hindi', '❤️', const Color(0xFF8B1A1A)),
-  _PlaylistMeta('newHindiReleases', 'New Hindi Releases', 'new hindi songs 2026 latest', '🆕', const Color(0xFF1A3A8B)),
-  _PlaylistMeta('bhojpuriHits', 'Bhojpuri Hits', 'bhojpuri hit songs', '🎪', const Color(0xFF7B3F00)),
-  _PlaylistMeta('punjabiPower', 'Punjabi Power', 'punjabi hit songs new', '💥', const Color(0xFF1A3A3A)),
-  _PlaylistMeta('tamilEssentials', 'Tamil Essentials', 'tamil hit songs', '🎶', const Color(0xFF2A1A00)),
-  _PlaylistMeta('teluguHits', 'Telugu Hits', 'telugu hit songs', '🎵', const Color(0xFF3A2A00)),
-  _PlaylistMeta('englishPop', 'English Pop', 'english pop songs hits', '🎧', const Color(0xFF1A3A8B)),
-  _PlaylistMeta('englishRock', 'English Rock', 'english rock songs classic', '🎸', const Color(0xFF2A1A1A)),
-  _PlaylistMeta('chillEvening', 'Chill Evening', 'chill hindi songs evening acoustic', '🌆', const Color(0xFF1A3A3A)),
-  _PlaylistMeta('lateNightVibes', 'Late Night Vibes', 'late night hindi songs slow', '🌙', const Color(0xFF1A1A3A)),
-  _PlaylistMeta('workoutMix', 'Workout Mix', 'workout gym songs energetic hindi english', '💪', const Color(0xFF7B3F00)),
-  _PlaylistMeta('partyHits', 'Party Hits', 'bollywood party songs dance', '🎉', const Color(0xFF8B1A1A)),
-  _PlaylistMeta('topIndia', 'Top India', 'top songs india 2026', '🇮🇳', const Color(0xFF1A3A8B)),
-  _PlaylistMeta('topGlobal', 'Top Global', 'top global english songs 2026', '🌍', const Color(0xFF2A1A3A)),
-];
-
-class _PlaylistMeta {
-  final String id;
-  final String name;
-  final String query;
-  final String emoji;
-  final Color color;
-  const _PlaylistMeta(this.id, this.name, this.query, this.emoji, this.color);
-}
 
 // Note: previously cached query→artwork permanently across the whole app
 // session (_kPlaylistArtCache). Removed so art genuinely refreshes each
@@ -521,7 +484,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ~15-19 sections streaming in on a cold start therefore triggered a
   // setState() at the very ROOT of this screen, which meant Flutter rebuilt
   // and re-diffed the ENTIRE Home tree each time: the AppBar, the
-  // AnimatedSwitcher, _CuratedPlaylistsSection, _HomePremiumBanner,
+  // AnimatedSwitcher, _YtPlaylistsForYouSection, _HomePremiumBanner,
   // _OnlineContent (all shelves), AND _ArtistStrip — none of which have
   // anything to do with a single song section arriving. Even with
   // _StaggeredSection's per-section ValueKey limiting the cost of diffing
@@ -666,7 +629,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadArtists() async {
     try {
-      final artists = await ApiService.fetchHomeArtists();
+      // Combined YT Music (real shelf, stable channelId) + Saavn artist
+      // list — see fetchHomeArtistsCombined()'s doc comment in
+      // api_service_v2.dart for the merge/dedupe/unique-id logic.
+      final artists = await ApiService.fetchHomeArtistsCombined();
       if (mounted) setState(() { _homeArtists = artists; _artistsLoading = false; });
       // Cache for next cold start (see home_feed_cache.dart) — fire-and-forget,
       // failure here just means next launch falls back to a normal load.
@@ -757,7 +723,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // sections in one-by-one via onSection specifically so the UI can
       // show them progressively — batching them all up here just meant
       // every section waited on the slowest one, which is exactly why
-      // "Trending Now" (loaded separately, by _CuratedPlaylistsSection)
+      // "Playlists For You" (loaded separately, by _YtPlaylistsForYouSection)
       // appeared fast while everything else felt stuck. Calling setState
       // per-section restores that progressive reveal.
       // Growable list built once and appended to in place — avoids an
@@ -955,8 +921,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             key: const ValueKey('online'),
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // ── Curated Playlists ──
-                              _CuratedPlaylistsSection(refreshKey: _playlistRefreshKey),
+                              // ── Playlists For You (real YT Music) ──
+                              _YtPlaylistsForYouSection(refreshKey: _playlistRefreshKey),
                               // ── Premium upsell banner (free users only) ──
                               _HomePremiumBanner(isActive: widget.isActive),
                               // ── Song sections ──
@@ -1863,11 +1829,20 @@ class _OnlineContent extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Title placeholder
+                // FIX (white flash on home screen load): Shimmer.fromColors
+                // only overlays a gradient that sweeps OVER this box's own
+                // color — it doesn't replace it. A raw Colors.white base
+                // means any dropped/late frame in the shimmer's animation
+                // (cold start, low-end device, first-paint before the
+                // AnimationController ticks) shows a flat white box, which
+                // reads as a "white tint flash" against the dark theme.
+                // Using the theme's own card color as the base keeps it
+                // correct-looking even on that first unanimated frame.
                 Container(
                   width: 130,
                   height: 16,
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AurumTheme.bgCardOf(context),
                     borderRadius: BorderRadius.circular(6),
                   ),
                 ),
@@ -1883,7 +1858,7 @@ class _OnlineContent extends StatelessWidget {
                       width: 140,
                       margin: const EdgeInsets.only(right: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: AurumTheme.bgCardOf(context),
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
@@ -3019,7 +2994,10 @@ class _ArtistStrip extends StatelessWidget {
                         // — no extra trailing padding needed here, this
                         // row was never affected by the cut-off bug.
                         itemCount: artists.length,
-                        itemBuilder: (_, i) => _ArtistChip(artist: artists[i]),
+                        itemBuilder: (_, i) => _ArtistChip(
+                          key: ValueKey(artists[i].id),
+                          artist: artists[i],
+                        ),
                       ),
           ),
         ],
@@ -3039,12 +3017,19 @@ class _ArtistStrip extends StatelessWidget {
           width: 70,
           margin: const EdgeInsets.only(right: 16),
           child: Column(children: [
-            const CircleAvatar(radius: 32, backgroundColor: Colors.white),
+            // FIX (white flash — same root cause as the home shelf
+            // shimmer): Shimmer.fromColors only sweeps a gradient OVER
+            // this base color, it doesn't replace it. Colors.white here
+            // meant a dropped/late shimmer frame showed a flat white
+            // circle against the dark theme. Using the theme's own card
+            // color keeps this correct-looking even before the shimmer
+            // animation has ticked once.
+            CircleAvatar(radius: 32, backgroundColor: AurumTheme.bgCardOf(context)),
             const SizedBox(height: 6),
             Container(
               width: 50, height: 10,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AurumTheme.bgCardOf(context),
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
@@ -3057,7 +3042,7 @@ class _ArtistStrip extends StatelessWidget {
 
 class _ArtistChip extends StatelessWidget {
   final ArtistSimple artist;
-  const _ArtistChip({required this.artist});
+  const _ArtistChip({super.key, required this.artist});
 
   @override
   Widget build(BuildContext context) {
@@ -3124,22 +3109,90 @@ class _ArtistChip extends StatelessWidget {
 // Curated Playlists — Spotify-type big cards with gradient
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _CuratedPlaylistsSection extends StatelessWidget {
+// ══════════════════════════════════════════════════════════════════
+// "Playlists For You" — real YT Music playlist cards (the previous
+// hand-picked query-list version, _CuratedPlaylistsSection, has been
+// removed entirely — it only ever shuffled a search query per card, not
+// a real playlist). Card metadata comes
+// from the Worker's /api/yt-music-home route, which resolves YT Music's
+// own home page shelves (browseId FEmusic_home — the same call
+// music.youtube.com's website makes to render its own homepage). Cards
+// stay horizontal, matching every other row on this screen; tapping one
+// fetches that playlist's actual song list via the EXISTING
+// fetchYtPlaylistSongs() (same function playlist-import already uses)
+// and opens it in the same MixScreen every other playlist/mix row on
+// this screen already uses — no new navigation destination, no
+// duplicated playlist-detail UI.
+// ══════════════════════════════════════════════════════════════════
+class _YtPlaylistsForYouSection extends StatefulWidget {
   final int refreshKey;
-  const _CuratedPlaylistsSection({this.refreshKey = 0});
+  const _YtPlaylistsForYouSection({this.refreshKey = 0});
+
+  @override
+  State<_YtPlaylistsForYouSection> createState() =>
+      _YtPlaylistsForYouSectionState();
+}
+
+class _YtPlaylistsForYouSectionState
+    extends State<_YtPlaylistsForYouSection> {
+  List<YtHomePlaylistCard>? _cards;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_YtPlaylistsForYouSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Pull-to-refresh bumps refreshKey — refetch so this row rotates
+    // along with every other section on refresh instead of staying
+    // stale.
+    if (oldWidget.refreshKey != widget.refreshKey) {
+      setState(() {
+        _cards = null;
+        _failed = false;
+      });
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    try {
+      final cards = await ApiService.fetchYtMusicHomePlaylists(limit: 10)
+          .timeout(const Duration(seconds: 12));
+      if (!mounted) return;
+      if (cards.isEmpty) {
+        setState(() => _failed = true);
+      } else {
+        setState(() => _cards = cards);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Nothing to show and nothing coming — skip the whole section
+    // rather than leaving an empty-but-titled row on screen. Matches
+    // how other optional sections on this screen (e.g. offline row)
+    // handle the no-content case.
+    if (_failed && _cards == null) return const SizedBox.shrink();
+
     final l10n = AppLocalizations.of(context)!;
-    final curated = _kCuratedPlaylists(l10n);
     final scrollController = ScrollController();
+    final cards = _cards;
+
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            l10n.homeTrendingPlaylists,
+            l10n.homePlaylistsForYou,
             style: TextStyle(
               color: AurumTheme.textPrimaryOf(context),
               fontSize: 17,
@@ -3151,30 +3204,20 @@ class _CuratedPlaylistsSection extends StatelessWidget {
           FadedHorizontalList(
             height: 130,
             controller: scrollController,
-            child: ListView.builder(
-              controller: scrollController,
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              // PERF: see cacheExtent note on the earlier song-card
-              // carousel — pre-decodes cards a couple screens ahead so
-              // fast swipes don't show artwork popping in mid-scroll.
-              cacheExtent: 600,
-              // FIX — last card was cutting flush against the screen's
-              // right edge with zero breathing room, while the first
-              // card got a clean 16px inset from the outer Padding. Each
-              // card only carries its own `margin: right: 12` for
-              // INTER-card spacing — nothing accounted for the END of
-              // the whole row. Adding matching trailing padding here
-              // gives the last card the same clean peek/inset the first
-              // one already had, instead of an asymmetric hard cut.
-              padding: const EdgeInsets.only(right: 16),
-              itemBuilder: (_, i) => _PlaylistCard(
-                // New key per refresh forces a fresh State → fresh fetch,
-                // so art + songs genuinely rotate on pull-to-refresh.
-                key: ValueKey('${curated[i].id}_$refreshKey'),
-                playlist: curated[i],
-              ),
-            ),
+            child: cards == null
+                ? _YtPlaylistsForYouSkeleton(scrollController: scrollController)
+                : ListView.builder(
+                    controller: scrollController,
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    cacheExtent: 600,
+                    padding: const EdgeInsets.only(right: 16),
+                    itemCount: cards.length,
+                    itemBuilder: (_, i) => _YtHomePlaylistCardWidget(
+                      key: ValueKey('${cards[i].playlistId}_${widget.refreshKey}'),
+                      card: cards[i],
+                    ),
+                  ),
           ),
         ],
       ),
@@ -3182,75 +3225,56 @@ class _CuratedPlaylistsSection extends StatelessWidget {
   }
 }
 
-class _PlaylistCard extends StatefulWidget {
-  final _PlaylistMeta playlist;
-  const _PlaylistCard({super.key, required this.playlist});
+class _YtPlaylistsForYouSkeleton extends StatelessWidget {
+  final ScrollController scrollController;
+  const _YtPlaylistsForYouSkeleton({required this.scrollController});
 
   @override
-  State<_PlaylistCard> createState() => _PlaylistCardState();
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      controller: scrollController,
+      scrollDirection: Axis.horizontal,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(right: 16),
+      itemCount: 4,
+      itemBuilder: (_, __) => Container(
+        width: 130,
+        height: 130,
+        margin: const EdgeInsets.only(right: 12),
+        child: Shimmer.fromColors(
+          baseColor: AurumTheme.bgCardOf(context),
+          highlightColor: AurumTheme.textPrimaryOf(context).withOpacity(0.06),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: AurumTheme.bgCardOf(context),
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _PlaylistCardState extends State<_PlaylistCard> {
-  bool _pressed = false;
-  String? _artUrl;
-  bool _artFailed = false;
-  List<Song>? _cachedSongs;
+class _YtHomePlaylistCardWidget extends StatefulWidget {
+  final YtHomePlaylistCard card;
+  const _YtHomePlaylistCardWidget({super.key, required this.card});
 
   @override
-  void initState() {
-    super.initState();
-    _loadArt();
-  }
+  State<_YtHomePlaylistCardWidget> createState() =>
+      _YtHomePlaylistCardWidgetState();
+}
 
-  // Routes to the correct fetch strategy for this card: "New Releases"
-  // gets genuinely newest-first songs (fetchNewReleaseSongs), every other
-  // playlist keeps the existing random-shuffle behaviour
-  // (fetchPlaylistSongs) — that variety is intentional and desired for
-  // "Trending Now" / "Party Anthems" / etc, so only this one card's
-  // fetch path changes.
-  Future<List<Song>> _fetchSongsForThisCard({int limit = 75}) {
-    if (widget.playlist.id == 'newHindiReleases') {
-      return ApiService.fetchNewReleaseSongs(limit: limit);
-    }
-    return ApiService.fetchPlaylistSongs(widget.playlist.query, limit: limit);
-  }
+class _YtHomePlaylistCardWidgetState
+    extends State<_YtHomePlaylistCardWidget> {
+  bool _pressed = false;
+  bool _opening = false;
 
-  Future<void> _loadArt() async {
-    try {
-      final songs = await _fetchSongsForThisCard(limit: 75)
-          .timeout(const Duration(seconds: 12));
-      if (!mounted) return;
-      // Cache the fetched songs on the card itself (not globally) so
-      // tapping the card doesn't trigger a second, possibly different,
-      // network fetch right after the thumbnail's fetch — art and the
-      // opened tracklist always match for this card instance.
-      _cachedSongs = songs;
-      if (songs.isEmpty) {
-        setState(() => _artFailed = true);
-        return;
-      }
-      // Thumbnail must be the FIRST song's own artwork — that's what the
-      // user will actually hear first when they tap the card, so the cover
-      // should represent that exact track, not just any song in the set.
-      // Only fall back to the next song's art if the first one is missing.
-      final url = songs.first.artworkUrl.isNotEmpty
-          ? songs.first.artworkUrl
-          : songs.where((s) => s.artworkUrl.isNotEmpty).map((s) => s.artworkUrl).firstOrNull;
-      if (url == null) {
-        setState(() => _artFailed = true);
-      } else {
-        setState(() => _artUrl = url);
-      }
-    } catch (_) {
-      // Fetch failed/timed out — stop showing the spinner, fall back to
-      // the gradient+emoji card instead of spinning forever.
-      if (mounted) setState(() => _artFailed = true);
-    }
-  }
-
-  Future<void> _openPlaylist() async {
+  Future<void> _open() async {
+    if (_opening) return;
     AurumHaptics.selection();
-    // Show loading snackbar then fetch songs
+    setState(() => _opening = true);
+    final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(children: [
@@ -3259,188 +3283,108 @@ class _PlaylistCardState extends State<_PlaylistCard> {
             child: Center(child: AurumM3Loader(width: 16, height: 2)),
           ),
           const SizedBox(width: 10),
-          Text(AppLocalizations.of(context)!.homeLoadingPlaylist(widget.playlist.name)),
+          Text(l10n.homeLoadingPlaylist(widget.card.title)),
         ]),
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 6),
         backgroundColor: AurumTheme.bgCardOf(context),
       ),
     );
 
     try {
-      // Reuse the songs already fetched for the thumbnail when available —
-      // same Saavn-first, variant-filtered set the user is about to see
-      // art for. Only re-fetch if that hasn't resolved yet.
-      final songs = _cachedSongs ?? await _fetchSongsForThisCard(limit: 75);
+      final songs = await ApiService.fetchYtPlaylistSongs(
+        widget.card.playlistId,
+        limit: 200,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       if (songs.isEmpty) return;
 
-      // FIX (2026-07-22): this used to open a DraggableScrollableSheet modal
-      // — a half-height popup that felt like a throwaway/secondary surface
-      // compared to every other "See all" entry point (genre-mix rows) on
-      // this same screen, which already open the full-screen MixScreen.
-      // Two different presentations for the same "browse a playlist" action
-      // read as inconsistent/unfinished. Now Trending Playlists cards open
-      // the exact same MixScreen everything else does.
-      final art = songs.first.artworkUrl.isNotEmpty
-          ? songs.first.artworkUrl
-          : songs.where((s) => s.artworkUrl.isNotEmpty).map((s) => s.artworkUrl).firstOrNull ?? '';
-      if (!mounted) return;
-      // FIX ("navigation feels inconsistent"): same plain-MaterialPageRoute
-      // gap as the genre-mix "See all" rows above — this comment already
-      // says the goal was matching those in every other way; the
-      // transition itself was the one thing that didn't match yet.
       AurumPageRoute.to(
         context,
         MixScreen(
-          mixId: widget.playlist.id,
-          mixName: widget.playlist.name,
-          artworkUrl: art,
-          emoji: widget.playlist.emoji,
+          mixId: widget.card.playlistId,
+          mixName: widget.card.title,
+          artworkUrl: widget.card.artworkUrl,
+          emoji: '🎵',
           songs: songs,
         ),
       );
-    } catch (e) {
+    } on YtPlaylistImportException catch (_) {
       if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    } finally {
+      if (mounted) setState(() => _opening = false);
     }
-  }
-
-  Widget _gradientFallback(_PlaylistMeta p) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            p.color.withOpacity(0.9),
-            p.color.withOpacity(0.5),
-            Colors.black.withOpacity(0.4),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final p = widget.playlist;
-    final loading = _artUrl == null && !_artFailed;
+    final c = widget.card;
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
-      onTap: _openPlaylist,
+      onTap: _open,
       child: AnimatedScale(
         scale: _pressed ? 0.96 : 1.0,
-        duration: const Duration(milliseconds: 120),
+        duration: const Duration(milliseconds: 110),
+        curve: Curves.easeOut,
         child: Container(
-          width: 200,
-          height: 130,
-          // FIX (premium feel — visible gap between cards): 12px of bare
-          // scaffold-background margin between two 130px-tall cards read
-          // as a wide dead strip rather than intentional spacing.
-          // Spotify's shelves run tighter, ~8px card-to-card.
-          margin: const EdgeInsets.only(right: 8),
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
+          width: 130,
+          margin: const EdgeInsets.only(right: 12),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (c.artworkUrl.isNotEmpty)
+                  CachedNetworkImage(
+                    imageUrl: c.artworkUrl,
+                    fit: BoxFit.cover,
+                    memCacheWidth: 260,
+                    memCacheHeight: 260,
+                    placeholder: (_, __) => Container(
+                      color: AurumTheme.bgCardOf(context),
+                    ),
+                    errorWidget: (_, __, ___) => Container(
+                      color: AurumTheme.bgCardOf(context),
+                    ),
+                  )
+                else
+                  Container(color: AurumTheme.bgCardOf(context)),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withOpacity(0.75),
+                      ],
+                      stops: const [0.4, 1.0],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 10,
+                  right: 10,
+                  bottom: 10,
+                  child: Text(
+                    c.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      height: 1.2,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          child: Stack(fit: StackFit.expand, children: [
-            // Base layer: real album art once fetched, gradient fallback
-            // otherwise. This used to fetch _artUrl and then never
-            // actually paint it — the card always showed a flat gradient
-            // even after the real artwork was ready, which is why the
-            // playlists looked cheap/generic instead of like a real
-            // JioSaavn/Spotify playlist cover.
-            if (_artUrl != null)
-              AnimatedOpacity(
-                opacity: 1.0,
-                duration: const Duration(milliseconds: 260),
-                child: CachedNetworkImage(
-                  imageUrl: _artUrl!,
-                  fit: BoxFit.cover,
-                  memCacheWidth: 300,
-                  memCacheHeight: 300,
-                  fadeInDuration: const Duration(milliseconds: 260),
-                  // FIX (white/grey flash while the real image bytes are
-                  // still downloading): CachedNetworkImage's own default
-                  // placeholder is a flat grey/white box — with no
-                  // `placeholder` specified here, that default was what
-                  // briefly showed up between "_artUrl resolved" and
-                  // "image bytes finished downloading", reading as a
-                  // broken/unstyled card on slow connections. Reusing the
-                  // same themed gradient fallback here means there's never
-                  // a moment where a plain white/grey rectangle is visible
-                  // — art fades in over the gradient instead of over a
-                  // generic placeholder.
-                  placeholder: (_, __) => _gradientFallback(p),
-                  errorWidget: (_, __, ___) => _gradientFallback(p),
-                ),
-              )
-            else
-              _gradientFallback(p),
-
-            // Darken for text legibility over any artwork.
-            // FIX: the old gradient only reached black@0.55 at its
-            // darkest stop, and the title text's shadow (black54,
-            // 8px blur) alone wasn't enough against BRIGHT artwork —
-            // exactly what shows in the screenshot, where "Trending Now"
-            // and "New Releases" read washed-out/low-contrast over
-            // light-colored cover art. A real paid app's card labels stay
-            // crisply legible over ANY artwork brightness. Deepened the
-            // bottom stop to black@0.78 (still lets the art breathe at
-            // the top) and moved the transition earlier so more of the
-            // card's lower half carries real contrast for the text.
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withOpacity(0.05),
-                    Colors.black.withOpacity(0.78),
-                  ],
-                  stops: const [0.25, 1.0],
-                ),
-              ),
-            ),
-
-            // Centered loading spinner while the playlist's first track
-            // (and therefore its cover art) is still resolving.
-            if (loading)
-              Center(
-                child: AurumMorphLoader(size: 26),
-              ),
-
-            // Emoji top-right — small brand touch, stays even over real art
-            Positioned(
-              top: 12, right: 12,
-              child: Text(p.emoji, style: const TextStyle(fontSize: 22,
-                  shadows: [Shadow(color: Colors.black54, blurRadius: 6)])),
-            ),
-            // Title bottom-left
-            Positioned(
-              left: 14, bottom: 14, right: 50,
-              child: Text(
-                p.name,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.3,
-                  // Stronger, tighter shadow (was blurRadius 8 @ black54)
-                  // — a tighter blur with a solid black core reads as a
-                  // deliberate premium label treatment instead of a soft
-                  // halo that washes out over light backgrounds.
-                  shadows: [
-                    Shadow(color: Colors.black87, blurRadius: 4, offset: Offset(0, 1)),
-                    Shadow(color: Colors.black54, blurRadius: 10),
-                  ],
-                ),
-                maxLines: 2,
-              ),
-            ),
-          ]),
         ),
       ),
     );

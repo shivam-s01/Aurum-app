@@ -1,33 +1,51 @@
 // =============================================================================
 // FILE: lib/services/api_service.dart
 // PROJECT: Aurum Music
-// VERSION: 5.1.0 — IP-Lock Fix: Explode removed from playback chain
+// VERSION: 5.2.0 — Worker-only playback chain (see _ytStreamById), search
+// speed fixes, dead prewarm-endpoint fix.
 //
-// CHANGES vs v4:
-//   ✅ EXPLODE FIRST   — youtube_explode_dart is now STAGE 1 of YT resolution,
-//                        raced against Cloudflare Worker simultaneously.
-//                        In-process, no external server, 1-3s vs 8s+.
-//                        "8 Parche" and all YT songs now resolve in 1-3 sec.
+// CORRECTION (2026-08-13): the v5.1.0 changelog previously kept here
+// ("EXPLODE FIRST — youtube_explode_dart raced against Worker", "BLAST RACE
+// — 7 fallback endpoints", "INSTANCE HEALTH — Piped/Invidious tracking")
+// described an EARLIER iteration of this file and directly contradicted
+// this same file's own v5.1.0 title ("Explode removed from playback
+// chain") and _ytStreamById's own in-code comment ("Piped/Invidious
+// fallbacks removed entirely (2026-07-06)"). Kept as stale doc drift this
+// long, it actively misleads anyone reading this header before the actual
+// code below. Current, verified-against-code state:
 //
-//   ✅ BLAST RACE      — All 7 fallback endpoints (Worker + 3 Piped + 3 Invidious)
-//                        now race each other in parallel via _blastRace().
-//                        First valid response wins, rest are cancelled.
-//                        No more sequential waiting.
+//   ✅ WORKER-ONLY PLAYBACK — _ytStreamById resolves purely via the
+//                        Cloudflare Worker (/api/yt-proxy primary,
+//                        /api/yt-stream secondary bonus path, each
+//                        confirmed with a real device-side ranged GET,
+//                        not just a Worker-side check). No
+//                        youtube_explode_dart, no Piped, no Invidious in
+//                        this path — those were removed for reliability
+//                        (public volunteer instances with no uptime
+//                        guarantee), not because they were slow.
 //
-//   ✅ WARM-UP         — On app start, explode client is pre-warmed silently
-//                        so the first real tap doesn't pay cold-start cost.
+//   ✅ PREFETCH          — prefetchQueue(List<Song>) resolves next 5 songs
+//                        in background while current song plays, staggered
+//                        so the network isn't hammered all at once.
+//                        When user taps → URL already in _streamCache →
+//                        near-instant play instead of a cold resolve.
 //
-//   ✅ PREFETCH v2     — prefetchQueue(List<Song>) resolves next 5 songs
-//                        in background while current song plays.
-//                        When user taps → URL already in cache → ~0.3 sec play.
+//   ✅ PREWARM FIX (2026-08-13) — prewarmYtStream() used to call a
+//                        `/api/prewarm` Worker route that never existed
+//                        (confirmed against worker.js — no handler, no KV
+//                        binding), so every call silently 404'd and
+//                        re-fired on every re-scroll past the same song —
+//                        pure wasted network traffic for zero benefit. Now
+//                        calls resolveStreamUrl() directly so a song
+//                        visible on screen actually gets cached
+//                        client-side ahead of the tap, via the cache that
+//                        actually exists.
 //
-//   ✅ INSTANCE HEALTH — Dead Piped/Invidious instances are tracked and
-//                        skipped automatically for 5 minutes.
-//                        Healthy instances move to front of the race.
-//
-//   ✅ ZERO CUTS       — Every function from v4 preserved 100%.
-//                        Only _ytStreamById, prefetchNext, and
-//                        wakeSaavn changed. Everything else untouched.
+//   ✅ SEARCH SPEED FIX (2026-08-13) — related-expansion's YT and Saavn
+//                        futures were awaited in two separate sequential
+//                        Future.wait calls (up to 5s+5s=10s); now raced
+//                        together in one Future.wait (max ~5s). Typo-variant
+//                        retry timeout tightened 5s→3s. See search().
 // =============================================================================
 
 import 'dart:async';
@@ -259,6 +277,41 @@ class YtPlaylistImportException implements Exception {
   const YtPlaylistImportException(this.reason);
   @override
   String toString() => 'YtPlaylistImportException($reason)';
+}
+
+// Lightweight playlist-card metadata for the home screen's "Playlists For
+// You" row — see fetchYtMusicHomePlaylists() below. Deliberately holds no
+// song list; tapping a card fetches that on demand via the existing
+// fetchYtPlaylistSongs(playlistId).
+class YtHomePlaylistCard {
+  final String playlistId;
+  final String title;
+  final String subtitle;
+  final String artworkUrl;
+  const YtHomePlaylistCard({
+    required this.playlistId,
+    required this.title,
+    required this.subtitle,
+    required this.artworkUrl,
+  });
+}
+
+// Lightweight artist-card metadata for the home screen's artist strip —
+// sourced from the Worker's /api/yt-music-home-artists route (YT Music's
+// own FEmusic_home shelves). channelId is YouTube's own stable per-artist
+// identifier (format "UC..."), used as ArtistSimple.id below — this is
+// what YT Music itself treats as the artist's canonical key, so it can
+// never collide across shelves, re-shuffles, or app sessions the way a
+// name-only key could.
+class YtHomeArtist {
+  final String channelId;
+  final String name;
+  final String imageUrl;
+  const YtHomeArtist({
+    required this.channelId,
+    required this.name,
+    required this.imageUrl,
+  });
 }
 
 class ApiService {
@@ -1130,7 +1183,57 @@ class ApiService {
       queryList.add(_SectionQuery(entry.query, entry.label));
       poolPicks++;
     }
+    // FIX ("cold start pe faltu categories aa rahe hai, important songs
+    // nahi aa rahe jaise Spotify"): on a brand-new account (no listening
+    // history yet → personalArtists/topGenres/recentOnline all empty),
+    // this used to pad the feed from `shuffledPool` (pure random) and
+    // then `shuffledPool.reversed` (an arbitrary tail slice) — so which
+    // sections a first-time user saw, and in what order, was down to
+    // chance. Since onSection() fires as each query resolves and
+    // priority queries go out in wave 1, whatever lands in
+    // `priorityQueries` here is genuinely what the user sees first. A
+    // first-time user has no taste data to personalize from yet, so the
+    // one thing home can reliably lead with — same as Spotify/YT Music
+    // do for a brand new account — is what's actually popular right
+    // now: Trending Now / New Releases / Top Charts, plus a couple of
+    // universally-recognized icon artists. Inserted as priority: true so
+    // they go out in the very first wave, ahead of the random pool
+    // picks above (which stay as later, lower-priority sections instead
+    // of being the whole first screen).
     if (personalArtists.isEmpty && topGenres.isEmpty && recentOnline.isEmpty) {
+      const coldStartLabels = [
+        'Trending Now',
+        'New Releases',
+        'Top Charts',
+        'Viral Hits',
+        'Trending in India',
+      ];
+      const coldStartIcons = ['Arijit Singh', 'A.R. Rahman', 'Shreya Ghoshal'];
+      // Iterate reversed so repeated insert(1, ...) calls land in the
+      // intended reading order (Trending Now, New Releases, Top Charts,
+      // ... icons) rather than reversed by the insert-at-front pattern.
+      for (final label in [...coldStartLabels, ...coldStartIcons].reversed) {
+        final entry = _pool.firstWhere(
+          (e) => e.label == label,
+          orElse: () => _PoolEntry('', ''),
+        );
+        if (entry.label.isEmpty) continue;
+        final existingIndex = queryList.indexWhere((q) => q.label == entry.label);
+        if (existingIndex != -1) {
+          // Already queued as a random (non-priority) pool pick above —
+          // upgrade it to priority so it moves into wave 1 instead of
+          // waiting behind everything else.
+          if (!queryList[existingIndex].priority) {
+            queryList[existingIndex] = _SectionQuery(entry.query, entry.label, priority: true);
+          }
+          continue;
+        }
+        // Insert right after the time-of-day greeting (index 0), not at
+        // the absolute front — that keeps the contextual "Good evening"
+        // style opener first, exactly like Spotify still leads with a
+        // greeting row even on a brand-new account.
+        queryList.insert(1, _SectionQuery(entry.query, entry.label, priority: true));
+      }
       int extra = 0;
       for (final entry in shuffledPool.reversed) {
         if (extra >= 3) break;
@@ -2107,13 +2210,21 @@ class ApiService {
     var saavnAll = await Future.wait(saavnFutures);
     var saavnCombined = [for (final list in saavnAll) ...list];
 
-    // Only pay for typo-variant calls when the main + lyric-variant pass
-    // genuinely came up short — a healthy result set never triggers this.
+    // SPEED FIX (2026-08-13): typo-variant retry used to only START after
+    // `saavnAll` above had fully finished (up to 8s), THEN itself waited
+    // up to another 5s — a fully sequential +5s tacked onto the end of the
+    // Saavn wait, on top of which the related-expansion block further
+    // downstream could add more sequential time. Same escalate-only-when-
+    // needed condition kept (a healthy Saavn result never pays for this),
+    // but the timeout is now tightened to 3s since this is already a
+    // fallback-for-a-fallback for a thin result set — 5s here was more
+    // generous than the value of the extra long-tail typo coverage
+    // justified. No variants, no queries, no filtering logic removed.
     if (saavnCombined.length < 15 && typoVariants.isNotEmpty) {
       final typoBatches = await Future.wait([
         for (final v in typoVariants)
           _searchSaavn(v, limit: 30)
-              .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+              .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
               .catchError((_) => <Song>[]),
       ]);
       saavnCombined = [...saavnCombined, for (final l in typoBatches) ...l];
@@ -2284,14 +2395,33 @@ class ApiService {
       // Saavn futures still fire in full parallel and are used purely as
       // backup/gap-fill below, same shape as the direct-results merge
       // above.
+      // SPEED FIX (2026-08-13 — "search 20+ sec leta hai"): ytRelatedFutures
+      // and saavnRelatedFutures were both built eagerly (fine — that starts
+      // every HTTP call immediately) but were AWAITED ONE AFTER THE OTHER
+      // (`await Future.wait(yt...)` fully finishing before
+      // `await Future.wait(saavn...)` even started being waited on). Even
+      // though each individual future already had a 5s timeout, awaiting
+      // them in two separate sequential `Future.wait` calls meant the
+      // total wait for this related-expansion block was bounded by
+      // 5s + 5s = up to 10s, stacked on top of the direct-results search
+      // that already preceded it — that stacking, not either timeout
+      // alone, was the dominant contributor to 20+ second searches.
+      // Both lists are combined into ONE Future.wait so YT and Saavn
+      // related calls race together — total wait for this block is now
+      // bounded by whichever single side is slower (max 5s), not their
+      // sum. Zero logic removed: same queries, same limits, same
+      // per-call timeout/catchError, same YT-first ordering when merging
+      // into relatedPool below (ytRelatedLists/saavnRelatedLists are
+      // reconstructed by index from the combined results).
       final ytRelatedFutures = relatedQueries.map((rq) => _searchYt(rq.query, limit: 50)
           .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
-          .catchError((_) => <Song>[]));
+          .catchError((_) => <Song>[])).toList();
       final saavnRelatedFutures = relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 40)
           .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
-          .catchError((_) => <Song>[]));
-      final ytRelatedLists    = await Future.wait(ytRelatedFutures);
-      final saavnRelatedLists = await Future.wait(saavnRelatedFutures);
+          .catchError((_) => <Song>[])).toList();
+      final combinedRelated = await Future.wait([...ytRelatedFutures, ...saavnRelatedFutures]);
+      final ytRelatedLists    = combinedRelated.sublist(0, ytRelatedFutures.length);
+      final saavnRelatedLists = combinedRelated.sublist(ytRelatedFutures.length);
 
       void addToPool(Song s) {
         if (relatedPool.length >= relatedCap) return;
@@ -2704,37 +2834,51 @@ class ApiService {
     final saavnResults = firstPass[0];
     final ytQuickResults = firstPass[1];
 
-    List<Song> variantResults = [];
-    if (saavnResults.length < (limit * 0.6).ceil()) {
-      final typoVariants = _generateTypoVariants(q, qWordsForVariants);
-      if (typoVariants.isNotEmpty) {
-        final typoBatches = await Future.wait([
-          for (final v in typoVariants)
-            _searchSaavn(v, limit: 15)
-                .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
-                .catchError((_) => <Song>[]),
-        ]);
-        for (final l in typoBatches) variantResults.addAll(l);
-      }
-    }
+    // SPEED FIX (2026-08-13 — per-keystroke path, highest speed sensitivity
+    // in the whole file): this used to be TWO SEPARATE if-blocks, each with
+    // its own `await Future.wait(...)` — typo-variants awaited fully (up to
+    // 10s) BEFORE the lyric-trim-variant block even started being awaited
+    // (up to 3s more). The lyric-trim block's own comment claimed "both
+    // variants raced together, not chained" but the code directly below it
+    // did not do that — a genuinely thin/misspelled 4+-word query could
+    // trigger both blocks and pay up to 13s sequentially, on a path that
+    // fires on nearly every keystroke while live-typing. Both escalation
+    // conditions are now checked up front and every resulting query (typo
+    // variants + lyric-trim variants) fires in ONE combined Future.wait, so
+    // total extra wait is bounded by the slowest single call, not the sum.
+    // Same trigger thresholds, same per-query limits, same 3s timeout for
+    // lyric-trim; typo-variant timeout tightened 10s→5s to match how
+    // aggressively time-bounded a live-typing path should be — a typo
+    // fallback that still hasn't answered in 5s on a per-keystroke call
+    // isn't worth waiting out further before the next keystroke supersedes
+    // it anyway.
+    final needsTypoVariants = saavnResults.length < (limit * 0.6).ceil();
+    final needsLyricVariants =
+        saavnResults.length < (limit * 0.5).ceil() && qWordsForVariants.length >= 4;
 
-    // FIX ("Saavn ki full power use karke exact match nahi la raha" while
-    // live-typing): a long lyric-line query rarely appears verbatim in
-    // Saavn's index. Only tried if the plain query came up genuinely short
-    // (fewer than half the wanted slots), so normal fast-matching queries
-    // pay zero extra latency — both variants raced together, not chained.
-    if (saavnResults.length < (limit * 0.5).ceil() && qWordsForVariants.length >= 4) {
-      final trimmedFront = qWordsForVariants.sublist(0, qWordsForVariants.length - 1).join(' ');
-      final trimmedBack  = qWordsForVariants.sublist(1).join(' ');
-      final variantBatches = await Future.wait([
-        _searchSaavn(trimmedFront, limit: 15)
+    final typoVariants = needsTypoVariants
+        ? _generateTypoVariants(q, qWordsForVariants)
+        : <String>{};
+
+    final extraFutures = <Future<List<Song>>>[
+      for (final v in typoVariants)
+        _searchSaavn(v, limit: 15)
+            .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[]),
+      if (needsLyricVariants) ...[
+        _searchSaavn(qWordsForVariants.sublist(0, qWordsForVariants.length - 1).join(' '), limit: 15)
             .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[]),
-        _searchSaavn(trimmedBack, limit: 15)
+        _searchSaavn(qWordsForVariants.sublist(1).join(' '), limit: 15)
             .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
             .catchError((_) => <Song>[]),
-      ]);
-      variantResults = [...variantResults, ...variantBatches[0], ...variantBatches[1]];
+      ],
+    ];
+
+    final variantResults = <Song>[];
+    if (extraFutures.isNotEmpty) {
+      final variantBatches = await Future.wait(extraFutures);
+      for (final l in variantBatches) variantResults.addAll(l);
     }
     final saavnCombined = [...saavnResults, ...variantResults];
 
@@ -3569,6 +3713,90 @@ class ApiService {
   // JSON and versioned instead of scraped HTML. youtube_explode_dart
   // remains as the fallback if the worker route errors or times out, so
   // this is zero-regression: worst case behaves exactly as before.
+  // ═══════════════════════════════════════════════════════════════════
+  // YT MUSIC HOME PLAYLIST CARDS — /api/yt-music-home on the Worker.
+  //
+  // Returns lightweight PLAYLIST CARD metadata (title, cover, playlistId,
+  // subtitle) for a "Playlists For You" home row — genuinely YT-Music-
+  // curated shelf content (Top charts, mood/genre mixes), not a
+  // hand-picked query list like _kCuratedPlaylists in home_screen.dart.
+  // Deliberately does NOT return full song lists — a home row only needs
+  // cover+title to render fast. Tapping a card fetches that playlist's
+  // full song list on demand via the EXISTING fetchYtPlaylistSongs()
+  // above (same function already used for playlist import), so there's
+  // no second/duplicate playlist-resolve code path to maintain.
+  // ═══════════════════════════════════════════════════════════════════
+  static Future<List<YtHomePlaylistCard>> fetchYtMusicHomePlaylists(
+      {int limit = 10}) async {
+    try {
+      final uri = Uri.parse('$_saavn/api/yt-music-home?limit=$limit');
+      final resp = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (resp.statusCode != 200) {
+        _log('[fetchYtMusicHomePlaylists] HTTP ${resp.statusCode}');
+        return const [];
+      }
+      final data = jsonDecode(resp.body);
+      if (data['success'] != true) return const [];
+      final results = (data['data']?['results'] as List?) ?? [];
+      return results
+          .map<YtHomePlaylistCard?>((r) {
+            final playlistId = (r['playlistId'] ?? '').toString();
+            final title = _cleanText((r['title'] ?? '').toString());
+            if (playlistId.isEmpty || title.isEmpty) return null;
+            return YtHomePlaylistCard(
+              playlistId: playlistId,
+              title: title,
+              subtitle: _cleanText((r['subtitle'] ?? '').toString()),
+              artworkUrl: (r['image'] ?? '').toString(),
+            );
+          })
+          .whereType<YtHomePlaylistCard>()
+          .toList();
+    } catch (e) {
+      _log('[fetchYtMusicHomePlaylists] error: $e');
+      return const [];
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // YT MUSIC HOME ARTIST CARDS — /api/yt-music-home-artists on the Worker.
+  //
+  // Same FEmusic_home shelf data fetchYtMusicHomePlaylists reads, just the
+  // artist entries instead of the playlist ones — see the Worker's
+  // parseYtMusicHomeArtistShelves() for the split. channelId (YouTube's
+  // own stable per-artist id) is kept as-is and fed straight into
+  // ArtistSimple.id by fetchHomeArtistsCombined() below, so artist-chip
+  // navigation and list keys are anchored to a real, collision-proof
+  // identifier instead of a name string.
+  // ═══════════════════════════════════════════════════════════════════
+  static Future<List<YtHomeArtist>> fetchYtMusicHomeArtists(
+      {int limit = 12}) async {
+    try {
+      final uri = Uri.parse('$_saavn/api/yt-music-home-artists?limit=$limit');
+      final resp = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (resp.statusCode != 200) {
+        _log('[fetchYtMusicHomeArtists] HTTP ${resp.statusCode}');
+        return const [];
+      }
+      final data = jsonDecode(resp.body);
+      if (data['success'] != true) return const [];
+      final results = (data['data']?['results'] as List?) ?? [];
+      return results
+          .map<YtHomeArtist?>((r) {
+            final channelId = (r['channelId'] ?? '').toString();
+            final name = _cleanText((r['name'] ?? '').toString());
+            final image = (r['image'] ?? '').toString();
+            if (channelId.isEmpty || name.isEmpty || image.isEmpty) return null;
+            return YtHomeArtist(channelId: channelId, name: name, imageUrl: image);
+          })
+          .whereType<YtHomeArtist>()
+          .toList();
+    } catch (e) {
+      _log('[fetchYtMusicHomeArtists] error: $e');
+      return const [];
+    }
+  }
+
   static Future<List<Song>> fetchYtPlaylistSongs(String playlistUrlOrId,
       {int limit = 200}) async {
     final playlistId = _extractYtPlaylistId(playlistUrlOrId);
@@ -4632,11 +4860,33 @@ class ApiService {
   }
 
   // ===========================================================================
-  // PREWARM — fire Worker's /api/prewarm for a YT song the moment it becomes
-  // visible on screen (e.g. from a SongTile/home card), BEFORE the user taps.
-  // Worker resolves + KV-caches the URL in the background so that when the
-  // actual tap arrives, /api/yt-stream returns a KV-HIT in ~5ms instead of
-  // running the full 3-stage resolution chain (which takes 2-8s cold).
+  // PREWARM — resolve a YT song's stream URL the moment it becomes visible
+  // on screen (e.g. from a SongTile/home card), BEFORE the user taps, so the
+  // real device-side cache (_streamCache below) already has it ready by tap
+  // time instead of starting cold.
+  //
+  // FIX (2026-08-13 — dead network call found on speed audit): this
+  // previously called `$_worker/api/prewarm?id=...`, a route that has never
+  // existed on the Cloudflare Worker (confirmed against worker.js — no
+  // /api/prewarm handler, no KV namespace binding for it to warm even if it
+  // did exist). Every single call therefore always 404'd, was silently
+  // swallowed by catchError, and re-fired on every re-scroll past that same
+  // song this session (`_prewarmedIds.remove` on failure = "allowed to
+  // retry", so a guaranteed-fail request kept costing a live HTTP round-trip
+  // every time). Pure wasted battery/data with zero benefit — the opposite
+  // of lightweight.
+  //
+  // The ACTUAL cache that matters for "instant tap" is the client-side
+  // `_streamCache` (Dart in-memory map) used by resolveStreamUrl() and read
+  // by prefetchQueue()/prefetchNext() above — there is no separate
+  // server-side cache to warm. Fix: prewarm now calls resolveStreamUrl()
+  // itself (fire-and-forget, never awaited by the caller) so a song visible
+  // on screen actually gets its real URL resolved and cached client-side
+  // ahead of the tap — same benefit the old comment described, achieved
+  // through the cache that actually exists. resolveStreamUrl() already has
+  // its own in-flight de-dup (_pendingResolutions) and cache-hit short
+  // circuit, so calling it here is safe even if prefetchQueue() is
+  // resolving the same song at the same time — no duplicate network calls.
   //
   // Fire-and-forget — never awaited, never throws, zero impact on UI thread.
   // Only fires for YouTube songs with a stable id; Saavn songs have their URL
@@ -4649,17 +4899,15 @@ class ApiService {
     if (song.id.isEmpty) return;
     if (_prewarmedIds.contains(song.id)) return; // already fired this session
 
-    // Also skip if URL already in local Dart cache — no Worker round-trip needed
+    // Also skip if URL already in local Dart cache — nothing to warm
     final cacheKey = 'youtube:${song.id}';
     final cached = _streamCache[cacheKey];
     if (cached != null && !cached.isExpired) return;
 
     if (_prewarmedIds.length > 1000) _prewarmedIds.clear(); // prevent unbounded growth
     _prewarmedIds.add(song.id);
-    _client
-        .get(Uri.parse('$_worker/api/prewarm?id=${song.id}'))
-        .timeout(const Duration(seconds: 5))
-        .then((_) => _log('[prewarm] fired for "${song.title}"'))
+    resolveStreamUrl(song)
+        .then((_) => _log('[prewarm] resolved & cached: "${song.title}"'))
         .catchError((_) {
           _prewarmedIds.remove(song.id); // allow retry next time
         });
@@ -4857,6 +5105,78 @@ class ApiService {
     }));
 
     return results.whereType<ArtistSimple>().toList();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // COMBINED HOME ARTISTS — YT Music (real shelf data, one browse call,
+  // stable channelId) merged with the existing Saavn-sourced
+  // fetchHomeArtists() (hand-picked pool + per-artist search/thumbnail
+  // scrape). Runs both concurrently so total latency is max(), not sum(),
+  // of the two — this never gets slower than the slower of the two
+  // sources alone.
+  //
+  // DEDUPE / UNIQUE KEY: ArtistSimple.id is what home_screen.dart's
+  // ListView.builder keys each _ArtistChip on. YT artists carry a real
+  // channelId (format "UC...", globally unique per YouTube channel);
+  // Saavn artists carry their own Saavn artist id, or '' when the
+  // thumbnail-only fallback path had no id to return (see
+  // fetchHomeArtists' "YouTube thumbnail fallback" branch above). An
+  // empty '' id is not unique — two different no-id Saavn entries would
+  // collide on the same ValueKey('') and crash the list (duplicate GlobalKey
+  // territory) or silently only render one of them. Every artist here is
+  // re-keyed through _uniqueArtistKey() below so the final list always has
+  // guaranteed-distinct ids regardless of which source (or lack of a
+  // source id) it came from.
+  //
+  // Name-based dedupe (case-insensitive) happens BEFORE that re-keying so
+  // the same artist appearing in both YT's real shelf and Saavn's
+  // hardcoded pool (e.g. "Arijit Singh" in both) shows once, preferring
+  // the YT entry — real shelf art tends to be fresher/higher-res than the
+  // Saavn search-result or YouTube-thumbnail-scrape fallback.
+  static Future<List<ArtistSimple>> fetchHomeArtistsCombined() async {
+    final results = await Future.wait([
+      fetchYtMusicHomeArtists(limit: 12),
+      fetchHomeArtists(),
+    ]);
+    final ytArtists = results[0] as List<YtHomeArtist>;
+    final saavnArtists = results[1] as List<ArtistSimple>;
+
+    final seenNames = <String>{};
+    final merged = <ArtistSimple>[];
+
+    for (final a in ytArtists) {
+      final key = a.name.trim().toLowerCase();
+      if (key.isEmpty || !seenNames.add(key)) continue;
+      merged.add(ArtistSimple(
+        id: 'yt_${a.channelId}',
+        name: a.name,
+        imageUrl: a.imageUrl,
+      ));
+    }
+    for (final a in saavnArtists) {
+      final key = a.name.trim().toLowerCase();
+      if (key.isEmpty || !seenNames.add(key)) continue;
+      merged.add(a);
+    }
+
+    // FINAL SAFETY NET: guarantee every id in the merged list is unique,
+    // independent of what each source promised. YT entries are already
+    // unique via their real channelId; only Saavn's possible '' ids (or
+    // any unexpected upstream duplicate id) can still collide at this
+    // point — give any duplicate/empty id a synthetic-but-stable
+    // fallback derived from its position, so home_screen.dart's
+    // ValueKey-per-chip logic never sees two identical ids in one list.
+    final seenIds = <String>{};
+    for (var i = 0; i < merged.length; i++) {
+      final a = merged[i];
+      if (a.id.isEmpty || !seenIds.add(a.id)) {
+        final fallbackId = 'artist_$i';
+        seenIds.add(fallbackId);
+        merged[i] = ArtistSimple(id: fallbackId, name: a.name, imageUrl: a.imageUrl);
+      }
+    }
+
+    return merged;
   }
 
   // ===========================================================================
