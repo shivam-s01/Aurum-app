@@ -4307,10 +4307,10 @@ class ApiService {
             continue;
           }
 
-          final flexCol0 = r != null
+          final dynamic flexCol0 = r != null
               ? _safeIndex(r['flexColumns'] as List?, 0)
               : null;
-          final titleRuns = r != null
+          final dynamic titleRuns = r != null
               ? flexCol0?['musicResponsiveListItemFlexColumnRenderer']
                   ?['text']?['runs']
               : tw?['title']?['runs'];
@@ -4318,11 +4318,12 @@ class ApiService {
           if (title.isEmpty) continue;
           if (_isForeignShelfTitleDirect(title)) continue;
 
-          final thumbSource = r != null
+          final dynamic thumbSourceRaw = r != null
               ? r['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
-                  ?['thumbnails'] as List?
+                  ?['thumbnails']
               : tw?['thumbnailRenderer']?['musicThumbnailRenderer']
-                  ?['thumbnail']?['thumbnails'] as List?;
+                  ?['thumbnail']?['thumbnails'];
+          final thumbSource = thumbSourceRaw is List ? thumbSourceRaw : null;
           final thumbs = thumbSource ?? const [];
           final best = thumbs.isNotEmpty ? thumbs.last : null;
           final rawUrl = (best?['url'] ?? '').toString();
