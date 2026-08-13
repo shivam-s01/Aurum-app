@@ -25,6 +25,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
 import '../models/song.dart';
+import '../services/api_service.dart';
 import '../providers/player_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import '../providers/download_provider.dart';
