@@ -46,6 +46,7 @@ import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_empty_state.dart';
+import '../widgets/mini_player_slot.dart';
 import 'full_player_screen.dart';
 import 'home_screen.dart' show pushFullPlayer;
 import '../widgets/premium_gate.dart';
@@ -419,6 +420,9 @@ class PlaylistsScreen extends StatelessWidget {
       builder: (context, pp, _) {
         return Scaffold(
           backgroundColor: AurumTheme.bgOf(context),
+          // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
+          // matching comment for the full reasoning.
+          bottomNavigationBar: const MiniPlayerSlot(),
           // BUGFIX: same "whole app shrinks when keyboard opens" fix as
           // MainShell — the New Playlist dialog is pushed on top of THIS
           // Scaffold, and its default resizeToAvoidBottomInset: true was
@@ -585,8 +589,14 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     final pl = pp.getById(widget.playlistId);
 
     if (pl == null) {
+      // FIX (recheck): this is the "playlist not found" state (e.g.
+      // deleted from another device mid-view), not a loading state — it
+      // can persist on screen, so it needs the same MiniPlayerSlot as the
+      // normal loaded Scaffold below, otherwise nav bar/mini player
+      // vanish for as long as this state is shown.
       return Scaffold(
         backgroundColor: AurumTheme.bgOf(context),
+        bottomNavigationBar: const MiniPlayerSlot(),
         body: Center(
           child: Text(l10n.libraryPlaylistNotFound,
               style: TextStyle(color: AurumTheme.textMutedOf(context))),
@@ -614,6 +624,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       },
       child: Scaffold(
         backgroundColor: AurumTheme.bgOf(context),
+        // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
+        // matching comment for the full reasoning.
+        bottomNavigationBar: const MiniPlayerSlot(),
         body: CustomScrollView(
           physics: const BouncingScrollPhysics(),
           slivers: [
@@ -2350,6 +2363,9 @@ class _HistoryScreenState extends State<_HistoryScreen>
 
         return Scaffold(
           backgroundColor: AurumTheme.bgOf(context),
+          // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
+          // matching comment for the full reasoning.
+          bottomNavigationBar: const MiniPlayerSlot(),
           body: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
@@ -2707,6 +2723,9 @@ class _LocalFilesScreen extends StatelessWidget {
     final lib = context.watch<LibraryProvider>();
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
+      // matching comment for the full reasoning.
+      bottomNavigationBar: const MiniPlayerSlot(),
       appBar: AppBar(
         backgroundColor: AurumTheme.bgOf(context),
         title: Text(l10n.libraryLocalFiles,
@@ -2815,6 +2834,9 @@ class DownloadsScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
+      // matching comment for the full reasoning.
+      bottomNavigationBar: const MiniPlayerSlot(),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
@@ -3080,6 +3102,9 @@ class _AlbumsScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
+      // matching comment for the full reasoning.
+      bottomNavigationBar: const MiniPlayerSlot(),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
@@ -3359,6 +3384,9 @@ class _ArtistsScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
+      // matching comment for the full reasoning.
+      bottomNavigationBar: const MiniPlayerSlot(),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
@@ -3612,6 +3640,10 @@ class _ComingSoonScreen extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      // SPOTIFY-STYLE PERSISTENT MINI PLAYER: pushed via Navigator.push
+      // from Library, so it needs its own MiniPlayerSlot — see
+      // liked_screen.dart's matching comment for the full explanation.
+      bottomNavigationBar: const MiniPlayerSlot(),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [

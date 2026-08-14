@@ -1091,17 +1091,27 @@ class AurumAudioEngine(
             isResolving = true
             pushState()
 
-            // No-auto-skip policy: retries the tapped song indefinitely
-            // as long as there's any network path at all — see
-            // resolveWithPatience(). This only returns null if the
-            // session was cancelled (user picked something else, handled
-            // by the mySession check right below) or the network is
-            // genuinely completely absent — neither case should ever
-            // silently jump to a different song in the queue, so there is
-            // deliberately no findFirstPlayableFrom fallback here anymore.
+            // FIX ("check your internet connection" / long white-layer loading
+            // when playing from Home, Liked, Up Next, History — but smooth from
+            // Search): this used to skip straight to resolveWithPatience(),
+            // whose very first attempt already uses hardCapFor() (26s Saavn /
+            // 38s YouTube) instead of resolveFast()'s short 12s/18s-per-attempt
+            // budget. So every queue-originated tap paid a much longer worst-case
+            // stall before anything played — and resolveTakingLong (which drives
+            // the "check your connection" message) couldn't flip true until 20s
+            // in, on TOP of that longer first attempt. playSongInternal (the
+            // search/single-tap path) already tries resolveFast() first for
+            // exactly this reason. Mirroring that here means queue-originated
+            // taps get the same fast first attempt search taps do, and only
+            // fall into the indefinite-patience retry loop if that quick
+            // attempt genuinely fails.
             val resolvedSong = songs[safeIndex]
-            val url = resolveWithPatience(resolvedSong, mySession)
+            var url = resolveFast(resolvedSong, mySession)
             if (mySession != playSessionId) return
+            if (url == null) {
+                url = resolveWithPatience(resolvedSong, mySession)
+                if (mySession != playSessionId) return
+            }
 
             if (url == null) {
                 // Network is genuinely, completely absent (not just
@@ -2065,9 +2075,31 @@ class AurumAudioEngine(
                         val url = resolveFast(songs[i], sessionId, maxAttempts = 1)
                         if (sessionId != playSessionId) return@launch
                         if (url != null && sessionId == playSessionId) {
-                            player.addMediaItem(buildMediaItem(songs[i], url))
-                            liveMediaIds.add(songs[i].id)
-                            handleCurrentIndexChanged(player.currentMediaItemIndex)
+                            // FIX ("Up Next tap during the first few seconds of
+                            // a queue occasionally still landed on the wrong
+                            // song even after the liveMediaIds-based lookup
+                            // fix in skipToQueueItemAwaitable"): the splice
+                            // here (addMediaItem + liveMediaIds mutation) ran
+                            // with no lock at all, while skipToQueueItemAwaitable
+                            // (and addToQueue/removeFromQueue/moveQueueItem)
+                            // all read/mutate the exact same liveMediaIds under
+                            // queueMutex. A tap landing in the split-second
+                            // between this addMediaItem() call and the
+                            // liveMediaIds.add() right after it could compute
+                            // a livePos against a liveMediaIds that didn't yet
+                            // match player's real timeline, seeking to the
+                            // wrong item. Wrapping just this one splice step
+                            // (not the resolveFast() network call above it) in
+                            // queueMutex closes that window without holding
+                            // the lock for the slow network part — a skip tap
+                            // still only ever waits for a single fast splice
+                            // step, never a whole resolve.
+                            queueMutex.withLock {
+                                if (sessionId != playSessionId) return@withLock
+                                player.addMediaItem(buildMediaItem(songs[i], url))
+                                liveMediaIds.add(songs[i].id)
+                                handleCurrentIndexChanged(player.currentMediaItemIndex)
+                            }
                         }
                     } catch (e: Exception) { /* skip this song, continue */ }
                 }
@@ -2107,9 +2139,15 @@ class AurumAudioEngine(
                             // seek while leaving the insert (and therefore
                             // the backward instant-skip window it exists
                             // for) fully intact.
-                            player.addMediaItem(0, buildMediaItem(songs[i], url))
-                            liveMediaIds.add(0, songs[i].id)
-                            handleCurrentIndexChanged(player.currentMediaItemIndex)
+                            //
+                            // Same queueMutex-around-splice-only fix as the
+                            // forward loop above — see that comment for why.
+                            queueMutex.withLock {
+                                if (sessionId != playSessionId) return@withLock
+                                player.addMediaItem(0, buildMediaItem(songs[i], url))
+                                liveMediaIds.add(0, songs[i].id)
+                                handleCurrentIndexChanged(player.currentMediaItemIndex)
+                            }
                         }
                     } catch (e: Exception) { /* skip this song, continue */ }
                 }
@@ -2274,14 +2312,43 @@ class AurumAudioEngine(
         queueMutex.withLock {
             skipMutex.withLock {
                 if (gen != skipGen) return@withLock
-                if (index < player.mediaItemCount && !splicingInProgress) {
-                    if (index < queueSongs.size) {
-                        currentIndex = index
-                        pushState()
-                    }
-                    player.seekTo(index, 0)
+                if (index !in queueSongs.indices) return@withLock
+
+                // FIX ("tap a song in Up Next, a DIFFERENT song plays; full
+                // player briefly shows the tapped song's title/artwork then
+                // reverts to the old one still playing"): `index` here is a
+                // position in `queueSongs` (Dart's full queue). This used to
+                // be fed straight into `player.seekTo(index, 0)` as if it
+                // were ExoPlayer's OWN timeline position — but ExoPlayer's
+                // timeline only ever holds `liveMediaIds`, a partial mirror
+                // of `queueSongs` that grows/reorders asynchronously via
+                // resolveQueueInBackground (forward AND backward splicing,
+                // the latter literally inserting at position 0 — see the
+                // addMediaItem(0, ...) call above). Right after any
+                // playQueue/playSong start, ExoPlayer often holds only the
+                // ONE just-played song while the rest of the queue is still
+                // being spliced in, so `queueSongs` and ExoPlayer's timeline
+                // are frequently NOT index-aligned — tapping Up Next row 4
+                // could genuinely seek to whatever unrelated song ExoPlayer
+                // currently has loaded at raw position 4.
+                //
+                // Fix: resolve the tapped song's actual id to its REAL
+                // position in ExoPlayer's timeline via liveMediaIds (the
+                // exact same id-based lookup handleCurrentIndexChanged
+                // already uses in the opposite direction). Only seek
+                // directly if that id is already loaded; otherwise this is
+                // a song ExoPlayer hasn't spliced in yet, so — same as
+                // before — fall back to a full playQueueInternal restart
+                // from that song, which resolves and loads it properly
+                // instead of seeking to a wrong/unrelated media item.
+                val targetSong = queueSongs[index]
+                val livePos = liveMediaIds.indexOf(targetSong.id)
+                if (livePos != -1 && livePos < player.mediaItemCount && !splicingInProgress) {
+                    currentIndex = index
+                    pushState()
+                    player.seekTo(livePos, 0)
                     player.play()
-                } else if (index < queueSongs.size) {
+                } else {
                     playQueueInternal(queueSongs, index)
                 }
             }

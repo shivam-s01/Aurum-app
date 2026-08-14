@@ -28,6 +28,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../utils/constants.dart';
+import '../services/api_service.dart';
 import '../services/recommendation_engine.dart';
 import '../services/audio_prefs.dart';
 
@@ -101,6 +102,20 @@ class RecentlyPlayedProvider extends ChangeNotifier {
     await _maybeApplyDecay();
 
     notifyListeners();
+
+    // PRODUCTION-SMOOTHNESS FIX (same reasoning as FavoritesProvider.init()
+    // — see that comment for the full explanation): the very first tap into
+    // History (or Home's "Continue Listening", which reads this same
+    // `_history` list) each session had no prewarm behind it at all, since
+    // PlayerProvider only warms upcoming songs once something from this
+    // list is already playing. Warming the first few the instant history
+    // loads from disk — well before the user has navigated to either
+    // screen — closes that gap. Only the first few, fire-and-forget,
+    // de-duped and cache-checked inside prewarmYtStream() itself, so this
+    // has no effect on init()'s own timing or on cold-start cost.
+    for (final song in _history.take(5)) {
+      ApiService.prewarmYtStream(song);
+    }
   }
 
   // ---------------------------------------------------------------------------

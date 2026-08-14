@@ -34,6 +34,7 @@ import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_save_button.dart';
 import '../widgets/song_tile.dart';
+import '../widgets/mini_player_slot.dart';
 import 'artist_screen.dart';
 import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
@@ -491,6 +492,7 @@ class _MixScreenState extends State<MixScreen> {
 
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      bottomNavigationBar: const MiniPlayerSlot(),
       body: body,
     );
   }

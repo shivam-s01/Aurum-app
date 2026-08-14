@@ -16,6 +16,7 @@ import '../services/api_service.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/song_tile.dart';
+import '../widgets/mini_player_slot.dart';
 import '../utils/aurum_transitions.dart';
 import 'album_screen.dart';
 import '../l10n/generated/app_localizations.dart';
@@ -85,6 +86,9 @@ class _ArtistScreenState extends State<ArtistScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
+      // matching comment for the full reasoning.
+      bottomNavigationBar: const MiniPlayerSlot(),
       body: _loading
           ? const Center(child: AurumMorphLoader(size: 56))
           : _failed

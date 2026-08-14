@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
+import '../services/api_service.dart';
 import '../services/recommendation_engine.dart';
 import '../services/sync_service.dart';
 import 'download_provider.dart';
@@ -55,6 +56,29 @@ class FavoritesProvider extends ChangeNotifier {
         .toList();
     _isLoading = false;
     notifyListeners();
+
+    // PRODUCTION-SMOOTHNESS FIX ("Liked Songs tap is slower than Search
+    // tap, especially the very first tap of a session"): PlayerProvider's
+    // own _prewarmUpcoming() only ever fires AFTER a song from this list
+    // is already playing — so the very first tap into Liked Songs each
+    // session had zero prewarm benefit and paid the full resolve cost live,
+    // exactly the "search feels instant, everything else doesn't" gap this
+    // is meant to close. resolveStreamUrl()'s cache is keyed by song id and
+    // has no per-screen concept, so warming it here — the instant favorites
+    // load from disk, well before the user has navigated anywhere — means
+    // by the time they actually open Liked Songs and tap the first entry,
+    // its stream URL is very often already resolved and cached, same as if
+    // PlayerProvider had already been playing through this list.
+    // Only the first few — Liked Songs can be huge, and prewarming the
+    // entire list on every cold start would be neither fast nor
+    // lightweight. resolveStreamUrl() has its own in-flight de-dup and
+    // cache-hit short circuit, and prewarmYtStream() only fires for
+    // YouTube-sourced songs (Saavn already embeds its URL) and never
+    // throws, so this is safe fire-and-forget with no effect on init()'s
+    // own timing.
+    for (final song in _favorites.take(5)) {
+      ApiService.prewarmYtStream(song);
+    }
   }
 
   Future<void> toggleFavorite(Song song) async {

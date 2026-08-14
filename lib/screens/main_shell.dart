@@ -61,17 +61,34 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     const LibraryScreen(),
   ];
 
-  // Maps _AurumBottomNavBar's 4-item display index (Home, Search,
+  // Maps AurumBottomNavBar's 4-item display index (Home, Search,
   // Shorts, Library) to this screen's 3-item _screens/_tab index.
   // Shorts (bar index 2) has no _screens entry, so it's excluded from
   // this mapping and handled separately in _handleNavTap.
   static const Map<int, int> _barIndexToTab = {0: 0, 1: 1, 3: 2};
 
+  // Set once in initState from PlayerProvider.navTabRequest, so dispose()
+  // can detach the same listener instance without needing context (which
+  // is unsafe to read again mid-teardown — see the matching FIX comment
+  // on _feedbackListener above for the same reasoning).
+  ValueNotifier<int?>? _navTabRequestListenable;
+
+  // Fires when a pushed content screen's nav bar (MiniPlayerSlot) is
+  // tapped. That screen already popped itself off the Navigator stack
+  // before setting this value (see MiniPlayerSlot), so by the time this
+  // runs MainShell is back on top — this only needs to switch the tab,
+  // exactly like a normal in-place nav tap.
+  void _handleNavTabRequest() {
+    final barIndex = _navTabRequestListenable?.value;
+    if (barIndex == null) return;
+    _handleNavTap(barIndex);
+  }
+
   void _handleNavTap(int barIndex) {
     primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
 
-    if (barIndex == _AurumBottomNavBar.shortsTabIndex) {
+    if (barIndex == AurumBottomNavBar.shortsTabIndex) {
       AurumHaptics.selection();
       Navigator.of(context).push(
         AurumPageRoute(
@@ -251,6 +268,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     // immediately rather than waiting for MainShell to rebuild.
     AudioPrefs.shakeToSkipNotifier.addListener(_startShakeListener);
 
+    // Nav bar tap from a pushed content screen (Album/Artist/Playlist/
+    // etc. via MiniPlayerSlot) — see PlayerProvider.navTabRequest's doc
+    // comment for why this bridges through PlayerProvider rather than a
+    // direct callback. Read once here (not via context.watch, since this
+    // is a plain listener add, not something that should rebuild
+    // MainShell on every read) and detached in dispose().
+    _navTabRequestListenable = context.read<PlayerProvider>().navTabRequest;
+    _navTabRequestListenable!.addListener(_handleNavTabRequest);
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _startFeedbackTracking();
       _startPlaybackErrorTracking();
@@ -371,6 +397,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     AudioPrefs.shakeToSkipNotifier.removeListener(_startShakeListener);
+    _navTabRequestListenable?.removeListener(_handleNavTabRequest);
     _accelSub?.cancel();
     if (_feedbackListener != null) {
       _trackedPlayer?.removeListener(_feedbackListener!);
@@ -520,9 +547,24 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       // separate widget-lifecycle-bound copy of this state left anywhere
       // in the app to fall out of sync, which is what makes this bug class
       // structurally impossible now rather than just guarded against.
-      bottomNavigationBar: Selector<PlayerProvider, bool>(
-        selector: (_, p) => p.miniPlayerVisible,
-        builder: (context, _, __) {
+      //
+      // FIX (Spotify-parity — "nav bar disappears when the mini player is
+      // dismissed"): the nav bar used to live *inside* the same
+      // Selector<..., miniPlayerVisible> as MiniPlayer, so dismissing the
+      // mini player (swipe-to-close, or nothing playing yet) took the nav
+      // bar down with it — Home/Search/Library/Shorts became unreachable.
+      // Real Spotify/YT Music never do this: the nav bar is permanent
+      // chrome, fully independent of whether anything is currently
+      // playing; only the mini player itself shows/hides on its own.
+      // Splitting them into two siblings here — Selector wraps only
+      // MiniPlayer now, AurumBottomNavBar sits outside it — makes the nav
+      // bar unconditional again while keeping the mini player's own
+      // show/hide behavior exactly as before.
+      bottomNavigationBar: Material(
+        color: Colors.transparent,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        child: RepaintBoundary(
           // RepaintBoundary: floating SnackBars (settings confirmations,
           // "Added to playlist", etc.) are anchored to this Scaffold via
           // ScaffoldMessenger and can trigger a relayout pass around
@@ -533,7 +575,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           // `bottomNavigationBar` slot is ALWAYS wrapped internally by
           // Flutter in its own Material widget, which paints a solid
           // fill color there by default — regardless of whether our own
-          // MiniPlayer/_AurumBottomNavBar widgets have any background of
+          // MiniPlayer/AurumBottomNavBar widgets have any background of
           // their own. That implicit fill is what kept showing through
           // as a stray pill/panel behind the mini player, even after
           // every Container/decoration in mini_player.dart and
@@ -541,33 +583,71 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           // actual content in an explicit transparent Material here
           // makes that implicit fill paint nothing, so only our own
           // widgets' pixels are ever visible.
-          return Material(
-            color: Colors.transparent,
-            elevation: 0,
-            surfaceTintColor: Colors.transparent,
-            child: RepaintBoundary(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // FIX — removed the card-color background that used to wrap
-                // just the mini player's own area. That solid fill was the
-                // "ghost pill" showing up behind the mini player content —
-                // now this Container paints nothing; the mini player renders
-                // with a fully transparent background behind it.
-                const MiniPlayer(),
-                // The nav bar no longer paints any top divider/gradient line
-                // (removed permanently in _AurumBottomNavBar — see the
-                // comment there). Just render it plainly; no style/song
-                // state can affect it anymore, so no listener is needed here.
-                _AurumBottomNavBar(
-                  currentIndex: _activeBarIndex,
-                  onTap: _handleNavTap,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // FIX — removed the card-color background that used to wrap
+              // just the mini player's own area. That solid fill was the
+              // "ghost pill" showing up behind the mini player content —
+              // now this Container paints nothing; the mini player renders
+              // with a fully transparent background behind it.
+              //
+              // Only this Selector controls the mini player's own
+              // visibility now — dismissing it (or nothing playing yet)
+              // no longer takes the nav bar down too (see FIX above).
+              //
+              // FIX (white flash on auto-skip reappear): visible used to
+              // flip straight from false→true via an instant SizedBox.
+              // shrink() ↔ MiniPlayer() widget SWAP, not a resize — the
+              // Column jumped from 0 to full mini-player height in a
+              // single frame with no interpolation. That abrupt relayout
+              // landed hardest exactly when PlayerProvider force-clears
+              // _miniPlayerDismissed after a loading-timeout auto-skip
+              // (see the doc comment on that block in player_provider.dart)
+              // — a state change already firing its own notifyListeners()
+              // in the same tick as this Selector's rebuild. Two relayouts
+              // compounding in one frame is what let Scaffold's implicit
+              // bottomNavigationBar Material fill (see the layered
+              // "ghost pill" fixes below/in aurum_theme.dart) become
+              // visible for that single frame before the transparent
+              // styling fully reapplied — a swipe-down (which itself
+              // forces a rebuild) was "fixing" it by accident, not because
+              // anything was actually stuck.
+              // AnimatedSize smooths the height change over a real
+              // duration instead of jumping instantly, and AnimatedSwitcher
+              // cross-fades the widget identity change — between them,
+              // there's no single frame where the layout jumps discontinuously
+              // enough for the underlying Material fill to ever get a
+              // visible frame to itself.
+              AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.bottomCenter,
+                child: Selector<PlayerProvider, bool>(
+                  selector: (_, p) => p.miniPlayerVisible,
+                  builder: (context, visible, __) => AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    switchInCurve: Curves.easeOut,
+                    switchOutCurve: Curves.easeIn,
+                    transitionBuilder: (child, anim) =>
+                        FadeTransition(opacity: anim, child: child),
+                    child: visible
+                        ? const MiniPlayer(key: ValueKey('mini_player_visible'))
+                        : const SizedBox.shrink(key: ValueKey('mini_player_hidden')),
+                  ),
                 ),
-              ],
-            ),
-            ),
-          );
-        },
+              ),
+              // The nav bar no longer paints any top divider/gradient line
+              // (removed permanently in AurumBottomNavBar — see the
+              // comment there). Always rendered, independent of the mini
+              // player's visibility — see the FIX comment above.
+              AurumBottomNavBar(
+                currentIndex: _activeBarIndex,
+                onTap: _handleNavTap,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -587,8 +667,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 // signature (currentIndex, onTap) is unchanged, so MainShell's build()
 // above needs no edits.
 // ══════════════════════════════════════════════════════════════════
-class _AurumBottomNavBar extends StatelessWidget {
-  const _AurumBottomNavBar({
+class AurumBottomNavBar extends StatelessWidget {
+  const AurumBottomNavBar({
     required this.currentIndex,
     required this.onTap,
   });
@@ -717,24 +797,31 @@ class _AurumBottomNavBar extends StatelessWidget {
                 // icon+label column, matching Echo's flat filled pill
                 // (no border, no shadow, no glass) — just tinted with
                 // Aurum's gold/bronze accent instead of Echo's lavender.
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 380),
-                  curve: Curves.easeOutCubic,
-                  left: tabWidth * currentIndex,
-                  top: 6,
-                  bottom: 6,
-                  width: tabWidth,
-                  child: Center(
-                    child: Container(
-                      width: tabWidth - 24,
-                      height: _barHeight - 12,
-                      decoration: BoxDecoration(
-                        color: accent.withOpacity(0.20),
-                        borderRadius: BorderRadius.circular(20),
+                // currentIndex < 0 means "no root tab is really active"
+                // (e.g. AurumBottomNavBar rendered via MiniPlayerSlot on
+                // a pushed content screen, not a live MainShell tab) —
+                // fade the capsule out entirely rather than let it sit
+                // at a negative `left` and get clipped into a stray
+                // sliver at the screen edge.
+                if (currentIndex >= 0)
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 380),
+                    curve: Curves.easeOutCubic,
+                    left: tabWidth * currentIndex,
+                    top: 6,
+                    bottom: 6,
+                    width: tabWidth,
+                    child: Center(
+                      child: Container(
+                        width: tabWidth - 24,
+                        height: _barHeight - 12,
+                        decoration: BoxDecoration(
+                          color: accent.withOpacity(0.20),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
                       ),
                     ),
                   ),
-                ),
                 // ── Tap targets ──────────────────────────────────────
                 Row(
                   children: List.generate(items.length, (i) {

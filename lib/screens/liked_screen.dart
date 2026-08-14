@@ -7,6 +7,7 @@ import '../providers/player_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_empty_state.dart';
+import '../widgets/mini_player_slot.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 
@@ -18,6 +19,16 @@ class LikedScreen extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
+      // SPOTIFY-STYLE PERSISTENT MINI PLAYER: this screen is pushed via
+      // Navigator.push from Library, so it builds its own Scaffold on top
+      // of MainShell's — MainShell's own mini player (in its
+      // bottomNavigationBar) is no longer part of the visible layout once
+      // this screen is on top. MiniPlayerSlot reproduces the exact same
+      // visibility/transparency behavior here, so playback controls never
+      // disappear just because the user browsed into Liked Songs — same
+      // as Spotify/YT Music, where the mini player follows you into every
+      // browsing screen and only hides behind the full Now Playing view.
+      bottomNavigationBar: const MiniPlayerSlot(),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [

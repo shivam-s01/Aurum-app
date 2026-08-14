@@ -63,6 +63,30 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final RecentlyPlayedProvider? _recentlyPlayed;
   FavoritesProvider? _favorites;
 
+  // ── Nav bar tab-switch bridge ───────────────────────────────────────
+  // MiniPlayerSlot (used by every pushed content screen — Album, Artist,
+  // Playlist, History, etc.) renders its own copy of the bottom nav bar
+  // so the nav bar + mini player stay visible together while browsing,
+  // matching Spotify/YT Music. But MainShell — not the pushed screen —
+  // owns the actual `_tab` / IndexedStack state. Tapping a nav icon from
+  // three screens deep needs to (a) pop back to MainShell and (b) tell it
+  // which tab to land on. PlayerProvider is already a stable, always-
+  // mounted singleton reachable from any screen via context.read, so it's
+  // used here purely as a lightweight signal bus — MainShell listens via
+  // ValueListenableBuilder and applies the tab switch; nothing else reads
+  // this value, and it carries no player state itself.
+  final ValueNotifier<int?> navTabRequest = ValueNotifier<int?>(null);
+
+  void requestNavTab(int barIndex) {
+    // Bump even if the same index is tapped twice in a row (e.g. Home,
+    // then Home again from a different screen) — ValueNotifier only
+    // notifies listeners on an actual value change, and MainShell needs
+    // an event each time, not just on first change. Toggling to null and
+    // back forces that notification.
+    navTabRequest.value = null;
+    navTabRequest.value = barIndex;
+  }
+
   // Injected from main.dart once FavoritesProvider exists (created earlier
   // in the provider tree; PlayerProvider's constructor doesn't take a
   // BuildContext). Re-wires the like bridge + listens for external
