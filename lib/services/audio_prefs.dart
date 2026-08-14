@@ -165,8 +165,20 @@ class AudioPrefs {
   /// low-opacity copy of the song artwork behind the gradient. If false,
   /// just the gradient + ambient glows (cheaper to render, more minimal
   /// look). Set from Settings → Appearance.
+  // SPEED FIX (Spotify-level instant open): default flipped false. The
+  // blurred-artwork layer is a 1.55x-scaled, 22σ Gaussian-blurred full-
+  // screen image — by a wide margin the single most expensive paint op
+  // on the full player. Even built once per song (no re-blur on
+  // animation, that part was already correct), it still has to decode +
+  // filter a full-bleed image the instant the screen opens, competing
+  // directly for frame budget with the open transition itself — worse on
+  // a cold start with nothing cached, worse still on mid/low-end Android.
+  // The gradient-only fallback path (_buildLight/_buildDark's L0 base +
+  // vignette, already implemented) is what now ships by default: same
+  // palette-driven color, zero blur/decode cost. Users who want the blur
+  // look can still turn it on in Settings → Appearance.
   static final ValueNotifier<bool> showBlurredBgNotifier =
-      ValueNotifier<bool>(true);
+      ValueNotifier<bool>(false);
 
   /// 0–24 (default 24) — blur sigma for the bottom nav bar's frosted-glass
   /// BackdropFilter. This bar is on screen on every tab, so its blur runs
@@ -177,8 +189,22 @@ class AudioPrefs {
   /// bar, matching FullPlayerScreen's own _routeAnimating flat-color
   /// fallback pattern) — the cheapest possible option for users who'd
   /// rather trade the frosted look for cooler/longer battery life.
+  // SPEED FIX (Spotify-level lightweight, no cold-start/nav layer jank):
+  // default lowered from 24.0 to 0.0. This BackdropFilter blur is not a
+  // one-time cost like the full player's own blur was — the nav bar sits
+  // on screen on EVERY tab for the entire session, so at sigma 24 this
+  // was continuously re-running the most expensive Skia filter available,
+  // every single frame, for as long as the app is open. On mid/low-end
+  // Android that's sustained GPU load and real device heat over a long
+  // session, and it's also the layer most likely to visibly hitch on a
+  // cold start before the first frame settles. 0 skips BackdropFilter
+  // entirely — the nav bar renders as a solid tinted bar instead (see the
+  // sigma<=0 branch in main_shell.dart), which is exactly the flat,
+  // lightweight look Spotify's own docked nav bar already uses. Users who
+  // want the frosted-glass look back can still turn it up in Settings →
+  // Appearance → "Nav Bar Blur".
   static final ValueNotifier<double> navBarBlurSigmaNotifier =
-      ValueNotifier<double>(24.0);
+      ValueNotifier<double>(0.0);
 
   /// 0–14 (default 14) — blur sigma for the mini player's frosted-glass
   /// BackdropFilter. Same reasoning/tradeoff as [navBarBlurSigmaNotifier]
@@ -188,8 +214,14 @@ class AudioPrefs {
   /// mini_player.dart's _routeAnimating — so its steady-state cost is
   /// lower to begin with). Set from Settings → Appearance → "Mini Player
   /// Blur". 0 disables the BackdropFilter entirely.
+  // SPEED FIX (Spotify-level lightweight): same reasoning as
+  // navBarBlurSigmaNotifier above — the mini player is also a persistent,
+  // always-visible overlay on every screen, so its blur was another
+  // continuous, whole-session GPU cost for zero functional benefit.
+  // Defaulted to 0 (solid bar) for the same lightweight-by-default feel;
+  // still user-adjustable in Settings → Appearance.
   static final ValueNotifier<double> miniPlayerBlurSigmaNotifier =
-      ValueNotifier<double>(14.0);
+      ValueNotifier<double>(0.0);
 
   /// 'Floating' (default) | 'Docked' — overall shape/placement of the
   /// bottom nav bar + mini player stack. 'Floating' is Aurum's existing

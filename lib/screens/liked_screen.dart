@@ -76,40 +76,68 @@ class LikedScreen extends StatelessWidget {
               }
 
               final songs = fav.favorites;
+              // PERF FIX (nav-in jank on Liked Songs — "jatka" on open):
+              // this used to build every SongTile eagerly via
+              // SliverChildListDelegate + songs.map(...).toList() — the
+              // ENTIRE liked list was constructed, laid out, and painted
+              // on the very first frame after the push transition
+              // started, competing directly with the 350ms page-slide
+              // animation for frame budget. On a sizeable liked list that
+              // showed up as a visible stutter right as the screen
+              // entered, unlike every other library sub-screen (History,
+              // Downloads, Albums, Artists), which already used a lazy
+              // SliverChildBuilderDelegate. Switched to the same lazy
+              // pattern: only the tiles actually on/near screen build on
+              // that first frame, the rest build cheaply as the user
+              // scrolls — matching Spotify/YT Music's own lazy list
+              // behavior and giving this screen the same light, instant
+              // open feel as its siblings.
               return SliverList(
-                delegate: SliverChildListDelegate([
-                  // Play all button
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    child: Row(
-                      children: [
-                        Text(l10n.librarySongsCount(songs.length), style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
-                        const Spacer(),
-                        GestureDetector(
-                          onTap: () {
-                            AurumHaptics.medium();
-                            final player = context.read<PlayerProvider>();
-                            player.playSong(songs[0], queue: songs, index: 0, curatedQueue: true);
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                            decoration: BoxDecoration(
-                              gradient: AurumTheme.goldGradient,
-                              borderRadius: BorderRadius.circular(20),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    if (index == 0) {
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        child: Row(
+                          children: [
+                            Text(l10n.librarySongsCount(songs.length), style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),
+                            const Spacer(),
+                            GestureDetector(
+                              onTap: () {
+                                AurumHaptics.medium();
+                                final player = context.read<PlayerProvider>();
+                                player.playSong(songs[0], queue: songs, index: 0, curatedQueue: true);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                decoration: BoxDecoration(
+                                  gradient: AurumTheme.goldGradient,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                  Icon(Icons.play_arrow_rounded, color: AurumTheme.bg, size: 18),
+                                  const SizedBox(width: 4),
+                                  Text(l10n.commonPlayAll, style: TextStyle(color: AurumTheme.bg, fontSize: 13, fontWeight: FontWeight.w700)),
+                                ]),
+                              ),
                             ),
-                            child: Row(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(Icons.play_arrow_rounded, color: AurumTheme.bg, size: 18),
-                              const SizedBox(width: 4),
-                              Text(l10n.commonPlayAll, style: TextStyle(color: AurumTheme.bg, fontSize: 13, fontWeight: FontWeight.w700)),
-                            ]),
-                          ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
-                  ...songs.asMap().entries.map((e) => SongTile(song: e.value, queue: songs, index: e.key, curatedQueue: true)),
-                  const SizedBox(height: 100),
-                ]),
+                      );
+                    }
+                    if (index == songs.length + 1) {
+                      return const SizedBox(height: 100);
+                    }
+                    final songIndex = index - 1;
+                    return SongTile(
+                      song: songs[songIndex],
+                      queue: songs,
+                      index: songIndex,
+                      curatedQueue: true,
+                    );
+                  },
+                  childCount: songs.length + 2,
+                ),
               );
             },
           ),

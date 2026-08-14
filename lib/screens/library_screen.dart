@@ -1497,12 +1497,30 @@ class _PlaylistSongTile extends StatelessWidget {
             return;
           }
           AurumHaptics.light();
+          // FIX (Spotify-parity — "playlist song tap should open Full
+          // Player like every other song list in the app"): this tile
+          // only ever called playSong() and stopped there — the song
+          // started playing but the user was left staring at the
+          // playlist list with just the mini player, unlike every other
+          // song-tapping surface (SongTile, used by Liked Songs, Search,
+          // Home, Albums, Artists, Mix), which pushes FullPlayerScreen on
+          // tap. Mirrors SongTile's exact _handleTap ordering: push the
+          // full player FIRST while `context` is still guaranteed valid,
+          // then fire playSong() unawaited — playSong() can call
+          // notifyListeners() synchronously for a fully-offline queue
+          // (see player_provider.dart), and rebuilding this context
+          // before the push completes is what causes a stuck/dead
+          // screen. Also reads as the same instant-open, content-fills-
+          // in feel as the rest of the app.
+          pushFullPlayer(context);
           context.read<PlayerProvider>().playSong(
                 song,
                 queue: playlist.songs,
                 index: index,
                 curatedQueue: true,
-              );
+              ).catchError((e) {
+            debugPrint('[_PlaylistSongTile] playSong error: $e');
+          });
         },
         onLongPress: selecting ? null : onEnterSelectMode,
       ),

@@ -29,9 +29,22 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   bool _dynamicPlayerColor = true;
   String _playerButtonColors = 'Primary';
   String _playerSliderStyle = 'Rounded';
-  bool _showBlurredBg = true;
-  double _navBarBlurSigma = 24.0;
-  double _miniPlayerBlurSigma = 14.0;
+  // SPEED FIX (Spotify-level lightweight): these three local fallback
+  // defaults must match their AudioPrefs notifier counterparts exactly
+  // (showBlurredBgNotifier, navBarBlurSigmaNotifier,
+  // miniPlayerBlurSigmaNotifier — see audio_prefs.dart). This screen's
+  // own _loadPrefs() only overwrites them once SharedPreferences finishes
+  // loading (see the p.getDouble(...) ?? fallback calls a few lines
+  // below) — until that resolves, whatever's hardcoded here is what a
+  // first-ever-open of this settings screen actually shows. Leaving
+  // these at the OLD defaults (true/24.0/14.0) after the notifiers were
+  // changed to the new lightweight defaults would show the slider at 24
+  // for a moment before snapping down once prefs load — a visible,
+  // confusing flash of the wrong value on a screen about performance
+  // settings specifically. Keeping both sides in sync avoids that.
+  bool _showBlurredBg = false;
+  double _navBarBlurSigma = 0.0;
+  double _miniPlayerBlurSigma = 0.0;
   String _navBarStyle = 'Floating';
   // Lyrics
   String _lyricsTextPosition = 'Centre';
@@ -95,9 +108,18 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _dynamicPlayerColor = p.getBool('dynamic_player_color') ?? true;
       _playerButtonColors = p.getString('player_button_colors') ?? 'Primary';
       _playerSliderStyle = p.getString('player_slider_style') ?? 'Rounded';
-      _showBlurredBg = p.getBool('show_blurred_bg') ?? true;
-      _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 24.0;
-      _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 14.0;
+      // SPEED FIX (Spotify-level lightweight): fallback defaults here
+      // matched to the new AudioPrefs notifier defaults (false/0.0/0.0)
+      // — see the matching comment on the field declarations above for
+      // why these three must always stay in sync. A user who has never
+      // touched these settings (no saved SharedPreferences key yet) now
+      // gets the lightweight blur-off experience by default, same as
+      // every other entry point in the app — not just on first app
+      // launch, but every time this specific key was never explicitly
+      // set.
+      _showBlurredBg = p.getBool('show_blurred_bg') ?? false;
+      _navBarBlurSigma = p.getDouble('nav_bar_blur_sigma') ?? 0.0;
+      _miniPlayerBlurSigma = p.getDouble('mini_player_blur_sigma') ?? 0.0;
       _navBarStyle = p.getString('nav_bar_style') ?? 'Floating';
       _lyricsTextPosition = p.getString('lyrics_text_position') ?? 'Centre';
       _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;

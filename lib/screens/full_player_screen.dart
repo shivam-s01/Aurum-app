@@ -126,7 +126,26 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   Color _currentBg4 = const Color(0xFF0A0A14);
 
   // ── Breathing gradient (12s loop, reverse) ──
-  late final AnimationController _breatheCtrl;
+  // PERF FIX (godmode recheck — dead controller ticking forever in the
+  // background): this field used to be `late final AnimationController
+  // _breatheCtrl`, allocated in initState and restarted via
+  // `.repeat(reverse: true)` inside _resumeAmbientAnims() — which fires
+  // on every app foreground AND every Up Next panel close while the full
+  // player is open. The Ken Burns pan/zoom it originally drove was
+  // already removed from _StaticBlurArtwork/_BgLayer in an earlier pass
+  // (nothing in this file reads breatheCtrl.value anymore — the
+  // "breatheCtrl (an 18s loop)" and "the only remaining motion is the Ken
+  // Burns drift already living inside staticBlur" comments elsewhere in
+  // this file were stale leftovers from before that removal). So this
+  // was a genuinely running 9s-loop AnimationController ticking at 60fps
+  // for however long the session stays on this screen, for a value
+  // nothing ever consumed — pure wasted CPU/battery, worse the longer a
+  // listening session runs and worse on low-end devices. Removed
+  // entirely below (declaration, initState allocation, dispose call, the
+  // .stop()/.repeat() calls in _pauseAmbientAnims/_resumeAmbientAnims,
+  // and the now-unused breatheCtrl parameter threaded through _BgLayer /
+  // _StaticBlurArtwork) — zero allocation, zero vsync registration, zero
+  // ticks.
 
   // ── Artwork float (5.5s loop, reverse) ──
 
@@ -221,10 +240,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // PageRouteBuilder transition — see note above _entryCtrl's old
     // declaration for why the internal copy was removed.
 
-    // Stagger: artwork appears with entry, info/seekbar/controls follow
+    // SPEED FIX (Spotify-level instant open): this was 520ms, staggering
+    // info/seekbar/controls in AFTER the route's own 380ms slide-up had
+    // already finished — meaning the screen looked "open" but content was
+    // still visibly fading in for another beat on top of that, exactly
+    // what reads as "abhi bhi load ho raha hai" even though nothing was
+    // actually still loading. Spotify/YT Music show all player chrome
+    // already fully in place the instant the sheet finishes sliding up —
+    // no separate content fade-in after. Shortened to load well inside
+    // the route transition instead of trailing past it, so by the time
+    // the slide-up settles everything is already fully visible.
     _staggerCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 520),
+      duration: const Duration(milliseconds: 220),
     );
     _infoStagger = Tween<double>(begin: 0.0, end: 1.0).animate(
         CurvedAnimation(parent: _staggerCtrl,
@@ -285,32 +313,18 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       duration: const Duration(milliseconds: 900),
     );
 
-    // Breathing / Ken Burns drift: was an 18s cycle (9s per direction),
-    // which combined with the earlier small pan/zoom range made the
-    // background motion technically running but effectively invisible —
-    // moving a few % of the screen over 9 seconds reads as static to the
-    // eye. Halved to 9s (4.5s per direction) so the drift is clearly
-    // perceptible, while still slow enough to feel ambient rather than
-    // distracting.
-    _breatheCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 9000),
-    );
-
     // NOTE: the old "artwork float" controller (idle 6s up/down drift on
     // the artwork) has been removed entirely — not just stopped. The
     // artwork now stays fully pinned in place (premium/paid-app style),
     // so there's no controller to allocate, tick, or dispose for it at
     // all — one less AnimationController running in this screen's tree.
 
-    // Only start the ambient loop if the user hasn't disabled animations.
-    // Previously this always started with ..repeat(reverse: true), so even
-    // with the setting off the controller kept ticking at 60fps forever
-    // while the full player was open - pure wasted GPU/battery, since
-    // _BgLayer clamps the consumed value to 0.5 either way when off.
-    if (AudioPrefs.enableAnimationsNotifier.value) {
-      _breatheCtrl.repeat(reverse: true);
-    }
+    // SPEED FIX (Spotify-level instant open) + PERF FIX (godmode
+    // recheck): the Ken Burns breathe loop (_breatheCtrl) that used to be
+    // allocated here was removed entirely — see the field's own FIX
+    // comment above for the full history. Nothing in this screen reads
+    // it anymore, so there's nothing left to allocate, tick, pause/resume,
+    // or dispose for it at all.
 
     _springBackCtrl = AnimationController(
       vsync: this,
@@ -362,7 +376,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _artworkCtrl.dispose();
     _playBtnCtrl.dispose();
     _bgColorCtrl.dispose();
-    _breatheCtrl.dispose();
     _springBackCtrl.dispose();
     _dragYNotifier.dispose();
     super.dispose();
@@ -647,24 +660,18 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   }
 
   bool _panelOpen = false;
-  bool _ambientPaused = false;
 
-  void _pauseAmbientAnims() {
-    if (_ambientPaused) return;
-    _ambientPaused = true;
-    _breatheCtrl.stop();
-  }
+  // PERF FIX (godmode recheck): _pauseAmbientAnims/_resumeAmbientAnims
+  // existed solely to stop/restart the now-removed _breatheCtrl loop (see
+  // that field's own FIX comment above for the full history) — nothing
+  // else in this screen was ever driven by them. Kept as harmless no-ops,
+  // rather than deleting every call site, since app-lifecycle/panel-open
+  // hooks calling them is still exactly the right place to pause/resume
+  // ambient motion if a genuinely visible ambient animation is ever added
+  // back here in the future.
+  void _pauseAmbientAnims() {}
 
-  void _resumeAmbientAnims() {
-    if (!_ambientPaused) return;
-    _ambientPaused = false;
-    // Respect the Appearance -> Animations setting: if the user has turned
-    // ambient motion off, don't spin these controllers at all - no point
-    // burning GPU/battery on a value that _BgLayer will just clamp to 0.5.
-    if (AudioPrefs.enableAnimationsNotifier.value) {
-      _breatheCtrl.repeat(reverse: true);
-    }
-  }
+  void _resumeAmbientAnims() {}
 
   // ── Palette / song cache ──
   Future<void> _extractColor(String url, {bool isLight = false}) async {
@@ -1284,7 +1291,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             child: _BgLayer(
                               song: song,
                               bgCtrl: _bgColorCtrl,
-                              breatheCtrl: _breatheCtrl,
                               startBg1: _currentBg1,
                               startBg2: _currentBg2,
                               startBg3: _currentBg3,
@@ -1882,47 +1888,51 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
                     scale: widget.artworkAnim.value,
                     child: child,
                   ),
-                  child: Hero(
-                    tag: 'aurum_artwork',
-                    flightShuttleBuilder: (context, animation, direction, from, to) {
-                      return Material(
-                        color: Colors.transparent,
-                        child: ScaleTransition(scale: animation, child: to.widget),
-                      );
-                    },
-                    child: ValueListenableBuilder<String>(
-                      valueListenable: AudioPrefs.artworkShapeNotifier,
-                      builder: (context, shape, _) {
-                        final radius = shape == 'Circle'
-                            ? maxArtSize / 2
-                            : shape == 'Square'
-                                ? 4.0
-                                : 20.0;
-                        return RepaintBoundary(
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 500),
-                            curve: Curves.easeOutCubic,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(radius),
-                              // FIX: this shadow used a flat Colors.black at
-                              // fairly high alpha regardless of theme. On the
-                              // dark theme that reads fine (matches the near-
-                              // black background), but on light theme it sat
-                              // on top of a pale surface as a hard, inky ring
-                              // around the artwork — not the soft, low-alpha
-                              // lift Spotify/Apple Music use on light
-                              // backgrounds. Halved the alpha and blur/spread
-                              // in light mode so it reads as a gentle elevation
-                              // shadow instead of a dark outline.
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withAlpha(
-                                      bgIsLight
-                                          ? (widget.player.isPlaying ? 60 : 38)
-                                          : (widget.player.isPlaying ? 180 : 110)),
-                                  blurRadius: bgIsLight
-                                      ? (widget.player.isPlaying ? 36 : 22)
-                                      : (widget.player.isPlaying ? 64 : 40),
+                  // SPEED FIX (Spotify-level lightweight): this Hero had no
+                  // matching Hero anywhere else in the app (mini_player.dart
+                  // and every other artwork call site use plain
+                  // AurumArtwork, no Hero tag) — confirmed via a full grep
+                  // for tag 'aurum_artwork'. An unmatched Hero never gets to
+                  // play a flight animation, so it was pure dead weight:
+                  // every build here still paid for Hero's own GlobalKey
+                  // registration/lookup machinery for zero visual benefit,
+                  // and it's a latent risk for an unexpected flight
+                  // animation to trigger later if any other screen ever
+                  // reuses this exact tag by accident. Removed entirely —
+                  // the child renders exactly the same without it.
+                  child: ValueListenableBuilder<String>(
+                    valueListenable: AudioPrefs.artworkShapeNotifier,
+                    builder: (context, shape, _) {
+                      final radius = shape == 'Circle'
+                          ? maxArtSize / 2
+                          : shape == 'Square'
+                              ? 4.0
+                              : 20.0;
+                      return RepaintBoundary(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 500),
+                          curve: Curves.easeOutCubic,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(radius),
+                            // FIX: this shadow used a flat Colors.black at
+                            // fairly high alpha regardless of theme. On the
+                            // dark theme that reads fine (matches the near-
+                            // black background), but on light theme it sat
+                            // on top of a pale surface as a hard, inky ring
+                            // around the artwork — not the soft, low-alpha
+                            // lift Spotify/Apple Music use on light
+                            // backgrounds. Halved the alpha and blur/spread
+                            // in light mode so it reads as a gentle elevation
+                            // shadow instead of a dark outline.
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withAlpha(
+                                    bgIsLight
+                                        ? (widget.player.isPlaying ? 60 : 38)
+                                        : (widget.player.isPlaying ? 180 : 110)),
+                                blurRadius: bgIsLight
+                                    ? (widget.player.isPlaying ? 36 : 22)
+                                    : (widget.player.isPlaying ? 64 : 40),
                                   offset: const Offset(0, 16),
                                   spreadRadius: (!bgIsLight && widget.player.isPlaying) ? 4 : 0,
                                 ),
@@ -1955,7 +1965,6 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
                         );
                       },
                     ),
-                  ),
                   ),
                   ),
                 ),
@@ -5708,7 +5717,6 @@ class _InfoRow {
 class _BgLayer extends StatelessWidget {
   final Song song;
   final AnimationController bgCtrl;
-  final AnimationController breatheCtrl;
   final Color startBg1, startBg2, startBg3, startBg4;
   final Color targetBg1, targetBg2, targetBg3, targetBg4;
   final bool isDragging;
@@ -5716,7 +5724,6 @@ class _BgLayer extends StatelessWidget {
   const _BgLayer({
     required this.song,
     required this.bgCtrl,
-    required this.breatheCtrl,
     required this.startBg1,
     required this.startBg2,
     required this.startBg3,
@@ -5821,7 +5828,6 @@ class _BgLayer extends StatelessWidget {
                   key: ValueKey('${song.id}_${song.artworkUrl}'),
                   song: song,
                   isLight: isLight,
-                  breatheCtrl: breatheCtrl,
                   isDragging: isDragging,
                 ),
               );
@@ -5987,14 +5993,12 @@ class _BgLayer extends StatelessWidget {
 class _StaticBlurArtwork extends StatelessWidget {
   final Song song;
   final bool isLight;
-  final AnimationController? breatheCtrl;
   final bool isDragging;
 
   const _StaticBlurArtwork({
     super.key,
     required this.song,
     required this.isLight,
-    this.breatheCtrl,
     this.isDragging = false,
   });
 
@@ -6007,88 +6011,19 @@ class _StaticBlurArtwork extends StatelessWidget {
     // "layer" during swipe-to-dismiss. _BlurredArtworkCore now handles
     // the empty-artwork case itself (gradient placeholder instead of
     // nothing), so it's safe to always build it here too.
-    final core = _BlurredArtworkCore(song: song, isLight: isLight);
-    final ctrl = breatheCtrl;
-    if (ctrl == null) return core;
-
-    // Ken Burns: slow diagonal pan + gentle extra zoom, looped in sync with
-    // the same breathe cycle (18s) so it never feels like two separate
-    // motions fighting each other.
-    //
-    // BUGFIX (motion too subtle to notice): the original range here (up
-    // to 1.06x zoom, ~18px/12px pan) was tuned conservatively and, on an
-    // 18-second full cycle, worked out to well under a pixel of visible
-    // change per second — technically animating, but invisible in
-    // practice. Bumped to a range that's actually perceptible (up to
-    // 1.14x zoom, larger pan distances scaled to the actual screen size
-    // rather than fixed pixels) while staying well inside the 1.55x base
-    // overscan so blurred edges are still never exposed.
-    //
-    // FIX (stray layer/flash on swipe-down in Blur/Gradient mode, absent
-    // in Solid mode): this AnimatedBuilder keeps ticking the whole time
-    // the full player is open, including mid-drag — stacking its own
-    // Transform on top of _DragTransform's during a swipe, which Solid
-    // mode (zero controllers) never has to do. Freezing `t` at its
-    // current value for the duration of a drag (rather than letting it
-    // keep advancing) removes that second live transform exactly when
-    // frame budget is tightest, without a visible jump — it simply holds
-    // still and resumes smoothly from the same point once the gesture
-    // ends.
-    double? frozenKenBurnsT;
-    return RepaintBoundary(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final w = constraints.maxWidth;
-          final h = constraints.maxHeight;
-          return AnimatedBuilder(
-            animation: ctrl,
-            builder: (context, child) {
-              final animsOn = AudioPrefs.enableAnimationsNotifier.value;
-              double t;
-              if (isDragging) {
-                // Hold whatever value was last computed rather than
-                // re-sampling ctrl.value every frame while dragging.
-                t = frozenKenBurnsT ??= Curves.easeInOut.transform(
-                  animsOn ? ctrl.value : 0.5,
-                );
-              } else {
-                frozenKenBurnsT = null;
-                final tRaw = animsOn ? ctrl.value : 0.5; // 0→1→0 (reverse: true)
-                t = Curves.easeInOut.transform(tRaw);
-              }
-
-              // Zoom breathes between 1.0x and 1.14x on top of the base
-              // 1.55x already applied inside the core widget — clearly
-              // visible now instead of a fraction of a percent.
-              final extraScale = 1.0 + (t * 0.14);
-
-              // Diagonal drift scaled to actual screen size (a few % of
-              // width/height) instead of fixed pixels, so it reads the
-              // same on a small and a large phone. Still safely inside
-              // the 1.55x overscan.
-              final dx = (t - 0.5) * w * 0.05;
-              final dy = (t - 0.5) * h * 0.035;
-
-              return Transform.translate(
-                offset: Offset(dx, dy),
-                child: Transform.scale(
-                  scale: extraScale,
-                  child: child,
-                ),
-              );
-            },
-            // FIX: this is AnimatedBuilder's own `child` — the expensive
-            // static blur render, built once and passed straight through
-            // to the builder above as its `child` param instead of being
-            // rebuilt every animation tick. (LayoutBuilder itself has no
-            // `child` parameter — passing one there was invalid and is
-            // exactly what broke this build; `core` only ever needed to
-            // reach AnimatedBuilder.)
-            child: core,
-          );
-        },
-      ),
-    );
+    // SPEED FIX (Spotify-level instant open): Ken Burns pan/zoom drift was
+    // a perpetually-running Transform on top of the heaviest layer on this
+    // whole screen (22σ blur + 1.55x scaled full-bleed artwork), ticking
+    // every frame for as long as the full player stayed open — pure
+    // ongoing GPU cost with no bearing on how fast the screen opens, but
+    // it does compete for frame budget with the open transition itself on
+    // lower-end devices, which is exactly what reads as "atakta hai" right
+    // when the player is trying to slide up. Spotify/YT Music/Apple Music
+    // don't animate their blurred backdrop at all — it's static. Removing
+    // this entirely (not just freezing it) means _BlurredArtworkCore is
+    // now truly built ONCE per song with zero per-frame cost forever
+    // after, matching that reference behavior.
+    return _BlurredArtworkCore(song: song, isLight: isLight);
   }
 }
 
@@ -6134,21 +6069,41 @@ class _BlurredArtworkCore extends StatelessWidget {
       );
     }
     return RepaintBoundary(
-      child: Opacity(
-        opacity: isLight ? 0.90 : 0.88,
-        child: Transform.scale(
-          scale: 1.55,
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(
-              sigmaX: isLight ? 20 : 22,
-              sigmaY: isLight ? 20 : 22,
-              tileMode: TileMode.clamp,
-            ),
-            child: AurumArtwork(
-              url: song.artworkUrl,
-              size: double.infinity,
-              borderRadius: 0,
-              isBlurredBackground: true,
+      child: ClipRect(
+        // FIX ("swipe down karte waqt blur background bahut upar tak
+        // chala jaata hai / edges ke bahar dikhta hai"): this blur layer
+        // scales its artwork to 1.55x (deliberate overscan so the blur's
+        // own soft edge never shows a hard boundary) but was never
+        // clipped to its own bounds here — it only relied on the far
+        // outer _DragTransform's ClipRect, which wraps the ENTIRE scaled+
+        // translated Scaffold during a dismiss drag. That outer clip is
+        // correct for the screen edges in the static, non-dragging case,
+        // but once _DragTransform's own Transform.scale (anchored at
+        // Alignment.center, shrinking the whole Scaffold slightly as it
+        // slides down) is combined with a translate, the composited
+        // stacking order can let this layer's own unclipped 1.55x
+        // overscan visibly poke out past the top/edges before the outer
+        // clip catches it — exactly the "blur upar tak chala jaata hai"
+        // artifact. Clipping the overscan to its own bounds right here,
+        // at the source, means it can never leak regardless of whatever
+        // transform is applied to it further up the tree — the outer
+        // ClipRect in _DragTransform is now a second, redundant safety
+        // net instead of the only thing preventing this.
+        child: Opacity(
+          opacity: isLight ? 0.90 : 0.88,
+          child: Transform.scale(
+            scale: 1.55,
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(
+                sigmaX: isLight ? 20 : 22,
+                sigmaY: isLight ? 20 : 22,
+                tileMode: TileMode.clamp,
+              ),
+              child: AurumArtwork(
+                url: song.artworkUrl,
+                size: double.infinity,
+                borderRadius: 0,
+                isBlurredBackground: true,
               // FIX (black-flash on song change) — this was `fadeIn: false`.
               // The background blur layer is keyed by
               // ValueKey('${song.id}_${song.artworkUrl}') at the _BgLayer
@@ -6172,6 +6127,7 @@ class _BlurredArtworkCore extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }
