@@ -134,7 +134,24 @@ Color ensureContrastSafe(Color c, {required bool isLight}) {
     // Light mode draws dark text — background must stay light enough.
     const minLuma = 0.55;
     if (luma >= minLuma) return c;
-    return Color.lerp(c, Colors.white, ((minLuma - luma) / (1 - luma)).clamp(0.0, 1.0))!;
+    // FIX ("mini player ek dam white ho jata hai kabhi kabhi" — root
+    // cause, traced past both the initState seed fix and the fallback-
+    // color fix in mini_player.dart): this used to lerp toward
+    // Colors.white with a clamp up to 1.0. For very dark album art
+    // (near-black covers, night-mode style artwork — luma close to 0),
+    // (minLuma - luma) / (1 - luma) approaches 1.0, so the result wasn't
+    // a "light tint of the artwork" anymore, it was functionally pure
+    // white — no hint of the original color left. That's a real,
+    // reproducible white-tint source that's completely independent of
+    // mini_player.dart's own null/fallback handling, since here
+    // _tintColor itself becomes white, not null. Capping the lerp factor
+    // at 0.85 guarantees at least a 15% contribution from the original
+    // artwork color always survives, so the output is always a tinted
+    // light color — never indistinguishable from flat white — while
+    // still comfortably clearing the minLuma contrast target in
+    // practice.
+    final t = ((minLuma - luma) / (1 - luma)).clamp(0.0, 0.85);
+    return Color.lerp(c, Colors.white, t)!;
   } else {
     // Dark mode draws white text — background must stay dark enough.
     const maxLuma = 0.22;

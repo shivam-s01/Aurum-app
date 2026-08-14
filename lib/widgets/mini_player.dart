@@ -130,6 +130,31 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // FIX (cold-start-only "mini player white/gray flash for a frame"):
+    // _tintColor started null and stayed null until _syncTintForSong's
+    // addPostFrameCallback ran on the FIRST build — so frame 1 always fell
+    // back to AurumTheme.bgCardOf(context) (a flat themed card color) even
+    // when the artwork's real tint was already sitting in
+    // ArtworkPaletteCache from a previous session/song. On light theme this
+    // flat fallback reads as a white/blank flash right as the mini player
+    // first appears on cold start, before any post-frame callback has had
+    // a chance to run. Seeding synchronously here — a cheap peek(), no
+    // async gap — means the very first build() already has the correct
+    // tint if it's cached, so there's no gap frame left to flash at all.
+    final song = context.read<PlayerProvider>().currentSong;
+    final url = song?.artworkUrl;
+    if (url != null && url.isNotEmpty) {
+      final cached = ArtworkPaletteCache.peek(url);
+      if (cached != null) {
+        final isDark = WidgetsBinding.instance.platformDispatcher
+                .platformBrightness ==
+            Brightness.dark;
+        _tintColor =
+            ensureContrastSafe(isDark ? cached.darkMuted : cached.lightVibrant,
+                isLight: !isDark);
+        _tintForUrl = url;
+      }
+    }
   }
 
   @override
@@ -381,7 +406,27 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                       // frame or two. The app's own themed card color
                       // blends into the UI instead of flashing as a stark
                       // white/blank block while waiting for the real tint.
-                      final fallback = AurumTheme.bgCardOf(context);
+                      // FIX (final, root-cause fix — "white/blank tint
+                      // should NEVER appear, ever, under any condition"):
+                      // both fallback paths in this widget used to route
+                      // through AurumTheme.bgCardOf(context) — Material 3's
+                      // colorScheme.surface. On the app's light theme that
+                      // color IS a near-white light gray, so any time
+                      // _tintColor/animatedTint was unresolved (fresh
+                      // install with an empty palette cache, a song whose
+                      // artwork genuinely has no url, or literally any
+                      // future code path that leaves _tintColor null) the
+                      // bar would paint that near-white color — the exact
+                      // "white tint" bug, just re-entering through a
+                      // different door than the one already patched in
+                      // initState(). Replacing the fallback with a fixed
+                      // dark neutral (never theme- or brightness-dependent)
+                      // removes the white tint as a possible output of this
+                      // widget entirely — every fallback that can ever be
+                      // reached now renders dark, matching the mini
+                      // player's own glass-bar chrome, never a light card
+                      // color.
+                      const fallback = Color(0xFF1A1714);
                       final baseTint = animatedTint ?? fallback;
                       // REMOVED (per explicit request — this whole
                       // "_routeAnimating" flat-tint fallback was the root of
@@ -414,8 +459,7 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                             // Only the blurred variant keeps the
                             // semi-transparent tint that lets
                             // BackdropFilter's blur actually be visible.
-                            final solidBg =
-                                _tintColor ?? AurumTheme.bgCardOf(context);
+                            final solidBg = _tintColor ?? fallback;
                             final barBg = (docked || blurSigma <= 0)
                                 ? solidBg
                                 : baseTint.withValues(
