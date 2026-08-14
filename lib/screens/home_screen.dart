@@ -3171,13 +3171,12 @@ class _YtPlaylistsForYouSectionState
 
   Future<void> _load() async {
     try {
-      // NO-REPEAT: ask the Worker to skip whatever this row has already
-      // shown recently under THIS SPECIFIC mood (persisted across
-      // sessions, scoped per-mood — see HomePlaylistHistory), so
-      // refresh and mood switches actually surface something new
-      // instead of looping the same handful of cards, without one
-      // mood's history ever being able to starve a different mood's
-      // (often much smaller) result pool.
+      // NO-REPEAT: skip song ids already shown recently under THIS
+      // SPECIFIC mood (persisted across sessions, scoped per-mood — see
+      // HomePlaylistHistory), so refresh and mood switches actually
+      // surface something new instead of looping the same handful of
+      // songs, without one mood's history ever being able to starve a
+      // different mood's (often much smaller) result pool.
       final currentMood = _selectedMood == _kMoodAll ? null : _selectedMood;
       final excludeIds = await HomePlaylistHistory.getShownIds(currentMood);
       final cards = await ApiService.fetchYtMusicHomePlaylists(
@@ -3276,7 +3275,7 @@ class _YtPlaylistsForYouSectionState
                     itemCount: cards.length,
                     itemBuilder: (_, i) => _YtHomePlaylistCardWidget(
                       key: ValueKey(
-                          '${cards[i].playlistId}_${widget.refreshKey}_$_selectedMood'),
+                          '${cards[i].id}_${widget.refreshKey}_$_selectedMood'),
                       card: cards[i],
                     ),
                   ),
@@ -3443,86 +3442,31 @@ class _YtHomePlaylistCardWidget extends StatefulWidget {
 class _YtHomePlaylistCardWidgetState
     extends State<_YtHomePlaylistCardWidget> {
   bool _pressed = false;
-  bool _opening = false;
 
-  Future<void> _open() async {
-    if (_opening) return;
+  // REWRITTEN (2026-08-14): the card's songs are already fully resolved
+  // Song objects by the time this widget exists (see
+  // ApiService.fetchYtMusicHomePlaylists) — there's no playlist id to
+  // "import" anymore, so this is now just a direct navigation, exactly
+  // like every other mix/playlist tile elsewhere in this app. No
+  // loading snackbar, no failure state, no async gap at all.
+  void _open() {
     AurumHaptics.selection();
-    setState(() => _opening = true);
-    final l10n = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(children: [
-          const SizedBox(
-            width: 16, height: 16,
-            child: Center(child: AurumM3Loader(width: 16, height: 2)),
-          ),
-          const SizedBox(width: 10),
-          Text(l10n.homeLoadingPlaylist(widget.card.title)),
-        ]),
-        duration: const Duration(seconds: 6),
-        backgroundColor: AurumTheme.bgCardOf(context),
-      ),
-    );
-
-    try {
-      final songs = await ApiService.fetchYtPlaylistSongs(
-        widget.card.playlistId,
-        limit: 200,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      if (songs.isEmpty) {
-        _showOpenFailedSnackBar(l10n);
-        return;
-      }
-
-      AurumPageRoute.to(
-        context,
-        MixScreen(
-          mixId: widget.card.playlistId,
-          mixName: widget.card.title,
-          artworkUrl: widget.card.artworkUrl,
-          emoji: '🎵',
-          songs: songs,
-          // Only this call site (the "Playlists For You" card tap)
-          // turns pull-to-refresh on — the other 2 MixScreen pushes in
-          // this file and the one in library_screen.dart don't pass
-          // this, so they're completely unaffected. refreshSeed uses
-          // the card's own title (e.g. "90s Bollywood Hits") so a
-          // refresh pulls more songs matching that specific mix rather
-          // than a generic query.
-          enableRefresh: true,
-          refreshSeed: widget.card.title,
-        ),
-      );
-    } on YtPlaylistImportException catch (_) {
-      // FIX: this used to just hide the loading snackbar and stop —
-      // tapping a card that failed to resolve looked completely dead,
-      // no feedback at all. Now surfaces the same "couldn't import"
-      // copy already used for the manual playlist-link import flow, so
-      // a failed tap at least tells the user something went wrong
-      // instead of silently doing nothing.
-      if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        _showOpenFailedSnackBar(l10n);
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        _showOpenFailedSnackBar(l10n);
-      }
-    } finally {
-      if (mounted) setState(() => _opening = false);
-    }
-  }
-
-  void _showOpenFailedSnackBar(AppLocalizations l10n) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.libraryYoutubeImportFailedError),
-        backgroundColor: AurumTheme.bgCardOf(context),
+    AurumPageRoute.to(
+      context,
+      MixScreen(
+        mixId: widget.card.id,
+        mixName: widget.card.title,
+        artworkUrl: widget.card.artworkUrl,
+        emoji: '🎵',
+        songs: widget.card.songs,
+        // Only this call site (the "Playlists For You" card tap) turns
+        // pull-to-refresh on — the other 2 MixScreen pushes in this
+        // file and the one in library_screen.dart don't pass this, so
+        // they're completely unaffected. refreshSeed uses the card's
+        // own title so a refresh pulls more songs matching that
+        // specific category rather than a generic query.
+        enableRefresh: true,
+        refreshSeed: widget.card.title,
       ),
     );
   }

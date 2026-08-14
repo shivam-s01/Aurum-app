@@ -279,28 +279,47 @@ class YtPlaylistImportException implements Exception {
   String toString() => 'YtPlaylistImportException($reason)';
 }
 
-// Lightweight playlist-card metadata for the home screen's "Playlists For
-// You" row — see fetchYtMusicHomePlaylists() below. Deliberately holds no
-// song list; tapping a card fetches that on demand via the existing
-// fetchYtPlaylistSongs(playlistId).
+// Tiny value holder for a single "Playlists For You" sub-category card
+// definition — an id (used for the card's key/history tracking), a
+// display title, and the actual search query fired at both sources.
+class _MoodSubQuery {
+  final String id;
+  final String title;
+  final String query;
+  const _MoodSubQuery(this.id, this.title, this.query);
+}
+
+// Lightweight card for the home screen's "Playlists For You" row.
+// REDESIGNED (2026-08-14 — "faltu ka kya karna hai, ekdam simple
+// playlist jaisa"): this used to wrap a YT Music PLAYLIST id — tapping
+// a card meant a separate network round-trip (fetchYtPlaylistSongs) to
+// "import" that playlist before anything could play, and that import
+// step was the actual thing failing (playlist ids resolving to nothing,
+// "Couldn't import that playlist"). Now each card just wraps its own
+// ALREADY-FETCHED list of real Song objects (from a category search —
+// see fetchYtMusicHomePlaylists below), so there's nothing left to
+// import: tapping a card opens MixScreen directly with `songs` already
+// in hand, ready to play immediately, exactly like tapping any other
+// mix/playlist row elsewhere in this app.
 class YtHomePlaylistCard {
-  final String playlistId;
+  final String id;
   final String title;
   final String subtitle;
   final String artworkUrl;
+  final List<Song> songs;
   const YtHomePlaylistCard({
-    required this.playlistId,
+    required this.id,
     required this.title,
     required this.subtitle,
     required this.artworkUrl,
+    required this.songs,
   });
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MOOD CHIPS for the "Playlists For You" row — mirrors the Worker's
-// MOOD_QUERY_MAP. Kept as a simple id->label map so the chip row can
-// be built directly from this without any other file needing to know
-// the id strings the Worker expects.
+// MOOD CHIPS for the "Playlists For You" row. Each id maps to a plain
+// YT Music search query (see _kMoodSearchQuery below) — no Worker-side
+// mood table to keep in sync anymore.
 // ═══════════════════════════════════════════════════════════════════
 class HomeMoodChip {
   final String id;
@@ -309,9 +328,8 @@ class HomeMoodChip {
 }
 
 const List<HomeMoodChip> kHomeMoodChips = [
-  // India-market chips first — matches MOOD_QUERY_MAP ids on the Worker
-  // exactly (see worker.js's mood-chip section comment for why these
-  // get dedicated chips instead of relying on the generic shelf).
+  // India-market chips first — biggest draw for this app's actual
+  // audience, so they're explicit chips rather than left to chance.
   HomeMoodChip('bollywood', 'Bollywood'),
   HomeMoodChip('nineties', '90s'),
   HomeMoodChip('trendingIndia', 'Trending'),
@@ -327,31 +345,18 @@ const List<HomeMoodChip> kHomeMoodChips = [
 
 // ═══════════════════════════════════════════════════════════════════
 // NO-REPEAT HISTORY for the "Playlists For You" row — persists the
-// playlistIds already shown to the user (across app sessions, not just
-// in-memory) so pull-to-refresh and mood-chip switches surface fresh
-// playlists instead of looping the same handful. Capped at 30 ids:
-// large enough to avoid visible repeats across a few refresh cycles,
-// small enough to stay well under SharedPreferences' practical size
-// limits and not accumulate useless bloat over months of use.
+// song ids already shown to the user (across app sessions, not just
+// in-memory), scoped per-mood so switching chips can't exhaust a
+// completely different mood's history. Capped at 60: a single category
+// search returns up to ~40-50 songs per card build, so this needs more
+// headroom than the old playlist-id version (which only ever tracked a
+// handful of playlist ids at a time) to actually cover a few refresh
+// cycles' worth of individual songs.
 // ═══════════════════════════════════════════════════════════════════
 class HomePlaylistHistory {
-  static const _keyPrefix = 'home_playlists_for_you_shown_ids';
-  static const _cap = 30;
+  static const _keyPrefix = 'home_playlists_for_you_shown_song_ids';
+  static const _cap = 60;
 
-  // BUG FIX: shown-id history used to be ONE list shared across every
-  // mood chip (and "All"). Real YT Music search results for a given
-  // mood query (e.g. "bollywood hits playlist") return a fairly small,
-  // overlapping set of top playlists on repeat calls — so after
-  // switching between a few chips, this shared history could fill up
-  // with ids that were never even shown under the CURRENT mood, and
-  // legitimately starve that mood's small result pool to zero. Worker
-  // then fell through to its fallback list, which was ALSO filtered by
-  // this same shared exclude set — so a heavily-browsed session could
-  // exhaust that too, leaving `cards` empty and the whole section
-  // hidden (see build()'s `if (_failed && _cards == null) return
-  // SizedBox.shrink()`). Scoping history per-mood (separate storage
-  // key per mood id) means switching chips can no longer exhaust a
-  // completely different mood's history.
   static String _keyFor(String? mood) =>
       '$_keyPrefix${(mood == null || mood.isEmpty) ? '' : '_$mood'}';
 
@@ -364,17 +369,15 @@ class HomePlaylistHistory {
     }
   }
 
-  static Future<void> recordShown(String? mood, List<String> playlistIds) async {
-    if (playlistIds.isEmpty) return;
+  static Future<void> recordShown(String? mood, List<String> songIds) async {
+    if (songIds.isEmpty) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = _keyFor(mood);
       final existing = prefs.getStringList(key) ?? const [];
-      // Newest ids go to the front; de-dup while preserving recency
-      // order, then trim to the cap so the oldest entries age out.
       final merged = <String>[];
       final seen = <String>{};
-      for (final id in [...playlistIds, ...existing]) {
+      for (final id in [...songIds, ...existing]) {
         if (seen.contains(id)) continue;
         seen.add(id);
         merged.add(id);
@@ -3449,6 +3452,34 @@ class ApiService {
   /// this call in its own .timeout(), so a second one here would just be
   /// a second, inconsistent race against the same clock.
   static Future<List<Song>> _searchYtMusicDirect(String query, int limit) async {
+    return _searchYtMusicDirectRaw(query, limit, filterParam: _ytmSongsFilterParam);
+  }
+
+  // FIX (2026-08-14 — "Podcast bhi ekdam perfect aana chahiye"):
+  // _ytmSongsFilterParam locks every direct YT Music search to the
+  // "Songs" shelf ONLY — the exact same restriction as tapping the
+  // "Songs" chip on music.youtube.com. YT Music's Songs shelf
+  // deliberately EXCLUDES podcast episodes (they live under their own
+  // separate Podcasts filter/shelf on YT Music), so every "Podcasts"
+  // mood query run through the songs-only path came back empty or
+  // wildly irrelevant no matter how the query text was worded — the
+  // filter itself was the problem, not the query. This unfiltered
+  // variant omits `params` entirely, which returns YT Music's default
+  // mixed-shelf result set (songs, videos, AND podcast episodes),
+  // reusing the exact same response parser since podcast episode rows
+  // come back in the same musicResponsiveListItemRenderer shape songs
+  // do — only used for the Podcasts mood chip; every other mood keeps
+  // using the songs-filtered path above so regular music results stay
+  // exactly as clean/song-only as before.
+  static Future<List<Song>> _searchYtMusicDirectUnfiltered(String query, int limit) async {
+    return _searchYtMusicDirectRaw(query, limit, filterParam: null);
+  }
+
+  static Future<List<Song>> _searchYtMusicDirectRaw(
+    String query,
+    int limit, {
+    required String? filterParam,
+  }) async {
     final uri = Uri.parse(
       'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
     );
@@ -3471,7 +3502,7 @@ class ApiService {
           },
         },
         'query': query,
-        'params': _ytmSongsFilterParam,
+        if (filterParam != null) 'params': filterParam,
       }),
     );
     if (resp.statusCode != 200) return [];
@@ -3806,576 +3837,256 @@ class ApiService {
   // remains as the fallback if the worker route errors or times out, so
   // this is zero-regression: worst case behaves exactly as before.
   // ═══════════════════════════════════════════════════════════════════
-  // YT MUSIC HOME PLAYLIST CARDS — /api/yt-music-home on the Worker.
+  // "PLAYLISTS FOR YOU" — category-based song cards for the home row.
   //
-  // Returns lightweight PLAYLIST CARD metadata (title, cover, playlistId,
-  // subtitle) for a "Playlists For You" home row — genuinely YT-Music-
-  // curated shelf content (Top charts, mood/genre mixes), not a
-  // hand-picked query list like _kCuratedPlaylists in home_screen.dart.
-  // Deliberately does NOT return full song lists — a home row only needs
-  // cover+title to render fast. Tapping a card fetches that playlist's
-  // full song list on demand via the EXISTING fetchYtPlaylistSongs()
-  // above (same function already used for playlist import), so there's
-  // no second/duplicate playlist-resolve code path to maintain.
-  // ═══════════════════════════════════════════════════════════════════
-  // PERSONALIZED (2026-08-13): now passes `seed` — the user's own top
-  // affinity artists from RecommendationEngine (same listening-history
-  // signal already used to personalize fetchHome()'s song sections) — so
-  // DIRECT-DART BACKUP (2026-08-14 — "worker kabhi down/slow ho to bhi
-  // Playlists For You khaali na rahe"): mirrors the _searchYt pattern
-  // above — if the Worker's /api/yt-music-home route fails, errors, or
-  // times out, fall back to calling YT Music's own WEB_REMIX InnerTube
-  // search endpoint straight from the phone (same public key/endpoint
-  // _searchYtMusicDirect already uses for song search) to fetch REAL
-  // playlist cards for the same mood query. This is a genuinely
-  // separate data path from the Worker — same source (YT Music itself)
-  // but reachable even if the Worker is unreachable — so a mood chip
-  // can never come back with nothing just because Cloudflare/the
-  // Worker had a bad moment.
-  // RACE (2026-08-14 — "worker ya phone se directly, jo pehle aaye wahi
-  // turant apply ho, khaali kabhi na dikhe"): both sources are launched
-  // in parallel with Future.any-style first-non-empty-wins semantics,
-  // instead of the old "wait for worker to fully finish/timeout, THEN
-  // try direct" sequential chain. Whichever source resolves first with
-  // a usable (non-empty) result wins and is returned immediately — the
-  // loser keeps running in the background (harmless, its result is
-  // simply discarded) rather than being awaited. This removes the old
-  // worst case (worker slow → full 10s wasted → THEN direct starts →
-  // total latency stacks) without changing what data is shown or how
-  // it's played: this function still only returns card metadata, the
-  // exact same YtHomePlaylistCard shape as before, and the caller
-  // (home_screen.dart) is unchanged.
+  // REWRITTEN (2026-08-14 — "worker rehne do lekin ye dart wala api bhe
+  // laga do, kisi bhe data jaldi aaye wahi aa jaye aur play ke liye
+  // source ready hai hi" + "har mood ke andar 5-8 alag sub-category
+  // cards ho, jaisa purana row dikhta tha"): each mood chip
+  // (Bollywood/90s/Trending/etc) maps to 6 sub-category queries
+  // (_kMoodSubQueries below) — e.g. Bollywood -> Romance/Party/Sad/
+  // Workout/Classic/New Releases — so selecting a chip still fills the
+  // row with several distinct cards, not one giant tile.
   //
-  // "All" (mood == null) now also races: the direct side uses a
-  // seed-artist query built from RecommendationEngine.topAffinityArtists
-  // (the same signal the Worker uses for personalization) instead of
-  // giving up immediately, so the race is meaningful for every tab, not
-  // just mood chips.
-  // GUARANTEED DATA (2026-08-14 — "retry button nahi, data aana hi
-  // chahiye, worker ka wait khatam, ekdam production-level fast"):
-  // this now has THREE layers so an empty result reaching the UI
-  // becomes vanishingly rare, without ever blocking on a single slow
-  // source:
+  // Each sub-category's songs are fetched by racing BOTH sources at
+  // once — the Cloudflare Worker's /api/yt-music-search route AND a
+  // direct-from-phone YT Music InnerTube call (same public WEB_REMIX
+  // endpoint _searchYtMusicDirect already uses for normal song search,
+  // no Worker involved). Whichever answers first with a real
+  // (non-empty) result wins that card; the loser keeps running
+  // harmlessly in the background and its result is discarded. All 6
+  // sub-category fetches themselves also run in parallel, so the whole
+  // row fills at roughly the speed of whichever single sub-category is
+  // slowest, not their sum.
   //
-  //   1. RACE — worker + direct fire in parallel, first non-empty wins
-  //      (unchanged core idea from before).
-  //   2. NO-REPEAT-STARVED RETRY — if both come back empty, the most
-  //      common real cause isn't "no data exists", it's excludeIds
-  //      (the no-repeat history) filtering out everything available
-  //      for a mood with a small pool. So on a double-empty, this
-  //      immediately re-races BOTH sources again with excludeIds
-  //      dropped — same mood, same query, just stops excluding
-  //      already-seen playlists. This alone fixes the overwhelming
-  //      majority of "chip switch = empty" cases.
-  //   3. GENERIC-QUERY FALLBACK — if that retry is STILL empty (both
-  //      sources genuinely down, or an edge-case mood), one last direct
-  //      call fires with a broad, always-populated query so a mood chip
-  //      never renders truly empty as long as the phone has any network
-  //      at all.
-  //
-  // Net effect: the UI-level "_failed" state (and any retry button)
-  // becomes a last resort that should essentially never fire under
-  // normal conditions — this function keeps working internally instead
-  // of surfacing failure to the user.
+  // Each card is a plain list of Song objects — not a playlist id.
+  // That removes the old two-step "fetch card -> tap -> import
+  // playlist -> maybe fails" flow entirely: there's nothing left to
+  // import, the songs are already fully resolved the moment the card
+  // exists. Tapping a card opens MixScreen with `songs` already in
+  // hand — same as every other mix/playlist tile in this app.
   static Future<List<YtHomePlaylistCard>> fetchYtMusicHomePlaylists({
-    int limit = 10,
+    int limit = 8,
     String? mood,
     List<String>? excludeIds,
   }) async {
-    final firstPass = await _raceHomePlaylistSources(
-      limit: limit,
-      mood: mood,
-      excludeIds: excludeIds,
-    );
-    if (firstPass.isNotEmpty) {
-      _recordShownCards(mood, firstPass);
-      return firstPass;
-    }
+    final subQueries = _kMoodSubQueries[mood] ?? _kMoodSubQueries[null]!;
+    final exclude = (excludeIds ?? const []).toSet();
+    const songsPerCard = 30;
+    // See _raceSongSources' isPodcastQuery doc comment: the Podcasts
+    // mood needs a different race shape (skip Saavn, skip the
+    // Songs-only YT filter) since podcast episodes are structurally
+    // excluded from every other mood's normal music-search sources.
+    final isPodcastMood = mood == 'podcasts';
 
-    // LAYER 2: both empty — most likely the no-repeat filter starved
-    // a small pool. Re-race with excludeIds dropped.
-    if (excludeIds != null && excludeIds.isNotEmpty) {
-      _log('[fetchYtMusicHomePlaylists] double-empty, retrying without excludeIds');
-      final retryPass = await _raceHomePlaylistSources(
-        limit: limit,
-        mood: mood,
-        excludeIds: null,
+    final cardFutures = subQueries.take(limit).map((sub) async {
+      final songs = await _raceSongSources(
+        sub.query,
+        limit: songsPerCard + exclude.length,
+        isPodcastQuery: isPodcastMood,
       );
-      if (retryPass.isNotEmpty) {
-        _recordShownCards(mood, retryPass);
-        return retryPass;
+      final cleaned = songs.where((s) => s.id.isNotEmpty).toList();
+      final fresh = cleaned.where((s) => !exclude.contains(s.id)).toList();
+      final finalSongs = (fresh.length >= 10 ? fresh : cleaned).take(songsPerCard).toList();
+      if (finalSongs.isEmpty) return null;
+      return YtHomePlaylistCard(
+        id: 'mood_${mood ?? "all"}_${sub.id}',
+        title: sub.title,
+        subtitle: 'Playlist',
+        artworkUrl: finalSongs
+            .firstWhere((s) => s.artworkUrl.isNotEmpty, orElse: () => finalSongs.first)
+            .artworkUrl,
+        songs: finalSongs,
+      );
+    });
+
+    final results = await Future.wait(cardFutures);
+    final cards = results.whereType<YtHomePlaylistCard>().toList();
+
+    if (cards.isNotEmpty) {
+      final shownIds = <String>[];
+      for (final c in cards) {
+        shownIds.addAll(c.songs.map((s) => s.id));
       }
+      unawaited(HomePlaylistHistory.recordShown(mood, shownIds));
     }
 
-    // LAYER 3: genuinely nothing came back — one last direct call with
-    // a broad always-populated query so the row is never truly empty.
-    _log('[fetchYtMusicHomePlaylists] still empty, trying generic fallback query');
-    try {
-      final fallback = await _fetchYtMusicHomePlaylistsDirect(
-        mood: null,
-        limit: limit,
-        excludeIds: null,
-        forceGenericQuery: true,
-      ).timeout(const Duration(seconds: 6), onTimeout: () => const []);
-      if (fallback.isNotEmpty) {
-        _recordShownCards(mood, fallback);
-      }
-      return fallback;
-    } catch (e) {
-      _log('[fetchYtMusicHomePlaylists] generic fallback error: $e');
-      return const [];
-    }
+    return cards;
   }
 
-  static Future<List<YtHomePlaylistCard>> _raceHomePlaylistSources({
+  // First-non-empty-wins race across independent sources: the Worker's
+  // YT-search route, a direct-from-phone YT Music InnerTube call, and
+  // JioSaavn's own search API. Saavn added (2026-08-14) as a third
+  // source — it's JioSaavn's own catalog (not YouTube reuploads), so
+  // results come back as one clean canonical entry per song instead of
+  // the same track appearing under several different channel/reupload
+  // titles the way YT search results sometimes do, AND it's typically
+  // the fastest of the three for Bollywood/Hindi queries specifically
+  // (official catalog lookup, no InnerTube client-simulation overhead).
+  // Whichever source answers first with real (non-empty) results wins;
+  // the others keep running harmlessly in the background and are
+  // discarded.
+  //
+  // [isPodcastQuery] (2026-08-14 — "Podcast bhi ekdam perfect aana
+  // chahiye"): Saavn's catalog is music-only — it will never have
+  // podcast episodes, so racing it for a podcast query just burns a
+  // network call for a guaranteed-empty result. The Worker's
+  // /api/yt-music-search route AND the normal direct YT path both hard-
+  // code YT Music's "Songs"-only filter, which explicitly EXCLUDES
+  // podcast episodes (they live under YT Music's own separate Podcasts
+  // shelf) — so both of those would also reliably come back empty/
+  // irrelevant for a podcast query specifically, no matter the query
+  // wording. When true: skips Saavn entirely and swaps the direct YT
+  // path for _searchYtMusicDirectUnfiltered (no Songs-only restriction,
+  // so podcast episode rows actually come through). The Worker path is
+  // still raced alongside it (harmless — it'll likely just lose/settle
+  // empty for this case) so a future worker update that adds podcast
+  // support gets picked up automatically without another app change.
+  static Future<List<Song>> _raceSongSources(
+    String query, {
     required int limit,
-    String? mood,
-    List<String>? excludeIds,
+    bool isPodcastQuery = false,
   }) async {
-    final completer = Completer<List<YtHomePlaylistCard>>();
-    var pending = 2;
+    final completer = Completer<List<Song>>();
+    var pending = isPodcastQuery ? 2 : 3;
 
-    void settleIfBest(List<YtHomePlaylistCard> cards, String source) {
+    void settle(List<Song> songs) {
       if (completer.isCompleted) return;
-      if (cards.isNotEmpty) {
-        _log('[fetchYtMusicHomePlaylists] winner: $source (${cards.length})');
-        completer.complete(cards);
+      if (songs.isNotEmpty) {
+        completer.complete(songs);
       } else {
         pending--;
-        if (pending == 0 && !completer.isCompleted) {
-          completer.complete(const []);
-        }
+        if (pending == 0 && !completer.isCompleted) completer.complete(const []);
       }
     }
 
     unawaited(
-      _fetchYtMusicHomePlaylistsViaWorker(
-        limit: limit,
-        mood: mood,
-        excludeIds: excludeIds,
-      ).timeout(const Duration(seconds: 7), onTimeout: () => const []).then(
-        (cards) => settleIfBest(cards, 'worker'),
-        onError: (e) {
-          _log('[fetchYtMusicHomePlaylists] worker path error: $e');
-          settleIfBest(const [], 'worker');
-        },
-      ),
+      _searchYtMusic(query, limit)
+          .timeout(const Duration(seconds: 6), onTimeout: () => const [])
+          .then(settle, onError: (_) => settle(const [])),
     );
-
     unawaited(
-      _fetchYtMusicHomePlaylistsDirect(
-        mood: mood,
-        limit: limit,
-        excludeIds: excludeIds,
-      ).timeout(const Duration(seconds: 6), onTimeout: () => const []).then(
-        (cards) => settleIfBest(cards, 'direct'),
-        onError: (e) {
-          _log('[fetchYtMusicHomePlaylists] direct path error: $e');
-          settleIfBest(const [], 'direct');
-        },
-      ),
+      (isPodcastQuery
+              ? _searchYtMusicDirectUnfiltered(query, limit)
+              : _searchYtMusicDirect(query, limit))
+          .timeout(const Duration(seconds: 6), onTimeout: () => const [])
+          .then(settle, onError: (_) => settle(const [])),
     );
+    if (!isPodcastQuery) {
+      unawaited(
+        // allowMultiPage: false — this is a race for the FASTEST first
+        // usable page, not a deep fetch; walking multiple Saavn pages
+        // here would add latency for zero benefit since MixScreen's own
+        // pull-to-refresh is what handles "more songs" for an opened
+        // category, not this initial race.
+        _searchSaavn(query, limit: limit, allowMultiPage: false)
+            .timeout(const Duration(seconds: 5), onTimeout: () => const [])
+            .then(settle, onError: (_) => settle(const [])),
+      );
+    }
 
     return completer.future;
   }
 
-  static void _recordShownCards(String? mood, List<YtHomePlaylistCard> cards) {
-    if (cards.isEmpty) return;
-    unawaited(
-      HomePlaylistHistory.recordShown(
-          mood, cards.map((c) => c.playlistId).toList()),
-    );
-  }
-
-  // the Worker can run real YT Music playlist/mix searches against what
-  // this specific user actually listens to, not just the generic global
-  // FEmusic_home shelf. Foreign-language shelf filtering now happens
-  // server-side in the Worker (shelf-title keyword match, same idea as
-  // the old client-side filter this replaces, but applied before the
-  // over-fetch/shuffle round-trip instead of after), so this no longer
-  // needs to over-fetch and re-filter client-side.
-  // MOOD + NO-REPEAT (2026-08-13): `mood` — when non-null/non-empty —
-  // overrides the personalized-seed lookup entirely and asks the Worker
-  // for playlists matching that mood chip (Podcasts/Relax/Workout/etc,
-  // see kHomeMoodChips), same behavior as tapping a mood pill in
-  // Echo Music. `excludeIds`, when provided, is sent to the Worker so
-  // playlists already shown recently (tracked via HomePlaylistHistory)
-  // are filtered server-side before the response comes back — this is
-  // what makes pull-to-refresh and mood switches feel like they're
-  // surfacing something new instead of looping the same handful of
-  // cards. Both params are optional and additive: omitting them
-  // reproduces the exact prior behavior.
-  static Future<List<YtHomePlaylistCard>> _fetchYtMusicHomePlaylistsViaWorker({
-    int limit = 10,
-    String? mood,
-    List<String>? excludeIds,
-  }) async {
-    try {
-      final seedArtists = RecommendationEngine.topAffinityArtists(count: 3);
-      final seedParam = seedArtists.isEmpty
-          ? ''
-          : '&seed=${Uri.encodeQueryComponent(seedArtists.join(','))}';
-      final moodParam = (mood == null || mood.isEmpty)
-          ? ''
-          : '&mood=${Uri.encodeQueryComponent(mood)}';
-      final excludeParam = (excludeIds == null || excludeIds.isEmpty)
-          ? ''
-          : '&exclude=${Uri.encodeQueryComponent(excludeIds.join(','))}';
-      final uri = Uri.parse(
-          '$_saavn/api/yt-music-home?limit=$limit$seedParam$moodParam$excludeParam');
-      final resp = await http.get(uri).timeout(const Duration(seconds: 10));
-      if (resp.statusCode != 200) {
-        _log('[fetchYtMusicHomePlaylists] HTTP ${resp.statusCode}');
-        return const [];
-      }
-      final data = jsonDecode(resp.body);
-      if (data['success'] != true) return const [];
-      final results = (data['data']?['results'] as List?) ?? [];
-      final cards = results
-          .map<YtHomePlaylistCard?>((r) {
-            final playlistId = (r['playlistId'] ?? '').toString();
-            final title = _cleanText((r['title'] ?? '').toString());
-            final artworkUrl = (r['image'] ?? '').toString();
-            // Belt-and-suspenders client-side guard: even though the
-            // Worker now filters these out server-side, never render a
-            // card with no artwork — a title-only tile is the exact
-            // "blank card" look this row was fixed to eliminate.
-            if (playlistId.isEmpty || title.isEmpty || artworkUrl.isEmpty) {
-              return null;
-            }
-            return YtHomePlaylistCard(
-              playlistId: playlistId,
-              title: title,
-              subtitle: _cleanText((r['subtitle'] ?? '').toString()),
-              artworkUrl: artworkUrl,
-            );
-          })
-          .whereType<YtHomePlaylistCard>()
-          .toList();
-      return cards;
-    } catch (e) {
-      _log('[fetchYtMusicHomePlaylists] error: $e');
-      return const [];
-    }
-  }
-
-  // Same MOOD_QUERY_MAP the Worker uses (worker.js) — kept in sync by
-  // hand since this is a small, stable, rarely-changed list; mirrored
-  // here so the direct-Dart backup asks YT Music the exact same
-  // question the Worker would have, and gets equally-relevant results.
-  static const Map<String, String> _kMoodQueryMap = {
-    'bollywood': 'bollywood hits playlist',
-    'nineties': '90s bollywood hits',
-    'trendingindia': 'trending India songs playlist',
-    'podcasts': 'podcast playlist',
-    'relax': 'relax chill mix',
-    'workout': 'workout gym mix',
-    'energize': 'energetic hype mix',
-    'romantic': 'romantic love songs mix',
-    'party': 'party dance mix',
-    'focus': 'focus study mix',
-    'sad': 'sad emotional mix',
+  static const Map<String?, List<_MoodSubQuery>> _kMoodSubQueries = {
+    null: [
+      _MoodSubQuery('top_global', 'Top Songs Global', 'top hits global playlist'),
+      _MoodSubQuery('trending_now', 'Trending Now', 'trending songs now'),
+      _MoodSubQuery('top100_india', 'Top 100 India', 'top 100 India songs'),
+      _MoodSubQuery('new_releases', 'New Releases', 'new song releases'),
+      _MoodSubQuery('viral_hits', 'Viral Hits', 'viral hit songs'),
+      _MoodSubQuery('feel_good', 'Feel Good Mix', 'feel good happy songs'),
+    ],
+    'bollywood': [
+      _MoodSubQuery('bw_romance', 'Bollywood Romance', 'bollywood romantic songs'),
+      _MoodSubQuery('bw_party', 'Bollywood Party', 'bollywood party dance songs'),
+      _MoodSubQuery('bw_sad', 'Bollywood Sad', 'bollywood sad songs'),
+      _MoodSubQuery('bw_classic', 'Bollywood Classics', 'bollywood classic old songs'),
+      _MoodSubQuery('bw_new', 'New Bollywood', 'new bollywood songs'),
+      _MoodSubQuery('bw_item', 'Bollywood Dance', 'bollywood item dance songs'),
+    ],
+    'nineties': [
+      _MoodSubQuery('90s_bw', '90s Bollywood', '90s bollywood hits'),
+      _MoodSubQuery('90s_romance', '90s Love Songs', '90s bollywood romantic songs'),
+      _MoodSubQuery('90s_dance', '90s Dance Hits', '90s bollywood dance songs'),
+      _MoodSubQuery('90s_sad', '90s Sad Songs', '90s bollywood sad songs'),
+      _MoodSubQuery('90s_english', '90s English Hits', '90s english pop hits'),
+      _MoodSubQuery('90s_rock', '90s Rock', '90s rock hits'),
+    ],
+    'trendingIndia': [
+      _MoodSubQuery('trend_now', 'Trending Now', 'trending India songs now'),
+      _MoodSubQuery('trend_viral', 'Viral in India', 'viral India songs'),
+      _MoodSubQuery('trend_charts', 'India Charts', 'India top charts songs'),
+      _MoodSubQuery('trend_new', 'New & Trending', 'new trending India songs'),
+      _MoodSubQuery('trend_regional', 'Regional Hits', 'trending regional India songs'),
+      _MoodSubQuery('trend_reels', 'Reels Trending', 'trending reels songs India'),
+    ],
+    'podcasts': [
+      _MoodSubQuery('pod_top', 'Top Podcasts', 'popular podcast'),
+      _MoodSubQuery('pod_comedy', 'Comedy', 'comedy podcast'),
+      _MoodSubQuery('pod_news', 'News & Talk', 'news talk podcast'),
+      _MoodSubQuery('pod_stories', 'True Stories', 'true crime podcast'),
+      _MoodSubQuery('pod_business', 'Business', 'business podcast'),
+      _MoodSubQuery('pod_hindi', 'Hindi Podcasts', 'hindi podcast'),
+    ],
+    'relax': [
+      _MoodSubQuery('relax_chill', 'Chill Mix', 'chill relax songs'),
+      _MoodSubQuery('relax_lofi', 'Lo-fi', 'lofi chill beats'),
+      _MoodSubQuery('relax_acoustic', 'Acoustic', 'acoustic relax songs'),
+      _MoodSubQuery('relax_piano', 'Piano Calm', 'calm piano instrumental'),
+      _MoodSubQuery('relax_sleep', 'Sleep Sounds', 'sleep relaxing music'),
+      _MoodSubQuery('relax_nature', 'Nature Sounds', 'nature ambient relax music'),
+    ],
+    'workout': [
+      _MoodSubQuery('gym_pump', 'Gym Pump Up', 'gym workout pump up songs'),
+      _MoodSubQuery('gym_cardio', 'Cardio Mix', 'cardio workout songs'),
+      _MoodSubQuery('gym_hiit', 'HIIT Energy', 'hiit workout energy songs'),
+      _MoodSubQuery('gym_running', 'Running Mix', 'running workout songs'),
+      _MoodSubQuery('gym_strength', 'Strength Training', 'strength training gym songs'),
+      _MoodSubQuery('gym_bollywood', 'Bollywood Workout', 'bollywood gym workout songs'),
+    ],
+    'energize': [
+      _MoodSubQuery('energy_hype', 'Hype Mix', 'hype energetic songs'),
+      _MoodSubQuery('energy_dance', 'Dance Energy', 'energetic dance songs'),
+      _MoodSubQuery('energy_edm', 'EDM Boost', 'edm energetic songs'),
+      _MoodSubQuery('energy_rock', 'Rock Energy', 'energetic rock songs'),
+      _MoodSubQuery('energy_bollywood', 'Bollywood Energy', 'energetic bollywood songs'),
+      _MoodSubQuery('energy_morning', 'Morning Boost', 'morning energy motivation songs'),
+    ],
+    'romantic': [
+      _MoodSubQuery('rom_bollywood', 'Bollywood Romance', 'bollywood romantic love songs'),
+      _MoodSubQuery('rom_english', 'English Love Songs', 'english romantic love songs'),
+      _MoodSubQuery('rom_wedding', 'Wedding Romance', 'wedding romantic songs'),
+      _MoodSubQuery('rom_slow', 'Slow Romance', 'slow romantic songs'),
+      _MoodSubQuery('rom_duets', 'Love Duets', 'romantic duet songs'),
+      _MoodSubQuery('rom_valentine', 'Valentine Mix', 'valentine love songs'),
+    ],
+    'party': [
+      _MoodSubQuery('party_bollywood', 'Bollywood Party', 'bollywood party songs'),
+      _MoodSubQuery('party_edm', 'EDM Party', 'edm party dance songs'),
+      _MoodSubQuery('party_club', 'Club Hits', 'club dance hits'),
+      _MoodSubQuery('party_wedding', 'Wedding Party', 'wedding party dance songs'),
+      _MoodSubQuery('party_punjabi', 'Punjabi Party', 'punjabi party songs'),
+      _MoodSubQuery('party_english', 'English Party', 'english party dance songs'),
+    ],
+    'focus': [
+      _MoodSubQuery('focus_study', 'Study Focus', 'study focus concentration music'),
+      _MoodSubQuery('focus_instrumental', 'Instrumental', 'instrumental focus music'),
+      _MoodSubQuery('focus_lofi', 'Lo-fi Focus', 'lofi study focus beats'),
+      _MoodSubQuery('focus_classical', 'Classical Focus', 'classical focus music'),
+      _MoodSubQuery('focus_ambient', 'Ambient Focus', 'ambient focus concentration music'),
+      _MoodSubQuery('focus_work', 'Deep Work', 'deep work focus music'),
+    ],
+    'sad': [
+      _MoodSubQuery('sad_bollywood', 'Bollywood Sad', 'bollywood sad emotional songs'),
+      _MoodSubQuery('sad_breakup', 'Breakup Songs', 'breakup sad songs'),
+      _MoodSubQuery('sad_english', 'English Sad Songs', 'english sad emotional songs'),
+      _MoodSubQuery('sad_slow', 'Slow Sad', 'slow sad emotional songs'),
+      _MoodSubQuery('sad_heartbreak', 'Heartbreak Mix', 'heartbreak sad songs'),
+      _MoodSubQuery('sad_alone', 'Lonely Nights', 'lonely sad night songs'),
+    ],
   };
 
-  // Direct-from-phone YT Music playlist-card search — no Cloudflare
-  // Worker involved. Uses the same public WEB_REMIX InnerTube
-  // endpoint/key _searchYtMusicDirect already uses for song search
-  // (see that function's comment for why this endpoint/key is safe to
-  // call unauthenticated), but WITHOUT the Songs-only filter param —
-  // an unfiltered search surfaces playlists/albums the same way
-  // worker.js's ytMusicSearchPlaylists does. Parsing mirrors
-  // parseYtMusicSearchPlaylistCards in worker.js field-for-field so
-  // results from this path are indistinguishable from the Worker's.
-  // SEED QUERY (2026-08-14): when mood is null/empty (the "All" tab),
-  // there's no fixed query to send — mirrors what the Worker does for
-  // personalization by turning the user's own top affinity artists
-  // (RecommendationEngine — same signal already used elsewhere, e.g.
-  // the Worker's seed= param above) into a real YT Music search query,
-  // so the direct path has a genuine personalized equivalent instead
-  // of just being unavailable for "All". Falls back to a generic
-  // well-known query only if the user has no listening history yet
-  // (brand-new install) so this never returns nothing.
-  static String? _resolveDirectQuery(String? mood) {
-    if (mood != null && mood.isNotEmpty) {
-      return _kMoodQueryMap[mood.toLowerCase()];
-    }
-    final seedArtists = RecommendationEngine.topAffinityArtists(count: 3);
-    if (seedArtists.isEmpty) {
-      // No listening history yet — same safe generic default the
-      // Worker's FEmusic_home shelf effectively surfaces for new users.
-      return 'trending mix playlist';
-    }
-    // e.g. "Arijit Singh mix playlist" — same "artist + mix" pattern
-    // YT Music's own home page uses for personalized radio/mix shelves.
-    return '${seedArtists.first} mix playlist';
-  }
-
-  // TOP-UP (2026-08-14 — "poora fill kyu nahi hota, direct fast hai
-  // hi"): a single YT Music search response only has one page's worth
-  // of shelf items, so if fewer than `limit` VALID playlist cards
-  // survive the artwork/foreign/mix-exclusion filters, this used to
-  // just return whatever it had — correct (never blank), but visibly
-  // thinner than the worker's row. Now, if the first query comes back
-  // short, a second differently-phrased query for the SAME mood/seed
-  // fires immediately and results are merged (deduped by playlistId)
-  // until `limit` is reached or both queries are exhausted. This is
-  // still one extra network call, not a loop, so it stays fast.
-  static const Map<String, String> _kMoodQueryMapAlt = {
-    'bollywood': 'best bollywood songs mix',
-    'nineties': '90s hindi songs mix',
-    'trendingindia': 'top India music charts',
-    'podcasts': 'popular podcasts playlist',
-    'relax': 'chill lofi mix',
-    'workout': 'gym motivation mix',
-    'energize': 'pump up party mix',
-    'romantic': 'love songs mix',
-    'party': 'dance hits mix',
-    'focus': 'study concentration mix',
-    'sad': 'heartbreak songs mix',
-  };
-
-  static Future<List<YtHomePlaylistCard>> _fetchYtMusicHomePlaylistsDirect({
-    String? mood,
-    int limit = 10,
-    List<String>? excludeIds,
-    bool forceGenericQuery = false,
-  }) async {
-    // LAYER-3 fallback (2026-08-14): a broad, always-populated query —
-    // used only when both the race AND the no-repeat-dropped retry came
-    // back empty, as the very last resort before ever surfacing a
-    // truly empty row to the user.
-    final query = forceGenericQuery
-        ? 'top hits playlist'
-        : _resolveDirectQuery(mood);
-    if (query == null) return const [];
-
-    final excludeSet = (excludeIds ?? const []).toSet();
-    var cards = await _runYtMusicHomeSearch(query, limit, excludeSet);
-
-    if (cards.length < limit && !forceGenericQuery) {
-      final altQuery = (mood != null && mood.isNotEmpty)
-          ? _kMoodQueryMapAlt[mood.toLowerCase()]
-          : null;
-      if (altQuery != null) {
-        final seen = cards.map((c) => c.playlistId).toSet()
-          ..addAll(excludeSet);
-        final more = await _runYtMusicHomeSearch(
-            altQuery, limit - cards.length, seen);
-        if (more.isNotEmpty) {
-          cards = [...cards, ...more];
-        }
-      }
-    }
-    return cards;
-  }
-
-  static Future<List<YtHomePlaylistCard>> _runYtMusicHomeSearch(
-      String query, int limit, Set<String> excludeSet) async {
-
-    final uri = Uri.parse(
-      'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
-    );
-    final resp = await _client.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Origin': 'https://music.youtube.com',
-        'Referer': 'https://music.youtube.com/',
-      },
-      body: jsonEncode({
-        'context': {
-          'client': {
-            'clientName': 'WEB_REMIX',
-            'clientVersion': _ytmClientVersion,
-            'hl': 'en',
-            'gl': 'IN',
-          },
-        },
-        'query': query,
-      }),
-    );
-    if (resp.statusCode != 200) return const [];
-    final dynamic decoded = jsonDecode(resp.body);
-    if (decoded is! Map) return const [];
-
-    return _parseYtMusicPlaylistCardsDirect(decoded, limit, excludeSet);
-  }
-
-  static const List<String> _kForeignShelfKeywords = [
-    'française', 'francais', 'français', 'chanson', 'soirée', 'soiree',
-    'meilleurs titres', 'titres d',
-    'canciones', 'música', 'musica', 'éxitos', 'exitos', 'canción',
-    'musik', 'lieder', 'deutsch', 'beliebte',
-    'canzoni', 'musica italiana',
-    'müzik', 'şarkı', 'popüler',
-    'nhạc', 'bài hát',
-    '음악', '노래', '인기',
-    '音楽', 'ミュージック', '人気',
-    '音乐', '歌曲', '热门',
-    'музыка', 'песни', 'популярные',
-    'موسيقى', 'أغاني', 'شعبية',
-  ];
-
-  static bool _isForeignShelfTitleDirect(String title) {
-    final t = title.toLowerCase();
-    if (t.isEmpty) return false;
-    return _kForeignShelfKeywords.any((kw) => t.contains(kw));
-  }
-
-  /// Small null-safe helpers used only by _parseYtMusicPlaylistCardsDirect
-  /// above — avoids depending on package:collection just for a single
-  /// "first element or null" access on YouTube's deeply-nested JSON.
-  static dynamic _safeIndex(List? list, int index) {
-    if (list == null || index < 0 || index >= list.length) return null;
-    return list[index];
-  }
-
-  static String _firstRunText(dynamic runs) {
-    if (runs is! List || runs.isEmpty) return '';
-    final first = runs[0];
-    return (first?['text'] ?? '').toString();
-  }
-
-  /// Mirrors worker.js's parseYtMusicSearchPlaylistCards() field-for-
-  /// field — same tabbedSearchResultsRenderer walk, same VL-prefix /
-  /// watchPlaylistEndpoint / overlay-endpoint playlist-id detection,
-  /// same artwork-required guard (never ships a blank/transparent
-  /// card), same foreign-shelf-title filter, same mix-playlist
-  /// exclusion — so results from this path are indistinguishable from
-  /// the Worker's.
-  static List<YtHomePlaylistCard> _parseYtMusicPlaylistCardsDirect(
-      dynamic json, int limit, Set<String> excludeIds) {
-    final out = <YtHomePlaylistCard>[];
-    final seen = <String>{};
-    try {
-      final tabs = json?['contents']?['tabbedSearchResultsRenderer']?['tabs']
-              as List? ??
-          const [];
-      final sections = <dynamic>[];
-      for (final tab in tabs) {
-        final contents = tab?['tabRenderer']?['content']
-                ?['sectionListRenderer']?['contents'] as List? ??
-            const [];
-        sections.addAll(contents);
-      }
-      for (final section in sections) {
-        final shelf = section?['musicShelfRenderer'] ??
-            section?['musicCarouselShelfRenderer'];
-        if (shelf == null) continue;
-        final items = shelf['contents'] as List? ?? const [];
-        for (final item in items) {
-          final dynamic r = item?['musicResponsiveListItemRenderer'];
-          final dynamic tw = item?['musicTwoRowItemRenderer'];
-          final dynamic node = r ?? tw;
-          if (node == null) continue;
-
-          final browseId =
-              (node['navigationEndpoint']?['browseEndpoint']?['browseId'] ??
-                      '')
-                  .toString();
-          final watchPlaylistId = (node['navigationEndpoint']
-                      ?['watchPlaylistEndpoint']?['playlistId'] ??
-                  '')
-              .toString();
-          final overlayPlaylistId = ((node['overlay']
-                          ?['musicItemThumbnailOverlayRenderer']?['content']
-                      ?['musicPlayButtonRenderer']?['playNavigationEndpoint']
-                  ?['watchPlaylistEndpoint']?['playlistId']) ??
-              (node['thumbnailOverlay']
-                          ?['musicItemThumbnailOverlayRenderer']?['content']
-                      ?['musicPlayButtonRenderer']?['playNavigationEndpoint']
-                  ?['watchPlaylistEndpoint']?['playlistId']) ??
-              '').toString();
-
-          String playlistId = '';
-          if (browseId.startsWith('VL')) {
-            playlistId = browseId.substring(2);
-          } else if (watchPlaylistId.isNotEmpty) {
-            playlistId = watchPlaylistId;
-          } else if (overlayPlaylistId.isNotEmpty) {
-            playlistId = overlayPlaylistId;
-          } else if (browseId.isNotEmpty && !browseId.startsWith('UC')) {
-            playlistId = browseId;
-          }
-
-          if (playlistId.isEmpty ||
-              _isYtMixPlaylistId(playlistId) ||
-              seen.contains(playlistId) ||
-              excludeIds.contains(playlistId)) {
-            continue;
-          }
-
-          final dynamic flexCol0 = r != null
-              ? _safeIndex(r['flexColumns'] as List?, 0)
-              : null;
-          dynamic titleRuns;
-          if (r != null) {
-            final dynamic flexRenderer = (flexCol0 is Map)
-                ? flexCol0['musicResponsiveListItemFlexColumnRenderer']
-                : null;
-            final dynamic textNode =
-                (flexRenderer is Map) ? flexRenderer['text'] : null;
-            titleRuns = (textNode is Map) ? textNode['runs'] : null;
-          } else {
-            final dynamic twTitle = (tw is Map) ? tw['title'] : null;
-            titleRuns = (twTitle is Map) ? twTitle['runs'] : null;
-          }
-          final title = _firstRunText(titleRuns);
-          if (title.isEmpty) continue;
-          if (_isForeignShelfTitleDirect(title)) continue;
-
-          dynamic thumbSourceRaw;
-          if (r != null) {
-            final dynamic rThumbRenderer =
-                (r is Map) ? r['thumbnail'] : null;
-            final dynamic rMusicThumbRenderer = (rThumbRenderer is Map)
-                ? rThumbRenderer['musicThumbnailRenderer']
-                : null;
-            final dynamic rThumb = (rMusicThumbRenderer is Map)
-                ? rMusicThumbRenderer['thumbnail']
-                : null;
-            thumbSourceRaw = (rThumb is Map) ? rThumb['thumbnails'] : null;
-          } else {
-            final dynamic twThumbRenderer =
-                (tw is Map) ? tw['thumbnailRenderer'] : null;
-            final dynamic twMusicThumbRenderer = (twThumbRenderer is Map)
-                ? twThumbRenderer['musicThumbnailRenderer']
-                : null;
-            final dynamic twThumb = (twMusicThumbRenderer is Map)
-                ? twMusicThumbRenderer['thumbnail']
-                : null;
-            thumbSourceRaw =
-                (twThumb is Map) ? twThumb['thumbnails'] : null;
-          }
-          final thumbSource = thumbSourceRaw is List ? thumbSourceRaw : null;
-          final thumbs = thumbSource ?? const [];
-          final best = thumbs.isNotEmpty ? thumbs.last : null;
-          final rawUrl = (best?['url'] ?? '').toString();
-          final image = rawUrl.isNotEmpty
-              ? rawUrl.replaceFirst(RegExp(r'=w\d+-h\d+.*$'), '=w544-h544')
-              : '';
-
-          // Never ship a card with no resolvable artwork — same guard
-          // as the Worker's blank-card fix.
-          if (image.isEmpty) continue;
-
-          seen.add(playlistId);
-          out.add(YtHomePlaylistCard(
-            playlistId: playlistId,
-            title: _cleanText(title),
-            subtitle: 'Playlist',
-            artworkUrl: image,
-          ));
-          if (out.length >= limit) return out;
-        }
-      }
-    } catch (e) {
-      _log('[_parseYtMusicPlaylistCardsDirect] parse error: $e');
-    }
-    return out;
-  }
 
   // ═══════════════════════════════════════════════════════════════════
   // MIX REFRESH — powers pull-to-refresh inside a "Playlists For You" mix
@@ -4391,12 +4102,54 @@ class ApiService {
   // de-dup a mixed batch itself and never sees an immediate on-screen
   // repeat right after a refresh.
   // ═══════════════════════════════════════════════════════════════════
+  // UPDATED (2026-08-14): now uses the same _raceSongSources pattern as
+  // fetchYtMusicHomePlaylists — Worker's /api/mix-refresh AND a direct
+  // YT Music search both fire, whichever answers first with real
+  // results wins. Worker path takes priority when it wins since its
+  // /api/mix-refresh route does its own exclude-filtering server-side;
+  // the direct path's own results are filtered against existingVideoIds
+  // client-side below so both paths behave identically regardless of
+  // which one actually answers first.
   static Future<List<Song>> fetchMixRefreshSongs({
     required String seed,
     required List<String> existingVideoIds,
     int limit = 15,
   }) async {
     if (seed.trim().isEmpty) return const [];
+    final excludeSet = existingVideoIds.toSet();
+
+    final completer = Completer<List<Song>>();
+    var pending = 2;
+    void settle(List<Song> songs) {
+      if (completer.isCompleted) return;
+      final fresh = songs.where((s) => !excludeSet.contains(s.id)).toList();
+      if (fresh.isNotEmpty) {
+        completer.complete(fresh);
+      } else {
+        pending--;
+        if (pending == 0 && !completer.isCompleted) completer.complete(const []);
+      }
+    }
+
+    unawaited(
+      _fetchMixRefreshSongsViaWorker(seed: seed, existingVideoIds: existingVideoIds, limit: limit)
+          .timeout(const Duration(seconds: 7), onTimeout: () => const [])
+          .then(settle, onError: (_) => settle(const [])),
+    );
+    unawaited(
+      _searchYtMusicDirect(seed, limit + excludeSet.length)
+          .timeout(const Duration(seconds: 6), onTimeout: () => const [])
+          .then(settle, onError: (_) => settle(const [])),
+    );
+
+    return completer.future;
+  }
+
+  static Future<List<Song>> _fetchMixRefreshSongsViaWorker({
+    required String seed,
+    required List<String> existingVideoIds,
+    int limit = 15,
+  }) async {
     try {
       final excludeParam = existingVideoIds.isEmpty
           ? ''
@@ -4404,7 +4157,7 @@ class ApiService {
       final uri = Uri.parse(
         '$_saavn/api/mix-refresh?seed=${Uri.encodeComponent(seed)}&limit=$limit$excludeParam',
       );
-      final resp = await http.get(uri).timeout(const Duration(seconds: 10));
+      final resp = await http.get(uri).timeout(const Duration(seconds: 6));
       if (resp.statusCode != 200) return const [];
       final data = jsonDecode(resp.body);
       if (data['success'] != true) return const [];
@@ -4432,7 +4185,7 @@ class ApiService {
           .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
           .toList();
     } catch (e) {
-      _log('[fetchMixRefreshSongs] error: $e');
+      _log('[_fetchMixRefreshSongsViaWorker] error: $e');
       return const [];
     }
   }
