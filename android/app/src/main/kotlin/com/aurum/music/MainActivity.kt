@@ -79,6 +79,20 @@ class MainActivity : FlutterFragmentActivity() {
     // _A_ + AURUM animation in splash_screen.dart.
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // FIX (gray/white screen flash on cold start, swipe-down full-player
+        // dismiss, and back-navigation): AndroidManifest.xml pins this
+        // Activity to LaunchTheme permanently — NormalTheme (correct dark
+        // windowBackground) was defined in styles.xml but never actually
+        // applied anywhere. LaunchTheme's static launch_background drawable
+        // was staying as the WINDOW's background for the Activity's entire
+        // life, not just the splash instant. Every time the Android window
+        // surface gets recreated/redrawn before Flutter's next frame is
+        // composited (cold start, and any full-screen surface change like a
+        // route transition or the full player's swipe-to-dismiss), the OS
+        // briefly shows that stale window background — which is what read
+        // as a gray flash. Must be called BEFORE super.onCreate() so it
+        // takes effect before the window is first created.
+        setTheme(R.style.NormalTheme)
         super.onCreate(savedInstanceState)
         // Apply the saved High Refresh Rate preference immediately at
         // launch — without this, the setting would only take effect after
