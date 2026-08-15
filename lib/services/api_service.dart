@@ -3446,6 +3446,7 @@ class ApiService {
         });
 
     final earlyWorkerResult = await workerFuture
+        .then<List<Song>?>((v) => v)
         .timeout(const Duration(milliseconds: 250), onTimeout: () => null);
     if (earlyWorkerResult != null) {
       // Worker answered within its head start — the fast, common path.
