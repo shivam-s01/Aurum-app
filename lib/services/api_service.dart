@@ -2062,7 +2062,7 @@ class ApiService {
               .map((r) => Song(
                     id: r.videoId,
                     title: _cleanText(r.title),
-                    artist: _cleanText(r.uploaderName),
+                    artist: _cleanText(r.uploaderName, collapseJukeboxTitle: false),
                     album: '',
                     artworkUrl: 'https://i.ytimg.com/vi/${r.videoId}/hqdefault.jpg',
                     source: SongSource.youtube,
@@ -2947,9 +2947,21 @@ class ApiService {
     // fallback that still hasn't answered in 5s on a per-keystroke call
     // isn't worth waiting out further before the next keystroke supersedes
     // it anyway.
-    final needsTypoVariants = saavnResults.length < (limit * 0.6).ceil();
-    final needsLyricVariants =
-        saavnResults.length < (limit * 0.5).ceil() && qWordsForVariants.length >= 4;
+    // LIGHTWEIGHT FIX ("ekdam smooth ekdam low-end device pe bhi fast" —
+    // real per-keystroke cost): typo/lyric-trim variants used to fire on
+    // EVERY keystroke whenever the raw Saavn count dipped below the
+    // threshold — meaning up to 3 EXTRA network calls stacked on top of
+    // the 2 already firing (Saavn + YT), so a single keystroke could
+    // trigger 5 parallel requests. On a slow/low-end network that's what
+    // actually made live typing feel laggy, not the debounce timer itself.
+    // quickSearch() IS the live per-keystroke path (search()'s committed
+    // path calls _searchSaavn directly with its own full variant logic),
+    // so variant expansion here is pure waste — the very next keystroke
+    // supersedes this result before the extra calls even return. Disabled
+    // entirely; committed search (Enter / submit) still gets full variant
+    // coverage via the separate search() path.
+    const needsTypoVariants = false;
+    const needsLyricVariants = false;
 
     final typoVariants = needsTypoVariants
         ? _generateTypoVariants(q, qWordsForVariants)
@@ -3408,26 +3420,58 @@ class ApiService {
   // existing resolveYtStream()/_ytStreamById() chain (untouched) resolves
   // the actual audio off the same videoId exactly as before.
   static Future<List<Song>> _searchYt(String query, {int limit = 30}) async {
-    try {
-      final workerResult = await _searchYtMusic(query, limit)
-          .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
-      if (workerResult.isNotEmpty) return workerResult;
-    } catch (e) {
-      _log('[_searchYt] yt-music-search (worker) error: $e');
+    // SPEED FIX ("ekdam fast, worst-case bhi fast, ekdam lightweight —
+    // Spotify/YT level"): pure-sequential (worker, THEN direct only if
+    // worker failed) had a 3s+3s=6s worst case. Pure-parallel (both fire
+    // together always) fixes that worst case but doubles network/battery
+    // cost on EVERY single search, even though the worker alone already
+    // answers well under a second the vast majority of the time — pure
+    // waste for the common case.
+    //
+    // Small head start instead: give the worker 250ms alone (long enough
+    // for its normal fast-path response, short enough that no live typist
+    // ever perceives a gap) before the direct call joins in. Worker
+    // answering within that window is the common case, and it means the
+    // direct future is never even created — zero extra cost, identical to
+    // the old sequential behavior for a healthy worker. Only when the
+    // worker is genuinely slow/down does the direct call start racing
+    // alongside it, capping the true worst case at roughly
+    // 250ms + 3s ≈ 3.25s instead of the old 6s — degraded resilience
+    // without paying double cost on every normal search.
+    final workerFuture = _searchYtMusic(query, limit)
+        .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
+        .catchError((e) {
+          _log('[_searchYt] yt-music-search (worker) error: $e');
+          return <Song>[];
+        });
+
+    final earlyWorkerResult = await workerFuture
+        .timeout(const Duration(milliseconds: 250), onTimeout: () => null);
+    if (earlyWorkerResult != null) {
+      // Worker answered within its head start — the fast, common path.
+      // A non-null but empty result still short-circuits here rather
+      // than falling through to the direct call: an empty Songs-shelf
+      // result from the worker is itself meaningful (genuinely no
+      // matches), not a failure signal, and every OTHER caller of this
+      // function already treats "no YT results" as a valid outcome.
+      return earlyWorkerResult;
     }
-    // Worker gave nothing (down, errored, or timed out) — try the direct
-    // YT Music InnerTube call as a same-quality backup before giving up.
-    // Kept short (3s) so the combined worst case (worker 3s + direct 3s =
-    // 6s) still fits inside every caller's own outer .timeout() (the
-    // tightest of which is 5s) rather than silently starving the direct
-    // fallback of a real chance to run before the caller gives up first.
-    try {
-      return await _searchYtMusicDirect(query, limit)
-          .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[]);
-    } catch (e) {
-      _log('[_searchYt] yt-music-search (direct) error: $e');
-      return <Song>[];
-    }
+
+    // Worker hasn't answered yet — bring in the direct call to race
+    // alongside whichever attempt of the worker future is still pending,
+    // so a slow-but-not-dead worker doesn't block on its own full 3s once
+    // a same-quality backup is already available to answer sooner.
+    final directFuture = _searchYtMusicDirect(query, limit)
+        .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
+        .catchError((e) {
+          _log('[_searchYt] yt-music-search (direct) error: $e');
+          return <Song>[];
+        });
+    final results = await Future.wait([workerFuture, directFuture]);
+    final workerResult = results[0];
+    final directResult = results[1];
+    if (workerResult.isNotEmpty) return workerResult;
+    return directResult;
   }
 
   // Fixed, public, unauthenticated INNERTUBE key used by the WEB_REMIX web
@@ -3626,7 +3670,9 @@ class ApiService {
           out.add(Song(
             id: videoId.toString(),
             title: _cleanText(title),
-            artist: _cleanText(artist).isNotEmpty ? _cleanText(artist) : 'Unknown',
+            artist: _cleanText(artist, collapseJukeboxTitle: false).isNotEmpty
+                ? _cleanText(artist, collapseJukeboxTitle: false)
+                : 'Unknown',
             album: _cleanText(album),
             artworkUrl: thumbnail,
             streamUrl: null,
@@ -3670,7 +3716,7 @@ class ApiService {
       final results = (data['data']?['results'] as List?) ?? [];
       final songs = results
           .map<Song>((r) {
-            final rawArtist = _cleanText((r['artist'] ?? '').toString());
+            final rawArtist = _cleanText((r['artist'] ?? '').toString(), collapseJukeboxTitle: false);
             return Song(
               id: (r['videoId'] ?? '').toString(),
               title: _cleanText((r['title'] ?? '').toString()),
@@ -4169,7 +4215,7 @@ class ApiService {
       // (song tiles, full player, queue, dedup).
       return results
           .map<Song>((r) {
-            final rawArtist = _cleanText((r['artist'] ?? '').toString());
+            final rawArtist = _cleanText((r['artist'] ?? '').toString(), collapseJukeboxTitle: false);
             return Song(
               id: (r['videoId'] ?? '').toString(),
               title: _cleanText((r['title'] ?? '').toString()),
@@ -4329,12 +4375,19 @@ class ApiService {
         _log('[fetchYtPlaylistSongs] worker route HTTP ${resp.statusCode}');
         return null;
       }
-      final data = jsonDecode(resp.body);
+      // SMOOTHNESS FIX: playlist responses can carry up to `limit` (200-500)
+      // songs — decoding that much JSON synchronously on the UI isolate can
+      // cost a visible frame hitch on a low-end device right at the moment
+      // the user is watching the import progress. jsonDecode is a pure,
+      // isolate-safe function (no closures/state), so `compute()` ships it
+      // to a background isolate and only the parsed result crosses back —
+      // same result, no UI-thread cost for the decode itself.
+      final data = await compute(jsonDecode, resp.body);
       if (data['success'] != true) return null;
       final results = (data['data']?['results'] as List?) ?? [];
       if (results.isEmpty) return null;
       return results.map<Song>((r) {
-        final rawArtist = _cleanText((r['artist'] ?? '').toString());
+        final rawArtist = _cleanText((r['artist'] ?? '').toString(), collapseJukeboxTitle: false);
         return Song(
           id: (r['videoId'] ?? '').toString(),
           title: _cleanText((r['title'] ?? '').toString()),
@@ -4433,7 +4486,7 @@ class ApiService {
   static Song _songFromYtVideo(Video v) => Song(
         id:         v.id.value,
         title:      _cleanText(v.title),
-        artist:     _cleanText(v.author),
+        artist:     _cleanText(v.author, collapseJukeboxTitle: false),
         album:      '',
         artworkUrl: _bestThumbnail(v.thumbnails),
         streamUrl:  null,
@@ -4653,67 +4706,58 @@ class ApiService {
   }
 
   // ===========================================================================
-  // YT STREAM — v5 BUGATTI ENGINE
+  // YT STREAM RESOLUTION (updated 2026-08-15 — reflects actual current
+  // architecture; the old "v5 Bugatti" comment below described a
+  // Piped/Invidious blast-race design that was removed 2026-07-06 and no
+  // longer matches this code, which was actively misleading for anyone
+  // debugging playback speed).
   //
-  // STAGE 1: Race explode vs Worker simultaneously (both fastest).
-  //          explode = in-process, no network hop, 1-3s on warm client.
-  //          Worker  = our own CF, fast when warm (~1-2s).
-  //          First valid URL wins. This covers 95%+ of taps.
+  // Single source of truth: the Cloudflare Worker, which itself already
+  // runs a multi-client YouTube resolution chain server-side (see
+  // worker.js resolveYtStream — WEB_EMBEDDED/PoToken → ANDROID_VR → iOS →
+  // TV bypass → Piped, all with its own internal budget). The Dart side's
+  // job is just to reach that Worker fast and reliably:
   //
-  // STAGE 2: If Stage 1 fails → BLAST RACE all remaining endpoints at once.
-  //          All 3 Piped + 3 Invidious instances race each other in parallel.
-  //          First valid response wins, rest silently abandoned.
-  //          Dead instances skipped via _InstanceHealth tracker.
+  //   _workerYtStream races the Worker's two independent routes
+  //   (/api/yt-proxy and /api/yt-stream) against each other in parallel
+  //   via _blastRace — first one to return a verified-playable URL wins,
+  //   6s timeout each. _ytStreamById is a thin wrapper with no further
+  //   retry layer (a second attempt at the same endpoint the race just
+  //   tried adds latency, not resilience).
   //
-  // STAGE 3: If everything fails → one final explode retry with fresh client.
-  //          This handles temporary PoToken issues on the first explode call.
-  //
-  // Result: 8 sec → 1-3 sec on warm, 3-5 sec cold start.
+  // Result: a healthy Worker resolves in well under 2s (whichever route
+  // is faster); a genuinely down Worker is now confirmed dead in ~6s
+  // instead of the old 58s worst-case sequential chain.
   // ===========================================================================
+  // SPEED FIX (2026-08-15 — same pass as _workerYtStream above): this
+  // wrapper used to bolt ANOTHER full sequential retry layer (a third,
+  // separate /api/yt-proxy call, 30s timeout) on top of _workerYtStream
+  // already having tried both Worker routes internally. Stacked with the
+  // old 16s+12s inside _workerYtStream, the true worst-case chain for one
+  // song tap was 16+12+30 = 58 SECONDS, entirely sequential — nowhere
+  // near "Spotify/YT grade fast," and bad enough to make a genuinely
+  // playable song feel broken if the Worker was just having a slow
+  // moment rather than actually being down.
+  //
+  // _workerYtStream already races BOTH Worker routes in parallel now
+  // (see its own fix comment) and reports Worker health accurately via
+  // _WorkerHealth.markAlive()/markDead() — a second bespoke retry here,
+  // hitting the exact same /api/yt-proxy endpoint this function already
+  // tried moments ago, added latency without adding any real chance of
+  // success: if the Worker was down for the race above, it's down for
+  // this retry too. Removed entirely. maintenanceMode still short-
+  // circuits to skip a doomed attempt outright.
   static Future<String?> _ytStreamById(String videoId) async {
-    // ── Worker-only resolution ─────────────────────────────────────────
-    // Piped/Invidious fallbacks removed entirely (2026-07-06). Those were
-    // public, volunteer-run instances with no uptime guarantee — most of
-    // the "songs randomly won't play" reports traced back to THEM being
-    // down, not the Cloudflare Worker (independently confirmed working
-    // via a direct browser request during the same failure window).
-    // Now the only thing that can fail this is an actual Worker outage,
-    // which is something Shivam controls directly and can fix — instead
-    // of an unpredictable third-party instance nobody here maintains.
-    // Two attempts against the Worker: a quick probe first, then one
-    // longer-timeout retry if the quick one didn't land (covers a slow
-    // cold-start without giving up on a Worker that's actually fine).
-    if (!_WorkerHealth.maintenanceMode) {
-      final quick = await _workerYtStream(videoId);
-      if (quick != null) return quick;
-      _log('[ytStreamById] Quick Worker attempt failed for $videoId — retrying with extended timeout');
-    } else {
-      _log('[ytStreamById] Worker maintenance mode active — skipping straight to extended retry');
+    if (_WorkerHealth.maintenanceMode) {
+      _log('[ytStreamById] Worker maintenance mode active — skipping resolve for $videoId');
+      return null;
     }
-
-    try {
-      final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
-      final rangeRes = await _client.get(
-        Uri.parse(proxyUrl),
-        headers: {'Range': 'bytes=0-255'},
-      ).timeout(const Duration(seconds: 30));
-      if (rangeRes.statusCode == 206 || rangeRes.statusCode == 200) {
-        final ct = (rangeRes.headers['content-type'] ?? '').toLowerCase();
-        final isAudio = ct.contains('audio') || ct.contains('octet') ||
-            ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
-        if (isAudio || rangeRes.bodyBytes.length > 128) {
-          _log('[ytStreamById] Extended-timeout Worker retry OK for $videoId ✓');
-          _WorkerHealth.markAlive();
-          return proxyUrl;
-        }
-      }
-      _log('[ytStreamById] Extended-timeout retry got status=${rangeRes.statusCode} for $videoId');
-    } catch (e) {
-      _log('[ytStreamById] Extended-timeout Worker retry failed: $e');
+    final url = await _workerYtStream(videoId);
+    if (url == null) {
+      _log('[ytStreamById] Worker unreachable for $videoId — this means the '
+          'Cloudflare Worker itself is down. Check the Worker deployment.');
     }
-    _log('[ytStreamById] Worker unreachable for $videoId — this means the '
-        'Cloudflare Worker itself is down. Check the Worker deployment.');
-    return null;
+    return url;
   }
 
   // Blast race: fire ALL futures simultaneously, return first valid result.
@@ -4784,73 +4828,103 @@ class ApiService {
   // /api/yt-stream URL is still tried second, purely as a fast bonus path,
   // but ONLY after confirming with a real ranged GET (not a HEAD — HEAD is
   // unreliable against googlevideo.com) that the phone can actually open it.
+  // SPEED FIX (2026-08-15 — "YT songs ekdam Spotify/YT grade fast aane
+  // chahiye, makkan jaisa smooth"): PRODUCTION BUG — /api/yt-proxy and
+  // /api/yt-stream used to run strictly SEQUENTIALLY (await proxy fully
+  // fail/timeout, THEN start stream), even though they're two independent
+  // routes on the SAME Worker answering the SAME question ("give me a
+  // playable URL for this video"). There is zero dependency between them —
+  // nothing about the direct-URL route needs the proxy route to have
+  // finished first. Sequential timeouts stacked to a genuinely bad worst
+  // case (16s + 12s = 28s here alone, before _ytStreamById's own extra
+  // sequential retry layer on top — see that function's fix below).
+  //
+  // Fix: fire both at once and take whichever answers first via
+  // _blastRace (already used elsewhere in this file for exactly this
+  // shape of race). Every existing check — content-type/body-length sniff
+  // for the proxy path, device-side _isUrlAlive() verification for the
+  // direct-URL path — is preserved exactly as before, just running in
+  // parallel instead of one-after-another. A healthy Worker now answers
+  // in whichever single route is faster (typically well under 2s), not
+  // the sum of both.
+  //
+  // Timeouts also tightened: 16s/12s was generous enough to make a user
+  // stare at a spinner far longer than a "genuinely dead Worker" ever
+  // needs to be confirmed. 6s per route is still comfortable headroom —
+  // /api/yt-proxy only needs to open a connection and return the first
+  // ranged chunk of an already-resolved stream, which is fast even on a
+  // cold edge — while capping the worst case per attempt at ~6s instead
+  // of 16s.
   static Future<String?> _workerYtStream(String videoId) async {
-    // ── PRIMARY: /api/yt-proxy — IP-safe, always playable from any network ──
-    // PERFORMANCE (2026-07-02): probe range shrunk from 1024→256 bytes.
-    // This is a pure liveness/content-type sniff before real playback ever
-    // starts — headers + a few hundred bytes is already enough to confirm
-    // "the proxy is alive and returning audio," so pulling a full 1KB was
-    // wasted transfer on every single tap. Detection logic (content-type
-    // check, body-length fallback) is unchanged, just cheaper.
-    try {
-      final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
-      final probe = await _client
-          .get(Uri.parse(proxyUrl), headers: {'Range': 'bytes=0-255'})
-          .timeout(const Duration(seconds: 16));
-      if (probe.statusCode == 200 || probe.statusCode == 206) {
-        final ct = (probe.headers['content-type'] ?? '').toLowerCase();
-        final looksAudio = ct.contains('audio') || ct.contains('octet') ||
-            ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
-        if (looksAudio || probe.bodyBytes.length > 128) {
-          _log('[worker] /api/yt-proxy OK for $videoId (IP-safe path)');
-          _WorkerHealth.markAlive();
-          return proxyUrl;
+    const routeTimeout = Duration(seconds: 6);
+
+    Future<String?> tryProxy() async {
+      try {
+        final proxyUrl = '$_worker/api/yt-proxy?id=$videoId';
+        final probe = await _client
+            .get(Uri.parse(proxyUrl), headers: {'Range': 'bytes=0-255'})
+            .timeout(routeTimeout);
+        if (probe.statusCode == 200 || probe.statusCode == 206) {
+          final ct = (probe.headers['content-type'] ?? '').toLowerCase();
+          final looksAudio = ct.contains('audio') || ct.contains('octet') ||
+              ct.contains('mp4') || ct.contains('mpeg') || ct.contains('webm');
+          if (looksAudio || probe.bodyBytes.length > 128) {
+            _log('[worker] /api/yt-proxy OK for $videoId (IP-safe path)');
+            return proxyUrl;
+          }
         }
+        _log('[worker] /api/yt-proxy probe failed for $videoId '
+            '(status=${probe.statusCode})');
+        return null;
+      } catch (e) {
+        _log('[worker] /api/yt-proxy failed for $videoId: $e');
+        return null;
       }
-      _log('[worker] /api/yt-proxy probe failed for $videoId '
-          '(status=${probe.statusCode}) - trying direct /api/yt-stream');
-    } catch (e) {
-      _log('[worker] /api/yt-proxy failed for $videoId: $e - trying direct /api/yt-stream');
-      _WorkerHealth.markDead();
     }
 
-    // ── SECONDARY: /api/yt-stream direct URL — only if it survives a real
-    //    ranged GET from THIS device (not just a Worker-side HEAD check) ──
-    try {
-      final res = await _client
-          .get(Uri.parse('$_worker/api/yt-stream?id=$videoId'))
-          .timeout(const Duration(seconds: 12));
-      if (res.statusCode != 200) {
-        _log('[worker] /api/yt-stream ${res.statusCode} for $videoId');
+    Future<String?> tryDirect() async {
+      try {
+        final res = await _client
+            .get(Uri.parse('$_worker/api/yt-stream?id=$videoId'))
+            .timeout(routeTimeout);
+        if (res.statusCode != 200) {
+          _log('[worker] /api/yt-stream ${res.statusCode} for $videoId');
+          return null;
+        }
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        if (data['success'] != true) {
+          _log('[worker] /api/yt-stream success=false for $videoId');
+          return null;
+        }
+        final url = data['url']?.toString();
+        if (url == null || url.isEmpty) {
+          _log('[worker] /api/yt-stream empty URL for $videoId');
+          return null;
+        }
+        // Real device-side check — same IP this device will actually stream
+        // from, unlike the Worker's own internal isUrlAlive() HEAD check.
+        final directOk = await _isUrlAlive(url);
+        if (!directOk) {
+          _log('[worker] /api/yt-stream URL for $videoId failed device-side '
+              'liveness check (IP-lock mismatch) - discarding direct URL');
+          return null;
+        }
+        _log('[worker] /api/yt-stream OK for $videoId '
+            '(${data["source"]} ${data["quality"]}) - direct path, verified');
+        return url;
+      } catch (e) {
+        _log('[worker] /api/yt-stream failed for $videoId: $e');
         return null;
       }
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['success'] != true) {
-        _log('[worker] /api/yt-stream success=false for $videoId');
-        return null;
-      }
-      final url = data['url']?.toString();
-      if (url == null || url.isEmpty) {
-        _log('[worker] /api/yt-stream empty URL for $videoId');
-        return null;
-      }
-      // Real device-side check — same IP this device will actually stream
-      // from, unlike the Worker's own internal isUrlAlive() HEAD check.
-      final directOk = await _isUrlAlive(url);
-      if (!directOk) {
-        _log('[worker] /api/yt-stream URL for $videoId failed device-side '
-            'liveness check (IP-lock mismatch) - discarding direct URL');
-        return null;
-      }
-      _log('[worker] /api/yt-stream OK for $videoId '
-          '(${data["source"]} ${data["quality"]}) - direct path, verified');
-      _WorkerHealth.markAlive();
-      return url;
-    } catch (e) {
-      _log('[worker] /api/yt-stream failed for $videoId: $e');
-      _WorkerHealth.markDead();
-      return null;
     }
+
+    final result = await _blastRace([tryProxy, tryDirect]);
+    if (result != null) {
+      _WorkerHealth.markAlive();
+    } else {
+      _WorkerHealth.markDead();
+    }
+    return result;
   }
 
   // ── Piped ────────────────────────────────────────────────────────────────
@@ -5424,7 +5498,7 @@ class ApiService {
       final fallback = j['primary_artists'] ?? j['singers'] ?? j['artist'];
       if (fallback is String) artist = fallback;
     }
-    artist = _cleanText(artist);
+    artist = _cleanText(artist, collapseJukeboxTitle: false);
 
     String album = '';
     final albumField = j['album'];
@@ -5609,14 +5683,14 @@ class ApiService {
   // the YT entry — real shelf art tends to be fresher/higher-res than the
   // Saavn search-result or YouTube-thumbnail-scrape fallback.
   static Future<List<ArtistSimple>> fetchHomeArtistsCombined() async {
-    // RAISED (2026-08-13 — "artist sirf Saavn ke dikh rahe hai, YT se bhi
-    // increase karo"): was limit: 12 on both sides (~24 max after dedup,
-    // often less once same-name collisions between YT and Saavn merge
-    // down). Raised to 20 each (~40 max pre-dedup) so the merged strip
-    // reliably clears a 20-artist floor even after collisions and the
-    // occasional thin YT shelf response.
+    // RAISED (2026-08-15 — "yt se artist jyada se jyada aaye"): was
+    // limit: 20 on the YT side. Bumped to 40 — the Worker route is a
+    // single request with its own 10s hard timeout either way, so a
+    // higher limit only means more entries in the SAME response, not
+    // more round trips or slower load. Saavn side left at its existing
+    // limit since this ask was specifically "YT artists zyada".
     final results = await Future.wait([
-      fetchYtMusicHomeArtists(limit: 20),
+      fetchYtMusicHomeArtists(limit: 40),
       fetchHomeArtists(),
     ]);
     final ytArtists = results[0] as List<YtHomeArtist>;
@@ -6474,7 +6548,38 @@ class ApiService {
     r'वीडियो\s*सॉन्ग|फुल\s*सॉन्ग|गाना|वीडियो)',
   );
 
-  static String _cleanText(String s) {
+  // View-count / subscriber-count promo callouts uploaders stuff into
+  // titles ("100 Million+ Views", "50M+ Views", "1 Crore+ Views",
+  // "1000000 Views") — pure channel-growth bragging, never part of the
+  // actual song name. Real official releases never put a view count in
+  // their own title.
+  static final RegExp _viewCountPromoPattern = RegExp(
+    r'\b\d[\d,]*\s*(million|crore|lakh|k|m|b)?\+?\s*views?\b',
+    caseSensitive: false,
+  );
+
+  // Multi-song pipe/jukebox-style titles ("Song A | Song B | Artist Name")
+  // where an uploader concatenates several track names (or a track name +
+  // a second unrelated song + the singer) into one title with pipes as
+  // separators — common on old-catalogue Bollywood channels replaying a
+  // whole album's worth of songs under one video. A clean Spotify/YT-Music
+  // style title is just ONE song name. Once _channelSuffixPattern and the
+  // noise-word patterns above have already stripped known label/noise
+  // segments, if more than one pipe-separated segment still remains, only
+  // the FIRST segment is the actual song title being played — everything
+  // after it is either a second song name or the artist credit, which
+  // belongs in the `artist` field, not tacked onto `title`.
+  static String _firstTitleSegment(String s) {
+    final segments = s
+        .split(RegExp(r'[\|•]'))
+        .map((seg) => seg.trim())
+        .where((seg) => seg.isNotEmpty)
+        .toList();
+    if (segments.length <= 1) return s;
+    return segments.first;
+  }
+
+  static String _cleanText(String s, {bool collapseJukeboxTitle = true}) {
     var out = s
         .replaceAll('&amp;',  '&')
         .replaceAll('&quot;', '"')
@@ -6482,6 +6587,7 @@ class ApiService {
         .replaceAll('&lt;',   '<')
         .replaceAll('&gt;',   '>');
     out = out.replaceAll(_emojiPattern, '');
+    out = out.replaceAll(_viewCountPromoPattern, '');
     out = out.replaceAll(_channelSuffixPattern, '');
     out = out.replaceAll(_bracketTagPattern, '');
     out = out.replaceAll(_looseNoiseWords, '');
@@ -6497,6 +6603,16 @@ class ApiService {
     out = out.replaceAll(RegExp(r'^\s*[-|•]\s*'), '');
     out = out.replaceAll(RegExp(r'\s*[-|•]\s*$'), '');
     out = out.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+    // Jukebox/multi-song titles: after noise stripping, if multiple
+    // pipe-separated segments remain, keep only the real song name (first
+    // segment) — see _firstTitleSegment doc comment above.
+    // BUGFIX: only applied for TITLE fields. Artist strings legitimately
+    // use "|" as a multi-artist separator on some feeds ("Arijit Singh |
+    // Neha Kakkar") — collapsing those the same way as a jukebox title
+    // would silently drop every artist but the first. collapseJukeboxTitle
+    // defaults true (title use) and every artist-field call site below
+    // passes false.
+    if (collapseJukeboxTitle) out = _firstTitleSegment(out);
     out = _titleCaseIfShouting(out);
     return out;
   }
@@ -7000,15 +7116,47 @@ class ApiService {
     return buf.toString();
   }
 
+  // FIX ("Saavn songs bilkul chal nahi rahe" — real root cause): this used
+  // to only proxy a URL if the domain literally contained "saavncdn.com".
+  // JioSaavn mirrors return CDN hosts across MANY subdomains/domains
+  // (aac.saavncdn.com, ac.cf.saavncdn.com, and other CDN hosts some
+  // mirrors substitute) — anything that didn't match that one exact
+  // substring skipped proxying entirely and got handed to the player as a
+  // raw direct URL. JioSaavn's CDN blocks direct device playback (expects
+  // a server-side referer/host, which only our Worker's /stream-proxy
+  // supplies) — so any non-matching host silently failed to play with no
+  // visible error, which is exactly the symptom reported. Fix: proxy
+  // EVERY non-empty, non-local Saavn URL through the Worker by default,
+  // and only skip proxying for an explicit allowlist of hosts confirmed
+  // safe to hit directly. This flips the logic from "only proxy known-bad
+  // hosts" (silently breaks on any new/unlisted host) to "proxy
+  // everything unless proven safe" (fails loud via the Worker's own error
+  // handling instead of failing silent on-device).
+  static const Set<String> _saavnDirectSafeHosts = {
+    // Intentionally empty for now — add a host here only after confirming
+    // via direct device test (not just curl) that it plays without a
+    // proxy. Until then every Saavn CDN URL routes through the Worker.
+  };
+
   static String _proxiedSaavnUrl(String url) {
+    if (url.isEmpty) return url;
     final decoded = Uri.decodeComponent(url);
     if (decoded.contains('/stream-proxy?url=') || url.contains('/stream-proxy?url=')) {
       return decoded; // already proxied, never double-wrap
     }
-    if (decoded.contains('saavncdn.com') || url.contains('saavncdn.com')) {
-      return '$_saavn/stream-proxy?url=${Uri.encodeComponent(decoded)}';
+    Uri? parsed;
+    try {
+      parsed = Uri.parse(decoded);
+    } catch (_) {
+      parsed = null;
     }
-    return decoded;
+    final host = parsed?.host ?? '';
+    if (_saavnDirectSafeHosts.any((h) => host.endsWith(h))) {
+      return decoded;
+    }
+    // Default: always proxy. Covers saavncdn.com and every other/future
+    // Saavn CDN host a mirror might return.
+    return '$_saavn/stream-proxy?url=${Uri.encodeComponent(decoded)}';
   }
 
   /// No-op passthrough. Kept only so existing callers in

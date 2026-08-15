@@ -19,9 +19,20 @@
 //   3. That's it. Nothing else touches Browse.
 // =============================================================================
 
+import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 import 'recommendation_engine.dart';
+
+// Worker base URL for YT Music-backed routes (artist search, artist page,
+// playlist resolve) — same Cloudflare Worker api_service.dart's
+// _searchYtMusic/_fetchYtPlaylistViaWorker already use, duplicated here as
+// its own constant rather than importing ApiService, to avoid coupling
+// Browse (a self-contained, independently removable feature per the file
+// header above) to the rest of the app's API layer.
+const String _ytWorkerBase = 'https://aurum-worker.shivamsharma962122.workers.dev';
+
 
 // ─── Top-level helpers ───────────────────────────────────────────────────────
 
@@ -187,6 +198,15 @@ class BrowseArtist {
   final String? genre;
   final String  imageUrl;
   final bool    isFromYoutube;
+  // FEATURE (real artist pages — "click pe unke saare songs ekdam
+  // perfect aaye"): the actual YT Music channelId (e.g. "UCxxxx") behind
+  // this artist, when known. When present, tapping this artist can open
+  // their genuine YT Music artist page (worker's /api/yt-artist) for a
+  // complete, deduped catalog instead of falling back to a loose
+  // "<name> top songs" text search. Null for a Saavn-sourced artist chip
+  // (Saavn has its own id scheme, unrelated to YT channels) or when a YT
+  // result's artist credit was ambiguous (multiple artists on one song).
+  final String? channelId;
 
   const BrowseArtist({
     required this.artistId,
@@ -194,6 +214,7 @@ class BrowseArtist {
     this.genre,
     this.imageUrl = '',
     this.isFromYoutube = false,
+    this.channelId,
   });
 
   factory BrowseArtist.fromSaavn(Map<String, dynamic> j) {
@@ -219,6 +240,7 @@ class BrowseArtist {
     genre: genre,
     imageUrl: imageUrl ?? this.imageUrl,
     isFromYoutube: isFromYoutube ?? this.isFromYoutube,
+    channelId: channelId,
   );
 }
 
@@ -254,14 +276,26 @@ class BrowseService {
     // down its own — same sequential/one-result-set-alive-at-a-time safety,
     // just without repeatedly paying HTTP-client init/teardown cost on
     // every single Browse search.
+    // SPEED FIX ("ekdam fast — production grade"): _ytArtistFallback used
+    // to be part of this same sequential chain because it, too, ran via
+    // explode_dart (a raw multi-video search payload held in memory) —
+    // now that it's a lightweight worker HTTP call instead (see its own
+    // doc comment), it no longer shares the OOM risk the sequential
+    // reasoning above was protecting against. Running it in parallel
+    // alongside the tracks/albums chain (via Future.wait) shaves a real
+    // chunk of wall-clock time off every Browse search — tracks/albums
+    // still run one-at-a-time for the same memory-safety reason as
+    // before, but the artist HTTP call no longer has to wait its turn
+    // behind them.
     final ytClient = yt.YoutubeExplode();
     List<BrowseTrack> tracks;
     List<BrowseAlbum> albums;
     List<BrowseArtist> artists;
     try {
+      final artistsFuture = _ytArtistFallback(q);
       tracks  = await _ytTracksFor(q, ytClient);
       albums  = await _ytAlbumFallback(q, ytClient);
-      artists = await _ytArtistFallback(q, ytClient);
+      artists = await artistsFuture;
     } finally {
       ytClient.close();
     }
@@ -339,19 +373,63 @@ class BrowseService {
   // three Browse fetches — see search() above) so this never opens/closes
   // its own connection. No try/finally close() here anymore: lifecycle is
   // the caller's responsibility.
-  static Future<List<BrowseArtist>> _ytArtistFallback(String query, yt.YoutubeExplode ytClient) async {
+  // FEATURE (real artist chips — "click pe unke saare songs ekdam perfect
+  // aaye"): previously sourced from raw explode_dart video search results
+  // (`v.author`), which is just an uploader display NAME — no stable id
+  // behind it, so tapping an artist could only ever fall back to a loose
+  // "<name> top songs" text search (capped, imprecise, no guarantee of
+  // even being the right person for a common name). Now sourced from the
+  // worker's YT Music search route instead, which — for singer/song
+  // results — already resolves each artist run to their real YT Music
+  // channelId (see worker.js parseYtMusicSearch's artistChannelId field).
+  // That channelId is a genuine, stable artist-page identifier, so tapping
+  // one of these chips can open their actual complete catalog via
+  // /api/yt-artist rather than approximating it with a text search.
+  // NOTE: no longer takes a ytClient param — this used to run via
+  // explode_dart video search (needed the caller's shared client, same as
+  // _ytTracksFor/_ytAlbumFallback below), but now sources artists from
+  // the worker's YT Music search instead (see doc comment above), which
+  // is a plain HTTP call with no explode_dart client involved.
+  static Future<List<BrowseArtist>> _ytArtistFallback(String query) async {
     try {
-      final results = await ytClient.search.search('$query song')
-          .then((list) => list.toList())
-          .timeout(const Duration(seconds: 8), onTimeout: () => <yt.Video>[]);
+      final uri = Uri.parse(
+        '$_ytWorkerBase/api/yt-music-search?query=${Uri.encodeComponent(query)}&limit=25',
+      );
+      final resp = await _client.get(uri).timeout(const Duration(seconds: 6));
+      if (resp.statusCode != 200) return [];
+      final data = jsonDecode(resp.body);
+      if (data['success'] != true) return [];
+      final results = (data['data']?['results'] as List?) ?? [];
+
       final seen = <String>{};
       final out = <BrowseArtist>[];
-      for (final v in results) {
-        final channel = v.author.trim();
-        if (channel.isEmpty || !_isRealArtist(channel) || seen.contains(channel.toLowerCase())) continue;
-        seen.add(channel.toLowerCase());
-        final thumb = _bestYtThumbnail(v.thumbnails);
-        out.add(BrowseArtist(artistId: channel, name: _clean(channel), imageUrl: thumb, isFromYoutube: true));
+      for (final r in results) {
+        if (r is! Map) continue;
+        final name = _clean((r['artist'] ?? '').toString());
+        if (name.isEmpty || !_isRealArtist(name) || seen.contains(name.toLowerCase())) continue;
+        // DEFENSIVE: r['artistChannelId'] comes from the worker's JSON
+        // response — treated as untrusted external data rather than
+        // assumed to always be a String or null. A raw `as String?` cast
+        // would throw on any other type (shouldn't happen per worker.js,
+        // but external data should never be able to take down this whole
+        // list over one malformed field) and the surrounding try/catch
+        // would then silently return an empty artist list for the ENTIRE
+        // search, not just skip this one entry. .toString() + a type
+        // guard degrades gracefully to "no channelId" instead.
+        final rawChannelId = r['artistChannelId'];
+        final channelId = rawChannelId is String ? rawChannelId.trim() : null;
+        // A song credited to multiple artists ("A, B") has no single
+        // channelId to link to (see worker.js — deliberately left null in
+        // that case) — still worth showing as a chip, it just won't have
+        // a real artist-page id behind it, same as a Saavn-sourced chip.
+        seen.add(name.toLowerCase());
+        out.add(BrowseArtist(
+          artistId: channelId?.isNotEmpty == true ? channelId! : name,
+          name: name,
+          imageUrl: (r['image'] ?? '').toString(),
+          isFromYoutube: true,
+          channelId: channelId?.isNotEmpty == true ? channelId : null,
+        ));
         if (out.length >= 8) break;
       }
       return out;
@@ -655,8 +733,67 @@ class BrowseService {
     return _ytTracksFor(query);
   }
 
-  // Fetch top songs for a Browse artist chip.
-  static Future<List<BrowseTrack>> artistTopSongs(String artistName, {bool isFromYoutube = true}) async {
+  // Fetch the complete song catalog for a Browse artist chip.
+  //
+  // FEATURE ("click pe unke saare songs ekdam perfect aaye — YT Music
+  // level"): previously always did `_ytTracksFor('$artistName top songs')`
+  // — a generic text search capped at 15 loosely keyword-matched videos,
+  // with no guarantee of even being the right artist. Now, when a real
+  // YT Music channelId is available (see BrowseArtist.channelId and
+  // _ytArtistFallback above), this browses their genuine YT Music artist
+  // page via the worker's /api/yt-artist route — which resolves the
+  // artist's actual curated "Songs" catalog, complete and deduped by
+  // construction, up to 200 tracks. Falls back to the old text-search
+  // behavior only when no channelId is available (a Saavn-sourced artist
+  // chip, or an ambiguous multi-artist credit) — same graceful-degradation
+  // shape every other worker-backed path in this app already follows.
+  static Future<List<BrowseTrack>> artistTopSongs(
+    String artistName, {
+    bool isFromYoutube = true,
+    String? channelId,
+  }) async {
+    if (channelId != null && channelId.isNotEmpty) {
+      try {
+        final uri = Uri.parse(
+          '$_ytWorkerBase/api/yt-artist?id=${Uri.encodeComponent(channelId)}&limit=200',
+        );
+        final resp = await _client.get(uri).timeout(const Duration(seconds: 10));
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body);
+          if (data['success'] == true) {
+            final results = (data['data']?['results'] as List?) ?? [];
+            final rawArtistName = data['artistName'];
+            final resolvedArtistName = rawArtistName is String ? rawArtistName.trim() : null;
+            final tracks = results
+                .whereType<Map<String, dynamic>>()
+                .map((r) {
+                  final rawArtist = _clean((r['artist'] ?? '').toString());
+                  return BrowseTrack(
+                    trackId: (r['videoId'] ?? '').toString(),
+                    title: _clean((r['title'] ?? '').toString()),
+                    artist: rawArtist.isNotEmpty
+                        ? rawArtist
+                        : (resolvedArtistName?.isNotEmpty == true ? resolvedArtistName! : artistName),
+                    album: _clean((r['album'] ?? '').toString()),
+                    artworkUrl: (r['image'] ?? '').toString(),
+                    durationMs: r['duration'] is int ? (r['duration'] as int) * 1000 : null,
+                    isFromYoutube: true,
+                  );
+                })
+                .where((t) => t.trackId.isNotEmpty && t.title.isNotEmpty)
+                .toList();
+            if (tracks.isNotEmpty) return tracks;
+          }
+        }
+        // 404 (genuinely empty artist page) or any other non-success
+        // response falls through to the text-search fallback below rather
+        // than returning empty outright — a partial/incomplete result
+        // still beats showing nothing for an artist chip the user just
+        // tapped.
+      } catch (_) {
+        // Worker unreachable/errored — fall through to text-search below.
+      }
+    }
     return _ytTracksFor('$artistName top songs');
   }
 

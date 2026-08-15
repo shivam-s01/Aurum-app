@@ -230,6 +230,13 @@ class _SearchScreenState extends State<SearchScreen>
   Timer? _liveLoaderGraceTimer;
   bool _showHistory = false;
 
+  // Tracks the body key from the PREVIOUS build so the AnimatedSwitcher's
+  // duration can tell "empty -> live" (keystroke #1, should feel instant)
+  // apart from every other transition (should keep the normal 280ms feel).
+  // Updated at the end of build(), after _computeBodyKey() has already
+  // been read for both the duration check and the KeyedSubtree key.
+  String _bodyKeyBeforeThisBuild = 'empty';
+
   // Browse tab state
   bool              _browseLoading = false;
   BrowseSearchResult _browseResult = BrowseSearchResult.empty();
@@ -883,6 +890,17 @@ class _SearchScreenState extends State<SearchScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Snapshot last build's key BEFORE recomputing this build's — the
+    // AnimatedSwitcher duration check below needs "what was on screen a
+    // moment ago" vs "what's about to render now" to tell empty->live
+    // (keystroke #1) apart from every other transition. Plain field
+    // writes, not a post-frame callback: this doesn't trigger a rebuild
+    // or touch anything visual, so there's no risk of running mid-layout
+    // — a fresh callback allocation on every single build was unnecessary
+    // overhead for what's just bookkeeping two strings.
+    final previousBodyKey = _bodyKeyBeforeThisBuild;
+    final currentBodyKey = _computeBodyKey();
+    _bodyKeyBeforeThisBuild = currentBodyKey;
     return GestureDetector(
       onTap: _dismissKeyboard,
       // Opaque, not translucent: translucent let every tap (including
@@ -932,7 +950,22 @@ class _SearchScreenState extends State<SearchScreen>
                     ColoredBox(
                       color: AurumTheme.bgOf(context),
                       child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 280),
+                      // SPEED FIX ("1 letter type karte hi turant live
+                      // results/suggestions aane chahiye, 'Search
+                      // everywhere' empty-state text der tak na dikhe"):
+                      // this was a flat 280ms fade/slide/scale for every
+                      // state change, including the very first keystroke
+                      // (empty -> live). That transition doesn't need to
+                      // look "nice" — it needs to feel instant, since the
+                      // user just started typing and expects the panel to
+                      // react immediately. Any other transition (live ->
+                      // results on submit, live -> history on clear) still
+                      // gets the full 280ms so those keep their smooth
+                      // feel. Only the empty->live jump — the one that
+                      // fires on keystroke #1 — is shortened.
+                      duration: (previousBodyKey == 'empty' && currentBodyKey == 'live')
+                          ? const Duration(milliseconds: 80)
+                          : const Duration(milliseconds: 280),
                       switchInCurve: Curves.easeOutCubic,
                       switchOutCurve: Curves.easeInCubic,
                       transitionBuilder: (child, animation) {
@@ -951,7 +984,7 @@ class _SearchScreenState extends State<SearchScreen>
                         );
                       },
                       child: KeyedSubtree(
-                        key: ValueKey(_computeBodyKey()),
+                        key: ValueKey(currentBodyKey),
                         child: _buildBody(context),
                       ),
                     ),
@@ -1208,17 +1241,24 @@ class _SearchScreenState extends State<SearchScreen>
 
     Widget content;
     if (!hasSuggestions && !hasLive) {
-      // FIX: was `_liveLoading ? _buildLiveLoadingState : _buildNoLiveResults`
-      // — _liveLoading flips true on literally every keystroke, so this
-      // branch showed the full-cover spinner constantly while typing
-      // normally, even when the real answer was about to arrive well
-      // under a second later. Gated on _showLiveLoader instead, which
-      // only ever becomes true after the 350ms grace timer in _onChanged
-      // confirms this specific query is still genuinely unresolved — a
-      // normal fast response never trips it, so typing reads as smooth
-      // "results just appear" rather than "screen keeps flashing a
-      // loader".
-      content = _showLiveLoader ? _buildLiveLoadingState(context) : _buildNoLiveResults(context, query);
+      // FIX ("beech mein 'Search everywhere' / no-results dikhta hai jab
+      // tak type karna band na karo"): this used to be
+      // `_showLiveLoader ? _buildLiveLoadingState : _buildNoLiveResults`
+      // — i.e. the very first frame after typing starts (before the
+      // 350ms grace timer decides whether to show the full loader) fell
+      // straight through to _buildNoLiveResults, which renders "No
+      // results for '<query>'" + a "Search everywhere" button. That's a
+      // negative/final state — it should only ever appear once a real
+      // response has come back empty, never while a query is still
+      // in-flight. While _liveLoading is true (set on every keystroke,
+      // cleared only when quickSearch's response for the CURRENT query
+      // lands), there is no live results/suggestions message. This is
+      // what makes results look like they "pop in mid-keystroke" —
+      // Spotify/YT Music both show a bare loading indicator, never a
+      // not-found state, while a search is still resolving.
+      content = _liveLoading
+          ? (_showLiveLoader ? _buildLiveLoadingState(context) : const SizedBox.shrink())
+          : _buildNoLiveResults(context, query);
     } else {
       // LIGHTWEIGHT FIX ("bahut jyada MB le raha tha, late/hang ho raha
       // tha"): this was a plain ListView with children built via
@@ -1598,7 +1638,11 @@ class _BrowseTabState extends State<_BrowseTab> {
 
   Future<void> _openArtist(BrowseArtist artist) async {
     setState(() { _openArtistName = artist.name; _artistLoading = true; _artistTracks = []; _openAlbumId = null; });
-    final tracks = await BrowseService.artistTopSongs(artist.name, isFromYoutube: artist.isFromYoutube);
+    final tracks = await BrowseService.artistTopSongs(
+      artist.name,
+      isFromYoutube: artist.isFromYoutube,
+      channelId: artist.channelId,
+    );
     if (mounted) setState(() { _artistTracks = tracks; _artistLoading = false; });
   }
 
