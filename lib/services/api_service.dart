@@ -547,6 +547,10 @@ class ApiService {
   // CF worker = tertiary fallback, unchanged.
   static const String _saavnPrimary   = 'https://jiosavan-ecc1.onrender.com';
   static const String _saavnSecondary = 'https://jiosavan-three.vercel.app';
+  // NOTE: variable name is legacy — this is the Cloudflare Worker base URL,
+  // used for BOTH Saavn endpoints AND the YT Music worker endpoint
+  // (/api/yt-music-search). Search's YT path hits the same worker here,
+  // just a different route — it is NOT Saavn data.
   static const String _saavn          = 'https://aurum-worker.shivamsharma962122.workers.dev';
   static const String _worker         = AppConstants.apiBase;
 
@@ -1960,32 +1964,10 @@ class ApiService {
     // stages happened to be needed.
     // ═══════════════════════════════════════════════════════════════════
     final fallbackQueries = RecommendationEngine.generateQueries(currentSong);
-    // FIX ("same song repeats every 5-10 songs in Up Next" — online-only,
-    // never happens on local): this used to gate Signal 1.5 (YouTube's own
-    // related-videos graph — NewPipeExtractor's relatedItems, the single
-    // deepest/most-diverse signal in this whole function, exactly what
-    // powers YT Music's own "Up Next") behind `currentSong.source ==
-    // SongSource.youtube` — it only ever ran when the CURRENTLY PLAYING
-    // song already happened to be YouTube-sourced. Since Saavn is this
-    // app's strict primary source (see MusicCatalog.saavn comments
-    // elsewhere in this file), the overwhelming majority of plays are
-    // Saavn-sourced, so this signal was silently skipped almost always —
-    // Up Next was built from Saavn similar/search + YT text-search fallback
-    // only, never YouTube's actual recommendation graph. For an
-    // artist/mood with a shallow Saavn catalog, those signals alone
-    // produce a small, easily-exhausted candidate pool: once the 20-slot
-    // session ID window (RecommendationEngine.sessionRecentIds) ages a
-    // song back out, and the pool has nothing new left to offer, the same
-    // handful of songs cycle back — exactly the "repeats every 5-10 songs"
-    // symptom, and exactly why it never happened on local playback (local
-    // songs don't reach getAutoQueue at all — see the isLocal guard above).
-    // Fix: resolve a YouTube-equivalent video ID for ANY current song via
-    // a quick title+artist search, then feed that into getRelated — Signal
-    // 1.5 now runs unconditionally, giving every Saavn-sourced play the
-    // same graph-based recommendation depth a YouTube-sourced play always
-    // had. Best-effort: any failure to resolve an equivalent ID just means
-    // this one signal contributes nothing, same as every other signal's
-    // existing catchError fallback below.
+    // Signal 1.5 (see below) used to only run for YT-sourced plays — this
+    // resolver lets it run for EVERY current song, including Saavn/local-
+    // catalog sourced ones, by first finding a YouTube-equivalent video ID
+    // via a quick title+artist search, then feeding that into getRelated.
     Future<String?> resolveYtIdForRelated() async {
       if (currentSong.source == SongSource.youtube) return currentSong.id;
       try {
@@ -1997,48 +1979,30 @@ class ApiService {
       }
     }
 
-    // Saavn is the strict, unconditional primary source for every signal
-    // below — MusicCatalog.saavn (see music_source.dart) already retries
-    // once on its own if a host comes back empty, so every signal here
-    // gets that resilience for free without re-deriving it per call-site.
+    // SEARCH: YT ONLY — Saavn removed from auto-queue too, matching search's
+    // "YT se replace karo a to z" directive so Up Next never hands off from
+    // clean YT metadata to a looser Saavn match right as one song ends and
+    // the next begins. ("ekdam production level, ekdam YouTube/Spotify jaisa
+    // feel" — user directive: real YT Music/Spotify never blend a second
+    // catalog into their own "Up Next", and Saavn's 8s/8s/7s timeouts were
+    // this function's dominant source of latency — removing them drops the
+    // worst case from 24s-ceiling-in-parallel down to _searchYt's own
+    // ~3.2s ceiling.) Signal 1.5 (YouTube's own related-videos graph) is now
+    // the PRIMARY signal — same graph that actually powers YT Music's own
+    // Up Next — with YT text-search signals (same-artist, mood/genre/era)
+    // filling in behind it. Saavn stays wired for playback/albums/browse —
+    // this only changes what feeds the auto-queue pool.
     final results = await Future.wait<List<Song>>([
-      // Signal 1: Saavn similar-songs (album+artist correlation)
-      // TUNED ("Saavn se bahut kam songs aa rahe hain"): limit -> limit*2.
-      // This is the strongest, most reliable Saavn signal (real catalog
-      // album+artist correlation), so it gets the biggest raw-fetch bump —
-      // more Saavn depth here directly means fewer YT fallback songs are
-      // ever needed downstream.
-      MusicCatalog.saavn.similarTo(currentSong, limit: limit * 2)
-          .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
-          .catchError((_) => <Song>[]),
-      // Signal 2: Same-artist catalog search
-      // TUNED: limit*2 -> limit*3 for the same reason as Signal 1.
-      // FIX ("Up Next ek hi junk uploader channel se flood ho jaata hai"):
-      // when currentSong.artist itself looks like an uploader/channel
-      // name (not a real singer credit), a same-artist query just
-      // re-surfaces that same channel's other uploads instead of genuine
-      // similar-artist recommendations — see looksLikeChannelName's doc
-      // comment. Skip this signal entirely in that case so it can't seed
-      // the pool with more of the same channel; Signals 1/3/4 (real
-      // catalog similarity + mood/genre/era) still run normally and cover
-      // the gap with genuinely relevant songs instead.
-      if (RecommendationEngine.looksLikeChannelName(currentSong.artist))
-        Future.value(<Song>[])
-      else
-        MusicCatalog.saavn.search('${currentSong.artist} songs', limit: limit * 3)
-            .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
-            .catchError((_) => <Song>[]),
-      // Signal 1.5: YouTube's own related-videos graph — now runs for
-      // EVERY current song, not just YT-sourced ones (see the FIX note on
-      // resolveYtIdForRelated above). Saavn-sourced plays first resolve a
-      // YouTube-equivalent ID via a quick search, then feed that into the
-      // same getRelated() call YT-sourced plays always used.
+      // Signal 1: YouTube's own related-videos graph — the single deepest,
+      // most YT-Music-like signal here, now PRIMARY instead of a
+      // supplement to Saavn. Runs for every current song (Saavn-sourced
+      // plays first resolve a YouTube-equivalent ID via resolveYtIdForRelated).
       () async {
         try {
           final ytId = await resolveYtIdForRelated();
           if (ytId == null) return <Song>[];
           final related = await NativeRelatedVideos.getRelated(ytId)
-              .timeout(const Duration(seconds: 8), onTimeout: () => <YtRelatedVideo>[]);
+              .timeout(const Duration(seconds: 5), onTimeout: () => <YtRelatedVideo>[]);
           // FIX (raw "You Might Also Like" titles): showing uncleaned
           // "प्यार हुआ इक़रार हुआ | Pyar Hua Ikrar Hua..." and channel-style
           // artist names like "Shemaroo Romantic Songs", "HD Songs
@@ -2077,51 +2041,38 @@ class ApiService {
           return <Song>[];
         }
       }(),
-      // Signal 3: Mood+genre+era fallback (Saavn) — one query per
-      // generated AutoQueueQuery, all raced together and flattened.
-      // TUNED: limit -> limit*2 — same "more Saavn depth = less YT
-      // fallback needed" reasoning as Signals 1-2.
+      // Signal 2: Same-artist catalog search — now YT instead of Saavn.
+      // FIX ("Up Next ek hi junk uploader channel se flood ho jaata hai"):
+      // when currentSong.artist itself looks like an uploader/channel
+      // name (not a real singer credit), a same-artist query just
+      // re-surfaces that same channel's other uploads instead of genuine
+      // similar-artist recommendations — see looksLikeChannelName's doc
+      // comment. Skip this signal entirely in that case so it can't seed
+      // the pool with more of the same channel; Signal 1/3 (related-graph +
+      // mood/genre/era) still run normally and cover the gap with
+      // genuinely relevant songs instead.
+      if (RecommendationEngine.looksLikeChannelName(currentSong.artist))
+        Future.value(<Song>[])
+      else
+        _searchYt('${currentSong.artist} songs', limit: limit * 2)
+            .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+            .catchError((_) => <Song>[]),
+      // Signal 3: Mood+genre+era fill — one query per generated
+      // AutoQueueQuery, all raced together and flattened. YT-only now.
       Future.wait(fallbackQueries.map((q) =>
-          MusicCatalog.saavn.search(q.query, limit: limit * 2)
-              .timeout(const Duration(seconds: 7), onTimeout: () => <Song>[])
-              .catchError((_) => <Song>[])))
-          .then((lists) => [for (final l in lists) ...l]),
-      // Signal 4: YouTube supplementary fill — same mood/genre/era queries
-      // as Signal 3, pointed at YouTube instead of Saavn. Previously only
-      // fired at all once Signal 1-3 left the pool short; now it always
-      // fires alongside everything else (its own result is still only as
-      // useful as whatever addToPool below actually accepts — a healthy
-      // Saavn pool means most/all of this signal's songs simply get
-      // rejected as unneeded duplicates-of-nothing-new, which costs
-      // nothing but the parallel network call itself).
-      // FIX ("Saavn down hone par bhi queue 80 tak pahunche"): limit*2 ->
-      // limit*3. Saavn still gets strict priority (Signals 1-3 above are
-      // applied to the pool FIRST, so any healthy Saavn result always wins
-      // every dedup tie) — this only widens the safety net for the
-      // genuine-outage case where Saavn comes up empty even after its own
-      // retry, so YT alone can still fill a pool big enough for a full
-      // ~80-song queue instead of stalling at whatever the old, tighter
-      // limit*2 happened to leave after quality/dedup filtering.
-      Future.wait(fallbackQueries.map((q) =>
-          _searchYt(q.query, limit: limit * 3)
+          _searchYt(q.query, limit: limit * 2)
               .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
               .catchError((_) => <Song>[])))
           .then((lists) => [for (final l in lists) ...l]),
     ]);
 
-    // Apply in the same priority order as the old sequential stages, so a
-    // stronger/more specific signal still wins any addToPool duplicate-tie
-    // exactly as before — only the WAITING changed, not the precedence.
-    for (final s in results[0]) addToPool(s); // Signal 1
-    for (final s in results[1]) addToPool(s); // Signal 2
-    // Signal 1.5 now runs unconditionally (see resolveYtIdForRelated FIX
-    // note above) — results[2] is already an empty list on its own when
-    // no YouTube-equivalent ID could be resolved, so no source-based gate
-    // is needed here anymore.
-    for (final s in results[2]) addToPool(s); // Signal 1.5
-    for (final s in results[3]) addToPool(s); // Signal 3
-    for (final s in results[4]) addToPool(s); // Signal 4
-    _log('[autoQueue] all signals parallel: ${pool.length}');
+    // Apply in priority order — strongest/most specific signal wins any
+    // addToPool duplicate-tie: related-graph first (closest to what YT
+    // Music itself would queue next), then same-artist, then mood/genre/era.
+    for (final s in results[0]) addToPool(s); // Signal 1: related-graph
+    for (final s in results[1]) addToPool(s); // Signal 2: same-artist
+    for (final s in results[2]) addToPool(s); // Signal 3: mood/genre/era
+    _log('[autoQueue] all signals parallel (YT-only): ${pool.length}');
 
     return RecommendationEngine.rankAndFilter(
       pool: pool, currentSong: currentSong,
@@ -2204,176 +2155,72 @@ class ApiService {
 
     final wantsVariant = _wantsVariantQuery(q);
 
-    // FIX ("Saavn ki full power use karke exact match nahi la raha" — a
-    // long lyric-line query like "mujhko dard dil ki dawa chahiye" often
-    // has no exact hit in Saavn's own full-text search, because Saavn's
-    // backend matches loosely on the WHOLE string and a 6-word lyric line
-    // rarely appears verbatim in any song's indexed metadata. Real JioSaavn
-    // (and Spotify) handle this by also trying shorter sub-phrases of a
-    // long query, not just the raw string once. Builds a few trimmed
-    // variants (front-trimmed and back-trimmed 3-4 word windows) and fires
-    // them at Saavn IN PARALLEL with the main query — same total wait time
-    // as before (nothing here is sequential/extra-latency), just more
-    // chances for Saavn's own search to land a real hit before ever
-    // falling back to YT.
-    final qWordsForVariants = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-    final lyricVariants = <String>{};
-    if (qWordsForVariants.length >= 4) {
-      // Drop trailing filler word(s): "...dawa chahiye" -> "...dawa"
-      lyricVariants.add(qWordsForVariants.sublist(0, qWordsForVariants.length - 1).join(' '));
-      // Drop leading filler word(s): "mujhko dard..." -> "dard..."
-      lyricVariants.add(qWordsForVariants.sublist(1).join(' '));
-      // Middle 3-4 word core phrase — often the actual song-title fragment
-      // inside a longer remembered lyric line.
-      final mid = (qWordsForVariants.length / 2).floor();
-      final start = (mid - 2).clamp(0, qWordsForVariants.length).toInt();
-      final end = (start + 4).clamp(0, qWordsForVariants.length).toInt();
-      if (end > start) lyricVariants.add(qWordsForVariants.sublist(start, end).join(' '));
-    }
-    lyricVariants.remove(q);
+    // FIX ("movie names se aur us category ke songs ekdam fast/perfect
+    // aaye, ekdam YT Music jaisa" — user directive): plain-song search on
+    // YT Music's Songs shelf is genuinely weak for a MOVIE/ALBUM name
+    // query, because a movie title usually isn't itself a song title — the
+    // Songs shelf then falls back to whatever loosely matches, which is
+    // how a query like "phool aur kante movie" landed on an unrelated
+    // Bhojpuri track as its #1 result. Detecting that shape upfront and
+    // firing a dedicated "<core title> all songs" YT query IN PARALLEL
+    // with the normal query (not gated behind how the normal query's own
+    // top match scored) means the soundtrack search fires unconditionally
+    // whenever the query itself signals "movie/album", not only as a
+    // related-section afterthought once a plain match already happened to
+    // land well.
+    // FIX ("movie ka naam sirf likh do, bina 'movie'/'soundtrack' word ke,
+    // ekdam YT Music/Spotify jaisa" — user directive): trigger-word gating
+    // (query having to literally end in "movie"/"soundtrack"/"all songs")
+    // is gone. YT Music/Spotify don't require that either — typing just
+    // "Kabir Singh" or "Jawan" with no extra word still surfaces the whole
+    // soundtrack alongside any direct title match. Every search query now
+    // ALWAYS fires a parallel "<query> all songs" YT lookup, unconditionally,
+    // exactly like the old trigger-word path did — the only thing that
+    // changed is what decides whether to fire it (now: every query) not how
+    // its results are scored/merged (unchanged, see movieMatchScore below).
+    // A prefix strip still runs first for the small set of queries that DO
+    // carry an explicit trigger word (so "Kabir Singh movie" -> core query
+    // "Kabir Singh", not "Kabir Singh movie all songs" which would double up
+    // "movie" and return worse matches) — _extractMovieCoreQuery falling
+    // through to the raw query otherwise means both phrasings behave
+    // identically.
+    final movieCoreQuery = _extractMovieCoreQuery(q) ?? q;
+    final movieSearchFuture = _searchYt('$movieCoreQuery all songs', limit: 40)
+        .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
+        .catchError((_) => <Song>[]);
 
-    // LIGHTWEIGHT FIX ("battery/data pe load na pade, ekdam lightweight
-    // rahe"): typo-variants used to fire UNCONDITIONALLY alongside the
-    // main query on every search, adding several extra parallel Saavn
-    // calls even for a perfectly-spelled query — _generateTypoVariants is
-    // based on word LENGTH (collapsing doubled letters, trying Hinglish
-    // substitutions), not actual spelling correctness, so a correctly-
-    // spelled 6+ letter word like "arijit" still generates variants like
-    // "arjit"/"arijitt" every time, not just when there's a real typo.
-    // Deferred until after the main+lyric-variant Saavn results are known
-    // and only fired when that combined set came up short — the same
-    // "only escalate when needed" pattern quickSearch uses.
-    final typoVariants = _generateTypoVariants(q, qWordsForVariants);
-    typoVariants.removeAll(lyricVariants); // avoid firing the same query twice
-
-    // SEARCH: YT PRIMARY — ALMOST EXCLUSIVE. Saavn only fills a genuine
-    // gap (YT came back with almost nothing for this query), never just
-    // "tops up" a healthy YT result set. ("yt ko primary karo, search mai
-    // yt ka data hi jaye, saavn sirf gap fill ke liye" — user directive.)
-    // YouTube (via the YT Music worker — official-quality title/artist/
-    // square-art metadata) is the dominant source. Saavn still runs in
-    // parallel so it's ready instantly if needed, but it's only ever
-    // merged in when YT's own accepted-count is below a hard floor
-    // (_minYtCountBeforeSaavnFill below) — a healthy YT result set now
-    // shows AS-IS, with zero Saavn songs mixed in. Both sources still go
-    // through the same quality pipeline either way (duration sanity,
-    // non-music filter, relevance scoring, smart dedup) — never a raw,
-    // unfiltered dump from either side. Saavn stays untouched everywhere
-    // else (albums, browse, playback fallback) — this only changes what
-    // populates the SEARCH results list.
-    //
-    // The main query goes through MusicCatalog.saavn (music_source.dart),
-    // which already retries once on its own if a host comes back empty —
-    // search is the highest-visibility surface for a transient Saavn miss,
-    // so that resilience matters most here. Lyric-variant queries stay on
-    // the raw ApiService call directly: they're already a fallback-for-a-
-    // fallback (only fired when the query is long enough to have sub-
-    // phrase variants worth trying), so retrying each one individually
-    // would add latency for a low-value long-tail case.
-    final saavnFutures = [
-      // TUNED ("search mein bhi Saavn se jyada songs aaye"): 50 -> 90 —
-      // same "more raw Saavn depth" reasoning as the Up Next signals.
-      MusicCatalog.saavn.search(q, limit: 90)
-          .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
-          .catchError((_) => <Song>[]),
-      ...lyricVariants.map((v) => _searchSaavn(v, limit: 30)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
-          .catchError((_) => <Song>[])),
-    ];
-    // SPEED FIX ("Saavn ke sab songs fast aane chahiye"): this is a
-    // submit-triggered search (not per-keystroke like quickSearch), so
-    // there's no lightweight/battery concern here — firing YT in parallel
-    // with Saavn always makes sense. Previously YT was only started AFTER
-    // Saavn (+ variants) fully finished, stacking its own 10s on top of
-    // Saavn's up to 12s. Racing them means the total wait is bounded by
-    // whichever is slower, not by their sum.
-    // STABILITY FIX ("kuch sec baad search crash ho jata hai" — production
-    // bug): this future used to have .timeout() but NO .catchError(). A
-    // timeout resolves to <Song>[] safely, but a REAL exception (socket
-    // error, malformed JSON from a flaky mirror, null field in a YT
-    // response) propagated straight through the later `await
-    // earlySearchYtFuture` (below) as an uncaught exception. Since
-    // ApiService.search() itself was also awaited with no try/catch from
-    // search_screen.dart's Timer callback, that exception became an
-    // uncaught async error with no error zone to catch it — which crashes
-    // the whole app, not just this widget. Every other parallel Saavn/YT
-    // future in this file already has .catchError() right next to its
-    // .timeout(); this was the one gap in the submit-search path.
-    // TUNED (YT primary — near-exclusive): 60 -> 100 — YT now needs to
-    // comfortably cover the query almost entirely on its own; Saavn is a
-    // gap-fill of last resort, not a routine co-source.
+    // SEARCH: YT ONLY — Saavn fully removed from this path. ("search wala
+    // complete YT se replace karo a to z, YT music se data aaye aur
+    // workers se, search mein Saavn kaha se aa raha hai" — user directive,
+    // explicit correction to the earlier "near-exclusive" version which
+    // still fired MusicCatalog.saavn.search() + lyric-variant Saavn calls
+    // on every submit search and merged them in whenever YT's count dipped
+    // below a floor. That merge condition was easy to hit in practice
+    // (region-locked/low-view songs, niche queries), so Saavn songs kept
+    // showing up in results despite the "primary" framing. Now there is no
+    // Saavn call anywhere in this function — not the main query, not
+    // lyric-line sub-phrase variants, not typo variants, not the related-
+    // expansion backfill. Saavn stays wired for playback/albums/browse —
+    // this only removes it from populating the SEARCH results list.
     final earlySearchYtFuture = _searchYt(q, limit: 100)
         .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
         .catchError((_) => <Song>[]);
-    var saavnAll = await Future.wait(saavnFutures);
-    var saavnCombined = [for (final list in saavnAll) ...list];
 
-    // SPEED FIX (2026-08-13): typo-variant retry used to only START after
-    // `saavnAll` above had fully finished (up to 8s), THEN itself waited
-    // up to another 5s — a fully sequential +5s tacked onto the end of the
-    // Saavn wait, on top of which the related-expansion block further
-    // downstream could add more sequential time. Same escalate-only-when-
-    // needed condition kept (a healthy Saavn result never pays for this),
-    // but the timeout is now tightened to 3s since this is already a
-    // fallback-for-a-fallback for a thin result set — 5s here was more
-    // generous than the value of the extra long-tail typo coverage
-    // justified. No variants, no queries, no filtering logic removed.
-    if (saavnCombined.length < 15 && typoVariants.isNotEmpty) {
-      final typoBatches = await Future.wait([
-        for (final v in typoVariants)
-          _searchSaavn(v, limit: 30)
-              .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
-              .catchError((_) => <Song>[]),
-      ]);
-      saavnCombined = [...saavnCombined, for (final l in typoBatches) ...l];
-    }
+    final ytScored = <_ScoredSong>[];
 
-    final saavnScored = <_ScoredSong>[];
-    final ytScored    = <_ScoredSong>[];
-
-    // FIX ("same song 5-8x in search results, e.g. 'Dekha Hai Pehli Baar'
-    // from 5+ different album reuploads burying real variety"): Saavn
-    // results previously went in with NO dedup at all beyond an exact-
-    // string check on the normalized title, which — same gap as Up Next
-    // before that fix — misses reuploads whose junk suffix/album differs.
-    // Smart title-head comparison against every raw title already accepted
-    // collapses those duplicates down to one entry (the first/highest-
-    // relevance one Saavn returned) so distinct songs get the result slots
-    // instead of five copies of the same song.
-    final saavnRawTitlesAccepted = <String>[];
     // FIX ("random unrelated songs in search"): results scoring below a
     // relevance floor are dropped entirely. Without this, misremembered
     // or garbled queries (e.g. "manma emotional jaage re" for "Manma
-    // Emotion Jaage") returned whatever Saavn's own loose backend search
-    // matched on stray fragments — completely unrelated songs like
-    // "Emitemitemo" — because every result was kept and shown regardless
-    // of how weak its match score was.
-    const minRelevanceScore = 5.0; // FIX: 15 se 5 kiya — Saavn pe song hai lekin score low tha toh drop ho raha tha
-    for (final song in saavnCombined) {
-      // FIX ("aaltu faltu/unrelated songs search mein"): same gap as
-      // quickSearch — isLowQualityUpload/isNonMusicContent were never
-      // actually applied to Saavn results here, only the relevance score
-      // (deliberately low at 5.0 so genuine matches with weak title
-      // overlap aren't dropped). That low floor is fine for RELEVANT junk
-      // uploads (still the right song, just a bad upload) but let through
-      // completely unrelated jukebox/compilation tracks that happened to
-      // match a stray fragment of a long query.
-      if (RecommendationEngine.isLowQualityUpload(song.title)) continue;
-      if (RecommendationEngine.isNonMusicContent(song)) continue;
-      final score = _scoreSearchResult(song, q, wantsVariant);
-      if (score < minRelevanceScore) continue;
-      if (_isDupOfAny(song.title, saavnRawTitlesAccepted)) continue;
-      saavnRawTitlesAccepted.add(song.title);
-      saavnScored.add(_ScoredSong(song, score));
-    }
+    // Emotion Jaage") returned whatever the backend's own loose search
+    // matched on stray fragments — completely unrelated songs — because
+    // every result was kept and shown regardless of how weak its match
+    // score was.
+    const minRelevanceScore = 5.0;
 
-    saavnScored.sort((a, b) => b.score.compareTo(a.score));
-
-    // YT-PRIMARY: always awaited now — no longer gated behind "Saavn came
-    // up short". Goes through the SAME quality pipeline as before
-    // (official-label-channel sort, real videos only, premium-quality
-    // view/duration floor, non-music filter, relevance floor, smart dedup
-    // against Saavn) — never a raw, unfiltered YT dump.
+    // SEARCH: YT ONLY. Saavn's scoring/dedup loop and the Saavn-backfill
+    // merge below it are removed entirely — there is no Saavn result set
+    // left to score by this point (see earlySearchYtFuture above), so
+    // nothing to merge in regardless of how thin YT's count is.
     final ytResults = await earlySearchYtFuture; // already firing in parallel since above
     final ytRawTitlesAccepted = <String>[];
     for (final song in ytResults) {
@@ -2392,29 +2239,58 @@ class ApiService {
       ytRawTitlesAccepted.add(song.title);
       ytScored.add(_ScoredSong(song, score));
     }
-    ytScored.sort((a, b) => b.score.compareTo(a.score));
 
-    final ytNorms = <String>{for (final s in ytScored) _normTitle(s.song.title)};
-
-    // YT-PRIMARY, NEAR-EXCLUSIVE: Saavn only merges in when YT's own
-    // accepted count is genuinely thin — a real gap, not routine top-up.
-    // Below this floor, YT alone plausibly can't fill even one screen of
-    // results, so Saavn steps in as backup. At or above it, Saavn is
-    // skipped entirely and the results list is pure YT — exactly what was
-    // asked for ("search mai yt ka data hi jaye, saavn sirf gap fill ke
-    // liye"). Saavn stays fully wired for playback/albums/browse — this
-    // only gates whether it's mixed into the SEARCH results list.
-    const minYtCountBeforeSaavnFill = 10;
-    final saavnBackupOnly = <_ScoredSong>[];
-    if (ytScored.length < minYtCountBeforeSaavnFill) {
-      for (final ss in saavnScored) {
-        if (ytNorms.contains(_normTitle(ss.song.title))) continue;
-        if (_isDupOfAny(ss.song.title, ytRawTitlesAccepted)) continue;
-        saavnBackupOnly.add(ss);
+    // FIX (movie/album-name query — see movieSearchFuture above): songs
+    // from the dedicated "<movie> all songs" query won't literally contain
+    // the word "movie"/"film" from the original query text, so scoring
+    // them against the RAW query q via _scoreSearchResult would wrongly
+    // drop almost all of them below the relevance floor even though
+    // they're exactly the soundtrack the person is looking for. They're
+    // trusted by construction (came from a query built specifically to
+    // find this movie's songs), so they get a flat, healthy score instead
+    // of a text-match score — placed below the true text-matched results
+    // (if any) but ahead of anything in the related/discovery section.
+    // Same quality/dedup filters as the main YT loop still apply — this
+    // only changes how they're SCORED, not whether junk/reuploads get in.
+    //
+    // Now fires for EVERY query (see movieSearchFuture above), including
+    // plain song-title searches like "Tum Hi Ho" — but that's safe here:
+    // a plain song title's "<title> all songs" query naturally returns
+    // that song plus close siblings from the same release, which just
+    // reinforces/duplicates what the main loop above already found (and
+    // gets deduped against it via _isDupOfAny) rather than injecting
+    // unrelated noise. The person only ever *sees* extra songs here when
+    // the query really was movie/album-shaped and had more than one real
+    // track behind it — exactly the YT Music/Spotify behavior being matched.
+    {
+      final movieResults = await movieSearchFuture;
+      const movieMatchScore = 55.0; // just under the 60.0 "confident top match" bar used below
+      for (final song in movieResults) {
+        if (!RecommendationEngine.isSearchQuality(song)) continue;
+        if (RecommendationEngine.isNonMusicContent(song)) continue;
+        if (RecommendationEngine.isInherentVariant(song.title)) continue;
+        if (_isDupOfAny(song.title, ytRawTitlesAccepted)) continue;
+        ytRawTitlesAccepted.add(song.title);
+        ytScored.add(_ScoredSong(song, movieMatchScore));
       }
     }
+    ytScored.sort((a, b) => b.score.compareTo(a.score));
 
-    final directResults = [...ytScored, ...saavnBackupOnly].map((s) => s.song).toList();
+    // SEARCH: YT ONLY — directResults is exactly ytScored now, nothing
+    // merged in from Saavn.
+    final directResults = ytScored.map((s) => s.song).toList();
+    // FIX ("related section anchors on a weak/wrong top match" — e.g.
+    // "phool aur kante movie" landing on an unrelated Bhojpuri Birha track
+    // as its #1 result, then generateQueries() detecting THAT track's
+    // genre/mood and filling "You might also like" with more random
+    // Bhojpuri songs that have nothing to do with the actual movie): the
+    // combined direct-results list was flattened to plain Song before this
+    // point, so the score that produced the ranking was thrown away right
+    // before the one place it actually mattered — deciding whether the top
+    // match is trustworthy enough to build a whole related section around.
+    // Kept alongside directResults (not merged into the Song model) so nothing
+    // about scoring/dedup/ranking above this line changes.
+    final directScores = ytScored.map((s) => s.score).toList();
 
     // ── RELATED EXPANSION (Spotify-style) ──────────────────────────────────
     // A single-song search shouldn't dead-end at just that one result.
@@ -2434,7 +2310,24 @@ class ApiService {
     // second wave of requests just to pad the list with "vibe" filler.
     // Now it only runs when direct results are thin, so a query that
     // already lands a clean, complete Saavn match returns immediately.
-    if (directResults.isNotEmpty && directResults.length < 45) { // TUNED: 30 -> 45 — category expansion aur zyada reliably chale
+    // FIX ("related section poora bakwaas ho jata hai jab top match hi
+    // weak/wrong hota hai"): generateQueries() below builds queries purely
+    // from topMatch's DETECTED genre/mood/era — it has no idea whether
+    // topMatch itself is a confident, correct answer to the user's query or
+    // just the least-bad loose-match Saavn/YT happened to return (e.g. a
+    // random Bhojpuri Birha track "matching" a movie-name search). A weak
+    // top match's genre/mood is itself unreliable, so anchoring an entire
+    // "You might also like" section on it compounds one bad guess into 40-
+    // 80 more. score >= 60 corresponds to _scoreSearchResult's own
+    // startsWith-or-better tier (exact title/artist match, or title
+    // starting with the query) — the same bar the scorer already uses to
+    // mean "this is genuinely the thing they searched for", not just
+    // "scraped past the 5.0 relevance floor". Below that, related expansion
+    // is skipped entirely rather than built on a shaky foundation; the
+    // person still gets their (filtered, relevant) direct results, just
+    // without a misleading "you might also like" tacked underneath.
+    final topMatchScore = directScores.isNotEmpty ? directScores.first : 0.0;
+    if (directResults.isNotEmpty && directResults.length < 45 && topMatchScore >= 60) { // TUNED: 30 -> 45 — category expansion aur zyada reliably chale
       final topMatch = directResults.first;
       final directIds    = <String>{for (final s in directResults) s.id};
       final directTitles = <String>{for (final s in directResults) _normTitle(s.title)};
@@ -2484,33 +2377,14 @@ class ApiService {
       // Saavn futures still fire in full parallel and are used purely as
       // backup/gap-fill below, same shape as the direct-results merge
       // above.
-      // SPEED FIX (2026-08-13 — "search 20+ sec leta hai"): ytRelatedFutures
-      // and saavnRelatedFutures were both built eagerly (fine — that starts
-      // every HTTP call immediately) but were AWAITED ONE AFTER THE OTHER
-      // (`await Future.wait(yt...)` fully finishing before
-      // `await Future.wait(saavn...)` even started being waited on). Even
-      // though each individual future already had a 5s timeout, awaiting
-      // them in two separate sequential `Future.wait` calls meant the
-      // total wait for this related-expansion block was bounded by
-      // 5s + 5s = up to 10s, stacked on top of the direct-results search
-      // that already preceded it — that stacking, not either timeout
-      // alone, was the dominant contributor to 20+ second searches.
-      // Both lists are combined into ONE Future.wait so YT and Saavn
-      // related calls race together — total wait for this block is now
-      // bounded by whichever single side is slower (max 5s), not their
-      // sum. Zero logic removed: same queries, same limits, same
-      // per-call timeout/catchError, same YT-first ordering when merging
-      // into relatedPool below (ytRelatedLists/saavnRelatedLists are
-      // reconstructed by index from the combined results).
+      // SEARCH: YT ONLY — related expansion now only queries YT. Saavn's
+      // parallel related-query futures and the gap-fill merge below are
+      // removed; nothing left to fall back to regardless of how thin YT's
+      // related pool is.
       final ytRelatedFutures = relatedQueries.map((rq) => _searchYt(rq.query, limit: 50)
           .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
           .catchError((_) => <Song>[])).toList();
-      final saavnRelatedFutures = relatedQueries.map((rq) => _searchSaavn(rq.query, limit: 40)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
-          .catchError((_) => <Song>[])).toList();
-      final combinedRelated = await Future.wait([...ytRelatedFutures, ...saavnRelatedFutures]);
-      final ytRelatedLists    = combinedRelated.sublist(0, ytRelatedFutures.length);
-      final saavnRelatedLists = combinedRelated.sublist(ytRelatedFutures.length);
+      final ytRelatedLists = await Future.wait(ytRelatedFutures);
 
       void addToPool(Song s) {
         if (relatedPool.length >= relatedCap) return;
@@ -2530,23 +2404,10 @@ class ApiService {
         relatedPool.add(s);
       }
 
-      // YT-PRIMARY, NEAR-EXCLUSIVE: YT fills the related pool first; Saavn
-      // related results are only added if YT's own related pool came up
-      // genuinely short (same gap-fill-only philosophy as the direct
-      // results merge above), not as a routine second pass.
-      const minYtRelatedBeforeSaavnFill = 15;
       for (final list in ytRelatedLists) {
         for (final s in list) {
           if (relatedPool.length >= relatedCap) break;
           addToPool(s);
-        }
-      }
-      if (relatedPool.length < minYtRelatedBeforeSaavnFill) {
-        for (final list in saavnRelatedLists) {
-          for (final s in list) {
-            if (relatedPool.length >= relatedCap) break;
-            addToPool(s);
-          }
         }
       }
       results.addAll(relatedPool);
@@ -2866,6 +2727,35 @@ class ApiService {
   static bool _wantsVariantQuery(String query) =>
       RecommendationEngine.isInherentVariant(query);
 
+  // FIX ("movie names se us category ke songs aaye, ekdam YT Music jaisa"):
+  // detects a movie/album/soundtrack-shaped query and returns the CORE
+  // title with the trigger word stripped — "phool aur kante movie" ->
+  // "phool aur kante", "kabir singh soundtrack" -> "kabir singh" — so the
+  // dedicated all-songs query built from it (see movieSearchFuture in
+  // search()) searches for the actual movie name, not "phool aur kante
+  // movie all songs" (which would double up the word "movie" and often
+  // returns worse matches than the clean title does). Returns null for a
+  // query with no such trigger word, so plain song-title/artist/lyric
+  // searches are completely unaffected — this only fires for the specific
+  // shape of query it's built for.
+  static final List<RegExp> _movieTriggerPatterns = [
+    RegExp(r'^(.*?)\s+(movie|film|picture)$', caseSensitive: false),
+    RegExp(r'^(.*?)\s+(soundtrack|ost)$', caseSensitive: false),
+    RegExp(r'^(.*?)\s+(all songs|full album|album songs)$', caseSensitive: false),
+  ];
+  static String? _extractMovieCoreQuery(String query) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return null;
+    for (final pattern in _movieTriggerPatterns) {
+      final match = pattern.firstMatch(trimmed);
+      final core = match?.group(1)?.trim();
+      if (core != null && core.isNotEmpty && core.split(RegExp(r'\s+')).length >= 1) {
+        return core;
+      }
+    }
+    return null;
+  }
+
   // CLEANUP: the same "is this song a smart-dedup match against anything
   // already accepted" loop was copy-pasted 4+ times across search()/
   // quickSearch() — identical shape every time (loop the accepted-titles
@@ -2894,10 +2784,10 @@ class ApiService {
   }
 
   // ===========================================================================
-  // QUICK SEARCH — YT primary, Saavn backup. Every keystroke fires this, so
-  // it must be pure and fast: YT (via the YT Music worker) and Saavn race
-  // in parallel, both go through the relevance floor + quality/dedup
-  // pipeline, YT leads the merged list and Saavn only fills gaps YT missed.
+  // QUICK SEARCH — YT ONLY, live-typing path. Fires on every keystroke, so
+  // stays pure and fast: no Saavn call at all (see note below), fully
+  // mirrors search()'s YT-only result construction so live-typing and
+  // committed search never visibly disagree on the same query.
   // ===========================================================================
   static Future<List<Song>> quickSearch(String query, {int limit = 20}) async {
     final q = query.trim();
@@ -2924,20 +2814,18 @@ class ApiService {
     final wantsVariant = _wantsVariantQuery(q);
     const minLiveRelevanceScore = 5.0; // FIX: live typing mein bhi Saavn ke songs miss ho rahe the
 
-    // YT-PRIMARY FIX ("yt hi primary rahe, Saavn sirf backup"): Saavn is
-    // no longer raced in parallel with YT. It's only ever awaited later,
-    // and only if YT's own accepted count comes up thin — see the
-    // gap-fill block below. This keeps YT as the sole driver of
-    // quickSearch's speed on the common (YT-sufficient) case, while
-    // Saavn stays available as a fallback rather than being removed
-    // entirely.
-    Future<List<Song>>? saavnFuture;
+    // QUICKSEARCH: YT ONLY — matches search()'s "complete YT se replace
+    // karo a to z" directive. This used to keep a lazy Saavn gap-fill
+    // (fired only when YT's own accepted count came up thin), which meant
+    // live-typing could show Saavn-mixed results while the committed
+    // search() path showed pure-YT results for the exact same query —
+    // a visible jump/flicker the instant the user hit submit. Removed
+    // entirely so both paths are identically YT-only end-to-end; Saavn
+    // stays wired for playback/albums/browse, just not for populating
+    // quickSearch's result list.
     final ytFuture = _searchYt(q, limit: limit + 20)
         .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
         .catchError((_) => <Song>[]);
-    // YT-first: await YT alone. Saavn is only kicked off afterward, and
-    // only if YT's own accepted count is thin (see gap-fill gate below) —
-    // it no longer races YT or adds any wait on the common case.
     var ytQuickResults = await ytFuture;
 
     // SPEED FIX (2026-08-13 — per-keystroke path, highest speed sensitivity
@@ -3020,36 +2908,11 @@ class ApiService {
     }
     ytScoredQuick.sort((a, b) => b.score.compareTo(a.score));
 
-    // YT PRIMARY, NEAR-EXCLUSIVE: YT leads the list; Saavn is only ever
-    // fired at all when YT's own accepted count is genuinely thin (lazy —
-    // not raced upfront), so the common case (YT sufficient) pays zero
-    // Saavn cost.
-    final ytNormsQuick = <String>{for (final s in ytScoredQuick) _normTitle(s.song.title)};
+    // QUICKSEARCH: YT ONLY — directResults is exactly ytScoredQuick now,
+    // nothing merged in from Saavn. Mirrors search()'s directResults
+    // construction exactly (see search() above) so live-typing and
+    // committed-search never disagree on the same query.
     final mergedQuick = <Song>[...ytScoredQuick.map((s) => s.song)];
-    const minYtQuickCountBeforeSaavnFill = 6;
-    if (ytScoredQuick.length < minYtQuickCountBeforeSaavnFill) {
-      saavnFuture ??= _searchSaavn(q, limit: limit + 15, allowMultiPage: false)
-          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
-          .catchError((_) => <Song>[]);
-      final lateS = await saavnFuture;
-      final lateScored = <_ScoredSong>[];
-      final lateTitles = <String>[];
-      for (final song in lateS) {
-        if (RecommendationEngine.isLowQualityUpload(song.title)) continue;
-        if (RecommendationEngine.isNonMusicContent(song)) continue;
-        final score = _scoreSearchResult(song, q, wantsVariant);
-        if (score < minLiveRelevanceScore) continue;
-        if (_isDupOfAny(song.title, lateTitles)) continue;
-        lateTitles.add(song.title);
-        lateScored.add(_ScoredSong(song, score));
-      }
-      lateScored.sort((a, b) => b.score.compareTo(a.score));
-      for (final ss in lateScored) {
-        if (mergedQuick.length >= limit) break;
-        if (ytNormsQuick.contains(_normTitle(ss.song.title))) continue;
-        mergedQuick.add(ss.song);
-      }
-    }
 
     final quickResult = mergedQuick.take(limit).toList();
     _writeQuickSearchCache(quickCacheKey, quickResult);
@@ -3059,12 +2922,27 @@ class ApiService {
   // ===========================================================================
   // SUGGEST
   // ===========================================================================
+  // YT MUSIC IS HARD PRIMARY — Saavn ekdam last-resort fallback hai, ab
+  // parallel race nahi hai. Har keystroke pe pehle real YT Music
+  // search-suggestions try hote hain (fast, "premium" YT Music jaisa feel);
+  // Saavn ko sirf tabhi chhua jaata hai jab YT Music genuinely kuch na de
+  // (timeout ya empty) — isliye dropdown Saavn ki wajah se distracted/
+  // gandi feel nahi karta, phir bhi kabhi poora blank nahi rehta.
   static Future<List<String>> suggest(String query) async {
     final q = query.trim();
-    final results = await _suggestSaavn(q);
-    // Dedup: Saavn kabhi kabhi duplicate suggestions return karta hai
+    if (q.isEmpty) return const [];
+
+    List<String> results = await _suggestYtMusic(q);
+
+    if (results.isEmpty) {
+      // YT Music ne kuch nahi diya (down/slow/no match) — sirf ab Saavn ko
+      // aakhri fallback ke taur pe try karo, taaki dropdown blank na rahe.
+      results = await _suggestSaavn(q).catchError((_) => const <String>[]);
+    }
+
+    // Dedup: kabhi kabhi duplicate suggestions aa jaate hain
     final deduped = results.toSet().toList();
-    if (deduped.isEmpty || q.isEmpty) return deduped.take(10).toList();
+    if (deduped.isEmpty) return deduped;
 
     // FIX (live-search dropdown showing suggestions unrelated to what was
     // typed, e.g. typo'd queries): _suggestSaavn returns the backend's own
@@ -3141,6 +3019,31 @@ class ApiService {
       } catch (_) {}
     }
     return [];
+  }
+
+  /// Real YT Music search-suggestions ("YouTube Music jaisa" autocomplete)
+  /// via the CF Worker's `/api/yt-suggest`. This is the "primary" source in
+  /// [suggest] — short timeout here is intentional since [suggest] already
+  /// races this against Saavn and has its own head-start window; this
+  /// function itself just needs to never hang past a sane ceiling.
+  static Future<List<String>> _suggestYtMusic(String query) async {
+    try {
+      final url = Uri.parse(
+        '$_worker/api/yt-suggest?query=${Uri.encodeQueryComponent(query)}&limit=8',
+      );
+      final res = await _client.get(url).timeout(const Duration(seconds: 3));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final results = data?['data']?['results'];
+        if (results is List && results.isNotEmpty) {
+          return results
+              .map((s) => _cleanText(s.toString()))
+              .where((s) => s.isNotEmpty)
+              .toList();
+        }
+      }
+    } catch (_) {}
+    return const [];
   }
 
   // ===========================================================================
@@ -3697,11 +3600,23 @@ class ApiService {
   // recommendation scoring, song tiles, the full player — needs zero
   // changes to handle these results.
   static Future<List<Song>> _searchYtMusic(String query, int limit) async {
-    // Fast-skip: if the worker route has failed recently, don't spend up
-    // to 5s discovering that again on every keystroke — return empty
-    // immediately (Saavn results still cover the query) instead of
-    // waiting out a doomed request. Self-heals after 20s (see
-    // _YtSearchHealth.markFailure).
+    // NOTE (production recheck): this hits ONLY the CF Worker's
+    // /api/yt-music-search — it does NOT need its own internal fallback to
+    // the direct no-worker path, because its only caller, _searchYt() (see
+    // above), already fires this AND _searchYtMusicDirect() in TRUE
+    // PARALLEL and takes whichever answers first with real results. Adding
+    // a sequential worker-then-direct fallback in here as well would just
+    // duplicate that direct call a second time and stack extra latency
+    // behind _searchYt()'s own hard 3.2s ceiling for no benefit — the
+    // "worker slow → still fast, still real YT results" guarantee already
+    // lives one level up, where it can react in parallel instead of after
+    // the fact.
+    //
+    // Fast-skip: if the worker route has failed recently, don't spend up to
+    // 5s discovering that again on every keystroke — return empty
+    // immediately (the sibling _searchYtMusicDirect() call in _searchYt()
+    // still covers the query) instead of waiting out a doomed request.
+    // Self-heals after 20s (see _YtSearchHealth.markFailure).
     if (_YtSearchHealth.isLikelyDown) return [];
     try {
       final uri = Uri.parse(
@@ -3752,12 +3667,11 @@ class ApiService {
           .toList();
       if (songs.isNotEmpty) {
         _YtSearchHealth.markSuccess();
-      } else {
-        // Empty-but-200 (query genuinely has no YT Music hits) shouldn't
-        // count as a route failure — only mark down on real HTTP/parse
-        // errors below, so a rare/niche query doesn't wrongly trip the
-        // cooldown for the NEXT (unrelated) query.
       }
+      // Empty-but-200 (query genuinely has no YT Music hits) shouldn't
+      // count as a route failure — only mark down on real HTTP/parse
+      // errors above, so a rare/niche query doesn't wrongly trip the
+      // cooldown for the NEXT (unrelated) query.
       return songs;
     } catch (e) {
       _log('[_searchYtMusic] Error: $e');
