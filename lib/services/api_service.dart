@@ -2924,25 +2924,21 @@ class ApiService {
     final wantsVariant = _wantsVariantQuery(q);
     const minLiveRelevanceScore = 5.0; // FIX: live typing mein bhi Saavn ke songs miss ho rahe the
 
-    // YT-PRIMARY FIX ("yt ko primary banao search mein, saavn backup rahe" +
-    // "ekdam fast result aaye"): both fire together and are awaited in
-    // parallel via Future.wait — total wait is bounded by whichever is
-    // SLOWER, not their sum (same shape as the old cold-host race, just
-    // simpler and correct: no more waiting on Saavn first before even
-    // starting YT). Each future already carries its own hard .timeout()
-    // (10s Saavn / 6s YT) as the worst-case ceiling, so a genuinely dead
-    // host degrades to an empty list for that source rather than ever
-    // hanging the keystroke indefinitely.
-    final qWordsForVariants = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-    final saavnFuture = _searchSaavn(q, limit: limit + 15, allowMultiPage: false)
-        .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
+    // YT-PRIMARY FIX ("yt hi primary rahe, Saavn sirf backup"): Saavn is
+    // no longer raced in parallel with YT. It's only ever awaited later,
+    // and only if YT's own accepted count comes up thin — see the
+    // gap-fill block below. This keeps YT as the sole driver of
+    // quickSearch's speed on the common (YT-sufficient) case, while
+    // Saavn stays available as a fallback rather than being removed
+    // entirely.
+    Future<List<Song>>? saavnFuture;
+    final ytFuture = _searchYt(q, limit: limit + 20)
+        .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
         .catchError((_) => <Song>[]);
-    final ytFuture = _searchYt(q, limit: 20)
-        .timeout(const Duration(seconds: 6), onTimeout: () => <Song>[])
-        .catchError((_) => <Song>[]);
-    final firstPass = await Future.wait([saavnFuture, ytFuture]);
-    final saavnResults = firstPass[0];
-    final ytQuickResults = firstPass[1];
+    // YT-first: await YT alone. Saavn is only kicked off afterward, and
+    // only if YT's own accepted count is thin (see gap-fill gate below) —
+    // it no longer races YT or adds any wait on the common case.
+    var ytQuickResults = await ytFuture;
 
     // SPEED FIX (2026-08-13 — per-keystroke path, highest speed sensitivity
     // in the whole file): this used to be TWO SEPARATE if-blocks, each with
@@ -2977,6 +2973,9 @@ class ApiService {
     // coverage via the separate search() path.
     const needsTypoVariants = false;
     const needsLyricVariants = false;
+    final qWordsForVariants = needsTypoVariants || needsLyricVariants
+        ? q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList()
+        : const <String>[];
 
     final typoVariants = needsTypoVariants
         ? _generateTypoVariants(q, qWordsForVariants)
@@ -3002,42 +3001,14 @@ class ApiService {
       final variantBatches = await Future.wait(extraFutures);
       for (final l in variantBatches) variantResults.addAll(l);
     }
-    final saavnCombined = [...saavnResults, ...variantResults];
+    ytQuickResults = [...ytQuickResults, ...variantResults];
 
-    final saavnScored = <_ScoredSong>[];
-    final saavnRawTitlesAccepted = <String>[];
-    for (final song in saavnCombined) {
-      // FIX ("ek letter type karte hi random unrelated/junk 46-min tracks
-      // aa jaate hain" — production bug seen live): quickSearch never
-      // actually called isNonMusicContent/isLowQualityUpload on ANY
-      // result, Saavn or YT — only isPremiumQuality (view-count/duration)
-      // ever ran, and only on the YT gap-fill path below. A weak/short
-      // live-typing query has a low relevance floor (5.0, deliberately,
-      // so partial typing still surfaces real matches) and Saavn's own
-      // loose backend search can match a completely unrelated long
-      // compilation/jukebox track on a stray fragment — nothing here ever
-      // screened that out. Same gate the full search()/getAutoQueue paths
-      // already apply, now applied here too so live suggestions hold the
-      // same quality bar as a submitted search.
-      if (RecommendationEngine.isLowQualityUpload(song.title)) continue;
-      if (RecommendationEngine.isNonMusicContent(song)) continue;
-      final score = _scoreSearchResult(song, q, wantsVariant);
-      if (score < minLiveRelevanceScore) continue;
-      if (_isDupOfAny(song.title, saavnRawTitlesAccepted)) continue;
-      saavnRawTitlesAccepted.add(song.title);
-      saavnScored.add(_ScoredSong(song, score));
-    }
-    saavnScored.sort((a, b) => b.score.compareTo(a.score));
-
-    // YT-PRIMARY: scored/filtered exactly like the Saavn loop above — YT
-    // Music's worker path already gives clean title/artist/square art, so
-    // these results are trustworthy by construction (see the
-    // viewCount:1000000 sentinel in _searchYtMusic).
+    // YT-PRIMARY: scored/filtered — YT Music's worker path already gives
+    // clean title/artist/square art, so these results are trustworthy by
+    // construction (see the viewCount:1000000 sentinel in _searchYtMusic).
     final ytScoredQuick = <_ScoredSong>[];
     final ytRawTitlesAcceptedQuick = <String>[];
     for (final ys in ytQuickResults) {
-      // FIX: same view-floor-too-strict-for-search issue as the main
-      // search() path above — lighter gate, no view-count requirement.
       if (!RecommendationEngine.isSearchQuality(ys)) continue;
       if (RecommendationEngine.isLowQualityUpload(ys.title)) continue;
       if (RecommendationEngine.isNonMusicContent(ys)) continue;
@@ -3049,17 +3020,33 @@ class ApiService {
     }
     ytScoredQuick.sort((a, b) => b.score.compareTo(a.score));
 
-    // YT PRIMARY, NEAR-EXCLUSIVE: YT leads the list; Saavn only merges in
-    // when YT's own accepted count is genuinely thin (same gap-fill-only
-    // gate as the submit-search path above), not as a routine top-up.
+    // YT PRIMARY, NEAR-EXCLUSIVE: YT leads the list; Saavn is only ever
+    // fired at all when YT's own accepted count is genuinely thin (lazy —
+    // not raced upfront), so the common case (YT sufficient) pays zero
+    // Saavn cost.
     final ytNormsQuick = <String>{for (final s in ytScoredQuick) _normTitle(s.song.title)};
     final mergedQuick = <Song>[...ytScoredQuick.map((s) => s.song)];
     const minYtQuickCountBeforeSaavnFill = 6;
     if (ytScoredQuick.length < minYtQuickCountBeforeSaavnFill) {
-      for (final ss in saavnScored) {
+      saavnFuture ??= _searchSaavn(q, limit: limit + 15, allowMultiPage: false)
+          .timeout(const Duration(seconds: 5), onTimeout: () => <Song>[])
+          .catchError((_) => <Song>[]);
+      final lateS = await saavnFuture;
+      final lateScored = <_ScoredSong>[];
+      final lateTitles = <String>[];
+      for (final song in lateS) {
+        if (RecommendationEngine.isLowQualityUpload(song.title)) continue;
+        if (RecommendationEngine.isNonMusicContent(song)) continue;
+        final score = _scoreSearchResult(song, q, wantsVariant);
+        if (score < minLiveRelevanceScore) continue;
+        if (_isDupOfAny(song.title, lateTitles)) continue;
+        lateTitles.add(song.title);
+        lateScored.add(_ScoredSong(song, score));
+      }
+      lateScored.sort((a, b) => b.score.compareTo(a.score));
+      for (final ss in lateScored) {
         if (mergedQuick.length >= limit) break;
         if (ytNormsQuick.contains(_normTitle(ss.song.title))) continue;
-        if (_isDupOfAny(ss.song.title, ytRawTitlesAcceptedQuick)) continue;
         mergedQuick.add(ss.song);
       }
     }
@@ -3429,59 +3416,60 @@ class ApiService {
   // existing resolveYtStream()/_ytStreamById() chain (untouched) resolves
   // the actual audio off the same videoId exactly as before.
   static Future<List<Song>> _searchYt(String query, {int limit = 30}) async {
-    // SPEED FIX ("ekdam fast, worst-case bhi fast, ekdam lightweight —
-    // Spotify/YT level"): pure-sequential (worker, THEN direct only if
-    // worker failed) had a 3s+3s=6s worst case. Pure-parallel (both fire
-    // together always) fixes that worst case but doubles network/battery
-    // cost on EVERY single search, even though the worker alone already
-    // answers well under a second the vast majority of the time — pure
-    // waste for the common case.
-    //
-    // Small head start instead: give the worker 250ms alone (long enough
-    // for its normal fast-path response, short enough that no live typist
-    // ever perceives a gap) before the direct call joins in. Worker
-    // answering within that window is the common case, and it means the
-    // direct future is never even created — zero extra cost, identical to
-    // the old sequential behavior for a healthy worker. Only when the
-    // worker is genuinely slow/down does the direct call start racing
-    // alongside it, capping the true worst case at roughly
-    // 250ms + 3s ≈ 3.25s instead of the old 6s — degraded resilience
-    // without paying double cost on every normal search.
+    // TRUE-PARALLEL FIX ("dono ko primary kro, jo pehle jawab de wahi
+    // use ho — 1-3 sec mein Spotify-level result"): both the worker
+    // (Cloudflare edge, /api/yt-music-search) and the direct-dart call
+    // (phone → YT Music InnerTube directly) now fire at the SAME time,
+    // every search — no head start, no sequential wait. Whichever
+    // responds first with a non-empty result answers immediately; the
+    // other is left running but no longer blocks the return. This costs
+    // one extra network call per search versus the old head-start
+    // approach, but on a live-typing search bar that's the right trade:
+    // worst case is now bounded by whichever source is faster right now,
+    // not by waiting out the worker's own timeout first.
     final workerFuture = _searchYtMusic(query, limit)
         .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
         .catchError((e) {
           _log('[_searchYt] yt-music-search (worker) error: $e');
           return <Song>[];
         });
-
-    final earlyWorkerResult = await workerFuture
-        .then<List<Song>?>((v) => v)
-        .timeout(const Duration(milliseconds: 250), onTimeout: () => null);
-    if (earlyWorkerResult != null) {
-      // Worker answered within its head start — the fast, common path.
-      // A non-null but empty result still short-circuits here rather
-      // than falling through to the direct call: an empty Songs-shelf
-      // result from the worker is itself meaningful (genuinely no
-      // matches), not a failure signal, and every OTHER caller of this
-      // function already treats "no YT results" as a valid outcome.
-      return earlyWorkerResult;
-    }
-
-    // Worker hasn't answered yet — bring in the direct call to race
-    // alongside whichever attempt of the worker future is still pending,
-    // so a slow-but-not-dead worker doesn't block on its own full 3s once
-    // a same-quality backup is already available to answer sooner.
     final directFuture = _searchYtMusicDirect(query, limit)
         .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
         .catchError((e) {
           _log('[_searchYt] yt-music-search (direct) error: $e');
           return <Song>[];
         });
-    final results = await Future.wait([workerFuture, directFuture]);
-    final workerResult = results[0];
-    final directResult = results[1];
-    if (workerResult.isNotEmpty) return workerResult;
-    return directResult;
+
+    List<Song>? workerResult;
+    List<Song>? directResult;
+    final firstNonEmpty = Completer<List<Song>>();
+    void checkDone() {
+      if (firstNonEmpty.isCompleted) return;
+      if (workerResult != null && workerResult!.isNotEmpty) {
+        firstNonEmpty.complete(workerResult!);
+      } else if (directResult != null && directResult!.isNotEmpty) {
+        firstNonEmpty.complete(directResult!);
+      } else if (workerResult != null && directResult != null) {
+        // Both finished, both empty — genuinely no matches from either.
+        firstNonEmpty.complete(const <Song>[]);
+      }
+    }
+
+    workerFuture.then((r) {
+      workerResult = r;
+      checkDone();
+    });
+    directFuture.then((r) {
+      directResult = r;
+      checkDone();
+    });
+
+    // Hard ceiling matching each source's own timeout — never waits
+    // longer than the slower of the two even in the worst case.
+    return firstNonEmpty.future.timeout(
+      const Duration(seconds: 3, milliseconds: 200),
+      onTimeout: () => workerResult ?? directResult ?? const <Song>[],
+    );
   }
 
   // Fixed, public, unauthenticated INNERTUBE key used by the WEB_REMIX web

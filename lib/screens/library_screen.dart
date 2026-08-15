@@ -48,7 +48,6 @@ import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_empty_state.dart';
 import '../widgets/mini_player_slot.dart';
 import 'full_player_screen.dart';
-import 'home_screen.dart' show pushFullPlayer;
 import '../widgets/premium_gate.dart';
 import '../models/song.dart';
 import '../utils/aurum_transitions.dart';
@@ -1497,22 +1496,9 @@ class _PlaylistSongTile extends StatelessWidget {
             return;
           }
           AurumHaptics.light();
-          // FIX (Spotify-parity — "playlist song tap should open Full
-          // Player like every other song list in the app"): this tile
-          // only ever called playSong() and stopped there — the song
-          // started playing but the user was left staring at the
-          // playlist list with just the mini player, unlike every other
-          // song-tapping surface (SongTile, used by Liked Songs, Search,
-          // Home, Albums, Artists, Mix), which pushes FullPlayerScreen on
-          // tap. Mirrors SongTile's exact _handleTap ordering: push the
-          // full player FIRST while `context` is still guaranteed valid,
-          // then fire playSong() unawaited — playSong() can call
-          // notifyListeners() synchronously for a fully-offline queue
-          // (see player_provider.dart), and rebuilding this context
-          // before the push completes is what causes a stuck/dead
-          // screen. Also reads as the same instant-open, content-fills-
-          // in feel as the rest of the app.
-          pushFullPlayer(context);
+          // SPOTIFY-STYLE FIX ("kahi se bhi full player na khule"): tap
+          // now only starts playback — mini player is the tap feedback,
+          // matching every other song-tapping surface in the app.
           context.read<PlayerProvider>().playSong(
                 song,
                 queue: playlist.songs,
@@ -3078,24 +3064,8 @@ class _DownloadTile extends StatelessWidget {
               .toList();
           final resolvedIndex = queueIndex ?? 0;
 
-          // FIX (offline song → back/home leaves a dead, unresponsive grey
-          // screen until the app is force-restarted): pushFullPlayer(context)
-          // used to run AFTER playSong() below. playSong() calls
-          // notifyListeners() SYNCHRONOUSLY — before its first `await` — for
-          // a fully-offline queue (see isFullyOfflineQueue in
-          // player_provider.dart), since there's no network round-trip to
-          // space things out. That rebuild lands in the exact same frame as
-          // Navigator.of(context).push(...) inside pushFullPlayer using that
-          // same context, which can leave the new opaque:false route
-          // attached to the Navigator stack but never properly
-          // composited — an invisible barrier that still hit-tests every
-          // tap and swallows the back gesture: a dead screen fixable only
-          // by force-restart. Pushing first (while context is still
-          // guaranteed valid) and firing playSong() after removes the race
-          // instead of just routing through the shared helper, which only
-          // ever fixed the double-push case, not this ordering race.
-          pushFullPlayer(context);
-
+          // SPOTIFY-STYLE FIX ("kahi se bhi full player na khule"): tap
+          // now only starts playback — mini player is the tap feedback.
           context.read<PlayerProvider>().playSong(
                 offlineSong,
                 queue: offlineQueue,

@@ -20,7 +20,6 @@ import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_empty_state.dart';
 import '../widgets/aurum_equalizer_bars.dart';
 import '../l10n/generated/app_localizations.dart';
-import 'home_screen.dart' show pushFullPlayer;
 import '../utils/aurum_haptics.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -748,27 +747,8 @@ class _SearchScreenState extends State<SearchScreen>
       source:     track.isFromYoutube ? SongSource.youtube : SongSource.saavn,
     );
     if (mounted) {
-      // BUGFIX ("offline song → back leaves a dead white/grey screen until
-      // app restart"): pushFullPlayer(context) used to fire AFTER
-      // playSong() above. playSong() calls notifyListeners() SYNCHRONOUSLY
-      // — before its first `await` — for offline/local or curated queues
-      // (see player_provider.dart), since there's no network round-trip to
-      // space things out. That rebuild lands in the same frame as
-      // Navigator.of(context).push(...) inside pushFullPlayer using that
-      // same context; a context rebuilt mid-push can leave the new
-      // opaque:false route attached to the Navigator stack but never
-      // properly composited — an invisible barrier that still hit-tests
-      // every tap and swallows the back gesture, exactly the "screen goes
-      // dead, only restart fixes it" report. The double-push guard inside
-      // pushFullPlayer (see home_screen.dart) only ever covered TWO
-      // routes racing each other — it does nothing for this single-push
-      // ordering race. Pushing first, while context is still guaranteed
-      // valid, and firing playSong() after removes it. The onClosed
-      // callback preserves this screen's own post-pop rebuild since
-      // SearchScreen has no RouteAware of its own.
-      pushFullPlayer(context, onClosed: () {
-        if (mounted) setState(() {});
-      });
+      // SPOTIFY-STYLE FIX ("kahi se bhi full player na khule"): tap now
+      // only starts playback — mini player is the tap feedback.
       context.read<PlayerProvider>().playSong(song, queue: [song], index: 0);
     }
   }

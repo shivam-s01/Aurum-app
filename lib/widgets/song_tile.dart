@@ -8,7 +8,6 @@ import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../theme/aurum_theme.dart';
 import '../screens/library_screen.dart' show showAddToPlaylistSheet;
-import '../screens/home_screen.dart' show pushFullPlayer;
 import '../screens/full_player_screen.dart' show shareSong;
 import '../screens/artist_screen.dart';
 import '../screens/album_screen.dart';
@@ -89,32 +88,12 @@ class _SongTileState extends State<SongTile> {
     _isTapping = true;
     AurumHaptics.light();
     try {
-      // FIX (offline/local song → dead, unresponsive screen until force-
-      // restart): pushFullPlayer(context) used to fire AFTER the
-      // fire-and-forget playSong() call below. playSong() calls
-      // notifyListeners() SYNCHRONOUSLY (before its first `await`) for a
-      // fully-offline queue — see the isFullyOfflineQueue branch in
-      // player_provider.dart — because there's no network round-trip to
-      // naturally space things out. That notifyListeners() rebuilds every
-      // Provider consumer watching PlayerProvider (Home/Library screens
-      // showing isPlaying/currentSong) in the SAME frame that
-      // Navigator.of(context).push(...) inside pushFullPlayer is using
-      // that same context. A context rebuilt/invalidated mid-push can
-      // leave the new opaque:false route attached to the Navigator stack
-      // but never properly composited — an invisible barrier that still
-      // hit-tests every tap and swallows the back gesture, i.e. exactly a
-      // dead screen recoverable only by force-restart. Online songs never
-      // hit this because their notifyListeners() only fires after a real
-      // await (the network call), well outside this synchronous window.
-      // Fix: push the full player FIRST, using context while it's still
-      // guaranteed valid, then fire playSong() — instead of the other way
-      // around. This also reads better (Spotify-style instant-open,
-      // content fills in), and playSong() already handles its own
-      // loading/error state so FullPlayerScreen doesn't need the song to
-      // have resolved before it opens.
-      if (mounted) {
-        pushFullPlayer(context);
-      }
+      // SPOTIFY-STYLE FIX ("kahi se bhi full player na khule, tap se sirf
+      // mini player aaye, user chahe to khud full player khole"): tapping
+      // a song now only starts playback — the mini player appearing IS
+      // the tap feedback. pushFullPlayer(context) call removed from here
+      // entirely; opening the full player is now exclusively a deliberate
+      // action (tapping the mini player itself, in mini_player.dart).
       // History save moved to PlayerProvider._onSongChanged — fires only
       // once the native engine confirms this song actually started
       // playing, instead of on every tap regardless of stream success.

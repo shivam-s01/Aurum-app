@@ -2058,24 +2058,8 @@ class _SongGridCard extends StatelessWidget {
       child: GestureDetector(
       onTap: () {
         AurumHaptics.selection();
-        // FIX (offline/local song on Home → dead, unresponsive screen
-        // until force-restart): pushFullPlayer(context) used to fire
-        // AFTER playSong() below. playSong() calls notifyListeners()
-        // SYNCHRONOUSLY — before its first `await` — whenever the tapped
-        // song's queue is fully offline/local or curated (see
-        // player_provider.dart), since there's no network round-trip to
-        // space things out. That rebuild lands in the same frame as
-        // Navigator.of(context).push(...) inside pushFullPlayer using
-        // that same context — a context rebuilt mid-push can leave the
-        // new opaque:false route attached to the Navigator stack but
-        // never properly composited: an invisible barrier that still
-        // hit-tests every tap and swallows the back gesture, i.e. a dead
-        // screen fixable only by force-restart. Online songs mostly dodge
-        // this because their notifyListeners() only fires after a real
-        // await. Pushing first (while context is still guaranteed valid)
-        // and firing playSong() after removes the race instead of
-        // relying on timing luck.
-        pushFullPlayer(context);
+        // SPOTIFY-STYLE FIX ("kahi se bhi full player na khule"): tap
+        // now only starts playback — mini player is the tap feedback.
         context.read<PlayerProvider>().playSong(song, queue: queue, index: index);
       },
       child: Padding(
@@ -2880,14 +2864,8 @@ class _RecentlyPlayedSection extends StatelessWidget {
               itemBuilder: (_, i) => AurumPressable(
                 scaleAmount: 0.96,
                 onTap: () {
-                  // FIX (offline/local song → dead, unresponsive screen
-                  // until force-restart): same ordering race as
-                  // _SongGridCard above — playSong() fires
-                  // notifyListeners() synchronously for offline/curated
-                  // queues, before any await, which can invalidate this
-                  // context mid-push if pushFullPlayer runs after it.
-                  // Pushing first removes the race.
-                  pushFullPlayer(context);
+                  // SPOTIFY-STYLE FIX ("kahi se bhi full player na
+                  // khule"): tap now only starts playback.
                   player.playSong(songs[i], queue: songs, index: i);
                 },
                 child: Container(
