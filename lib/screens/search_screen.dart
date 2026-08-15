@@ -598,116 +598,55 @@ class _SearchScreenState extends State<SearchScreen>
       _relatedQueues = [];
     });
     _saveToHistory(query);
-    // Snapshot the live (quickSearch) results that were already on screen
-    // BEFORE this deep search started.
-    final liveSnapshotBeforeDeepSearch = List<Song>.from(_liveResults);
+    // YT-STABILITY FIX ("YT results aate hain phir gayab ho ke sirf Saavn
+    // bachta hai"): if the live pass already found real YT songs, freeze
+    // them — permanently, no swap, no length comparison, no fallback
+    // merge. Saavn is backup-only and its catalog is bigger, so any
+    // count-based "which list is bigger" comparison eventually lets a
+    // slower/weaker second YT call get outvoted by Saavn padding. Simplest
+    // correct rule: good YT snapshot in hand → keep it; deep search below
+    // only ever contributes the "related" section, never replaces it.
+    final liveYtSnapshot = _liveResults
+        .where((s) => s.source == SongSource.youtube)
+        .toList();
+    final hasGoodLiveYt = liveYtSnapshot.length >= 5;
+
+    if (hasGoodLiveYt) {
+      setState(() {
+        _results = liveYtSnapshot;
+        _loading = false;
+      });
+      _precomputeResultQueues();
+    }
+
     _debounce = Timer(const Duration(milliseconds: 150), () async {
-      // FIX ("Saavn se jo results aaye wahi enter dabane ke baad bhi
-      // EXACTLY same rehne chahiye — flip hi nahi hona chahiye — LEKIN
-      // wahi song ki category ke aur related songs bhi neeche aane
-      // chahiye, premium app jaisa"): the direct-match list (_results)
-      // must stay 100% frozen once the live pass already found it — no
-      // flip, no reorder, ever. But ApiService.search() is also the ONLY
-      // thing that builds the "you might also like" expansion (same
-      // movie/album's other songs, same artist, same mood/genre —
-      // RecommendationEngine.generateQueries + the album-tracks query,
-      // see api_service.dart). Skipping the deep call entirely (the
-      // previous version of this fix) killed that expansion for exactly
-      // the healthy case — a query Saavn already covers well — which is
-      // the MOST common case and the one this feature matters most for.
-      // Split responsibility instead: the deep call still always runs,
-      // but it's only ever allowed to fill _relatedResults (the "more
-      // from this category" section below the direct matches).
-      // _results itself only takes the deep pass's direct list when the
-      // live pass came up genuinely short — otherwise it stays the frozen
-      // live snapshot, untouched, exactly as it looked before enter was
-      // pressed.
-      // YT-PRIMARY FIX: this used to count ONLY Saavn hits (Saavn was
-      // primary, so a Saavn-thin live snapshot correctly meant "not good
-      // enough yet"). Now that YT leads, counting Saavn alone would keep
-      // freezing snapshots as "too thin" even when YT already filled them
-      // well — count every real hit (YT included) against the same bar.
-      final liveHitCount = liveSnapshotBeforeDeepSearch.length;
-      final keepLiveSnapshot = liveHitCount >= 8;
-
-      if (keepLiveSnapshot) {
-        if (!mounted) return;
-        if (_controller.text.trim() != query) return;
-        setState(() {
-          _results = liveSnapshotBeforeDeepSearch;
-          _loading = false;
-        });
-        _precomputeResultQueues();
-      }
-
-      // STABILITY FIX ("kuch sec baad search crash ho jata hai" — production
-      // bug): ApiService.search() was awaited directly with no try/catch,
-      // inside a `Timer(...) async` callback. Any real exception surfacing
-      // through it (network layer, JSON parsing, a null field from a flaky
-      // mirror — see the matching fix in api_service.dart's
-      // earlySearchYtFuture for the specific gap that let this happen) had
-      // nowhere to go: a Timer callback isn't awaited by anything, so an
-      // uncaught exception inside it becomes an uncaught async error with
-      // no error zone to catch it, which crashes the whole app rather than
-      // just this screen. Wrapping the call itself is the last line of
-      // defense — even if every internal source-level guard is later
-      // bypassed by some new code path, this screen degrades to "no
-      // results" instead of crashing.
       SearchResult result;
       try {
         result = await ApiService.search(query);
       } catch (_) {
-        if (!mounted) return;
-        if (_controller.text.trim() != query) return;
-        if (!keepLiveSnapshot) {
-          setState(() { _loading = false; });
-        }
+        if (!mounted || _controller.text.trim() != query) return;
+        if (!hasGoodLiveYt) setState(() { _loading = false; });
         return;
       }
-      if (!mounted) return;
-      // Stale-guard: if the user kept typing/searched something else while
-      // this was in flight, don't stomp on the newer query's results.
-      if (_controller.text.trim() != query) return;
-      // PERF/STABILITY FIX ("app kuch sec ke liye stuck ho jata hai typing
-      // ke baad, phir crash" — ANR class bug, not a thrown exception): this
-      // isDupOfLive computation used to run INSIDE setState() itself — a
-      // nested O(direct+related × liveSnapshot) loop where EVERY comparison
-      // calls isSameSongSmart (itself a nested per-segment loop with
-      // Levenshtein distance checks). A deep search can return up to ~80
-      // direct + 100+ related songs; against a ~20-song live snapshot, that
-      // is thousands of expensive string comparisons running synchronously
-      // on the UI thread inside the widget rebuild that setState()
-      // triggers — long enough on a mid/low-end device to miss enough
-      // frames in a row for Android to consider the app unresponsive and
-      // kill it (an ANR), which reads as "freezes for a few seconds, then
-      // just closes" rather than a caught exception with a stack trace.
-      // Computing the deduped list BEFORE setState() doesn't reduce the
-      // total work, but it does stop it from being attributed to (and
-      // blocking) the actual frame-critical rebuild — combined with the
-      // hard caps below, the worst case is now bounded instead of scaling
-      // unboundedly with however many songs a broad query's deep search
-      // happens to return.
-      //
-      // LIGHTWEIGHT FIX: this whole block is only relevant when
-      // keepLiveSnapshot is true — in the other branch, _relatedResults
-      // takes result.related as-is (see setState below) and none of this
-      // dedup work is ever used. Gating it here means a query that DIDN'T
-      // keep the live snapshot (the live pass came up short, i.e. a less
-      // common/niche query) skips thousands of string comparisons
-      // entirely instead of computing a result that gets thrown away —
-      // pure wasted CPU/battery for no visible benefit in that branch.
-      List<Song> dedupedRelated = const [];
-      if (keepLiveSnapshot) {
-        final liveIds = liveSnapshotBeforeDeepSearch.map((s) => s.id).toSet();
-        // Cap comparisons: only the first N live titles are checked
-        // against — reupload/duplicate dedup only needs to catch the
-        // songs actually visible on screen, and _liveResults is itself
-        // already capped to a small on-screen list, so this cap should
-        // rarely even trigger. It exists purely as a hard ceiling so a
-        // pathological session (e.g. _liveResults somehow ballooning)
-        // can't turn this into unbounded work.
+      if (!mounted || _controller.text.trim() != query) return;
+
+      // DEDUP FIX ("related section mein wahi song dikh jata hai jo upar
+      // direct results mein already frozen hai"): when hasGoodLiveYt froze
+      // _results to liveYtSnapshot above, result.related was still built
+      // by api_service.dart against its OWN direct list, not against
+      // liveYtSnapshot — so a song present in both could show twice on
+      // screen. Same guard the old freeze path used before this file's
+      // last pass, restored: dedup result.direct + result.related against
+      // the frozen live snapshot (id first, then isSameSongSmart on a
+      // capped raw-title list — cheap, bounded, same helper used
+      // everywhere else in this file). Only runs in the hasGoodLiveYt
+      // branch; the other branch already takes result.related as-is with
+      // zero extra work, unchanged.
+      List<Song> dedupedRelated = result.related;
+      if (hasGoodLiveYt) {
+        final liveIds = liveYtSnapshot.map((s) => s.id).toSet();
         const maxLiveTitlesToCheck = 25;
-        final liveRawTitles = liveSnapshotBeforeDeepSearch
+        final liveRawTitles = liveYtSnapshot
             .map((s) => s.title)
             .take(maxLiveTitlesToCheck)
             .toList();
@@ -718,11 +657,6 @@ class _SearchScreenState extends State<SearchScreen>
           }
           return false;
         }
-        // Cap the candidate pool itself too — result.related in
-        // particular can be a genuinely large expansion list; nothing
-        // downstream needs more than a screenful's worth deduped up
-        // front, and the section just shows fewer items rather than
-        // doing wasted work on entries far off-screen.
         const maxCandidatesToDedup = 150;
         dedupedRelated = <Song>[
           ...result.direct.take(maxCandidatesToDedup).where((s) => !isDupOfLive(s)),
@@ -731,33 +665,11 @@ class _SearchScreenState extends State<SearchScreen>
       }
 
       setState(() {
-        if (!keepLiveSnapshot) _results = result.direct;
-        // FIX: when we're keeping the frozen live snapshot, the deep
-        // call's own direct matches that AREN'T already in that snapshot
-        // are real category-mates too (same album/artist run through
-        // generateQueries) that just happened to land in `direct`
-        // instead of `related` this pass — fold them into the related
-        // section instead of discarding them, so nothing found gets lost.
-        // Smart title-comparison (not just ID) keeps reuploads of a song
-        // already showing in _results out of the related section too —
-        // same isSameSongSmart dedup used everywhere else in the app.
-        _relatedResults = keepLiveSnapshot ? dedupedRelated : result.related;
+        if (!hasGoodLiveYt) _results = result.direct;
+        _relatedResults = dedupedRelated;
         _loading = false;
       });
-      // Precompute queues right after results are set — kept as separate
-      // calls (not merged into the setState body above) since they don't
-      // themselves need to trigger a rebuild; the setState above already
-      // does that. Called synchronously right after, so by the time
-      // Flutter actually runs build() (next frame), both _results and
-      // _resultQueues/_relatedQueues are already consistent — no separate
-      // async gap where one could be stale relative to the other.
-      // PERF: only recompute _resultQueues here when _results actually
-      // changed in THIS setState (the !keepLiveSnapshot path) — when
-      // keepLiveSnapshot is true, _results is untouched (still the frozen
-      // live snapshot) and was already precomputed right after it was
-      // set above, so redoing the same O(n²) dedup pass on identical
-      // data here was pure wasted CPU work on every submitted search.
-      if (!keepLiveSnapshot) _precomputeResultQueues();
+      if (!hasGoodLiveYt) _precomputeResultQueues();
       _precomputeRelatedQueues();
     });
   }

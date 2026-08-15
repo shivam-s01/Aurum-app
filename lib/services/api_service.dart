@@ -1629,11 +1629,7 @@ class ApiService {
           if (merged.length >= 80) break;
           if (!seenIds.add(s.id)) continue;
           if (RecommendationEngine.isInherentVariant(s.title)) continue;
-          var isDup = false;
-          for (final seen in seenTitles) {
-            if (RecommendationEngine.isSameSongSmart(s.title, seen)) { isDup = true; break; }
-          }
-          if (isDup) continue;
+          if (_isDupOfAny(s.title, seenTitles)) continue;
           seenTitles.add(s.title);
           merged.add(s);
         }
@@ -2250,15 +2246,21 @@ class ApiService {
     final typoVariants = _generateTypoVariants(q, qWordsForVariants);
     typoVariants.removeAll(lyricVariants); // avoid firing the same query twice
 
-    // SEARCH: YT PRIMARY, SAAVN BACKUP/GAP-FILL.
+    // SEARCH: YT PRIMARY — ALMOST EXCLUSIVE. Saavn only fills a genuine
+    // gap (YT came back with almost nothing for this query), never just
+    // "tops up" a healthy YT result set. ("yt ko primary karo, search mai
+    // yt ka data hi jaye, saavn sirf gap fill ke liye" — user directive.)
     // YouTube (via the YT Music worker — official-quality title/artist/
-    // square-art metadata) is now the primary source and is always fired
-    // and always merged in first. Saavn still runs in full parallel (deep
-    // Hindi catalog Saavn covers that YT Music's search sometimes misses)
-    // but only ever fills in BELOW YT's results, and only for songs YT
-    // genuinely didn't return (smart-dedup checked). Both go through the
-    // same pipeline either way: quality/view floor, smart dedup, the same
-    // relevance scoring — never a raw, unfiltered dump from either side.
+    // square-art metadata) is the dominant source. Saavn still runs in
+    // parallel so it's ready instantly if needed, but it's only ever
+    // merged in when YT's own accepted-count is below a hard floor
+    // (_minYtCountBeforeSaavnFill below) — a healthy YT result set now
+    // shows AS-IS, with zero Saavn songs mixed in. Both sources still go
+    // through the same quality pipeline either way (duration sanity,
+    // non-music filter, relevance scoring, smart dedup) — never a raw,
+    // unfiltered dump from either side. Saavn stays untouched everywhere
+    // else (albums, browse, playback fallback) — this only changes what
+    // populates the SEARCH results list.
     //
     // The main query goes through MusicCatalog.saavn (music_source.dart),
     // which already retries once on its own if a host comes back empty —
@@ -2297,9 +2299,10 @@ class ApiService {
     // the whole app, not just this widget. Every other parallel Saavn/YT
     // future in this file already has .catchError() right next to its
     // .timeout(); this was the one gap in the submit-search path.
-    // TUNED (YT primary): 40 -> 60 — YT now needs to comfortably cover the
-    // query on its own, not just top up a thin Saavn pass.
-    final earlySearchYtFuture = _searchYt(q, limit: 60)
+    // TUNED (YT primary — near-exclusive): 60 -> 100 — YT now needs to
+    // comfortably cover the query almost entirely on its own; Saavn is a
+    // gap-fill of last resort, not a routine co-source.
+    final earlySearchYtFuture = _searchYt(q, limit: 100)
         .timeout(const Duration(seconds: 10), onTimeout: () => <Song>[])
         .catchError((_) => <Song>[]);
     var saavnAll = await Future.wait(saavnFutures);
@@ -2359,14 +2362,7 @@ class ApiService {
       if (RecommendationEngine.isNonMusicContent(song)) continue;
       final score = _scoreSearchResult(song, q, wantsVariant);
       if (score < minRelevanceScore) continue;
-      var isDupOfAccepted = false;
-      for (final seenRaw in saavnRawTitlesAccepted) {
-        if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) {
-          isDupOfAccepted = true;
-          break;
-        }
-      }
-      if (isDupOfAccepted) continue;
+      if (_isDupOfAny(song.title, saavnRawTitlesAccepted)) continue;
       saavnRawTitlesAccepted.add(song.title);
       saavnScored.add(_ScoredSong(song, score));
     }
@@ -2381,20 +2377,18 @@ class ApiService {
     final ytResults = await earlySearchYtFuture; // already firing in parallel since above
     final ytRawTitlesAccepted = <String>[];
     for (final song in ytResults) {
-      if (!RecommendationEngine.isPremiumQuality(song)) continue;
+      // FIX: isPremiumQuality's 500k-view floor (built for the home feed)
+      // was silently dropping legit niche-channel search matches — anime
+      // AMVs, lofi/remix channels, fan covers. isSearchQuality keeps the
+      // duration sanity check but drops the view-count requirement, since
+      // _scoreSearchResult below already confirms query relevance.
+      if (!RecommendationEngine.isSearchQuality(song)) continue;
       // Same non-music/news-vlog/bare-label-reupload filter as
       // getAutoQueue — search's YT results shouldn't surface this content.
       if (RecommendationEngine.isNonMusicContent(song)) continue;
       final score = _scoreSearchResult(song, q, wantsVariant);
       if (score < minRelevanceScore) continue;
-      var isDupOfAccepted = false;
-      for (final seenRaw in ytRawTitlesAccepted) {
-        if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) {
-          isDupOfAccepted = true;
-          break;
-        }
-      }
-      if (isDupOfAccepted) continue;
+      if (_isDupOfAny(song.title, ytRawTitlesAccepted)) continue;
       ytRawTitlesAccepted.add(song.title);
       ytScored.add(_ScoredSong(song, score));
     }
@@ -2402,22 +2396,22 @@ class ApiService {
 
     final ytNorms = <String>{for (final s in ytScored) _normTitle(s.song.title)};
 
-    // YT songs are ranked strictly above every Saavn song — YT is now
-    // primary. Saavn only ever fills in below YT's own results, and only
-    // for songs YT genuinely didn't have (smart-dedup checked against YT's
-    // accepted titles), so nothing doubles up between the two sources.
+    // YT-PRIMARY, NEAR-EXCLUSIVE: Saavn only merges in when YT's own
+    // accepted count is genuinely thin — a real gap, not routine top-up.
+    // Below this floor, YT alone plausibly can't fill even one screen of
+    // results, so Saavn steps in as backup. At or above it, Saavn is
+    // skipped entirely and the results list is pure YT — exactly what was
+    // asked for ("search mai yt ka data hi jaye, saavn sirf gap fill ke
+    // liye"). Saavn stays fully wired for playback/albums/browse — this
+    // only gates whether it's mixed into the SEARCH results list.
+    const minYtCountBeforeSaavnFill = 10;
     final saavnBackupOnly = <_ScoredSong>[];
-    for (final ss in saavnScored) {
-      if (ytNorms.contains(_normTitle(ss.song.title))) continue;
-      var isDupOfYt = false;
-      for (final seenRaw in ytRawTitlesAccepted) {
-        if (RecommendationEngine.isSameSongSmart(ss.song.title, seenRaw)) {
-          isDupOfYt = true;
-          break;
-        }
+    if (ytScored.length < minYtCountBeforeSaavnFill) {
+      for (final ss in saavnScored) {
+        if (ytNorms.contains(_normTitle(ss.song.title))) continue;
+        if (_isDupOfAny(ss.song.title, ytRawTitlesAccepted)) continue;
+        saavnBackupOnly.add(ss);
       }
-      if (isDupOfYt) continue;
-      saavnBackupOnly.add(ss);
     }
 
     final directResults = [...ytScored, ...saavnBackupOnly].map((s) => s.song).toList();
@@ -2523,28 +2517,36 @@ class ApiService {
         if (directIds.contains(s.id)) return;
         if (sessionPlayedIds.contains(s.id)) return;
         if (RecommendationEngine.isInherentVariant(s.title)) return;
-        if (s.source == SongSource.youtube && !RecommendationEngine.isPremiumQuality(s)) return;
+        // FIX: same view-floor-too-strict-for-search issue as direct
+        // results — isSearchQuality (duration sanity only, no view-count
+        // requirement) instead of isPremiumQuality, so niche-channel YT
+        // matches (anime AMVs, lofi/remix, fan covers) aren't dropped here.
+        if (s.source == SongSource.youtube && !RecommendationEngine.isSearchQuality(s)) return;
         final tk = _normTitle(s.title);
         if (directTitles.contains(tk) || seenRelated.contains(tk)) return;
-        for (final rawTitle in seenRelatedRawTitles) {
-          if (RecommendationEngine.isSameSongSmart(s.title, rawTitle)) return;
-        }
+        if (_isDupOfAny(s.title, seenRelatedRawTitles)) return;
         seenRelated.add(tk);
         seenRelatedRawTitles.add(s.title);
         relatedPool.add(s);
       }
 
-      // YT first (primary), then Saavn backfills whatever's left.
+      // YT-PRIMARY, NEAR-EXCLUSIVE: YT fills the related pool first; Saavn
+      // related results are only added if YT's own related pool came up
+      // genuinely short (same gap-fill-only philosophy as the direct
+      // results merge above), not as a routine second pass.
+      const minYtRelatedBeforeSaavnFill = 15;
       for (final list in ytRelatedLists) {
         for (final s in list) {
           if (relatedPool.length >= relatedCap) break;
           addToPool(s);
         }
       }
-      for (final list in saavnRelatedLists) {
-        for (final s in list) {
-          if (relatedPool.length >= relatedCap) break;
-          addToPool(s);
+      if (relatedPool.length < minYtRelatedBeforeSaavnFill) {
+        for (final list in saavnRelatedLists) {
+          for (final s in list) {
+            if (relatedPool.length >= relatedCap) break;
+            addToPool(s);
+          }
         }
       }
       results.addAll(relatedPool);
@@ -2864,6 +2866,19 @@ class ApiService {
   static bool _wantsVariantQuery(String query) =>
       RecommendationEngine.isInherentVariant(query);
 
+  // CLEANUP: the same "is this song a smart-dedup match against anything
+  // already accepted" loop was copy-pasted 4+ times across search()/
+  // quickSearch() — identical shape every time (loop the accepted-titles
+  // list, call isSameSongSmart, break on first hit). One shared helper,
+  // zero behavior change — every call site below produces the exact same
+  // accept/reject decision it did before.
+  static bool _isDupOfAny(String title, List<String> acceptedTitles) {
+    for (final t in acceptedTitles) {
+      if (RecommendationEngine.isSameSongSmart(title, t)) return true;
+    }
+    return false;
+  }
+
   // Wider dedup window (30 chars) so fewer legitimate songs are dropped
   static String _normTitle(String title) {
     final clean = title
@@ -3008,11 +3023,7 @@ class ApiService {
       if (RecommendationEngine.isNonMusicContent(song)) continue;
       final score = _scoreSearchResult(song, q, wantsVariant);
       if (score < minLiveRelevanceScore) continue;
-      var isDup = false;
-      for (final seenRaw in saavnRawTitlesAccepted) {
-        if (RecommendationEngine.isSameSongSmart(song.title, seenRaw)) { isDup = true; break; }
-      }
-      if (isDup) continue;
+      if (_isDupOfAny(song.title, saavnRawTitlesAccepted)) continue;
       saavnRawTitlesAccepted.add(song.title);
       saavnScored.add(_ScoredSong(song, score));
     }
@@ -3025,34 +3036,32 @@ class ApiService {
     final ytScoredQuick = <_ScoredSong>[];
     final ytRawTitlesAcceptedQuick = <String>[];
     for (final ys in ytQuickResults) {
-      if (!RecommendationEngine.isPremiumQuality(ys)) continue;
+      // FIX: same view-floor-too-strict-for-search issue as the main
+      // search() path above — lighter gate, no view-count requirement.
+      if (!RecommendationEngine.isSearchQuality(ys)) continue;
       if (RecommendationEngine.isLowQualityUpload(ys.title)) continue;
       if (RecommendationEngine.isNonMusicContent(ys)) continue;
       final score = _scoreSearchResult(ys, q, wantsVariant);
       if (score < minLiveRelevanceScore) continue;
-      var isDup = false;
-      for (final seenRaw in ytRawTitlesAcceptedQuick) {
-        if (RecommendationEngine.isSameSongSmart(ys.title, seenRaw)) { isDup = true; break; }
-      }
-      if (isDup) continue;
+      if (_isDupOfAny(ys.title, ytRawTitlesAcceptedQuick)) continue;
       ytRawTitlesAcceptedQuick.add(ys.title);
       ytScoredQuick.add(_ScoredSong(ys, score));
     }
     ytScoredQuick.sort((a, b) => b.score.compareTo(a.score));
 
-    // YT PRIMARY, Saavn backup: YT results lead the list; Saavn only fills
-    // in below YT and only for songs YT genuinely didn't have (no dup).
+    // YT PRIMARY, NEAR-EXCLUSIVE: YT leads the list; Saavn only merges in
+    // when YT's own accepted count is genuinely thin (same gap-fill-only
+    // gate as the submit-search path above), not as a routine top-up.
     final ytNormsQuick = <String>{for (final s in ytScoredQuick) _normTitle(s.song.title)};
     final mergedQuick = <Song>[...ytScoredQuick.map((s) => s.song)];
-    for (final ss in saavnScored) {
-      if (mergedQuick.length >= limit) break;
-      if (ytNormsQuick.contains(_normTitle(ss.song.title))) continue;
-      var isDup = false;
-      for (final seenRaw in ytRawTitlesAcceptedQuick) {
-        if (RecommendationEngine.isSameSongSmart(ss.song.title, seenRaw)) { isDup = true; break; }
+    const minYtQuickCountBeforeSaavnFill = 6;
+    if (ytScoredQuick.length < minYtQuickCountBeforeSaavnFill) {
+      for (final ss in saavnScored) {
+        if (mergedQuick.length >= limit) break;
+        if (ytNormsQuick.contains(_normTitle(ss.song.title))) continue;
+        if (_isDupOfAny(ss.song.title, ytRawTitlesAcceptedQuick)) continue;
+        mergedQuick.add(ss.song);
       }
-      if (isDup) continue;
-      mergedQuick.add(ss.song);
     }
 
     final quickResult = mergedQuick.take(limit).toList();
@@ -5806,10 +5815,15 @@ class ApiService {
       // gated) rather than introducing a new uncleaned path. Kept as a best-effort addition — if the YT search
       // fails or times out, the page still renders with Saavn's topSongs
       // alone rather than failing the whole artist fetch.
+      // TUNED ("YT se artist songs zyada se zyada aaye"): 30 -> 60 — more
+      // YT depth for artists whose Saavn catalog is thin/stale, same
+      // quality pipeline (isSearchQuality/isNonMusicContent gating already
+      // applied inside _searchYt's callers elsewhere; dedup below still
+      // keeps Saavn's own catalog authoritative and first).
       final artistNameForYt = (d['name'] ?? '').toString();
       final ytTopSongs = artistNameForYt.isEmpty
           ? <Song>[]
-          : await _searchYt('$artistNameForYt songs', limit: 30)
+          : await _searchYt('$artistNameForYt songs', limit: 60)
               .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
               .catchError((_) => <Song>[]);
 
@@ -5824,17 +5838,21 @@ class ApiService {
       // songs).
       final seenRawTitles = <String>[];
       for (final s in [...saavnTopSongs, ...ytTopSongs]) {
+        // FIX ("artist page pe kabhi kabhi junk/unrelated YT upload aa jata
+        // hai"): Saavn's own catalog is trusted as-is (it's the
+        // authoritative source for this page), but YT entries now go
+        // through the same quality gate search results already use —
+        // duration sanity + non-music/label-reupload filter — so a stray
+        // news/vlog/bare-reupload video merged in from the YT search above
+        // never reaches the artist page.
+        if (s.source == SongSource.youtube) {
+          if (!RecommendationEngine.isSearchQuality(s)) continue;
+          if (RecommendationEngine.isNonMusicContent(s)) continue;
+        }
         if (!seenIds.add(s.id)) continue;
         final tk = _normTitle(s.title);
         if (!seenTitles.add(tk)) continue;
-        var isDup = false;
-        for (final seenRaw in seenRawTitles) {
-          if (RecommendationEngine.isSameSongSmart(s.title, seenRaw)) {
-            isDup = true;
-            break;
-          }
-        }
-        if (isDup) continue;
+        if (_isDupOfAny(s.title, seenRawTitles)) continue;
         seenRawTitles.add(s.title);
         topSongs.add(s);
       }

@@ -1456,6 +1456,31 @@ class RecommendationEngine {
     return true;
   }
 
+  // FIX ("search mein YT songs nahi aa rahe, sirf Saavn — anime/AMV/lofi
+  // wagera niche channels ke songs (Relaxu, Sailens jaise) missing"):
+  // isPremiumQuality's 500k-view floor for unofficial channels was built
+  // for the passive HOME FEED, where there's no user query to confirm
+  // relevance — a high view floor is the only signal available there to
+  // keep junk out. SEARCH is different: the user typed an explicit query,
+  // and _scoreSearchResult + isNonMusicContent + isLowQualityUpload
+  // already do the actual relevance/quality filtering on every result.
+  // Applying the home-feed view floor ON TOP of that in search meant a
+  // real, correctly-matched song from a small/niche channel (anime AMVs,
+  // lofi remix channels, fan covers — all legitimate, all common on
+  // YouTube for this kind of query) got silently dropped for having
+  // "only" 50k or 200k views, even though it was exactly what was asked
+  // for. Search now uses this lighter gate: same duration sanity check
+  // (still blocks ringtone-length clips and multi-track jukebox dumps),
+  // but no view-count requirement — relevance is already proven by the
+  // query match, not by popularity.
+  static bool isSearchQuality(Song song) {
+    if (song.duration != null) {
+      if (song.duration! < _minDurationSeconds) return false;
+      if (song.duration! > _maxDurationSeconds) return false;
+    }
+    return true;
+  }
+
   // FIX ("T-Series/Saregama copyright-holder uploads and non-music videos
   // (news, vlogs) showing up in the queue"): YouTube's own related-videos
   // graph (NativeRelatedVideos.getRelated, used as one of getAutoQueue's
