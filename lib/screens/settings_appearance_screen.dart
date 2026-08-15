@@ -408,7 +408,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             title: l10n.saScrollAnimations,
             subtitle: l10n.saScrollAnimationsSubtitle,
             value: _scrollAnimations,
-            onChanged: (v) { setState(() => _scrollAnimations = v); _save('scroll_animations', v); },
+            onChanged: (v) { setState(() => _scrollAnimations = v); _save('scroll_animations', v); AudioPrefs.setScrollAnimations(v); },
           ),
           _inlineSwitch(context,
             title: l10n.saBgGradientAnimation,

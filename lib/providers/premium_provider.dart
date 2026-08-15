@@ -62,6 +62,16 @@ class PremiumProvider extends ChangeNotifier {
   void Function()? onSlowNetwork;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  // BUG FIX ("long term stability" — subscription leak): the
+  // auth.onAuthStateChange listener below (in init()) used to be a
+  // fire-and-forget `.listen(...)` with the returned StreamSubscription
+  // never stored anywhere, so dispose() had nothing to cancel it with.
+  // In normal operation this provider lives for the app's whole
+  // lifetime so the practical impact is small, but it's still a genuine
+  // leaked subscription that would double up (and keep doubling up) on
+  // every _refresh() call if this provider were ever recreated — stored
+  // now so dispose() can clean it up like every other subscription here.
+  StreamSubscription<AuthState>? _authSub;
   static const _slowNetworkTimeout = Duration(seconds: 6);
 
   // -- Init --------------------------------------------------------------
@@ -81,7 +91,8 @@ class PremiumProvider extends ChangeNotifier {
     // Switching to a *different* signed-in account is still safe: the
     // ownership check inside PaymentService.hasValidLocalGrant() refuses
     // to honour a grant that belongs to another user id.
-    Supabase.instance.client.auth.onAuthStateChange.listen((_) => _refresh());
+    _authSub =
+        Supabase.instance.client.auth.onAuthStateChange.listen((_) => _refresh());
 
     // Spotify-style "just works on any device": if the app opened with no
     // signal (or the very first check timed out), re-check the moment
@@ -99,6 +110,7 @@ class PremiumProvider extends ChangeNotifier {
   @override
   void dispose() {
     _connectivitySub?.cancel();
+    _authSub?.cancel();
     super.dispose();
   }
 

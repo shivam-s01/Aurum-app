@@ -83,7 +83,32 @@ class AudioPrefs {
   /// If true (default), screen-to-screen navigation uses the slide+fade
   /// AurumPageRoute transition. If false, navigation cuts instantly.
   /// Set from Settings → Appearance → "Back Animations".
-  static bool backAnimations = true;
+  ///
+  /// FIX ("toggle feels like it doesn't do anything until app restart"):
+  /// this was a plain static bool. AurumPageRoute/AurumSlidePageRoute/
+  /// AurumModalRoute/_EdgeSwipeBack all read it only once — at route
+  /// *construction* time, inside the PageRouteBuilder super() call — so
+  /// flipping the setting mid-session never touched any already-built
+  /// widget tree; it only took effect on the next cold app launch.
+  /// Wrapped in a ValueNotifier (same pattern as enableAnimationsNotifier
+  /// and bgGradientAnimationNotifier below) so the transition builders can
+  /// read the *live* value at animation time instead of a stale snapshot.
+  static final ValueNotifier<bool> backAnimationsNotifier =
+      ValueNotifier<bool>(true);
+  static bool get backAnimations => backAnimationsNotifier.value;
+
+  /// If true (default), list items fade in as they scroll into view.
+  /// Set from Settings → Appearance → "Scroll Animations".
+  ///
+  /// FIX ("toggle does nothing at all"): this setting was previously only
+  /// ever written to SharedPreferences directly from the settings screen —
+  /// there was no AudioPrefs field for it at all, so nothing in the app
+  /// could ever read it. No scroll-fade-in behavior existed anywhere in
+  /// the codebase to gate. Added the live flag here; call sites that want
+  /// a scroll-triggered fade-in should check this.
+  static final ValueNotifier<bool> scrollAnimationsNotifier =
+      ValueNotifier<bool>(true);
+  static bool get scrollAnimations => scrollAnimationsNotifier.value;
 
   /// 'Square' | 'Rounded' | 'Circle' — drives the corner radius of the
   /// main player artwork. Set from Settings → Appearance. Wrapped in a
@@ -306,6 +331,7 @@ class AudioPrefs {
   static const _kDuckNotif     = 'duck_on_notifications';
   static const _kIncognito     = 'incognito_mode';
   static const _kBackAnim      = 'back_animations';
+  static const _kScrollAnim    = 'scroll_animations';
   static const _kArtworkShape  = 'artwork_shape';
   static const _kLyricsPos     = 'lyrics_text_position';
   static const _kLyricsSize    = 'lyrics_text_size';
@@ -343,7 +369,8 @@ class AudioPrefs {
     pauseOnCall         = p.getBool(_kPauseOnCall) ?? pauseOnCall;
     duckOnNotifications = p.getBool(_kDuckNotif) ?? duckOnNotifications;
     incognito           = p.getBool(_kIncognito) ?? incognito;
-    backAnimations      = p.getBool(_kBackAnim) ?? backAnimations;
+    backAnimationsNotifier.value = p.getBool(_kBackAnim) ?? backAnimationsNotifier.value;
+    scrollAnimationsNotifier.value = p.getBool(_kScrollAnim) ?? scrollAnimationsNotifier.value;
     artworkShapeNotifier.value = p.getString(_kArtworkShape) ?? artworkShape;
     lyricsStyleNotifier.value = LyricsStyle(
       position:    p.getString(_kLyricsPos) ?? lyricsStyleNotifier.value.position,
@@ -422,9 +449,15 @@ class AudioPrefs {
   }
 
   static Future<void> setBackAnimations(bool v) async {
-    backAnimations = v;
+    backAnimationsNotifier.value = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kBackAnim, v);
+  }
+
+  static Future<void> setScrollAnimations(bool v) async {
+    scrollAnimationsNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kScrollAnim, v);
   }
 
   static Future<void> setArtworkShape(String v) async {

@@ -2937,14 +2937,38 @@ class _RecentlyPlayedSection extends StatelessWidget {
 // Artist Strip — 5-6 circular artist cards, random each hour
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _ArtistStrip extends StatelessWidget {
+class _ArtistStrip extends StatefulWidget {
   final List<ArtistSimple> artists;
   final bool loading;
   const _ArtistStrip({required this.artists, required this.loading});
 
   @override
+  State<_ArtistStrip> createState() => _ArtistStripState();
+}
+
+class _ArtistStripState extends State<_ArtistStrip> {
+  // BUG FIX ("app fasna / scroll atakna over time" — memory leak): this
+  // was a StatelessWidget that allocated `ScrollController()` fresh
+  // inside build() on every rebuild (parent list scrolling, any
+  // setState above this in the tree, theme changes, etc.) and never
+  // disposed any of them — each abandoned controller stayed alive in
+  // memory indefinitely with its ScrollPosition machinery still
+  // attached. Converted to a StatefulWidget so the controller is
+  // created exactly once in initState and disposed exactly once in
+  // dispose(), same pattern as every other scrollable section in this
+  // file.
+  late final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final scrollController = ScrollController();
+    final artists = widget.artists;
+    final loading = widget.loading;
     // FIX — inconsistent vertical rhythm between home-feed sections: this
     // was top:24 while every other section (Trending Playlists, each
     // SongSection like Afternoon Picks/Bollywood Mix) uses top:28. Small
@@ -2969,7 +2993,7 @@ class _ArtistStrip extends StatelessWidget {
           const SizedBox(height: 14),
           FadedHorizontalList(
             height: 100,
-            controller: scrollController,
+            controller: _scrollController,
             // Narrower than the default 20px — these are 64px circular
             // avatars, not full square artwork; a full-width fade would
             // visibly eat into the circle itself rather than just softening
@@ -2980,7 +3004,7 @@ class _ArtistStrip extends StatelessWidget {
                 : artists.isEmpty
                     ? const SizedBox.shrink()
                     : ListView.builder(
-                        controller: scrollController,
+                        controller: _scrollController,
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
                         // PERF: see cacheExtent note on the song-card
@@ -3147,10 +3171,31 @@ class _YtPlaylistsForYouSectionState
   bool _everLoadedOnce = false;
   String _selectedMood = _kMoodAll;
 
+  // BUG FIX ("app fasna / scroll atakna over time" — memory leak):
+  // this ScrollController used to be created fresh inside build() —
+  // `final scrollController = ScrollController();` — every single
+  // rebuild. Since this is a StatefulWidget whose build() re-runs on
+  // every mood-chip tap (_onMoodTap → setState) and every pull-to-
+  // refresh (didUpdateWidget), each of those rebuilds allocated a brand
+  // new controller and abandoned the previous one without ever calling
+  // .dispose() on it — a genuine, unbounded memory leak that gets worse
+  // the more the user interacts with this row (switches moods, pulls to
+  // refresh) across a session. Each abandoned controller also leaves its
+  // ScrollPosition/listener machinery alive in memory doing nothing.
+  // Moved to a State field created once in initState and disposed once
+  // in dispose(), matching every other ScrollController in this file.
+  late final ScrollController _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   @override
@@ -3235,7 +3280,6 @@ class _YtPlaylistsForYouSectionState
     }
 
     final l10n = AppLocalizations.of(context)!;
-    final scrollController = ScrollController();
     final cards = _cards;
 
     return Padding(
@@ -3260,14 +3304,14 @@ class _YtPlaylistsForYouSectionState
           const SizedBox(height: 12),
           FadedHorizontalList(
             height: 130,
-            controller: scrollController,
+            controller: _scrollController,
             child: cards == null
                 ? (_failed
                     ? _YtPlaylistsForYouRetry(onRetry: _load)
                     : _YtPlaylistsForYouSkeleton(
-                        scrollController: scrollController))
+                        scrollController: _scrollController))
                 : ListView.builder(
-                    controller: scrollController,
+                    controller: _scrollController,
                     scrollDirection: Axis.horizontal,
                     physics: const BouncingScrollPhysics(),
                     cacheExtent: 600,

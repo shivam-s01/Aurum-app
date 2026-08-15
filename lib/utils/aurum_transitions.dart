@@ -77,6 +77,11 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObser
     WidgetsBinding.instance.scheduleFrameCallback(_watchdogTick);
   }
 
+  // FIX: AudioPrefs.backAnimations is now a live ValueNotifier-backed
+  // getter (was a plain static bool that only got read once at route
+  // construction — see audio_prefs.dart), so this now always reflects
+  // the current toggle state even for a route that was already pushed
+  // before the setting changed.
   bool get _enabled =>
       AurumMotion.enabled && AudioPrefs.backAnimations;
 
@@ -189,8 +194,12 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObser
     _dragging = false;
     _lastDragUpdate = null;
     final remaining = 1.0 - widget.animationController.value;
-    final settleMs = (AurumMotion.long1.inMilliseconds * remaining)
-        .clamp(80.0, AurumMotion.long1.inMilliseconds.toDouble())
+    // Matches AurumPageRoute's medium2 (280ms, "peak fast") speed —
+    // was long1 (350ms), which made a cancelled swipe visibly slower to
+    // settle than a normal tap-back after the push route's own speed
+    // was bumped up.
+    final settleMs = (AurumMotion.medium2.inMilliseconds * remaining)
+        .clamp(80.0, AurumMotion.medium2.inMilliseconds.toDouble())
         .round();
     widget.animationController.animateTo(1.0,
         duration: Duration(milliseconds: settleMs),
@@ -207,24 +216,19 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObser
     // flick even from a shorter drag — mirrors how forgiving Spotify's own
     // gesture threshold feels rather than requiring a full deliberate drag.
     final shouldPop = widget.animationController.value < 0.6 || velocity > 600;
-    // FIX ("back feels stuck/not smooth"): this release-settle used to
-    // always run at a fixed AurumMotion.short2 (150ms) — a different,
-    // faster duration than the 350ms every other close path in the app
-    // (tap-back, OS back gesture) uses. That mismatch is what made the
-    // swipe-back specifically feel like it "catches" or snaps compared to
-    // a normal back — not slow, just visibly a different speed/rhythm.
-    // Scaling long1 (350ms, the same duration used everywhere else) by
-    // how much of the drag is actually left to animate keeps the FEEL
-    // (pixels-per-second) consistent with a full close, without making a
-    // late release (already 80% of the way closed) crawl through a full
-    // 350ms for the last 20% — the remaining motion still completes at
-    // the same visual speed as the rest of the transition, just scaled to
-    // however much of it is actually left.
+    // Scales with medium2 (280ms, "peak fast" — matches AurumPageRoute's
+    // updated push/pop speed, was long1/350ms) by how much of the drag is
+    // actually left to animate, keeping the FEEL (pixels-per-second)
+    // consistent with a full close, without making a late release
+    // (already 80% of the way closed) crawl through the full duration for
+    // the last 20% — the remaining motion still completes at the same
+    // visual speed as the rest of the transition, just scaled to however
+    // much of it is actually left.
     final remaining = shouldPop
         ? widget.animationController.value
         : (1.0 - widget.animationController.value);
-    final settleMs = (AurumMotion.long1.inMilliseconds * remaining)
-        .clamp(80.0, AurumMotion.long1.inMilliseconds.toDouble())
+    final settleMs = (AurumMotion.medium2.inMilliseconds * remaining)
+        .clamp(80.0, AurumMotion.medium2.inMilliseconds.toDouble())
         .round();
     if (shouldPop) {
       widget.animationController
@@ -320,11 +324,18 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
           // different close speeds. Unified to long1 everywhere so every
           // path back uses the exact same duration/curve as the push it's
           // reversing — back now always mirrors forward 1:1.
+          // SPEED ("ekdam fast, peak experience" — was long1/350ms):
+          // dropped to medium2 (280ms), the fastest tier that still reads
+          // as a deliberate slide rather than a flicker/cut. iOS's own
+          // push/pop sits in a similar ~300ms range — this is tuned to
+          // feel snappy without being so fast the parallax reads as a
+          // glitch. Kept identical forward/back so push and pop still
+          // mirror each other 1:1.
           transitionDuration: _animsOn()
-              ? AurumMotion.long1
+              ? AurumMotion.medium2
               : Duration.zero,
           reverseTransitionDuration: _animsOn()
-              ? AurumMotion.long1
+              ? AurumMotion.medium2
               : Duration.zero,
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
@@ -337,48 +348,88 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
               reverseCurve: AurumMotion.standardReverse,
             );
 
-            // Outgoing screen gets a very subtle fade + scale-down so the
-            // transition reads as one continuous motion, not two separate
-            // animations stacked on top of each other.
-            final secondaryCurved = CurvedAnimation(
-              parent: secondaryAnimation,
-              curve: AurumMotion.standard,
-            );
-
             // FIX ("almost every screen randomly gets a permanent gray
             // dim, no swipe/drag involved" — production bug): same class
             // of issue as AurumSlidePageRoute's matching fix just above —
-            // secondaryAnimation drives this route's 0.96-opacity dim
-            // while ANYTHING is pushed on top of it, which for
-            // AurumPageRoute means basically every screen in the app
-            // (it's the default push route). A fast/overlapping
-            // navigation can leave secondaryAnimation stuck at a stale
-            // non-zero value instead of settling to 0 on return, which
-            // renders as a permanent faint dim with no drag needed to
-            // reproduce — the _EdgeSwipeBack fixes above only cover the
-            // manually-scrubbed drag controller, not this independent
-            // Flutter-driven secondaryAnimation. Same fix: ignore
-            // secondaryAnimation's raw value whenever ModalRoute.isCurrent
-            // confirms this route is actually the active top of stack.
+            // secondaryAnimation drives this route's dim/parallax while
+            // ANYTHING is pushed on top of it, which for AurumPageRoute
+            // means basically every screen in the app (it's the default
+            // push route). A fast/overlapping navigation can leave
+            // secondaryAnimation stuck at a stale non-zero value instead
+            // of settling to 0 on return, which renders as a permanent
+            // faint dim/shift with no drag needed to reproduce — the
+            // _EdgeSwipeBack fixes above only cover the manually-scrubbed
+            // drag controller, not this independent Flutter-driven
+            // secondaryAnimation. Same fix: ignore secondaryAnimation's
+            // raw value whenever ModalRoute.isCurrent confirms this
+            // route is actually the active top of stack.
             final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+
+            // PERF: only built when actually needed (something is pushed
+            // on top of this route) — skips a CurvedAnimation listener
+            // hookup on the overwhelmingly common case (this route IS the
+            // top of the stack), which is every ordinary push/pop.
+            //
+            // iOS-style parallax back: the screen BEHIND the one being
+            // popped doesn't sit static while the top one slides away —
+            // it drifts in from a partial left offset too, so both
+            // screens visibly move together, text and all, instead of
+            // one screen sliding over a frozen backdrop.
+            final secondaryCurved = isTopRoute
+                ? null
+                : CurvedAnimation(
+                    parent: secondaryAnimation,
+                    curve: AurumMotion.standard,
+                  );
 
             final content = ColoredBox(
               color: AurumTheme.bgOf(context),
-              child: FadeTransition(
-                opacity: curved,
+              // PERF ("lightweight, low-end, no junk feel"): dropped the
+              // extra FadeTransition(opacity: AlwaysStoppedAnimation(1.0))
+              // layer that used to sit here — an opacity-always-1.0
+              // FadeTransition still allocates its own Opacity render
+              // object + compositing layer every single animating frame
+              // for zero visual difference from not having it at all.
+              // Pure overhead on every push/pop. iOS's own push doesn't
+              // fade the incoming screen anyway (see note below), so the
+              // slide layer alone is both the correct look AND the
+              // cheaper one — one less layer for low-end GPUs to
+              // composite per frame.
+              child: SlideTransition(
+                // Genuine full slide-in from off-screen-right (1.0 → 0),
+                // the actual iOS push/pop distance — the whole screen,
+                // text included, visibly travels across instead of just
+                // fading up near its resting position.
+                position: Tween<Offset>(
+                  begin: const Offset(1.0, 0),
+                  end: Offset.zero,
+                ).animate(curved),
                 child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0.08, 0),
-                    end: Offset.zero,
-                  ).animate(curved),
-                  child: FadeTransition(
-                    opacity: isTopRoute
-                        ? const AlwaysStoppedAnimation(1.0)
-                        : Tween<double>(begin: 1.0, end: 0.96).animate(
-                            secondaryCurved,
-                          ),
-                    child: child,
-                  ),
+                  // The screen being LEFT BEHIND: parallax-shifts in from
+                  // a partial left offset (not fully static) so it
+                  // visibly participates in the motion too, iOS-style —
+                  // this is the "text ke saath back ho" fix. Settles to
+                  // fully-in-place once this becomes the top route again.
+                  //
+                  // PERF: skips building a Tween/Animation object at all
+                  // (not just skipping the visual offset) when this is
+                  // the top route — AlwaysStoppedAnimation is effectively
+                  // free, whereas a live Tween+CurvedAnimation still costs
+                  // a listener + rebuild hookup even when its start and
+                  // end values happen to be equal.
+                  position: isTopRoute
+                      ? const AlwaysStoppedAnimation(Offset.zero)
+                      : Tween<Offset>(
+                          begin: Offset.zero,
+                          end: const Offset(-0.30, 0),
+                        ).animate(secondaryCurved!),
+                  child: isTopRoute
+                      ? child
+                      : FadeTransition(
+                          opacity: Tween<double>(begin: 1.0, end: 0.85)
+                              .animate(secondaryCurved!),
+                          child: child,
+                        ),
                 ),
               ),
             );
