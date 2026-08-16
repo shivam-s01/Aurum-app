@@ -2536,27 +2536,7 @@ class _ProfileAvatarButton extends StatelessWidget {
     }
 
     // Signed in → go straight to ProfileScreen
-    await Navigator.push(
-      context,
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 320),
-        pageBuilder: (_, __, ___) => const ProfileScreen(),
-        transitionsBuilder: (context, animation, __, child) => ColoredBox(
-          color: AurumTheme.bgOf(context),
-          child: FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.05),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(
-                  parent: animation, curve: Curves.easeOutCubic)),
-              child: child,
-            ),
-          ),
-        ),
-      ),
-    );
+    await AurumPageRoute.to(context, const ProfileScreen());
   }
 
   @override
@@ -2946,27 +2926,39 @@ class _RecentlyPlayedSection extends StatelessWidget {
 // feed, not as an afterthought strip.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _ArtistStrip extends StatelessWidget {
+class _ArtistStrip extends StatefulWidget {
   final List<ArtistSimple> artists;
   final bool loading;
   const _ArtistStrip({required this.artists, required this.loading});
 
-  // Cap how many rows render on Home — this is a taste/discovery section,
-  // not the full artist library (that's Search / Library). Matches the
-  // old strip's "5-6 shown, random each hour" intent while giving each
-  // one much more visual presence now that it's a full row instead of a
-  // 70px chip.
-  static const int _maxShown = 6;
+  @override
+  State<_ArtistStrip> createState() => _ArtistStripState();
+}
+
+class _ArtistStripState extends State<_ArtistStrip> {
+  // Own controller (not a stray one allocated fresh in build) so it's
+  // created once and disposed once — same pattern as every other
+  // scrollable section in this file (see the song-card carousel's own
+  // controller for the fuller rationale on why this matters for a
+  // horizontal list that can rebuild often on Home).
+  late final ScrollController _scrollController = ScrollController();
+
+  // Cap how many chips render on Home — this is a taste/discovery
+  // section, not the full artist library (that's Search / Library).
+  static const int _maxShown = 10;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    // FIX — inconsistent vertical rhythm between home-feed sections: this
-    // was top:24 while every other section (Trending Playlists, each
-    // SongSection like Afternoon Picks/Bollywood Mix) uses top:28. Small
-    // as it is, a 4px mismatch between otherwise-identical section
-    // headers is exactly the kind of inconsistency that reads as
-    // "not quite premium" even when nothing else is obviously wrong —
-    // paid apps keep this rhythm perfectly uniform down the whole feed.
+    final artists = widget.artists;
+    final loading = widget.loading;
+    // Kept at top:28 to match every other section's rhythm (Trending
+    // Playlists, each SongSection) — see the file-wide note on this.
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
       child: Column(
@@ -2981,21 +2973,38 @@ class _ArtistStrip extends StatelessWidget {
               letterSpacing: -0.2,
             ),
           ),
-          const SizedBox(height: 6),
-          loading
-              ? _buildShimmer(context)
-              : artists.isEmpty
-                  ? const SizedBox.shrink()
-                  : Column(
-                      children: [
-                        for (final artist
-                            in artists.take(_maxShown))
-                          _ArtistRow(
-                            key: ValueKey(artist.id),
-                            artist: artist,
-                          ),
-                      ],
-                    ),
+          const SizedBox(height: 14),
+          // COMPACT HORIZONTAL STRIP: a full-width list of 6-10 artist
+          // rows was taking up nearly a full screen of vertical space on
+          // Home before a person even reached New Releases / other
+          // sections below it — same "too much scroll for one section"
+          // problem a vertical grid would have. A horizontal scroll strip
+          // (Spotify/YT Music's own "Popular artists" pattern) keeps the
+          // section's footprint to a single fixed-height row while still
+          // surfacing the same 10 artists — just swipeable instead of
+          // stacked. Chips are sized up from the old 64px version (84px
+          // avatar + name below) for a premium, not-cramped feel now that
+          // there's no competing full-row layout to match widths with.
+          FadedHorizontalList(
+            height: 128,
+            controller: _scrollController,
+            fadeWidth: 12,
+            child: loading
+                ? _buildShimmer(context)
+                : artists.isEmpty
+                    ? const SizedBox.shrink()
+                    : ListView.builder(
+                        controller: _scrollController,
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        cacheExtent: 500,
+                        itemCount: artists.take(_maxShown).length,
+                        itemBuilder: (_, i) => _ArtistChip(
+                          key: ValueKey(artists[i].id),
+                          artist: artists[i],
+                        ),
+                      ),
+          ),
         ],
       ),
     );
@@ -3005,44 +3014,38 @@ class _ArtistStrip extends StatelessWidget {
     return Shimmer.fromColors(
       baseColor: AurumTheme.bgCardOf(context),
       highlightColor: AurumTheme.bgElevatedOf(context),
-      child: Column(
-        children: List.generate(3, (_) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              children: [
-                // FIX (white flash — same root cause as the home shelf
-                // shimmer): Shimmer.fromColors only sweeps a gradient OVER
-                // this base color, it doesn't replace it. Colors.white here
-                // meant a dropped/late shimmer frame showed a flat white
-                // circle against the dark theme. Using the theme's own card
-                // color keeps this correct-looking even before the shimmer
-                // animation has ticked once.
-                CircleAvatar(radius: 27, backgroundColor: AurumTheme.bgCardOf(context)),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Container(
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: AurumTheme.bgCardOf(context),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                CircleAvatar(radius: 18, backgroundColor: AurumTheme.bgCardOf(context)),
-              ],
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: 6,
+        itemBuilder: (_, __) => Container(
+          width: 86,
+          margin: const EdgeInsets.only(right: 16),
+          child: Column(children: [
+            // FIX (white flash — same root cause as elsewhere in this
+            // file): Shimmer.fromColors only sweeps a gradient OVER this
+            // base color, it doesn't replace it. Using the theme's own
+            // card color (not Colors.white) keeps a dropped/late shimmer
+            // frame looking correct against the dark theme.
+            CircleAvatar(radius: 42, backgroundColor: AurumTheme.bgCardOf(context)),
+            const SizedBox(height: 8),
+            Container(
+              width: 60, height: 11,
+              decoration: BoxDecoration(
+                color: AurumTheme.bgCardOf(context),
+                borderRadius: BorderRadius.circular(4),
+              ),
             ),
-          );
-        }),
+          ]),
+        ),
       ),
     );
   }
 }
 
-class _ArtistRow extends StatelessWidget {
+class _ArtistChip extends StatelessWidget {
   final ArtistSimple artist;
-  const _ArtistRow({super.key, required this.artist});
+  const _ArtistChip({super.key, required this.artist});
 
   Future<void> _open(BuildContext context) async {
     AurumHaptics.selection();
@@ -3056,27 +3059,11 @@ class _ArtistRow extends StatelessWidget {
     );
   }
 
-  Future<void> _play(BuildContext context) async {
-    AurumHaptics.medium();
-    final id = artist.id.isNotEmpty
-        ? artist.id
-        : await ApiService.searchArtistByName(artist.name);
-    if (id == null || !context.mounted) return;
-    final fetched = await ApiService.fetchArtist(id);
-    if (fetched == null || fetched.topSongs.isEmpty || !context.mounted) return;
-    context.read<PlayerProvider>().playSong(
-          fetched.topSongs.first,
-          queue: fetched.topSongs,
-          index: 0,
-          curatedQueue: true,
-        );
-  }
-
   @override
   Widget build(BuildContext context) {
-    // Highlights this row while the artist's own song is the one actively
-    // playing — same "you're already listening to this" signal Echo gives
-    // via its isPlaying badge, just surfaced at the artist level here.
+    // Highlights this chip while the artist's own song is the one
+    // actively playing — same "you're already listening to this" signal
+    // Echo gives via its isPlaying badge, surfaced at the artist level.
     final isCurrentArtist = context.select<PlayerProvider, bool>(
       (p) => p.currentSong != null &&
           p.currentSong!.artist.toLowerCase() == artist.name.toLowerCase(),
@@ -3084,52 +3071,34 @@ class _ArtistRow extends StatelessWidget {
     final isActuallyPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
 
     return AurumPressable(
-      scaleAmount: 0.98,
+      scaleAmount: 0.94,
       onTap: () => _open(context),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(
+      child: Container(
+        width: 86,
+        margin: const EdgeInsets.only(right: 16),
+        child: Column(
           children: [
             AurumStackedArtwork(
               url: artist.imageUrl,
-              size: 54,
+              size: 84,
               circular: true,
               showNowPlaying: isCurrentArtist,
               isPlaying: isActuallyPlaying,
               stackColor: AurumTheme.gold,
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Text(
-                artist.name,
-                style: TextStyle(
-                  color: isCurrentArtist
-                      ? AurumTheme.gold
-                      : AurumTheme.textPrimaryOf(context),
-                  fontSize: 16,
-                  fontWeight: isCurrentArtist ? FontWeight.w700 : FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+            const SizedBox(height: 8),
+            Text(
+              artist.name,
+              style: TextStyle(
+                color: isCurrentArtist
+                    ? AurumTheme.gold
+                    : AurumTheme.textPrimaryOf(context),
+                fontSize: 12.5,
+                fontWeight: isCurrentArtist ? FontWeight.w700 : FontWeight.w600,
               ),
-            ),
-            const SizedBox(width: 8),
-            AurumPressable(
-              scaleAmount: 0.88,
-              onTap: () => _play(context),
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AurumTheme.bgCardOf(context),
-                ),
-                child: Icon(
-                  Icons.play_arrow_rounded,
-                  color: AurumTheme.textPrimaryOf(context),
-                  size: 22,
-                ),
-              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -3363,6 +3332,13 @@ class _MoodChipRow extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.only(right: 16),
+        // PERF: mood chips are cheap (AnimatedContainer + Text, no
+        // network image), but caching a little extra off-screen width
+        // still avoids a build/layout hitch on the very first frame a
+        // low-end device scrolls this row fast — matches the cacheExtent
+        // used on every other horizontal list in this file for
+        // consistency, even though the cost here is small either way.
+        cacheExtent: 300,
         itemCount: chips.length,
         itemBuilder: (_, i) {
           final chip = chips[i];

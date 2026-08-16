@@ -1579,32 +1579,72 @@ class _DragTransform extends StatelessWidget {
         final matrix = Matrix4.identity()
           ..translate(0.0, ty)
           ..scale(dragScale, dragScale);
-        return Opacity(
-          opacity: dragOpacity,
-          // FIX ("background mein upar blur dikh raha hai screenshot mein
-          // — blur sirf full player ke apne area tak hi rahe, kabhi bahar/
-          // upar na jaaye"): the blurred-artwork layer inside _BgLayer
-          // (_BlurredArtworkCore) renders at Transform.scale(1.55) — a
-          // deliberate overscan so the blur's own soft edges never show a
-          // hard boundary. That overscan was never clipped anywhere in
-          // this widget tree, so once this outer Transform also
-          // translates the whole Scaffold during a dismiss drag, the
-          // scaled-up blur content that extends past the player's own
-          // screen bounds becomes visible above/around the player,
-          // overlapping Home's live route underneath (opaque:false) —
-          // exactly the stray blur strip seen in the report. Wrapping in
-          // ClipRect here guarantees nothing this widget paints, at any
-          // scale or translation, is ever visible outside the player's
-          // own rectangle — the overscan still does its job of avoiding a
-          // hard blur edge internally, it just can never leak past this
-          // boundary.
-          child: ClipRect(
-            child: Transform(
-              transform: matrix,
-              alignment: Alignment.center,
-              child: child,
+        return Stack(
+          children: [
+            // FIX ("swipe down mein light mode mein background screen
+            // white/flat ho jaata hai, sirf light mode mein" — confirmed
+            // NOT a bug in the player itself: every layer inside
+            // FullPlayerScreen was already correctly theme-aware and
+            // hardcoded-dark where needed. The actual cause is structural:
+            // pushFullPlayer uses `opaque: false` (see its own FIX comment
+            // for why — needed so Home keeps rendering live frames during
+            // the drag instead of a frozen one). That means as this
+            // Opacity below fades the player out while dragging, Home's
+            // own Scaffold — whose backgroundColor is AurumTheme.bgOf(
+            // context), i.e. the real light-mode cream (0xFFF8F6F0) —
+            // becomes genuinely visible behind it. In dark mode that same
+            // exposed Home background is near-black, so it invisibly
+            // blends with the player's own dark tones and reads as
+            // intentional; in light mode the cream reads as a flat,
+            // unstyled "white layer" by contrast, exactly as reported.
+            // Fixing this in Home itself isn't right — Home's background
+            // IS supposed to be light-cream in light mode; the flatness
+            // only shows up specifically while it's exposed mid-drag
+            // behind a fading player. So the fix lives here instead: a
+            // dark scrim sitting OUTSIDE the player's own Opacity (so it
+            // never fades with it) and OUTSIDE this Stack's translate/
+            // scale (positioned before the transformed child, filling the
+            // full route) — it dims whatever of Home is showing through,
+            // in exactly the same "premium dismiss" way Spotify/YT Music
+            // scrim their background during a card swipe-away, in every
+            // theme, not just light. Opacity ramps with the same
+            // dismissProgress driving the player's own fade, so it's
+            // invisible at rest (0 at drag start) and fully gone again
+            // the instant the drag ends (spring-back or completed pop).
+            IgnorePointer(
+              child: Opacity(
+                opacity: (dismissProgress * 0.55).clamp(0.0, 0.55),
+                child: const ColoredBox(color: Colors.black),
+              ),
             ),
-          ),
+            Opacity(
+              opacity: dragOpacity,
+              // FIX ("background mein upar blur dikh raha hai screenshot mein
+              // — blur sirf full player ke apne area tak hi rahe, kabhi bahar/
+              // upar na jaaye"): the blurred-artwork layer inside _BgLayer
+              // (_BlurredArtworkCore) renders at Transform.scale(1.55) — a
+              // deliberate overscan so the blur's own soft edges never show a
+              // hard boundary. That overscan was never clipped anywhere in
+              // this widget tree, so once this outer Transform also
+              // translates the whole Scaffold during a dismiss drag, the
+              // scaled-up blur content that extends past the player's own
+              // screen bounds becomes visible above/around the player,
+              // overlapping Home's live route underneath (opaque:false) —
+              // exactly the stray blur strip seen in the report. Wrapping in
+              // ClipRect here guarantees nothing this widget paints, at any
+              // scale or translation, is ever visible outside the player's
+              // own rectangle — the overscan still does its job of avoiding a
+              // hard blur edge internally, it just can never leak past this
+              // boundary.
+              child: ClipRect(
+                child: Transform(
+                  transform: matrix,
+                  alignment: Alignment.center,
+                  child: child,
+                ),
+              ),
+            ),
+          ],
         );
       },
       child: RepaintBoundary(child: child),

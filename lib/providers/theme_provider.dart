@@ -67,12 +67,42 @@ class ThemeProvider extends ChangeNotifier {
     if (_mode == AurumThemeMode.dynamic) notifyListeners();
   }
 
+  // FIX — white/cream flash on cold start (confirmed root cause, not the
+  // earlier DynamicColorBuilder-race theory): this getter used to return
+  // ThemeMode.system for AurumThemeMode.dynamic. ThemeMode.system tells
+  // Flutter's own MaterialApp to pick light-vs-dark by reading
+  // platformBrightness ITSELF, completely independent of isDarkOf()'s
+  // carefully-computed bool (which already folds in isDynamicAvailable,
+  // isAmoled, etc.). So even when isDarkOf() correctly resolved "dark" for
+  // this frame, MaterialApp could independently resolve "light" — and
+  // since lightDynamic is very often still null this early (async platform
+  // channel, see DynamicColorBuilder in main.dart), `theme:` at that point
+  // is AurumTheme.lightTheme, whose lightBg (0xFFF8F6F0, cream) is exactly
+  // the flash color reported. Longer async gaps (song loading) just widen
+  // the window where MaterialApp's independent resolution can land on
+  // "light" before dynamicDark/lightDynamic have arrived — matching
+  // "sometimes never happens, sometimes shows, worse when loading is
+  // slow". Returning an explicit dark/light here (never system) for
+  // dynamic mode forces MaterialApp to use the SAME answer isDarkOf()
+  // already computed, so there is no second, independent brightness
+  // resolution left to race.
   ThemeMode get themeMode {
     switch (_mode) {
       case AurumThemeMode.system:  return ThemeMode.system;
       case AurumThemeMode.light:   return ThemeMode.light;
-      case AurumThemeMode.dynamic: return ThemeMode.system;
-      default:                     return ThemeMode.dark;
+      case AurumThemeMode.dynamic:
+        final platformBrightness =
+            WidgetsBinding.instance.platformDispatcher.platformBrightness;
+        // Mirrors isDarkOf()'s dynamic branch exactly: dark unless the
+        // platform is explicitly light AND we actually have a real
+        // wallpaper-derived dark scheme to know that for sure. Before any
+        // dynamic scheme has arrived (cold start / first frames), this
+        // defaults to dark — never an independently-resolved "light".
+        final isDark = platformBrightness != Brightness.light ||
+            _dynamicDark == null;
+        return isDark ? ThemeMode.dark : ThemeMode.light;
+      default:
+        return ThemeMode.dark;
     }
   }
 
@@ -100,16 +130,24 @@ class ThemeProvider extends ChangeNotifier {
   // MaterialApp theme means every other call site asks the one already-
   // resolved answer instead of re-deriving (and risking disagreeing with)
   // it independently.
+  // FIX — themeMode (above) now resolves dynamic mode to an explicit
+  // ThemeMode.dark/light itself (never .system), so it's already the
+  // single source of truth for every mode including dynamic. Re-deriving
+  // "is dark" here from platformBrightness/isDynamicAvailable a second
+  // time was the other half of the original race: two independent
+  // computations of the same fact, reading async state (platformBrightness,
+  // _dynamicDark) at two different moments, could disagree for exactly one
+  // frame. Delegating straight to themeMode removes that second
+  // computation entirely.
   bool isDarkOf(BuildContext context) {
+    if (themeMode == ThemeMode.dark) return true;
+    if (themeMode == ThemeMode.light) return false;
+    // Only AurumThemeMode.system reaches here (the only case still
+    // mapping to ThemeMode.system) — that one legitimately follows the
+    // OS setting.
     final platformBrightness =
         WidgetsBinding.instance.platformDispatcher.platformBrightness;
-    return themeMode == ThemeMode.dark ||
-        isAmoled ||
-        (isDynamic &&
-            isDynamicAvailable &&
-            platformBrightness == Brightness.dark) ||
-        (themeMode == ThemeMode.system &&
-            platformBrightness == Brightness.dark);
+    return platformBrightness == Brightness.dark;
   }
 
   ThemeProvider() { _load(); }

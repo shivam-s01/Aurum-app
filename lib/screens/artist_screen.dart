@@ -405,6 +405,16 @@ class _ArtistScreenState extends State<ArtistScreen> {
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 16),
+          // PERF (low-end device smoothness): this row decodes album
+          // artwork over the network — without a cacheExtent, a fast
+          // swipe only builds/decodes images as they cross into the
+          // viewport, showing a blank frame for a beat on a slow device
+          // before the image pops in. Pre-building ~500 logical px of
+          // off-screen album covers on each side means they're already
+          // decoded by the time they scroll into view, matching the
+          // cacheExtent used on every other horizontal artwork list in
+          // the app (song carousels, the artist strip on Home).
+          cacheExtent: 500,
           itemCount: albums.length,
           itemBuilder: (context, i) {
             final a = albums[i];

@@ -139,20 +139,66 @@ Future<void> main() async {
   // time the user reaches Home/Search it's had a head start to warm up.
   ApiService.wakeSaavn();
 
-  // Hive init for local DB (favorites, playlists, recently played, downloads)
+  // Hive init for local DB (favorites, playlists, recently played,
+  // downloads) — GENUINELY MUST stay before runApp(). MultiProvider's
+  // providers below fire their own `..init()` synchronously the instant
+  // the widget tree builds inside runApp(), and 7 of them immediately
+  // call `Hive.openBox(...)` — that throws if Hive hasn't been
+  // initialized yet. This is a real dependency, not just caution.
   await Hive.initFlutter();
 
-  // Apply user's image cache size preference to Flutter's in-memory image
-  // cache. This is separate from cached_network_image's disk cache, but
-  // controls how many decoded images are kept in RAM.
-  //
-  // PERF FIX: reads SharedPreferences.getInstance() a second time here —
-  // AudioPrefs.load() below also opens it. SharedPreferences.getInstance()
-  // is itself cached process-wide after the first call, so this was
-  // already cheap, but reordered below to share one lookup and shave one
-  // redundant plugin channel round-trip off the startup path.
-  final prefs = await SharedPreferences.getInstance();
+  // Supabase init — must happen before any AuthService/Supabase.instance
+  // use. AuthProvider.init() (see MultiProvider below) runs synchronously
+  // the moment runApp() builds the widget tree and immediately touches
+  // Supabase.instance.client — deferring this past runApp() would crash
+  // instead of just being slow. In practice this call is fast (local
+  // client setup, no network round-trip of its own).
   try {
+    await AuthService.init();
+  } catch (_) {} // app still works fully offline/unauthenticated if this fails
+
+  runApp(AurumApp(engine: _audioEngine = NativeAudioEngine()));
+
+  // ── COLD-START HANG FIX — everything below used to run BEFORE runApp() ──
+  // "app open karte hi bahut lag/hang hota hai" traced to this function
+  // chaining 6+ sequential `await` calls ahead of runApp(): Hive init,
+  // SharedPreferences.getInstance() (twice), AurumHaptics.init(),
+  // SystemChrome.setPreferredOrientations(), AudioPrefs.load(). Flutter
+  // cannot paint its first frame until main() reaches runApp() — so on
+  // any device where even ONE of those calls is slow (cold disk cache,
+  // a busy plugin channel, a slow first SharedPreferences read), the
+  // screen sits completely blank for however long that chain takes,
+  // which reads exactly like "the app is frozen/hanging on launch" even
+  // though nothing had actually crashed or errored.
+  //
+  // None of the calls below affect what the very first frame needs to
+  // look correct:
+  //  • Image cache size (prefs.getDouble('max_image_cache')) only
+  //    matters once images start decoding — Flutter's own default cache
+  //    size is already a safe value for the brief window until this
+  //    runs.
+  //  • AurumHaptics.init() only affects whether the FIRST haptic tap
+  //    feels right — inconsequential before the user has touched
+  //    anything.
+  //  • SystemChrome.setPreferredOrientations([portraitUp]) — the app is
+  //    already portrait by default on the overwhelming majority of
+  //    Android phones; locking it a few dozen ms later than before is
+  //    not visually detectable.
+  //  • AudioPrefs.load() overrides static defaults that AudioPrefs
+  //    already ships with — every screen that reads them
+  //    (backAnimationsNotifier, artworkShapeNotifier, etc.) does so via
+  //    ValueNotifier/ChangeNotifier, so the UI simply starts on the
+  //    built-in defaults for a beat and live-updates the instant this
+  //    finishes, exactly like any other async-loaded preference in this
+  //    app already does.
+  //
+  // Moving all of them here — after runApp() — means the very first
+  // frame (splash screen) now paints as soon as the widget tree itself
+  // is built, with zero dependency on disk/plugin-channel speed. Each
+  // stays independently try/caught so one failing can never affect
+  // another or crash the (already-running) app.
+  try {
+    final prefs = await SharedPreferences.getInstance();
     final maxImgMB = prefs.getDouble('max_image_cache') ?? 100.0;
     PaintingBinding.instance.imageCache.maximumSizeBytes =
         (maxImgMB * 1024 * 1024).toInt();
@@ -170,34 +216,20 @@ Future<void> main() async {
     PaintingBinding.instance.imageCache.maximumSize = 250;
   } catch (_) {}
 
-  // Supabase init — must happen before any AuthService/Supabase.instance use.
-  // NOTE: this one genuinely can't move to the post-runApp() block below —
-  // AuthProvider.init() (see main.dart's MultiProvider) runs synchronously
-  // the moment runApp() builds the widget tree, and it immediately touches
-  // Supabase.instance.client via AuthService.instance.authStateChanges.
-  // Deferring Supabase.initialize() past runApp() would make that a crash
-  // (accessing Supabase.instance before Supabase.initialize() has run)
-  // instead of a perf win. In practice this call is fast (local client
-  // setup, no network round-trip of its own), so it isn't the source of
-  // the launch delay — the notification permission dialog below was.
-  try {
-    await AuthService.init();
-  } catch (_) {} // app still works fully offline/unauthenticated if this fails
-
   try {
     await AurumHaptics.init();
   } catch (_) {} // haptics simply fall back to 'light' behavior if this fails
 
-  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  try {
+    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  } catch (_) {}
 
   // Restore Player & Audio settings (shake-to-skip, swipe-to-change,
-  // stop-on-swipe, pause-on-call, duck-on-notifications, etc.) from disk
-  // BEFORE the audio engine/UI spin up. Without this, every AudioPrefs
-  // static defaults to its hardcoded value on a genuine cold start —
-  // toggles the user turned on would silently stop working until they
-  // happened to open a Settings screen again (settings_notifications_screen
-  // was the only other place calling this). try/catch so a prefs read
-  // failure can never block app startup.
+  // stop-on-swipe, pause-on-call, duck-on-notifications, etc.) from disk.
+  // Every screen reads these through ValueNotifier/ChangeNotifier, so the
+  // UI simply starts on AudioPrefs' built-in defaults for the brief
+  // window until this resolves, then live-updates — same pattern as
+  // every other async-loaded preference in the app.
   try {
     await AudioPrefs.load();
   } catch (_) {}
@@ -212,35 +244,6 @@ Future<void> main() async {
     BatterySaverController.instance.start();
   } catch (_) {}
 
-  // NativeAudioEngine just wires up MethodChannel/EventChannel listeners —
-  // it doesn't block on any platform-side MediaSession registration (unlike
-  // the old AudioService.init(), which awaited the audio_service plugin's
-  // async platform handshake). The actual MediaSession/notification is now
-  // owned by AurumMediaSessionService (Kotlin), which MainActivity binds to
-  // (bindService + startService in configureFlutterEngine) the moment the
-  // Flutter engine attaches — see MainActivity.bindMediaSessionService().
-  // Media3's own internal MediaNotificationManager then promotes the
-  // service to foreground automatically once real playback starts. So
-  // construction here is synchronous and can never hang or race a timeout
-  // the way the old AudioService.init() call could.
-  _audioEngine = NativeAudioEngine();
-
-  // PERF FIX: NotificationService.instance.init() only sets up local
-  // notification channels/plugin registration — nothing else in this
-  // function depends on it having finished, and nothing visible on the
-  // very first frame needs it either. Moved off the pre-runApp() blocking
-  // path (fire-and-forget below, alongside AuthService.init() and the
-  // notification permission request) so it can complete in the background
-  // while the UI is already up and interactive instead of adding its own
-  // few dozen ms to the blank-screen window before first paint.
-
-  runApp(AurumApp(engine: _audioEngine));
-
-  // ── Everything below runs AFTER the first frame is already up ──────────
-  // None of this is needed to paint Home/Search/Library correctly, so it
-  // no longer delays runApp() by a single millisecond. Each is still
-  // independently try/caught so one failing can never affect another or
-  // crash the (already-running) app.
   try {
     await Permission.notification.request();
   } catch (_) {}
@@ -686,10 +689,15 @@ class _BlurShaderWarmupState extends State<_BlurShaderWarmup> {
   }
 }
 
-class _SplashOnEveryEntry extends StatelessWidget {
+class _SplashOnEveryEntry extends StatefulWidget {
   final Widget child;
   const _SplashOnEveryEntry({required this.child});
 
+  @override
+  State<_SplashOnEveryEntry> createState() => _SplashOnEveryEntryState();
+}
+
+class _SplashOnEveryEntryState extends State<_SplashOnEveryEntry> {
   // True after the splash has been mounted once per process lifetime —
   // set immediately (not deferred to a hand-off point) because
   // SplashScreen now mounts `child` in parallel with its own overlay
@@ -702,13 +710,38 @@ class _SplashOnEveryEntry extends StatelessWidget {
   // navigation resets.
   static bool _played = false;
 
+  // BUG FIX ("splash animation nahi aa raha" — it played for a single
+  // frame and was gone): this was a StatelessWidget flipping the static
+  // `_played` flag directly inside build(). MaterialApp's `home` widget
+  // sits underneath a Consumer2 (theme/locale providers) in this file,
+  // and those providers finish their async init and notifyListeners()
+  // within the very first few frames of a cold start — each one forces
+  // this whole subtree, including _SplashOnEveryEntry, to rebuild. Since
+  // `_played` was flipped to true on the FIRST of those builds, every
+  // rebuild immediately after (often still within the same cold-start
+  // burst, well before the intended 900ms animation had any chance to
+  // run) already satisfied `if (_played) return child` and skipped
+  // straight to the bare MainShell — so the splash overlay was mounted
+  // and unmounted again inside a handful of frames, invisible in
+  // practice. Deciding this once in initState (which never re-runs on
+  // rebuild, only on a genuine new State object) instead of on every
+  // build() call means the SplashScreen widget, once mounted, stays
+  // mounted for its full 900ms regardless of how many times an ancestor
+  // provider rebuilds this subtree in the meantime.
+  late final bool _showSplash = !_played;
+
+  @override
+  void initState() {
+    super.initState();
+    _played = true;
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_played) return child;
-    _played = true;
+    if (!_showSplash) return widget.child;
     return SplashScreen(
       key: const ValueKey('aurum_splash_once'),
-      child: child,
+      child: widget.child,
     );
   }
 }

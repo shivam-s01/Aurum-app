@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
+import '../providers/theme_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SplashScreen — Echo-Nightly-matched brand entrance.
@@ -106,9 +108,45 @@ class _SplashScreenState extends State<SplashScreen>
     super.dispose();
   }
 
+  // FIX — "white layer on cold start, no matter which theme is selected"
+  // (confirmed root cause): this used to read `AurumTheme.bgOf(context)`,
+  // i.e. Theme.of(context).scaffoldBackgroundColor — the AMBIENT theme
+  // MaterialApp has resolved for THIS frame. On a real cold start,
+  // MaterialApp itself paints its very first frame(s) with Flutter's own
+  // built-in fallback ThemeData (a plain white-ish ColorScheme.light())
+  // before Consumer2<ThemeProvider,...> has run even once — because
+  // ThemeProvider's constructor kicks off _load(), which awaits
+  // SharedPreferences.getInstance() (a real async platform-channel call,
+  // not instant). SplashScreen sits INSIDE that MaterialApp.home subtree,
+  // so its very own initState/first build can land in that exact window —
+  // reading Theme.of(context) at that moment returns Flutter's default
+  // near-white background, completely independent of which Aurum theme
+  // (dark/light/amoled/dynamic) the user actually has selected, since
+  // ThemeProvider hasn't had a chance to apply it to the ambient Theme
+  // yet. That's exactly why it showed "chahe koi bhi theme ho" — the bug
+  // was never about which theme was chosen, it was that no real theme had
+  // been applied to the ambient Theme yet on that first frame. Reading
+  // ThemeProvider directly (via Consumer, below) sidesteps the ambient
+  // Theme entirely: _mode defaults to AurumThemeMode.dark synchronously
+  // at field-init time (see ThemeProvider._mode's declaration), before
+  // _load() ever runs, so there is no unresolved/default-white window —
+  // worst case for one frame it shows the dark bg instead of the user's
+  // saved light/amoled choice, then corrects instantly once _load()
+  // completes; it can never show Flutter's raw white fallback.
   @override
   Widget build(BuildContext context) {
-    final bg = AurumTheme.bgOf(context);
+    final themeProvider = context.watch<ThemeProvider>();
+    final bg = switch (themeProvider.mode) {
+      AurumThemeMode.light => AurumTheme.lightBg,
+      AurumThemeMode.amoled => AurumTheme.amoledBg,
+      AurumThemeMode.dynamic =>
+        (themeProvider.isDarkOf(context))
+            ? (themeProvider.dynamicDark?.surface ?? AurumTheme.darkBg)
+            : (themeProvider.dynamicLight?.surface ?? AurumTheme.lightBg),
+      AurumThemeMode.system =>
+        (themeProvider.isDarkOf(context)) ? AurumTheme.darkBg : AurumTheme.lightBg,
+      AurumThemeMode.dark => AurumTheme.darkBg,
+    };
 
     // widget.child is mounted from frame 1, same as Echo's real Activity
     // content being constructed underneath its OS splash — Home's own

@@ -724,7 +724,38 @@ class AurumDepthRoute<T> extends PageRouteBuilder<T> {
   }) : super(
           settings: settings,
           fullscreenDialog: fullscreenDialog,
-          opaque: true,
+          // BUG FIX ("cold start pe koi bhi tile pe click karo, poori
+          // screen white flash 0.3-4 sec"): this was `opaque: true`.
+          // opaque:true tells Flutter/Navigator that nothing behind this
+          // route can ever be visible, so it's free to stop actively
+          // compositing the previous route's real content underneath
+          // during the transition — it can leave that layer un-painted
+          // and just show whatever default background exists there
+          // instead. That's invisible in the steady state (this route's
+          // own incoming content covers everything once painted), but
+          // for the FIRST 100ms of every push, incomingFade sits at
+          // opacity 0 by design (exact MaterialSharedAxis.Z spec — see
+          // the Interval(1/3, 1.0, ...) below), so for that entire
+          // window there is genuinely nothing opaque on screen yet. With
+          // opaque:true, Flutter has no obligation to keep the outgoing
+          // route's real frame live behind that gap — on a cold start,
+          // before every screen in the stack has painted at least one
+          // real frame of its own themed content, what's left showing
+          // through is Flutter's raw engine-level clear color, which is
+          // white by default. That's the reported flash — worst on cold
+          // start (nothing has painted a dark frame yet to fall back to)
+          // and totally absent on a warm re-open (the previous screen's
+          // last real frame is still sitting there, opaque:true or not).
+          // opaque:false removes the ambiguity entirely: it tells
+          // Flutter the previous route MUST keep being actively
+          // rendered underneath for the whole transition, exactly the
+          // same fix already applied to pushFullPlayer's own
+          // PageRouteBuilder in home_screen.dart for this identical
+          // class of bug (see that opaque:false comment for the parallel
+          // reasoning) — there is then always real, already-themed
+          // content behind the fade instead of an engine-default clear
+          // color, cold start or not.
+          opaque: false,
           transitionDuration: _animsOn()
               ? const Duration(milliseconds: 300)
               : Duration.zero,
@@ -806,15 +837,45 @@ class AurumDepthRoute<T> extends PageRouteBuilder<T> {
               );
             }
 
-            return ColoredBox(
-              color: AurumTheme.bgOf(context),
-              child: content,
-            );
+            // BUG FIX ("Playlist for You mix pe click karo to black flash
+            // aata hai"): this used to wrap both branches in an opaque
+            // ColoredBox(color: AurumTheme.bgOf(context)) backdrop.
+            // During a push, the incoming route's own fade only starts
+            // at the 1/3 mark of the timeline (exact MaterialSharedAxis.Z
+            // spec — see the incomingFade Interval above), so for the
+            // first 100ms the incoming content sits at opacity 0 — with
+            // that opaque backdrop behind it, all that was visible for
+            // those 100ms was a flat frame of the theme's background
+            // color and nothing else, reading as a "black flash" on any
+            // dark theme. Real Shared-Axis-Z transitions rely on the
+            // OUTGOING route staying visible underneath the whole time
+            // (only its own opacity/scale animate) — never an opaque
+            // filler behind both routes. Returning `content` directly
+            // (PageRouteBuilder's own transition Stack already composites
+            // this route over whatever's beneath it) lets the previous
+            // screen's real content show through for that entire handoff
+            // window, exactly like Echo's own MDC transition, instead of
+            // a blank color filling the gap.
+            return content;
           },
         );
 
   static bool _animsOn() =>
       AurumMotion.enabled && AudioPrefs.backAnimations;
+
+  @override
+  Widget buildTransitions(BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation, Widget child) {
+    final content = super.buildTransitions(
+        context, animation, secondaryAnimation, child);
+    if (!_animsOn()) return content;
+    final routeController = controller;
+    if (routeController == null) return content;
+    return _EdgeSwipeBack(
+      animationController: routeController,
+      child: content,
+    );
+  }
 
   /// AurumDepthRoute.to(context, const MixScreen(...));
   static Future<T?> to<T extends Object?>(
