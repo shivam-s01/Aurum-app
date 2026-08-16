@@ -39,9 +39,10 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart' show WidgetsBinding, WidgetsBindingObserver, AppLifecycleState;
+import 'package:flutter/widgets.dart' show WidgetsBinding, WidgetsBindingObserver, AppLifecycleState, ImageStreamListener, ImageConfiguration;
 import 'package:just_audio/just_audio.dart' show LoopMode;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/song.dart';
 import '../models/lyrics.dart';
 import '../services/native_engine_bridge.dart';
@@ -1353,6 +1354,24 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     // first frame instead of a visible beat later.
     if (song.artworkUrl.isNotEmpty) {
       ArtworkPaletteCache.warm(song.artworkUrl);
+      // FIX ("Home's Hero Now Playing card shows a flat grey box for
+      // 4-6s on cold tap"): ArtworkPaletteCache.warm() above only
+      // decodes+extracts a COLOR from the artwork — it never actually
+      // populates CachedNetworkImage's own disk/mem cache. So even
+      // though the palette resolves fast, every AurumArtwork widget
+      // that displays this song (Hero card, mini player, full player)
+      // still had to start its OWN fresh network fetch from zero the
+      // instant it first built — same request the palette warm-up had
+      // already made moments earlier, just not shared. Resolving the
+      // same CachedNetworkImageProvider here — same provider type/cache
+      // key AurumArtwork's _RetryableNetworkImage uses internally —
+      // means that fetch is already in flight (often already complete)
+      // by the time any artwork widget for this song actually builds,
+      // so the grey placeholder window shrinks to whatever's left of
+      // the network round-trip instead of the full thing every time.
+      CachedNetworkImageProvider(song.artworkUrl)
+          .resolve(const ImageConfiguration())
+          .addListener(ImageStreamListener((_, __) {}, onError: (_, __) {}));
     }
 
     // FIX ("Up Next empty after tapping a downloaded song, even with 20+

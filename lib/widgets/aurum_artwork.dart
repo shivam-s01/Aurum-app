@@ -166,23 +166,35 @@ class AurumArtwork extends StatelessWidget {
     );
   }
 
+  // FIX ("grey/white layer on cold start, tap karte time, kuch bhi karke
+  // na aaye"): _shimmer used AurumTheme.bgSurfaceOf(context), which is a
+  // light warm-grey in LIGHT theme (lightBgSurface) — every single
+  // AurumArtwork instance (Hero Now Playing card, mini player thumbnail,
+  // song tiles) painted that light-grey block for as long as the network
+  // fetch took, which is exactly the "white/grey flash" reported — worse
+  // the slower the connection, since there was nothing bounding how long
+  // it stayed visible. Same root class of bug already fixed once in
+  // mini_player.dart's tint fallback (theme-dependent color leaking into
+  // a loading state) — same fix here: a single FIXED dark neutral,
+  // completely independent of Theme.of(context).brightness, so this can
+  // never again render as a light/white block no matter what theme is
+  // active or how long the fetch takes.
+  static const Color _placeholderBase = Color(0xFF1A1714);
+
   Widget _placeholder(BuildContext context) => Container(
         width: size,
         height: size,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(borderRadius),
-          gradient: LinearGradient(
+          gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              AurumTheme.bgSurfaceOf(context),
-              AurumTheme.bgElevatedOf(context),
-            ],
+            colors: [_placeholderBase, Color(0xFF0F0D0B)],
           ),
         ),
         child: Icon(
           Icons.music_note_rounded,
-          color: AurumTheme.textMutedOf(context),
+          color: Colors.white.withValues(alpha: 0.35),
           size: size * 0.38,
         ),
       );
@@ -201,7 +213,7 @@ class AurumArtwork extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: AurumTheme.bgSurfaceOf(context),
+        color: _placeholderBase,
         borderRadius: BorderRadius.circular(borderRadius),
       ),
     );
@@ -468,7 +480,7 @@ class _ContentUriImageState extends State<_ContentUriImage> {
         width: widget.size,
         height: widget.size,
         decoration: BoxDecoration(
-          color: AurumTheme.bgSurfaceOf(context),
+          color: AurumArtwork._placeholderBase,
           borderRadius: BorderRadius.circular(widget.borderRadius),
         ),
       );

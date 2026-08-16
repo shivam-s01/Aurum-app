@@ -1491,6 +1491,14 @@ class _PlaylistSongTile extends StatelessWidget {
                         ),
                 ],
               ),
+        // FIX (same class as song_tile.dart's InkWell fix — "cold start
+        // pe kisi bhi title tap karo, grey/white layer aa jaata hai"):
+        // playlist song list's ListTile had no explicit splash/highlight
+        // color, same unthemed Material default as the other fixed
+        // tiles. Same theme-correct, low-opacity fix closes it here too.
+        splashColor: (isLight ? Colors.black : Colors.white).withValues(alpha: 0.06),
+        focusColor: (isLight ? Colors.black : Colors.white).withValues(alpha: 0.04),
+        hoverColor: (isLight ? Colors.black : Colors.white).withValues(alpha: 0.04),
         onTap: () {
           if (selecting) {
             onToggleSelected?.call();
@@ -3070,6 +3078,17 @@ class _DownloadTile extends StatelessWidget {
                     value: 'delete', child: Text(l10n.libraryRemoveDownload)),
               ],
             ),
+      // FIX (same class as song_tile.dart/search_screen.dart's InkWell/
+      // ListTile fix — "cold start pe kisi bhi title tap karo, grey/white
+      // layer aa jaata hai"): Downloads list ListTile had no explicit
+      // splash/highlight color, same unthemed Material default as the
+      // other fixed tiles. Offline/downloaded songs are exactly the case
+      // most likely to resolve near-instantly on tap, giving the least
+      // natural time for the ripple to fade normally before the next
+      // frame — same theme-correct, low-opacity fix closes it here too.
+      splashColor: (isLight ? Colors.black : Colors.white).withValues(alpha: 0.06),
+      focusColor: (isLight ? Colors.black : Colors.white).withValues(alpha: 0.04),
+      hoverColor: (isLight ? Colors.black : Colors.white).withValues(alpha: 0.04),
       onTap: () {
         if (item.isFailed) {
           context.read<DownloadProvider>().retry(song);
@@ -3501,6 +3520,19 @@ class _FollowedArtistTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
+          // FIX (same class as song_tile.dart's InkWell fix — "grey/white
+          // layer on tap, cold start"): no explicit splash/highlight
+          // color meant Flutter's unthemed Material default, which can
+          // read as a stray light flash if cold-start CPU contention
+          // delays the ripple's fade-out or lands mid-rebuild.
+          splashColor: (Theme.of(context).brightness == Brightness.dark
+                  ? Colors.white
+                  : Colors.black)
+              .withValues(alpha: 0.06),
+          highlightColor: (Theme.of(context).brightness == Brightness.dark
+                  ? Colors.white
+                  : Colors.black)
+              .withValues(alpha: 0.04),
           onTap: () {
             AurumHaptics.selection();
             AurumDepthRoute.to(

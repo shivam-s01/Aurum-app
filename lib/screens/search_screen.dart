@@ -1815,6 +1815,7 @@ class _BrowseTrackTile extends StatelessWidget {
     // hold the same identity bar instead of a string-based approximation.
     final isPlaying = context.select<PlayerProvider, bool>((p) => p.currentSong?.id == track.trackId);
     final isActuallyPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ListTile(
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(6),
@@ -1826,6 +1827,17 @@ class _BrowseTrackTile extends StatelessWidget {
           ? AurumEqualizerBars(playing: isActuallyPlaying, color: AurumTheme.gold, size: 20)
           : Icon(Icons.play_circle_outline_rounded, color: AurumTheme.textMutedOf(context), size: 22),
       dense: true,
+      // FIX (same class as song_tile.dart/library_screen.dart's InkWell
+      // fix — "cold start pe kisi bhi title tap karo, grey/white layer
+      // aa jaata hai"): ListTile's own internal InkWell had no explicit
+      // splashColor/highlightColor, so it used Flutter's unthemed
+      // Material default. Search's Browse tab tiles go through THIS
+      // widget, not song_tile.dart's SongTile — so fixing SongTile alone
+      // never covered a tap here. Same theme-correct, low-opacity color
+      // closes this the same way.
+      splashColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
+      focusColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
+      hoverColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
       onTap: onPlay,
     );
   }

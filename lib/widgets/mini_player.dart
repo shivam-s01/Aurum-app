@@ -389,7 +389,9 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                   // AnimationController, no continuous ticking, fully idle
                   // between song changes.
                   child: TweenAnimationBuilder<Color?>(
-                    tween: ColorTween(end: _tintColor),
+                    tween: ColorTween(
+                        begin: _tintColor ?? const Color(0xFF1A1714),
+                        end: _tintColor ?? const Color(0xFF1A1714)),
                     duration: const Duration(milliseconds: 420),
                     curve: Curves.easeOutCubic,
                     builder: (context, animatedTint, _) {

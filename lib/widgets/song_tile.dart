@@ -147,11 +147,26 @@ class _SongTileState extends State<SongTile> {
     // A dedicated layer per tile keeps each row's paint cost isolated to
     // itself, which matters most exactly where the CPU/GPU is weakest —
     // long lists on lower-end devices.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return RepaintBoundary(
       child: InkWell(
       onTap: () => _handleTap(context),
       onLongPress: () => _showOptions(context),
       borderRadius: BorderRadius.circular(8),
+      // FIX ("song tap pe ek grey/white layer ban jaata hai, cold start
+      // pe zyada dikhta hai" — Library/Recently Played, confirmed via
+      // screenshot): InkWell had no explicit splash/highlight color, so
+      // it fell back to Flutter's unthemed Material default — a flat
+      // grey/white overlay unrelated to the app's actual dark/light
+      // theme. On a normal tap that's a quick, barely-noticeable ripple,
+      // but on a slow cold start (song resolve + provider rebuilds all
+      // competing for the same frame budget), the fade-out can visibly
+      // linger or the tile can rebuild mid-splash — reading exactly like
+      // the reported "grey/white layer stuck over the tile." Explicit,
+      // low-opacity, theme-correct colors mean even a lingering splash
+      // can never read as a stray wrong-colored wash.
+      splashColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
+      highlightColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
