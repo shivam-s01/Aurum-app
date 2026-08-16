@@ -1,26 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/player_provider.dart';
+import '../services/audio_prefs.dart';
 import '../screens/main_shell.dart' show AurumBottomNavBar;
 import 'mini_player.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
-// MINI PLAYER SLOT — Spotify/YT Music-style "nav bar always visible, mini
-// player shows/hides independently" behavior.
+// MINI PLAYER SLOT — Echo Nightly-parity "nav bar hidden on pushed
+// screens, mini player still floats above them" behavior.
 //
-// PROBLEM THIS SOLVES: MainShell (Home/Search/Library) already shows the
-// mini player + nav bar via its own bottomNavigationBar, because those 3
-// screens live inside ONE persistent Scaffold via IndexedStack —
-// switching tabs never tears that Scaffold down. But every
-// content-browsing screen pushed via Navigator.push (Liked Songs,
-// Downloads, History, Album, Artist, Mix, Playlists, Playlist Detail)
-// builds its OWN separate Scaffold — MainShell's is now underneath it in
-// the Navigator stack and its bottomNavigationBar is not part of that new
-// Scaffold's layout at all. This slot reproduces both pieces so the nav
-// bar is always reachable — exactly like Spotify/YT Music, where the nav
-// bar is permanent chrome and only the mini player itself shows/hides
-// based on whether something's playing. Only the actual full-screen Now
-// Playing view (FullPlayerScreen) hides both entirely.
+// PATTERN (matches Echo Nightly's isMainFragment / animateTranslation
+// exactly): the bottom nav bar is chrome that belongs ONLY to the 3 root
+// tabs (Home/Search/Library, MainShell's own IndexedStack). The instant
+// any content screen is pushed on top via Navigator.push (Liked Songs,
+// Downloads, History, Album, Artist, Mix, Playlists, Playlist Detail —
+// Echo's isMainFragment flips to false for the exact same set: any
+// fragment that isn't the tab host itself), the nav bar goes away. The
+// mini player is independent of that — it still floats here as long as
+// something's playing, same as Echo's playerBar staying visible whenever
+// isPlayerCollapsed is true regardless of isMainFragment. Only the actual
+// full-screen Now Playing view (FullPlayerScreen) hides both entirely,
+// same as Echo's STATE_EXPANDED case.
+//
+// WHY THE RESERVED SPACE BELOW MATTERS: Echo Nightly's nav bar and player
+// bar are siblings in ONE persistent view tree — when the nav bar
+// translates itself away, the player bar's own bottom margin is computed
+// independently (setPlayerNavViewInsets), so it never visibly shifts.
+// Aurum's pushed screens are a separate Scaffold from MainShell entirely
+// (no shared parent to animate), so simply omitting the nav bar here
+// would leave the mini player sitting `barHeight` lower than it does on
+// Home/Search/Library — a visible snap/jump right when a screen is
+// pushed or popped, reading as janky rather than intentional. Reserving
+// an invisible spacer of the exact same height (+ the same docked/
+// floating bottom padding AurumBottomNavBar itself uses) keeps the mini
+// player pinned at an identical vertical position in both places, so
+// only the nav bar's absence changes, not the mini player's position —
+// exactly the "balanced" feel Echo achieves via shared-parent animation,
+// reached here by shared sizing instead.
 //
 // USAGE: wrap whatever a pushed content screen would otherwise pass as
 // `bottomNavigationBar:` — if that screen has none, just set
@@ -28,17 +44,8 @@ import 'mini_player.dart';
 // Nothing else about the screen needs to change; this is a drop-in slot,
 // not a screen rewrite.
 //
-// NAV TAPS FROM HERE: this screen is N levels deep in the Navigator stack
-// on top of MainShell, which is the only widget that actually owns
-// `_tab`/IndexedStack state. Tapping an icon here pops every route back
-// down to MainShell first, then hands the tab switch to MainShell via
-// PlayerProvider.requestNavTab — see that field's doc comment in
-// player_provider.dart for the full reasoning. This mirrors how Spotify
-// itself behaves: tapping Home from three screens deep lands you on the
-// Home tab, it doesn't stack Home on top of where you were.
-//
 // Deliberately mirrors MainShell's exact bottomNavigationBar Material/
-// RepaintBoundary wrapping instead of embedding the raw widgets directly
+// RepaintBoundary wrapping instead of embedding the raw widget directly
 // — an earlier version of MainShell hit a "ghost pill" bug where
 // Scaffold's bottomNavigationBar slot is always implicitly wrapped in an
 // opaque Material by Flutter itself; skipping the same transparent-
@@ -48,15 +55,6 @@ import 'mini_player.dart';
 // ═══════════════════════════════════════════════════════════════════════
 class MiniPlayerSlot extends StatelessWidget {
   const MiniPlayerSlot({super.key});
-
-  void _handleNavTap(BuildContext context, int barIndex) {
-    // Pop this screen (and anything stacked above MainShell) off first,
-    // so the tab switch lands on a MainShell that's actually back on
-    // top — otherwise the IndexedStack would update invisibly underneath
-    // whatever's still covering it.
-    Navigator.of(context).popUntil((route) => route.isFirst);
-    context.read<PlayerProvider>().requestNavTab(barIndex);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,11 +66,6 @@ class MiniPlayerSlot extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // FIX (Spotify-parity — matches the same fix in
-            // main_shell.dart's bottomNavigationBar): only the mini
-            // player itself hides when dismissed/nothing playing; the
-            // nav bar below is always rendered regardless.
-            //
             // FIX (white flash on auto-skip reappear — see the matching,
             // more detailed comment in main_shell.dart's bottomNavigationBar
             // for the full mechanism): wrapped in AnimatedSize +
@@ -99,15 +92,22 @@ class MiniPlayerSlot extends StatelessWidget {
                 ),
               ),
             ),
-            // currentIndex: -1 — no root tab is actually "active" on a
-            // pushed content screen (we're not on Home/Search/Library
-            // right now, we're on top of them), so nothing should show
-            // the selected-tab highlight capsule. Any tap still
-            // navigates correctly via _handleNavTap above; this only
-            // affects which icon looks "selected".
-            AurumBottomNavBar(
-              currentIndex: -1,
-              onTap: (barIndex) => _handleNavTap(context, barIndex),
+            // Invisible reserved space — NOT a rendered nav bar (no icons,
+            // no tap targets, no background), just the same footprint one
+            // would have occupied. See the "WHY THE RESERVED SPACE BELOW
+            // MATTERS" doc comment above for the full reasoning.
+            ValueListenableBuilder<String>(
+              valueListenable: AudioPrefs.navBarStyleNotifier,
+              builder: (context, navStyle, _) {
+                final docked = navStyle == 'Docked';
+                return SafeArea(
+                  top: false,
+                  child: SizedBox(
+                    height: AurumBottomNavBar.barHeight +
+                        (docked ? 0 : 10),
+                  ),
+                );
+              },
             ),
           ],
         ),

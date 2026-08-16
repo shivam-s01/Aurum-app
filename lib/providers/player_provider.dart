@@ -39,10 +39,9 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart' show WidgetsBinding, WidgetsBindingObserver, AppLifecycleState, ImageStreamListener, ImageConfiguration;
+import 'package:flutter/widgets.dart' show WidgetsBinding, WidgetsBindingObserver, AppLifecycleState;
 import 'package:just_audio/just_audio.dart' show LoopMode;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../models/song.dart';
 import '../models/lyrics.dart';
 import '../services/native_engine_bridge.dart';
@@ -63,30 +62,6 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final NativeAudioEngine        _engine;
   final RecentlyPlayedProvider? _recentlyPlayed;
   FavoritesProvider? _favorites;
-
-  // ── Nav bar tab-switch bridge ───────────────────────────────────────
-  // MiniPlayerSlot (used by every pushed content screen — Album, Artist,
-  // Playlist, History, etc.) renders its own copy of the bottom nav bar
-  // so the nav bar + mini player stay visible together while browsing,
-  // matching Spotify/YT Music. But MainShell — not the pushed screen —
-  // owns the actual `_tab` / IndexedStack state. Tapping a nav icon from
-  // three screens deep needs to (a) pop back to MainShell and (b) tell it
-  // which tab to land on. PlayerProvider is already a stable, always-
-  // mounted singleton reachable from any screen via context.read, so it's
-  // used here purely as a lightweight signal bus — MainShell listens via
-  // ValueListenableBuilder and applies the tab switch; nothing else reads
-  // this value, and it carries no player state itself.
-  final ValueNotifier<int?> navTabRequest = ValueNotifier<int?>(null);
-
-  void requestNavTab(int barIndex) {
-    // Bump even if the same index is tapped twice in a row (e.g. Home,
-    // then Home again from a different screen) — ValueNotifier only
-    // notifies listeners on an actual value change, and MainShell needs
-    // an event each time, not just on first change. Toggling to null and
-    // back forces that notification.
-    navTabRequest.value = null;
-    navTabRequest.value = barIndex;
-  }
 
   // Injected from main.dart once FavoritesProvider exists (created earlier
   // in the provider tree; PlayerProvider's constructor doesn't take a
@@ -1354,24 +1329,6 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     // first frame instead of a visible beat later.
     if (song.artworkUrl.isNotEmpty) {
       ArtworkPaletteCache.warm(song.artworkUrl);
-      // FIX ("Home's Hero Now Playing card shows a flat grey box for
-      // 4-6s on cold tap"): ArtworkPaletteCache.warm() above only
-      // decodes+extracts a COLOR from the artwork — it never actually
-      // populates CachedNetworkImage's own disk/mem cache. So even
-      // though the palette resolves fast, every AurumArtwork widget
-      // that displays this song (Hero card, mini player, full player)
-      // still had to start its OWN fresh network fetch from zero the
-      // instant it first built — same request the palette warm-up had
-      // already made moments earlier, just not shared. Resolving the
-      // same CachedNetworkImageProvider here — same provider type/cache
-      // key AurumArtwork's _RetryableNetworkImage uses internally —
-      // means that fetch is already in flight (often already complete)
-      // by the time any artwork widget for this song actually builds,
-      // so the grey placeholder window shrinks to whatever's left of
-      // the network round-trip instead of the full thing every time.
-      CachedNetworkImageProvider(song.artworkUrl)
-          .resolve(const ImageConfiguration())
-          .addListener(ImageStreamListener((_, __) {}, onError: (_, __) {}));
     }
 
     // FIX ("Up Next empty after tapping a downloaded song, even with 20+

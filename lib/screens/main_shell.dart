@@ -67,23 +67,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   // this mapping and handled separately in _handleNavTap.
   static const Map<int, int> _barIndexToTab = {0: 0, 1: 1, 3: 2};
 
-  // Set once in initState from PlayerProvider.navTabRequest, so dispose()
-  // can detach the same listener instance without needing context (which
-  // is unsafe to read again mid-teardown — see the matching FIX comment
-  // on _feedbackListener above for the same reasoning).
-  ValueNotifier<int?>? _navTabRequestListenable;
-
-  // Fires when a pushed content screen's nav bar (MiniPlayerSlot) is
-  // tapped. That screen already popped itself off the Navigator stack
-  // before setting this value (see MiniPlayerSlot), so by the time this
-  // runs MainShell is back on top — this only needs to switch the tab,
-  // exactly like a normal in-place nav tap.
-  void _handleNavTabRequest() {
-    final barIndex = _navTabRequestListenable?.value;
-    if (barIndex == null) return;
-    _handleNavTap(barIndex);
-  }
-
   void _handleNavTap(int barIndex) {
     primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
@@ -268,15 +251,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     // immediately rather than waiting for MainShell to rebuild.
     AudioPrefs.shakeToSkipNotifier.addListener(_startShakeListener);
 
-    // Nav bar tap from a pushed content screen (Album/Artist/Playlist/
-    // etc. via MiniPlayerSlot) — see PlayerProvider.navTabRequest's doc
-    // comment for why this bridges through PlayerProvider rather than a
-    // direct callback. Read once here (not via context.watch, since this
-    // is a plain listener add, not something that should rebuild
-    // MainShell on every read) and detached in dispose().
-    _navTabRequestListenable = context.read<PlayerProvider>().navTabRequest;
-    _navTabRequestListenable!.addListener(_handleNavTabRequest);
-
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _startFeedbackTracking();
       _startPlaybackErrorTracking();
@@ -397,7 +371,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     AudioPrefs.shakeToSkipNotifier.removeListener(_startShakeListener);
-    _navTabRequestListenable?.removeListener(_handleNavTabRequest);
     _accelSub?.cancel();
     if (_feedbackListener != null) {
       _trackedPlayer?.removeListener(_feedbackListener!);
@@ -690,6 +663,11 @@ class AurumBottomNavBar extends StatelessWidget {
   static const int shortsTabIndex = 2;
 
   static const double _barHeight = 64.0;
+  // Exposed so MiniPlayerSlot (pushed content screens) can reserve the
+  // exact same footprint the nav bar occupies here, even though it never
+  // renders the bar itself — see MiniPlayerSlot's doc comment for why
+  // that matters.
+  static const double barHeight = _barHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -797,12 +775,12 @@ class AurumBottomNavBar extends StatelessWidget {
                 // icon+label column, matching Echo's flat filled pill
                 // (no border, no shadow, no glass) — just tinted with
                 // Aurum's gold/bronze accent instead of Echo's lavender.
-                // currentIndex < 0 means "no root tab is really active"
-                // (e.g. AurumBottomNavBar rendered via MiniPlayerSlot on
-                // a pushed content screen, not a live MainShell tab) —
-                // fade the capsule out entirely rather than let it sit
-                // at a negative `left` and get clipped into a stray
-                // sliver at the screen edge.
+                // Defensive guard only — AurumBottomNavBar is now only
+                // ever built here in MainShell with a real, always-valid
+                // tab index (pushed content screens no longer render a
+                // nav bar at all, see MiniPlayerSlot). Kept so a negative
+                // index can never clip the capsule into a stray sliver
+                // at the screen edge instead of just hiding it.
                 if (currentIndex >= 0)
                   AnimatedPositioned(
                     duration: const Duration(milliseconds: 380),

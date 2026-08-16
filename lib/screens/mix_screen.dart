@@ -796,11 +796,9 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                       name: name,
                       onTap: () {
                         Navigator.pop(context);
-                        Navigator.push(
+                        AurumDepthRoute.to(
                           widget.rootContext,
-                          AurumPageRoute(
-                            builder: (_) => ArtistScreen(artistName: name),
-                          ),
+                          ArtistScreen(artistName: name),
                         );
                       },
                     ),
