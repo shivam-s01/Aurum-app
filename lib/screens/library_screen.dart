@@ -44,6 +44,7 @@ import '../providers/auth_provider.dart';
 import '../models/download_item.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_stacked_artwork.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_empty_state.dart';
 import '../widgets/mini_player_slot.dart';
@@ -250,21 +251,21 @@ class LibraryScreen extends StatelessWidget {
             icon: Icons.favorite_rounded,
             label: l10n.libraryLiked,
             color: Colors.pinkAccent,
-            onTap: () => AurumPageRoute.to(context, const LikedScreen()),
+            onTap: () => AurumDepthRoute.to(context, const LikedScreen()),
           ),
           const SizedBox(width: 8),
           _QuickChip(
             icon: Icons.download_rounded,
             label: l10n.settingsDownloads,
             color: AurumTheme.gold,
-            onTap: () => AurumPageRoute.to(context, const DownloadsScreen()),
+            onTap: () => AurumDepthRoute.to(context, const DownloadsScreen()),
           ),
           const SizedBox(width: 8),
           _QuickChip(
             icon: Icons.history_rounded,
             label: l10n.libraryHistory,
             color: Colors.teal,
-            onTap: () => AurumPageRoute.to(context, const _HistoryScreen()),
+            onTap: () => AurumDepthRoute.to(context, const _HistoryScreen()),
           ),
         ],
       ),
@@ -304,28 +305,28 @@ class LibraryScreen extends StatelessWidget {
         label: l10n.libraryLikedSongs,
         subtitle: '$favCount',
         color: Colors.pinkAccent,
-        onTap: () => AurumSlidePageRoute.to(context, const LikedScreen()),
+        onTap: () => AurumDepthRoute.to(context, const LikedScreen()),
       ),
       _CollectionItem(
         icon: Icons.queue_music_rounded,
         label: l10n.libraryPlaylists,
         subtitle: plCount == 0 ? '' : '$plCount',
         color: Colors.purpleAccent,
-        onTap: () => AurumSlidePageRoute.to(context, const PlaylistsScreen()),
+        onTap: () => AurumDepthRoute.to(context, const PlaylistsScreen()),
       ),
       _CollectionItem(
         icon: Icons.album_rounded,
         label: l10n.libraryAlbums,
         subtitle: followedAlbumsCount == 0 ? '' : '$followedAlbumsCount',
         color: Colors.deepPurple,
-        onTap: () => AurumSlidePageRoute.to(context, const _AlbumsScreen()),
+        onTap: () => AurumDepthRoute.to(context, const _AlbumsScreen()),
       ),
       _CollectionItem(
         icon: Icons.person_rounded,
         label: l10n.libraryArtists,
         subtitle: followedCount == 0 ? '' : '$followedCount',
         color: Colors.blueAccent,
-        onTap: () => AurumSlidePageRoute.to(context, const _ArtistsScreen()),
+        onTap: () => AurumDepthRoute.to(context, const _ArtistsScreen()),
       ),
       _CollectionItem(
         icon: Icons.folder_rounded,
@@ -335,7 +336,7 @@ class LibraryScreen extends StatelessWidget {
         onTap: () async {
           if (!lib.hasLoaded) await lib.load();
           if (context.mounted) {
-            AurumSlidePageRoute.to(context, const _LocalFilesScreen());
+            AurumDepthRoute.to(context, const _LocalFilesScreen());
           }
         },
       ),
@@ -390,7 +391,7 @@ class LibraryScreen extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: TextButton(
-              onPressed: () => AurumPageRoute.to(context, const _HistoryScreen()),
+              onPressed: () => AurumDepthRoute.to(context, const _HistoryScreen()),
               child: Text(
                 l10n.librarySeeAllSongs(history.length),
                 style: TextStyle(
@@ -1525,7 +1526,7 @@ class _PlaylistCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AurumPressable(
-      onTap: () => AurumPageRoute.to(
+      onTap: () => AurumDepthRoute.to(
         context,
         PlaylistDetailScreen(playlistId: playlist.id),
       ),
@@ -1795,7 +1796,7 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
     if (mounted) {
       Navigator.pop(context);
       // Navigate directly to the new playlist
-      AurumPageRoute.to(
+      AurumDepthRoute.to(
         context,
         PlaylistDetailScreen(playlistId: pl.id),
       );
@@ -1951,7 +1952,7 @@ class _ImportYtPlaylistDialogState extends State<_ImportYtPlaylistDialog> {
       return;
     }
     Navigator.pop(context);
-    AurumPageRoute.to(
+    AurumDepthRoute.to(
       context,
       PlaylistDetailScreen(playlistId: playlist.id),
     );
@@ -2978,38 +2979,58 @@ class _DownloadTile extends StatelessWidget {
     final song = item.song;
     final isLight = Theme.of(context).brightness == Brightness.light;
 
+    // Echo Nightly-exact: same live 3-bar equalizer badge every other
+    // list (Search, Home, Mix, Library sections, Liked) already shows
+    // via SongTile/AurumStackedArtwork — Downloads previously used a
+    // bare AurumArtwork here with no now-playing indicator at all, the
+    // one place in the app a currently-playing offline song gave no
+    // visual feedback that it was the active track.
+    final isCurrentSong = context.select<PlayerProvider, bool>(
+      (p) => p.currentSong?.id == song.id,
+    );
+    final isActuallyPlaying = context.select<PlayerProvider, bool>(
+      (p) => p.isPlaying,
+    );
+
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Opacity(
-              opacity: item.isDownloading ? 0.4 : 1.0,
-              child: AurumArtwork(url: song.artworkUrl, size: 48, borderRadius: 8),
-            ),
-            if (item.isDownloading)
-              SizedBox(
-                width: 22,
-                height: 22,
-                child: Center(
-                  child: AurumM3Loader(
-                    width: 22,
-                    height: 2.5,
+      leading: item.isDownloading
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Opacity(
+                    opacity: 0.4,
+                    child: AurumArtwork(url: song.artworkUrl, size: 48, borderRadius: 8),
                   ),
-                ),
+                  SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: Center(
+                      child: AurumM3Loader(
+                        width: 22,
+                        height: 2.5,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-          ],
-        ),
-      ),
+            )
+          : AurumStackedArtwork(
+              url: song.artworkUrl,
+              size: 48,
+              borderRadius: 8,
+              showNowPlaying: isCurrentSong,
+              isPlaying: isActuallyPlaying,
+            ),
       title: Text(song.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
+              color: isCurrentSong ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
               fontSize: 14,
-              fontWeight: FontWeight.w600)),
+              fontWeight: isCurrentSong ? FontWeight.w700 : FontWeight.w600)),
       subtitle: item.isDownloading
           ? Text(
               l10n.libraryDownloadingPercent((item.progress * 100).toStringAsFixed(0)),
@@ -3210,7 +3231,7 @@ class _FollowedAlbumTile extends StatelessWidget {
         if (isMix) {
           final songs =
               context.read<FollowedAlbumsProvider>().songsFor(id);
-          AurumPageRoute.to(
+          AurumDepthRoute.to(
             context,
             MixScreen(
               mixId: id,
@@ -3221,7 +3242,7 @@ class _FollowedAlbumTile extends StatelessWidget {
             ),
           );
         } else {
-          AurumPageRoute.to(
+          AurumDepthRoute.to(
             context,
             AlbumScreen(albumId: id, albumName: name, artworkUrl: artworkUrl),
           );
@@ -3482,7 +3503,7 @@ class _FollowedArtistTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           onTap: () {
             AurumHaptics.selection();
-            AurumPageRoute.to(
+            AurumDepthRoute.to(
               context,
               ArtistScreen(artistId: id, artistName: name),
             );

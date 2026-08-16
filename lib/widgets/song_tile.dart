@@ -14,7 +14,7 @@ import '../screens/album_screen.dart';
 import '../services/api_service.dart';
 import 'aurum_artwork.dart';
 import 'aurum_like_button.dart';
-import 'aurum_equalizer_bars.dart';
+import 'aurum_stacked_artwork.dart';
 import '../utils/aurum_haptics.dart';
 
 class SongTile extends StatefulWidget {
@@ -160,11 +160,7 @@ class _SongTileState extends State<SongTile> {
               SizedBox(
                 width: 28,
                 child: isCurrentSong
-                    ? AurumEqualizerBars(
-                        playing: isActuallyPlaying,
-                        color: AurumTheme.gold,
-                        size: 18,
-                      )
+                    ? const SizedBox.shrink()
                     : Text(
                         '${widget.displayIndex ?? (widget.index ?? 0) + 1}',
                         style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
@@ -173,7 +169,18 @@ class _SongTileState extends State<SongTile> {
               ),
               const SizedBox(width: 8),
             ],
-            AurumArtwork(url: widget.song.artworkUrl, size: 50, borderRadius: 8),
+            // Echo Nightly-style depth stack behind the cover, with the
+            // live 3-bar equalizer badge centered on top when this tile
+            // is the currently-playing song (replaces the old bare-index-
+            // column wave — the badge now lives directly on the artwork,
+            // same as Echo's isPlaying overlay on item_shelf_media_cover).
+            AurumStackedArtwork(
+              url: widget.song.artworkUrl,
+              size: 50,
+              borderRadius: 8,
+              showNowPlaying: isCurrentSong,
+              isPlaying: isActuallyPlaying,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -462,7 +469,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                           Navigator.pop(context);
                           Navigator.push(
                             widget.rootContext,
-                            AurumPageRoute(
+                            AurumDepthRoute(
                               builder: (_) =>
                                   ArtistScreen(artistName: a.trim()),
                             ),
@@ -567,7 +574,7 @@ class _AlbumChipState extends State<_AlbumChip> {
       Navigator.pop(context);
       Navigator.push(
         widget.rootContext,
-        AurumPageRoute(
+        AurumDepthRoute(
           builder: (_) => AlbumScreen(
             albumId: albumId,
             albumName: widget.albumName,

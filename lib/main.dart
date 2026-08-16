@@ -525,13 +525,13 @@ class AurumApp extends StatelessWidget {
               return const Locale('en');
             },
             // NOTE: _BlurShaderWarmup wraps here, OUTSIDE
-            // _SplashOnEveryEntry's child — that child is only built by
-            // SplashScreen once its own 2.7s animation finishes (see
-            // _showChild in splash_screen.dart), so nesting the warmup
-            // inside it would fire the warmup at the exact moment the
-            // splash hands off to the real app, defeating the point.
-            // Wrapping it out here instead means the warmup paints
-            // immediately, hidden behind/alongside the splash itself.
+            // _SplashOnEveryEntry's child. SplashScreen now mounts
+            // MainShell immediately (as of the Echo-Nightly-matched
+            // rewrite — see splash_screen.dart's own doc comment), so
+            // the warmup would fire at the same moment either way; kept
+            // at this outer level regardless so it's never nested inside
+            // (and therefore never accidentally gated by) the splash
+            // overlay's own build path.
             // Cross-fades dark/light/AMOLED + accent color changes instead
             // of the previous instant one-frame swap. MaterialApp already
             // builds the correct Theme internally (theme/darkTheme/
@@ -690,19 +690,25 @@ class _SplashOnEveryEntry extends StatelessWidget {
   final Widget child;
   const _SplashOnEveryEntry({required this.child});
 
-  // True after the animation plays once per process lifetime.
+  // True after the splash has been mounted once per process lifetime —
+  // set immediately (not deferred to a hand-off point) because
+  // SplashScreen now mounts `child` in parallel with its own overlay
+  // from frame 1 (see splash_screen.dart's doc comment for why), so
+  // there's no longer a distinct "hand-off moment" to defer this to; a
+  // second _SplashOnEveryEntry build within the same process (e.g. after
+  // a full navigator reset) should just skip straight to `child` with no
+  // overlay at all, matching Echo Nightly's own splash — which the OS
+  // only ever shows once per process launch, never again on in-app
+  // navigation resets.
   static bool _played = false;
 
   @override
   Widget build(BuildContext context) {
     if (_played) return child;
+    _played = true;
     return SplashScreen(
       key: const ValueKey('aurum_splash_once'),
-      child: Builder(builder: (_) {
-        // Mark as played as soon as SplashScreen hands off to its child.
-        _played = true;
-        return child;
-      }),
+      child: child,
     );
   }
 }

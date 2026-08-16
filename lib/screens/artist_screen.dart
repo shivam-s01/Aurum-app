@@ -413,7 +413,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
               child: GestureDetector(
                 onTap: () {
                   AurumHaptics.light();
-                  AurumPageRoute.to(
+                  AurumDepthRoute.to(
                     context,
                     AlbumScreen(
                       albumId: a.id,

@@ -31,6 +31,7 @@ import '../widgets/aurum_morph_loader.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/aurum_equalizer_bars.dart';
+import '../widgets/aurum_stacked_artwork.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_transitions.dart';
 import 'package:shimmer/shimmer.dart';
@@ -925,14 +926,23 @@ class _HomeScreenState extends State<HomeScreen> {
                               _YtPlaylistsForYouSection(refreshKey: _playlistRefreshKey),
                               // ── Premium upsell banner (free users only) ──
                               _HomePremiumBanner(isActive: widget.isActive),
-                              // ── Song sections ──
+                              // ── Song sections, with the Artist Strip
+                              // injected at the midpoint — YT Music and
+                              // Spotify both surface a "Popular artists" /
+                              // "Your favorite artists" row roughly halfway
+                              // down the home feed, never buried after
+                              // every other section. _OnlineContent now
+                              // computes that midpoint itself from
+                              // whatever sections actually streamed in
+                              // (varies per session), so the strip's
+                              // position stays "middle of the feed" no
+                              // matter how many sections load.
                               // PERF FIX: isolated in its own
                               // ValueListenableBuilder so each streamed-in
                               // section (up to ~15-19 per cold start) only
                               // rebuilds this subtree — not the curated
-                              // playlists row, premium banner, or artist
-                              // strip above/below it. See
-                              // _onlineSectionsNotifier's doc comment.
+                              // playlists row or premium banner above it.
+                              // See _onlineSectionsNotifier's doc comment.
                               ValueListenableBuilder<List<SongSection>>(
                                 valueListenable: _onlineSectionsNotifier,
                                 builder: (context, sections, _) {
@@ -941,13 +951,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                     loading: _onlineLoading,
                                     error: _onlineError,
                                     onRetry: _loadOnline,
+                                    artistStrip: _ArtistStrip(
+                                      artists: _homeArtists,
+                                      loading: _artistsLoading,
+                                    ),
                                   );
                                 },
-                              ),
-                              // ── Artist Strip (after recommendations) ──
-                              _ArtistStrip(
-                                artists: _homeArtists,
-                                loading: _artistsLoading,
                               ),
                             ],
                           )
@@ -1777,12 +1786,17 @@ class _OnlineContent extends StatelessWidget {
   final bool loading;
   final String? error;
   final VoidCallback onRetry;
+  // Injected mid-feed instead of stacked after everything — see call site
+  // comment for why (YT Music / Spotify both surface an artist row roughly
+  // halfway down the home feed, never as a trailing afterthought section).
+  final Widget artistStrip;
 
   const _OnlineContent({
     required this.sections,
     required this.loading,
     required this.error,
     required this.onRetry,
+    required this.artistStrip,
   });
 
   @override
@@ -1794,9 +1808,15 @@ class _OnlineContent extends StatelessWidget {
         message: error ?? AppLocalizations.of(context)!.homeCouldntLoadSongsRetry,
       );
     }
+    // MIDDLE INSERTION: floor(n/2) puts the strip after roughly the first
+    // half of sections regardless of how many streamed in this session (YT
+    // Music's home-shelf count varies run to run) — e.g. 6 sections → after
+    // section 3, 5 sections → after section 2. Always leaves at least one
+    // section on each side so it never collapses to "first" or "last".
+    final midpoint = (sections.length / 2).floor().clamp(1, sections.length);
     return Column(
       children: [
-        for (int i = 0; i < sections.length; i++)
+        for (int i = 0; i < sections.length; i++) ...[
           _StaggeredSection(
             // PERF FIX (cold-start "lag until refresh finishes"): keyed by
             // the section's own stable id, not its list position, so
@@ -1811,6 +1831,8 @@ class _OnlineContent extends StatelessWidget {
             sectionId: i < sections.length ? sections[i].id : '',
             child: i < sections.length ? _buildSection(context, sections[i]) : const SizedBox.shrink(),
           ),
+          if (i + 1 == midpoint) artistStrip,
+        ],
       ],
     );
   }
@@ -1977,7 +1999,7 @@ class _SongSectionRowState extends State<_SongSectionRow> {
                   // etc.) uses. Switched to AurumPageRoute.to so this
                   // matches the rest of the app and respects the "Back
                   // Animations" setting like everything else does.
-                  AurumPageRoute.to(
+                  AurumDepthRoute.to(
                     context,
                     MixScreen(
                       mixId: section.id,
@@ -2396,7 +2418,7 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
     final art = section.songs
         .map((s) => s.artworkUrl)
         .firstWhere((u) => u.isNotEmpty, orElse: () => '');
-    AurumPageRoute.to(
+    AurumDepthRoute.to(
       context,
       MixScreen(
         mixId: section.id,
@@ -2912,41 +2934,32 @@ class _RecentlyPlayedSection extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Artist Strip — 5-6 circular artist cards, random each hour
+// Artist Strip — Echo Nightly-style full-width list rows (circular
+// avatar + name + play button), stacked vertically, ek ke niche ek —
+// matched 1:1 to Echo's item_shelf_media.xml/item_shelf_media_cover.xml
+// (see AurumStackedArtwork's doc comment for the depth-layer recipe).
+// Previously a horizontal row of small circular chips; that read as
+// "just some faces" rather than a premium, browsable artist section —
+// full rows give each artist real weight (name at 16sp like Echo's
+// title TextView, a always-visible play affordance) matching how every
+// other "real" music app (and Echo itself) treats artists on the home
+// feed, not as an afterthought strip.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _ArtistStrip extends StatefulWidget {
+class _ArtistStrip extends StatelessWidget {
   final List<ArtistSimple> artists;
   final bool loading;
   const _ArtistStrip({required this.artists, required this.loading});
 
-  @override
-  State<_ArtistStrip> createState() => _ArtistStripState();
-}
-
-class _ArtistStripState extends State<_ArtistStrip> {
-  // BUG FIX ("app fasna / scroll atakna over time" — memory leak): this
-  // was a StatelessWidget that allocated `ScrollController()` fresh
-  // inside build() on every rebuild (parent list scrolling, any
-  // setState above this in the tree, theme changes, etc.) and never
-  // disposed any of them — each abandoned controller stayed alive in
-  // memory indefinitely with its ScrollPosition machinery still
-  // attached. Converted to a StatefulWidget so the controller is
-  // created exactly once in initState and disposed exactly once in
-  // dispose(), same pattern as every other scrollable section in this
-  // file.
-  late final ScrollController _scrollController = ScrollController();
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
+  // Cap how many rows render on Home — this is a taste/discovery section,
+  // not the full artist library (that's Search / Library). Matches the
+  // old strip's "5-6 shown, random each hour" intent while giving each
+  // one much more visual presence now that it's a full row instead of a
+  // 70px chip.
+  static const int _maxShown = 6;
 
   @override
   Widget build(BuildContext context) {
-    final artists = widget.artists;
-    final loading = widget.loading;
     // FIX — inconsistent vertical rhythm between home-feed sections: this
     // was top:24 while every other section (Trending Playlists, each
     // SongSection like Afternoon Picks/Bollywood Mix) uses top:28. Small
@@ -2968,40 +2981,21 @@ class _ArtistStripState extends State<_ArtistStrip> {
               letterSpacing: -0.2,
             ),
           ),
-          const SizedBox(height: 14),
-          FadedHorizontalList(
-            height: 100,
-            controller: _scrollController,
-            // Narrower than the default 20px — these are 64px circular
-            // avatars, not full square artwork; a full-width fade would
-            // visibly eat into the circle itself rather than just softening
-            // the trailing edge of empty margin around it.
-            fadeWidth: 12,
-            child: loading
-                ? _buildShimmer(context)
-                : artists.isEmpty
-                    ? const SizedBox.shrink()
-                    : ListView.builder(
-                        controller: _scrollController,
-                        scrollDirection: Axis.horizontal,
-                        physics: const BouncingScrollPhysics(),
-                        // PERF: see cacheExtent note on the song-card
-                        // carousel above — same fast-scroll pop-in fix,
-                        // smaller value since artist chips are lighter
-                        // (circular avatar, no full artwork blur).
-                        cacheExtent: 500,
-                        // Note: unlike the playlist/song rows above,
-                        // _ArtistChip's own `margin: right: 16` already
-                        // matches this section's 16px left inset exactly
-                        // — no extra trailing padding needed here, this
-                        // row was never affected by the cut-off bug.
-                        itemCount: artists.length,
-                        itemBuilder: (_, i) => _ArtistChip(
-                          key: ValueKey(artists[i].id),
-                          artist: artists[i],
-                        ),
-                      ),
-          ),
+          const SizedBox(height: 6),
+          loading
+              ? _buildShimmer(context)
+              : artists.isEmpty
+                  ? const SizedBox.shrink()
+                  : Column(
+                      children: [
+                        for (final artist
+                            in artists.take(_maxShown))
+                          _ArtistRow(
+                            key: ValueKey(artist.id),
+                            artist: artist,
+                          ),
+                      ],
+                    ),
         ],
       ),
     );
@@ -3011,97 +3005,134 @@ class _ArtistStripState extends State<_ArtistStrip> {
     return Shimmer.fromColors(
       baseColor: AurumTheme.bgCardOf(context),
       highlightColor: AurumTheme.bgElevatedOf(context),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: 6,
-        itemBuilder: (_, __) => Container(
-          width: 70,
-          margin: const EdgeInsets.only(right: 16),
-          child: Column(children: [
-            // FIX (white flash — same root cause as the home shelf
-            // shimmer): Shimmer.fromColors only sweeps a gradient OVER
-            // this base color, it doesn't replace it. Colors.white here
-            // meant a dropped/late shimmer frame showed a flat white
-            // circle against the dark theme. Using the theme's own card
-            // color keeps this correct-looking even before the shimmer
-            // animation has ticked once.
-            CircleAvatar(radius: 32, backgroundColor: AurumTheme.bgCardOf(context)),
-            const SizedBox(height: 6),
-            Container(
-              width: 50, height: 10,
-              decoration: BoxDecoration(
-                color: AurumTheme.bgCardOf(context),
-                borderRadius: BorderRadius.circular(4),
-              ),
+      child: Column(
+        children: List.generate(3, (_) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                // FIX (white flash — same root cause as the home shelf
+                // shimmer): Shimmer.fromColors only sweeps a gradient OVER
+                // this base color, it doesn't replace it. Colors.white here
+                // meant a dropped/late shimmer frame showed a flat white
+                // circle against the dark theme. Using the theme's own card
+                // color keeps this correct-looking even before the shimmer
+                // animation has ticked once.
+                CircleAvatar(radius: 27, backgroundColor: AurumTheme.bgCardOf(context)),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Container(
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: AurumTheme.bgCardOf(context),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                CircleAvatar(radius: 18, backgroundColor: AurumTheme.bgCardOf(context)),
+              ],
             ),
-          ]),
-        ),
+          );
+        }),
       ),
     );
   }
 }
 
-class _ArtistChip extends StatelessWidget {
+class _ArtistRow extends StatelessWidget {
   final ArtistSimple artist;
-  const _ArtistChip({super.key, required this.artist});
+  const _ArtistRow({super.key, required this.artist});
+
+  Future<void> _open(BuildContext context) async {
+    AurumHaptics.selection();
+    final id = artist.id.isNotEmpty
+        ? artist.id
+        : await ApiService.searchArtistByName(artist.name);
+    if (id == null || !context.mounted) return;
+    AurumDepthRoute.to(
+      context,
+      ArtistScreen(artistId: id, artistName: artist.name),
+    );
+  }
+
+  Future<void> _play(BuildContext context) async {
+    AurumHaptics.medium();
+    final id = artist.id.isNotEmpty
+        ? artist.id
+        : await ApiService.searchArtistByName(artist.name);
+    if (id == null || !context.mounted) return;
+    final fetched = await ApiService.fetchArtist(id);
+    if (fetched == null || fetched.topSongs.isEmpty || !context.mounted) return;
+    context.read<PlayerProvider>().playSong(
+          fetched.topSongs.first,
+          queue: fetched.topSongs,
+          index: 0,
+          curatedQueue: true,
+        );
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Highlights this row while the artist's own song is the one actively
+    // playing — same "you're already listening to this" signal Echo gives
+    // via its isPlaying badge, just surfaced at the artist level here.
+    final isCurrentArtist = context.select<PlayerProvider, bool>(
+      (p) => p.currentSong != null &&
+          p.currentSong!.artist.toLowerCase() == artist.name.toLowerCase(),
+    );
+    final isActuallyPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
+
     return AurumPressable(
-      scaleAmount: 0.93,
-      onTap: () async {
-        final id = artist.id.isNotEmpty
-            ? artist.id
-            : await ApiService.searchArtistByName(artist.name);
-        if (id == null || !context.mounted) return;
-        AurumPageRoute.to(
-          context,
-          ArtistScreen(artistId: id, artistName: artist.name),
-        );
-      },
-      child: Container(
-        width: 70,
-        margin: const EdgeInsets.only(right: 16),
-        child: Column(children: [
-          Container(
-            width: 64, height: 64,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: AurumTheme.gold.withOpacity(0.4), width: 1.5),
+      scaleAmount: 0.98,
+      onTap: () => _open(context),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            AurumStackedArtwork(
+              url: artist.imageUrl,
+              size: 54,
+              circular: true,
+              showNowPlaying: isCurrentArtist,
+              isPlaying: isActuallyPlaying,
+              stackColor: AurumTheme.gold,
             ),
-            child: ClipOval(
-              child: CachedNetworkImage(
-                imageUrl: artist.imageUrl,
-                fit: BoxFit.cover,
-                memCacheWidth: 160,
-                memCacheHeight: 160,
-                placeholder: (_, __) => Container(
-                  color: AurumTheme.bgCardOf(context),
-                  child: Icon(Icons.person_rounded,
-                      color: AurumTheme.textMutedOf(context), size: 28),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                artist.name,
+                style: TextStyle(
+                  color: isCurrentArtist
+                      ? AurumTheme.gold
+                      : AurumTheme.textPrimaryOf(context),
+                  fontSize: 16,
+                  fontWeight: isCurrentArtist ? FontWeight.w700 : FontWeight.w600,
                 ),
-                errorWidget: (_, __, ___) => Container(
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            AurumPressable(
+              scaleAmount: 0.88,
+              onTap: () => _play(context),
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
                   color: AurumTheme.bgCardOf(context),
-                  child: Icon(Icons.person_rounded,
-                      color: AurumTheme.textMutedOf(context), size: 28),
+                ),
+                child: Icon(
+                  Icons.play_arrow_rounded,
+                  color: AurumTheme.textPrimaryOf(context),
+                  size: 22,
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            artist.name,
-            style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -3473,7 +3504,7 @@ class _YtHomePlaylistCardWidgetState
   // loading snackbar, no failure state, no async gap at all.
   void _open() {
     AurumHaptics.selection();
-    AurumPageRoute.to(
+    AurumDepthRoute.to(
       context,
       MixScreen(
         mixId: widget.card.id,

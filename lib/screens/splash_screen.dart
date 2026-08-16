@@ -1,51 +1,39 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-
-import '../providers/theme_provider.dart';
 import '../theme/aurum_theme.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SplashScreen — premium edition using the REAL launcher icon assets.
+// SplashScreen — Echo-Nightly-matched brand entrance.
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Why this version is different from the old one: the previous splash hand-
-// drew the scallop silhouette and note glyph with CustomPainter Paths. Those
-// paths were an approximation and didn't exactly match the real launcher
-// icon, so the shape looked "off"/distorted once it started spinning.
+// REWRITTEN (2026-08 — "cold start mein koi faltu layer/animation na rahe,
+// Echo Nightly jaisa"): the previous version was a 2.7s, multi-stage
+// sequence (entrance → 1.7s spin+glow → decel → glass-sweep → pulse →
+// cross-fade handoff) that also DELAYED mounting the real app
+// (widget.child / HomeScreen) until the whole thing finished, pushing
+// actual time-to-interactive out past 2.7s on every single cold start.
 //
-// This version instead uses two PNGs extracted directly, pixel-for-pixel,
-// from the actual ic_launcher_foreground.png:
-//   • assets/scallop_ring.png — the 10-lobe scallop silhouette + gradient,
-//     with the note-glyph area cut out (transparent hole where the note is)
-//   • assets/note_glyph.png   — just the white eighth-note, isolated
+// Echo Nightly's own splash — confirmed straight from its theme XML
+// (values/themes.xml's android:windowSplashScreenAnimationDuration) — is
+// exactly 900ms, and it's the OS's native Android 12+ Splash Screen API:
+// the icon animates for 900ms while the real Activity/Fragments are
+// ALREADY being constructed underneath it, so the OS splash and the
+// app's own startup work run in parallel, not one after the other.
 //
-// Because both layers are literally cropped from the same source image,
-// stacking them recreates the exact icon with zero distortion, at any
-// rotation or scale.
-//
-// Timeline (~2.7s total — tuned to feel like a premium/Spotify-class splash,
-// not overlong):
-//   0.00–0.25s   background fade-in; mark 85%→100% scale, 0→100% opacity
-//   0.25–1.95s   scallop ring spins at a smooth, constant rate (one full
-//                turn), soft motion-blur trail; note glyph stays rotationally
-//                still and glows in (fade + soft bloom), settling to solid
-//                white by the end of the window
-//   1.95–2.15s   ring eases to a stop (no bounce/overshoot)
-//   2.15–2.35s   one tight glass reflection sweep
-//   2.15–2.45s   one soft glow pulse
-//   2.45–2.70s   cross-fade handoff into the home screen
-//
-// Single AnimationController drives everything via Interval/Curve — cheap,
-// fully GPU-composited (Transform + Opacity only, no shader passes), each
-// layer behind its own RepaintBoundary.
-//
-// SEQUENCING (2026-08): widget.child (MainShell -> HomeScreen) is not
-// mounted until this animation completes — the splash plays alone, with
-// nothing else on screen competing for the main isolate's frame budget,
-// so it can never visibly skip/drop frames regardless of how much work
-// Home's initState ends up doing once it's finally mounted. See the
-// build() method below for the full reasoning.
+// Aurum can't use that same OS-level icon animation (windowSplashScreen
+// AnimatedIcon is deliberately left unset in android/app/.../values-v31/
+// styles.xml — several OEM skins draw the manifest icon on a light "icon
+// card" that ignores requested colors when that property is set, a
+// worse visual bug than having no icon there at all). So this Dart-side
+// widget remains the actual branding moment — but now matches Echo's
+// two defining properties instead of just borrowing its aesthetic:
+//   1. ~900ms total (was 2700ms) — one clean entrance-and-settle, no
+//      separate decorative stages after the mark has already appeared.
+//   2. widget.child mounts immediately, in parallel underneath this
+//      overlay, exactly like Echo's real Activity mounts underneath its
+//      OS splash — Home's own initState/data-fetch work now starts on
+//      frame 1 instead of waiting ~2.7s for an unrelated animation to
+//      finish first.
+// ─────────────────────────────────────────────────────────────────────────────
 class SplashScreen extends StatefulWidget {
   final Widget child;
   const SplashScreen({super.key, required this.child});
@@ -56,116 +44,60 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  static const Duration _total = Duration(milliseconds: 2700);
-
-  static const double _tEntranceEnd = 0.25 / 2.7;
-  static const double _tSpinStart = 0.25 / 2.7;
-  static const double _tSpinEnd = 1.95 / 2.7;
-  static const double _tDecelEnd = 2.15 / 2.7;
-  static const double _tPulseEnd = 2.45 / 2.7;
-  static const double _tSweepStart = 2.15 / 2.7;
-  static const double _tSweepEnd = 2.35 / 2.7;
+  // Matches Echo's own windowSplashScreenAnimationDuration exactly.
+  static const Duration _total = Duration(milliseconds: 900);
 
   late final AnimationController _ctrl;
-
-  late final Animation<double> _bgOpacity;
   late final Animation<double> _markScale;
   late final Animation<double> _markOpacity;
-  late final Animation<double> _bloom;
-  late final Animation<double> _ringAngle;
-  late final Animation<double> _trailFade;
-  late final Animation<double> _noteGlow;
-  late final Animation<double> _pulse;
-  late final Animation<double> _sweep;
-  late final Animation<double> _handoffT;
+  late final Animation<double> _overlayFade;
 
-  bool _showChild = false;
+  bool _overlayVisible = true;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(vsync: this, duration: _total);
 
-    _bgOpacity = CurvedAnimation(
-      parent: _ctrl,
-      curve: Interval(0.0, _tEntranceEnd, curve: Curves.easeOut),
-    );
-
+    // Entrance: icon fades/scales in over the first 55% of the timeline,
+    // holds fully settled for the remainder. Overlay fade-out: last 30%
+    // of the timeline, so the handoff to the real app is a quick
+    // cross-fade rather than an instant cut, without adding any extra
+    // time beyond the 900ms total.
+    //
+    // NOTE: there is deliberately NO separate "background fade-in" —
+    // the overlay's ColoredBox is opaque from frame 1 (see build()
+    // below). Fading the background in over its own interval would mean
+    // the first ~270ms of a cold start shows a partially-transparent
+    // overlay with whatever HomeScreen/MainShell is doing underneath
+    // bleeding through — exactly the "cold start white/gray flash" class
+    // of bug already hardened against elsewhere in this app (see
+    // pushFullPlayer's _FullPlayerRouteBackdrop in home_screen.dart).
+    // The whole point of this overlay is to fully hide that gap, so it
+    // must be 100% opaque for its entire visible lifetime, with only the
+    // icon mark and the final hand-off allowed to animate.
     _markScale = Tween<double>(begin: 0.85, end: 1.0).animate(
       CurvedAnimation(
         parent: _ctrl,
-        curve: Interval(0.0, _tEntranceEnd, curve: Curves.easeOutCubic),
+        curve: const Interval(0.0, 0.55, curve: Curves.easeOutCubic),
       ),
     );
-
     _markOpacity = CurvedAnimation(
       parent: _ctrl,
-      curve: Interval(0.0, _tEntranceEnd, curve: Curves.easeOut),
+      curve: const Interval(0.0, 0.4, curve: Curves.easeOut),
     );
-
-    _bloom = CurvedAnimation(
+    _overlayFade = CurvedAnimation(
       parent: _ctrl,
-      curve: Interval(0.0, _tSpinEnd, curve: Curves.easeOut),
-    );
-
-    // Ring spins smoothly — one clean rotation across the spin window,
-    // eases to a natural stop (no bounce).
-    _ringAngle = _DerivedAnimation(_ctrl, _ringAngleFor);
-
-    _trailFade = CurvedAnimation(
-      parent: _ctrl,
-      curve: Interval(
-        _tSpinEnd - 0.04,
-        _tSpinEnd,
-        curve: Curves.easeIn,
-      ),
-    );
-
-    // Note glyph: fades + glows in across the spin window, ending fully
-    // solid/settled right as the ring finishes decelerating.
-    _noteGlow = CurvedAnimation(
-      parent: _ctrl,
-      curve: Interval(_tSpinStart, _tDecelEnd, curve: Curves.easeOutCubic),
-    );
-
-    _pulse = CurvedAnimation(
-      parent: _ctrl,
-      curve: Interval(_tDecelEnd, _tPulseEnd, curve: Curves.easeOut),
-    );
-
-    _sweep = CurvedAnimation(
-      parent: _ctrl,
-      curve: Interval(_tSweepStart, _tSweepEnd, curve: Curves.easeInOut),
-    );
-
-    _handoffT = CurvedAnimation(
-      parent: _ctrl,
-      curve: Interval(_tPulseEnd, 1.0, curve: Curves.easeInOut),
+      curve: const Interval(0.7, 1.0, curve: Curves.easeIn),
     );
 
     _ctrl.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        if (mounted) setState(() => _showChild = true);
+      if (status == AnimationStatus.completed && mounted) {
+        setState(() => _overlayVisible = false);
       }
     });
 
     _ctrl.forward();
-  }
-
-  // Smooth constant-rate spin with an eased deceleration at the end —
-  // no ramp-up flashiness, no overshoot. One full 360° turn.
-  double _ringAngleFor(double t) {
-    if (t < _tSpinStart) return 0.0;
-    if (t >= _tDecelEnd) return 2 * 3.14159265359;
-    if (t <= _tSpinEnd) {
-      final localT = (t - _tSpinStart) / (_tSpinEnd - _tSpinStart);
-      return localT * 2 * 3.14159265359 * 0.86;
-    }
-    final decelT = (t - _tSpinEnd) / (_tDecelEnd - _tSpinEnd);
-    final eased = Curves.easeOutCubic.transform(decelT.clamp(0.0, 1.0));
-    final startAngle = 2 * 3.14159265359 * 0.86;
-    final endAngle = 2 * 3.14159265359;
-    return startAngle + (endAngle - startAngle) * eased;
   }
 
   @override
@@ -178,244 +110,65 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     final bg = AurumTheme.bgOf(context);
 
-    // FIX (2026-08 — "splash animation skips / app lags on cold start"):
-    // widget.child (MainShell -> HomeScreen) used to be mounted in the
-    // tree from frame 1, even while only visually hidden behind the
-    // splash overlay above it. Mounting still runs every initState() in
-    // that subtree immediately — HomeScreen firing off cache hydration +
-    // a live network fetch + an artist fetch, MainShell requesting
-    // storage/audio/battery-optimization permissions — all starting on
-    // the exact same frame the splash's AnimationController starts
-    // ticking. On a warm launch there's enough headroom that this mostly
-    // goes unnoticed; on a genuine cold start (Dart engine still warming
-    // up, disk cache cold, Supabase/Hive just initialized) that's a lot
-    // of concurrent CPU/disk/platform-channel work competing with the
-    // splash's own frame-by-frame animation work for the main isolate —
-    // frames get dropped, which reads as the splash "skipping" ahead
-    // rather than playing its full smooth timeline.
-    //
-    // Now widget.child is only built (and only then does its subtree's
-    // initState fire) once the splash's own AnimationController has
-    // actually completed — the splash plays alone, with nothing else
-    // competing for frame time, guaranteeing it's smooth. The tradeoff
-    // is real and intentional: total time-to-interactive is slightly
-    // longer (Home's load now starts after the ~2.7s splash instead of
-    // during it), in exchange for the splash never visibly skipping.
-    if (!_showChild) {
-      return AnimatedBuilder(
-        animation: _ctrl,
-        builder: (context, _) {
-          return Scaffold(
-            backgroundColor: bg,
-            body: Stack(
-              alignment: Alignment.center,
-              children: [
-                Opacity(
-                  opacity: _bgOpacity.value,
-                  child: Container(color: bg),
-                ),
-                Transform.scale(
-                  scale: _markScale.value,
-                  child: Opacity(
-                    opacity: _markOpacity.value,
-                    child: _buildMark(),
-                  ),
-                ),
-                if (_sweep.value > 0)
-                  RepaintBoundary(
-                    child: CustomPaint(
-                      size: const Size(180, 180),
-                      painter: _GlassSweepPainter(progress: _sweep.value),
+    // widget.child is mounted from frame 1, same as Echo's real Activity
+    // content being constructed underneath its OS splash — Home's own
+    // startup work (cache hydration, network fetch, permission prompts)
+    // now runs concurrently with this overlay instead of waiting for it.
+    return Stack(
+      children: [
+        widget.child,
+        if (_overlayVisible)
+          RepaintBoundary(
+            child: IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _ctrl,
+                builder: (context, _) {
+                  return Opacity(
+                    opacity: 1.0 - _overlayFade.value,
+                    child: ColoredBox(
+                      color: bg,
+                      child: Center(
+                        child: Transform.scale(
+                          scale: _markScale.value,
+                          child: Opacity(
+                            opacity: _markOpacity.value,
+                            child: _buildMark(),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-              ],
+                  );
+                },
+              ),
             ),
-          );
-        },
-      );
-    }
-
-    return widget.child;
+          ),
+      ],
+    );
   }
 
   Widget _buildMark() {
     const double markSize = 132;
-
-    return SizedBox(
-      width: markSize,
-      height: markSize,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Soft bloom glow behind everything
-          RepaintBoundary(
-            child: Opacity(
-              opacity: (_bloom.value * 0.5).clamp(0.0, 1.0),
-              child: Container(
-                width: markSize * 1.5,
-                height: markSize * 1.5,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      Color(0x55C77DFF),
-                      Color(0x00C77DFF),
-                    ],
-                  ),
-                ),
-              ),
+    return RepaintBoundary(
+      child: SizedBox(
+        width: markSize,
+        height: markSize,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Image.asset(
+              'assets/images/scallop_ring.png',
+              width: markSize,
+              height: markSize,
             ),
-          ),
-
-          // Motion-blur trail copies (faint, rotated slightly behind the
-          // leading ring), fades out as the spin ends.
-          if (_trailFade.value < 1.0)
-            RepaintBoundary(
-              child: Opacity(
-                opacity: (1.0 - _trailFade.value) * 0.35,
-                child: Transform.rotate(
-                  angle: _ringAngle.value - 0.35,
-                  child: Opacity(
-                    opacity: 0.5,
-                    child: Image.asset(
-                      'assets/images/scallop_ring.png',
-                      width: markSize,
-                      height: markSize,
-                    ),
-                  ),
-                ),
-              ),
+            Image.asset(
+              'assets/images/note_glyph.png',
+              width: markSize,
+              height: markSize,
             ),
-          if (_trailFade.value < 1.0)
-            RepaintBoundary(
-              child: Opacity(
-                opacity: (1.0 - _trailFade.value) * 0.18,
-                child: Transform.rotate(
-                  angle: _ringAngle.value - 0.6,
-                  child: Opacity(
-                    opacity: 0.3,
-                    child: Image.asset(
-                      'assets/images/scallop_ring.png',
-                      width: markSize,
-                      height: markSize,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Leading scallop ring — the actual spinning silhouette, exact
-          // pixel crop from the real launcher icon.
-          RepaintBoundary(
-            child: Transform.rotate(
-              angle: _ringAngle.value,
-              child: Image.asset(
-                'assets/images/scallop_ring.png',
-                width: markSize,
-                height: markSize,
-              ),
-            ),
-          ),
-
-          // Note glyph — never rotates, glows/fades in in place, exact
-          // pixel crop from the real launcher icon.
-          RepaintBoundary(
-            child: Opacity(
-              opacity: _noteGlow.value.clamp(0.0, 1.0),
-              child: Container(
-                decoration: BoxDecoration(
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.white
-                          .withOpacity(0.5 * (1.0 - _noteGlow.value).clamp(0.0, 1.0)),
-                      blurRadius: 16,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: Image.asset(
-                  'assets/images/note_glyph.png',
-                  width: markSize,
-                  height: markSize,
-                ),
-              ),
-            ),
-          ),
-
-          // Glow pulse after settle
-          if (_pulse.value > 0)
-            IgnorePointer(
-              child: Opacity(
-                opacity: (1.0 - _pulse.value) * 0.4 *
-                    (_pulse.value > 0 ? 1.0 : 0.0) *
-                    (4 * _pulse.value * (1 - _pulse.value)), // soft bump
-                child: Container(
-                  width: markSize * 1.3,
-                  height: markSize * 1.3,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        Color(0x66FFFFFF),
-                        Color(0x00FFFFFF),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-// Helper: drives a derived value from the controller without a separate
-// AnimationController — recomputed every tick from a mapping function.
-class _DerivedAnimation extends Animation<double>
-    with AnimationWithParentMixin<double> {
-  _DerivedAnimation(this.parent, this._map);
-  @override
-  final Animation<double> parent;
-  final double Function(double) _map;
-
-  @override
-  double get value => _map(parent.value);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// _GlassSweepPainter — one tight Apple-style glass reflection sweep.
-// ─────────────────────────────────────────────────────────────────────────────
-class _GlassSweepPainter extends CustomPainter {
-  _GlassSweepPainter({required this.progress});
-  final double progress; // 0..1
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2;
-
-    canvas.save();
-    canvas.clipPath(Path()..addOval(Rect.fromCircle(center: center, radius: radius)));
-
-    final sweepX = -radius + progress * (size.width + radius * 2);
-    final rect = Rect.fromLTWH(sweepX - radius * 0.4, 0, radius * 0.8, size.height);
-
-    final paint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          Colors.white.withOpacity(0.0),
-          Colors.white.withOpacity(0.45),
-          Colors.white.withOpacity(0.0),
-        ],
-        stops: const [0.0, 0.5, 1.0],
-      ).createShader(rect);
-
-    canvas.drawRect(rect, paint);
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _GlassSweepPainter oldDelegate) =>
-      oldDelegate.progress != progress;
-}

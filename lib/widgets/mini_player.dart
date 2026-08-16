@@ -10,6 +10,7 @@ import '../theme/aurum_theme.dart';
 import '../utils/artwork_palette_cache.dart';
 import 'aurum_artwork.dart';
 import 'aurum_pressable.dart';
+import 'aurum_play_pause_icon.dart';
 import '../screens/home_screen.dart' show pushFullPlayer;
 import '../utils/aurum_haptics.dart';
 import '../services/audio_prefs.dart';
@@ -722,8 +723,12 @@ class _PlayBtn extends StatelessWidget {
           color: accent,
           shape: BoxShape.circle,
         ),
-        child: Icon(
-          player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+        child: AurumPlayPauseIcon(
+          // EXACT Echo Nightly port (real path-data morph — triangle
+          // reshapes into bars, not a crossfade) — see
+          // aurum_play_pause_icon.dart. Same widget as the full player's
+          // button so mini/full stay visually identical, just smaller.
+          isPlaying: player.isPlaying,
           // FIX: was hardcoded AurumTheme.bg (always the app's dark
           // background color), which reads fine against a light accent
           // but goes near-invisible if the user picks a dark accent

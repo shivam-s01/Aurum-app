@@ -155,14 +155,25 @@ class _EdgeSwipeBackState extends State<_EdgeSwipeBack> with WidgetsBindingObser
     _dragStartX = details.globalPosition.dx;
     _dragging = true;
     _lastDragUpdate = DateTime.now();
+    // PERF (low-end/production): cache the screen width once at drag
+    // start instead of re-reading MediaQuery.of(context).size.width on
+    // every single onUpdate call (an InheritedWidget lookup that would
+    // otherwise repeat 60+ times/sec for the whole drag — Echo Nightly's
+    // native back gesture never re-queries layout mid-frame like this,
+    // so this keeps the two feeling equally light on a slow device).
+    // Width can't meaningfully change mid-drag (no rotation handling
+    // needed here — a rotation cancels the gesture arena anyway).
+    _dragWidth = MediaQuery.of(context).size.width;
     WidgetsBinding.instance.scheduleFrameCallback(_watchdogTick);
   }
+
+  double? _dragWidth;
 
   void _onDragUpdate(DragUpdateDetails details) {
     if (!_dragging) return;
     _lastDragUpdate = DateTime.now();
-    final width = MediaQuery.of(context).size.width;
-    if (width <= 0) return;
+    final width = _dragWidth;
+    if (width == null || width <= 0) return;
     // Controller runs 0 (fully pushed/visible) -> 1 (fully open, i.e. the
     // route's "entered" state); popping animates it back toward 0. Convert
     // horizontal drag distance directly into that same value so the
@@ -669,6 +680,153 @@ class AurumModalRoute<T> extends PageRouteBuilder<T> {
   static Future<T?> to<T extends Object?>(BuildContext context, Widget screen) {
     return Navigator.of(context).push<T>(
       AurumModalRoute<T>(builder: (_) => screen),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AurumDepthRoute — Echo-Nightly-exact port of Material Design's
+// MaterialSharedAxis (Z-axis) transition, used by Echo for every
+// content-drilldown push (Home row → Mix/Album/Playlist detail, etc. —
+// see MediaFragment.kt's `setupTransition(view)`, which defaults to
+// MaterialSharedAxis.Z). Echo's Home↔Search↔Library TAB switches use the
+// Y axis (a completely different, subtler transition) — this route is
+// specifically for the "I tapped into a piece of content and want to see
+// more about it" navigation, which is where AurumPageRoute's full
+// right-to-left slide previously felt like a jarring full-context-switch
+// (aakward) compared to Echo's much more connected "this same content
+// is growing into a detail view" depth feel.
+//
+// EXACT MATERIAL SHARED-AXIS Z SPEC (matches Echo's MDC values 1:1, not
+// an approximation):
+//   • Outgoing content: fades out over the first 100ms, scales UP from
+//     100% to 110% over the full 300ms.
+//   • Incoming content: fades in during the following 200ms (i.e. starts
+//     at the 100ms mark, once the outgoing fade finishes), scales UP
+//     from 80% to 100% over the full 300ms.
+//   • Total duration 300ms (Echo's own `motionDurationMedium1`, resolved
+//     via MotionUtils with a 350ms fallback — 300ms is MDC's own
+//     documented default for this pattern and what Echo's theme
+//     actually resolves to on Material3).
+//   • fastOutSlowIn-equivalent easing throughout (Curves.easeOutCubic is
+//     Aurum's existing standard curve and reads near-identically).
+//
+// PERF: same shape as AurumPageRoute — one Tween-driven AnimatedBuilder,
+// no per-frame layout queries, respects "Back Animations" the same way,
+// collapses to an instant cut when animations are off.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class AurumDepthRoute<T> extends PageRouteBuilder<T> {
+  AurumDepthRoute({
+    required WidgetBuilder builder,
+    RouteSettings? settings,
+    bool fullscreenDialog = false,
+  }) : super(
+          settings: settings,
+          fullscreenDialog: fullscreenDialog,
+          opaque: true,
+          transitionDuration: _animsOn()
+              ? const Duration(milliseconds: 300)
+              : Duration.zero,
+          reverseTransitionDuration: _animsOn()
+              ? const Duration(milliseconds: 300)
+              : Duration.zero,
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              builder(context),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            if (!_animsOn()) return child;
+
+            // PERF: only build the Tween/CurvedAnimation objects this
+            // frame's branch actually needs — computing both the
+            // incoming AND outgoing set unconditionally (then discarding
+            // whichever one isTopRoute didn't pick) allocated two unused
+            // Animation objects on every single transition frame for
+            // whichever route is currently in the background.
+            final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+
+            final Widget content;
+            if (isTopRoute) {
+              // Incoming (this route): fade in from the 100ms mark
+              // through 300ms (the back 2/3 of the timeline), scale
+              // 0.80→1.0 across the full timeline — exact
+              // MaterialSharedAxis.Z "entering" values. Reverse (pop,
+              // this route sliding back out) mirrors the same interval
+              // so a tap-back looks like the exact time-reverse of the
+              // push, not a different curve.
+              final incomingFade = CurvedAnimation(
+                parent: animation,
+                curve: const Interval(1 / 3, 1.0, curve: Curves.easeOutCubic),
+                reverseCurve:
+                    const Interval(1 / 3, 1.0, curve: Curves.easeInCubic),
+              );
+              final incomingScale = Tween<double>(begin: 0.80, end: 1.0)
+                  .animate(
+                CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOutCubic,
+                  reverseCurve: Curves.easeInCubic,
+                ),
+              );
+              content = FadeTransition(
+                opacity: incomingFade,
+                child: ScaleTransition(
+                  scale: incomingScale,
+                  child: child,
+                ),
+              );
+            } else {
+              // Something is pushed on top of this route right now —
+              // apply only the outgoing fade+scale (this route already
+              // finished its own incoming animation long ago). Fade out
+              // over the FIRST 100ms only, scale 1.0→1.10 across the
+              // full timeline — exact MaterialSharedAxis.Z "exiting"
+              // values, mirroring the isTopRoute guard already used by
+              // AurumPageRoute/AurumSlidePageRoute for the same
+              // stale-secondaryAnimation safety.
+              final outgoingFade = Tween<double>(begin: 1.0, end: 0.0)
+                  .animate(
+                CurvedAnimation(
+                  parent: secondaryAnimation,
+                  curve: const Interval(0.0, 1 / 3, curve: Curves.easeInCubic),
+                ),
+              );
+              final outgoingScale = Tween<double>(begin: 1.0, end: 1.10)
+                  .animate(
+                CurvedAnimation(
+                  parent: secondaryAnimation,
+                  curve: Curves.easeInCubic,
+                ),
+              );
+              content = FadeTransition(
+                opacity: outgoingFade,
+                child: ScaleTransition(
+                  scale: outgoingScale,
+                  child: child,
+                ),
+              );
+            }
+
+            return ColoredBox(
+              color: AurumTheme.bgOf(context),
+              child: content,
+            );
+          },
+        );
+
+  static bool _animsOn() =>
+      AurumMotion.enabled && AudioPrefs.backAnimations;
+
+  /// AurumDepthRoute.to(context, const MixScreen(...));
+  static Future<T?> to<T extends Object?>(
+    BuildContext context,
+    Widget screen, {
+    bool fullscreenDialog = false,
+  }) {
+    return Navigator.of(context).push<T>(
+      AurumDepthRoute<T>(
+        builder: (_) => screen,
+        fullscreenDialog: fullscreenDialog,
+      ),
     );
   }
 }
