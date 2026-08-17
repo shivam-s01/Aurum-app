@@ -31,7 +31,6 @@ import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import '../providers/favorites_provider.dart';
-import '../shorts/screens/shorts_entry.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 
@@ -46,11 +45,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   final _homeKey = GlobalKey<State<HomeScreen>>();
 
-  // NOTE: Shorts is intentionally NOT in this list. It is a full-screen
-  // immersive feed pushed via Navigator (see _handleNavTap) rather than
-  // an IndexedStack tab, so it never inherits the persistent MiniPlayer/
-  // nav bar chrome or interferes with the main queue's IndexedStack
-  // state. _screens stays 3 items; _tab only ever indexes 0..2 here.
+  // _screens stays 3 items; _tab only ever indexes 0..2 here.
   // NOTE: SearchScreen needs isActive rebuilt on every _tab change, so it
   // can't be `late final` like before — it's rebuilt as a getter that
   // reflects the current _tab so the search keyboard focus logic knows
@@ -61,40 +56,20 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     const LibraryScreen(),
   ];
 
-  // Maps AurumBottomNavBar's 4-item display index (Home, Search,
-  // Shorts, Library) to this screen's 3-item _screens/_tab index.
-  // Shorts (bar index 2) has no _screens entry, so it's excluded from
-  // this mapping and handled separately in _handleNavTap.
-  static const Map<int, int> _barIndexToTab = {0: 0, 1: 1, 3: 2};
+  // Maps AurumBottomNavBar's display index directly to this screen's
+  // _screens/_tab index — Home/Search/Library, 1:1, no special cases.
+  static const Map<int, int> _barIndexToTab = {0: 0, 1: 1, 2: 2};
 
   void _handleNavTap(int barIndex) {
     primaryFocus?.unfocus(disposition: UnfocusDisposition.scope);
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-
-    if (barIndex == AurumBottomNavBar.shortsTabIndex) {
-      AurumHaptics.selection();
-      Navigator.of(context).push(
-        AurumPageRoute(
-          builder: (_) => const ShortsEntry(),
-          fullscreenDialog: true,
-          // Shorts' own vertical PageView conflicts with the left-edge
-          // swipe-back gesture recognizer (see AurumPageRoute) and was
-          // causing the feed to get stuck with a permanent gray/white
-          // scrim on tap. Shorts already has its own explicit close (X)
-          // button, so the edge-swipe gesture isn't needed here.
-          enableEdgeSwipeBack: false,
-        ),
-      );
-      return;
-    }
 
     final tab = _barIndexToTab[barIndex];
     if (tab != null) setState(() => _tab = tab);
   }
 
   // Reverse mapping so the nav bar highlights the correct icon for
-  // the currently active _screens tab (Shorts has no persistent
-  // highlight since it's not a resident tab).
+  // the currently active _screens tab.
   int get _activeBarIndex =>
       _barIndexToTab.entries.firstWhere((e) => e.value == _tab).key;
 
@@ -525,7 +500,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       // dismissed"): the nav bar used to live *inside* the same
       // Selector<..., miniPlayerVisible> as MiniPlayer, so dismissing the
       // mini player (swipe-to-close, or nothing playing yet) took the nav
-      // bar down with it — Home/Search/Library/Shorts became unreachable.
+      // bar down with it — Home/Search/Library became unreachable.
       // Real Spotify/YT Music never do this: the nav bar is permanent
       // chrome, fully independent of whether anything is currently
       // playing; only the mini player itself shows/hides on its own.
@@ -648,19 +623,11 @@ class AurumBottomNavBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
 
-  // index 2 ("Shorts") is a special case: tapping it does NOT switch
-  // the IndexedStack — it pushes the full-screen Shorts feed as its
-  // own route (see onTap handling in MainShell). It stays out of
-  // _tab's normal 0..2 range so the capsule highlight never rests on
-  // it after returning.
   static List<({dynamic outline, dynamic filled, String label})> _items(AppLocalizations l10n) => [
     (outline: PhosphorIconsRegular.houseSimple, filled: PhosphorIconsFill.houseSimple, label: l10n.navHome),
     (outline: PhosphorIconsRegular.magnifyingGlass, filled: PhosphorIconsFill.magnifyingGlass, label: l10n.navSearch),
-    (outline: PhosphorIconsRegular.playCircle, filled: PhosphorIconsFill.playCircle, label: l10n.navShorts),
     (outline: PhosphorIconsRegular.vinylRecord, filled: PhosphorIconsFill.vinylRecord, label: l10n.navLibrary),
   ];
-
-  static const int shortsTabIndex = 2;
 
   static const double _barHeight = 64.0;
   // Exposed so MiniPlayerSlot (pushed content screens) can reserve the

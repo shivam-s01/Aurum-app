@@ -256,7 +256,7 @@ class AudioPrefs {
   /// margins, square corners) and sit flush against the bottom of the
   /// screen with no gap between them — mini player directly on top of
   /// the nav bar, nav bar directly on the screen edge. Purely visual —
-  /// tab structure (Home/Search/Shorts/Library), mini player content,
+  /// tab structure (Home/Search/Library), mini player content,
   /// and all playback behavior are completely unchanged between modes.
   /// Set from Settings → Appearance → "Nav Bar Style".
   static final ValueNotifier<String> navBarStyleNotifier =

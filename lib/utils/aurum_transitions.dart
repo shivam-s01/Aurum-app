@@ -306,19 +306,19 @@ class AurumPageRoute<T> extends PageRouteBuilder<T> {
     required WidgetBuilder builder,
     RouteSettings? settings,
     bool fullscreenDialog = false,
-    // FIX (Shorts feed permanent gray/white wash on tap): the left-edge
-    // swipe-back gesture below runs a HorizontalDragGestureRecognizer that
-    // competes in the same gesture arena as any vertical PageView the
-    // pushed screen contains (e.g. Shorts' vertical reels feed). A swipe
+    // FIX (permanent gray/white wash on tap for vertical-paging screens):
+    // the left-edge swipe-back gesture below runs a
+    // HorizontalDragGestureRecognizer that competes in the same gesture
+    // arena as any vertical PageView the pushed screen contains. A swipe
     // that isn't perfectly vertical lets this recognizer partially claim
     // the pointer; if it then loses the arena or the gesture otherwise
     // doesn't cleanly resolve, animationController.value can freeze at a
     // stray mid-range fraction instead of settling to 0/1 — that stuck
     // value is what painted as a permanent translucent gray/white scrim.
     // Screens whose primary gesture is itself horizontal or
-    // vertical-paging (Shorts) should opt out of this wrapper entirely
-    // rather than risk the arena conflict; they already have their own
-    // explicit close (X) button.
+    // vertical-paging should opt out of this wrapper entirely rather than
+    // risk the arena conflict; give them their own explicit close (X)
+    // button instead.
     bool enableEdgeSwipeBack = true,
   }) : super(
           settings: settings,

@@ -39,13 +39,9 @@ class MainActivity : FlutterFragmentActivity() {
     // ExoPlayer instance instead of building a second one.
     private var audioEngineChannelHandler: AurumEngineChannelHandler? = null
 
-    // Owns the native Shorts video engine (search+resolve+ExoPlayer
-    // pool) — fully separate from the audio engine/main queue above.
-    private var shortsChannelHandler: AurumShortsChannelHandler? = null
-
     // Exposes YoutubeInnertube.getRelated() (YouTube's own related-videos
     // graph) to Dart for use as a getAutoQueue signal — fully separate
-    // channel from audio engine playback commands and Shorts, see
+    // channel from audio engine playback commands, see
     // AurumRelatedChannelHandler's doc comment for why.
     private var relatedChannelHandler: AurumRelatedChannelHandler? = null
 
@@ -109,12 +105,6 @@ class MainActivity : FlutterFragmentActivity() {
 
         audioEngineChannelHandler = AurumEngineChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         bindMediaSessionService()
-
-        // Native Shorts engine (audio-only 30s clips — no video
-        // surface/PlatformView anymore; visible layer is always the
-        // artwork on the Dart side).
-        val shortsHandler = AurumShortsChannelHandler(this, flutterEngine.dartExecutor.binaryMessenger)
-        shortsChannelHandler = shortsHandler
 
         relatedChannelHandler = AurumRelatedChannelHandler(flutterEngine.dartExecutor.binaryMessenger)
 
@@ -496,8 +486,6 @@ class MainActivity : FlutterFragmentActivity() {
         mediaSessionServiceConnection = null
         audioEngineChannelHandler?.release()
         audioEngineChannelHandler = null
-        shortsChannelHandler?.engine?.release()
-        shortsChannelHandler = null
         batteryChannelHandler?.release()
         batteryChannelHandler = null
         super.onDestroy()

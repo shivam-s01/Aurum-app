@@ -49,7 +49,30 @@ jobs:
           echo "Set pubspec.yaml version to ${NEW_VERSION}"
 
       - name: Build Release APK
-        run: flutter build apk --release --split-per-abi
+        # FIX (build failures from transient upstream 429 "Too Many
+        # Requests" on plugins.gradle.org / repo.maven.apache.org):
+        # Gradle's own internal dependency-download retry only waits
+        # ~100ms between attempts — nowhere near long enough to outlast
+        # a server-side rate-limit window, so it was hitting the same
+        # 429 again immediately and failing the whole build. This wraps
+        # the actual build command in its own retry loop with real
+        # backoff (30s, then 60s) so a transient rate-limit has an
+        # actual chance to clear before the next attempt, instead of
+        # requiring a manual empty-commit re-run every time it happens.
+        run: |
+          for attempt in 1 2 3; do
+            if flutter build apk --release --split-per-abi; then
+              exit 0
+            fi
+            echo "Build attempt $attempt failed."
+            if [ "$attempt" -lt 3 ]; then
+              wait_seconds=$((attempt * 30))
+              echo "Waiting ${wait_seconds}s before retrying (likely a transient upstream rate-limit)..."
+              sleep "$wait_seconds"
+            fi
+          done
+          echo "Build failed after 3 attempts."
+          exit 1
 
       - name: Get version
         id: ver

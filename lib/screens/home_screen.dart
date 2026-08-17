@@ -137,7 +137,6 @@ class _FullPlayerRouteBackdrop extends StatefulWidget {
 
 class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
   bool _showBackdrop = true;
-  Timer? _safetyTimer;
 
   @override
   void initState() {
@@ -173,31 +172,6 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
     // open; the 2-frame postFrame timer above still handles the original
     // cold-start-flash case for the forward/open direction untouched.
     widget.routeAnimation?.addStatusListener(_onRouteStatusChanged);
-    // BUGFIX ("cold start pe pehla tap — full player khulta hai, turant
-    // swipe down karo, ek grey/dim layer Home ke upar reh jaata hai, tap
-    // nahi karta jab tak dobara nahi kholte" — production bug, confirmed
-    // via screen recording): the two-frame postFrame timer above is a
-    // RACE against FullPlayerScreen's own first paint, not a guarantee.
-    // On a genuinely slow cold start (heavy CPU contention from artwork
-    // decode / network / provider init all firing in the same window),
-    // FullPlayerScreen can take longer than 2 frames to paint. If the
-    // user swipes down to dismiss inside that gap, _onRouteStatusChanged
-    // fires and hides THIS backdrop correctly — but FullPlayerScreen
-    // itself was never actually visible yet, so hiding the backdrop just
-    // exposes Home's own last frame, now sitting underneath a route that
-    // is still on the stack and still mid reverse-animation. Home's
-    // content is real (not blank), but the active route above it is a
-    // still-live, still-hit-testing PageRouteBuilder — every tap during
-    // that reverse animation is swallowed by the route, not Home, which
-    // is exactly the "washed out and unresponsive until you back out"
-    // symptom. A hard safety timer, independent of both the paint-timing
-    // race above AND the swipe-dismiss listener, guarantees this backdrop
-    // is gone within a bounded, known time no matter what else happens —
-    // 900ms comfortably covers even a slow cold-start paint plus the
-    // 380ms reverse transition, with no dependency on frame timing at all.
-    _safetyTimer = Timer(const Duration(milliseconds: 900), () {
-      if (mounted && _showBackdrop) setState(() => _showBackdrop = false);
-    });
   }
 
   void _onRouteStatusChanged(AnimationStatus status) {
@@ -211,7 +185,6 @@ class _FullPlayerRouteBackdropState extends State<_FullPlayerRouteBackdrop> {
   @override
   void dispose() {
     widget.routeAnimation?.removeStatusListener(_onRouteStatusChanged);
-    _safetyTimer?.cancel();
     super.dispose();
   }
 
@@ -454,12 +427,12 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class HomeScreen extends StatefulWidget {
-  // PERF FIX (heat while on another tab): MainShell keeps all 4 tabs alive
+  // PERF FIX (heat while on another tab): MainShell keeps all 3 tabs alive
   // simultaneously via IndexedStack (see main_shell.dart) — it only hides
   // the inactive ones, it doesn't unmount them. Without a visibility
   // signal, Home's ambient "breathe" glow animation (_breatheCtrl, gated
   // only on isPlaying/appInForeground) kept running at 60fps even while
-  // the user was sitting on Search/Library/Shorts with Home completely
+  // the user was sitting on Search/Library with Home completely
   // off-screen — pure wasted GPU/CPU work with zero visible effect,
   // showing up as unnecessary device heat during normal use. Mirrors
   // SearchScreen's existing `isActive` param/pattern exactly.

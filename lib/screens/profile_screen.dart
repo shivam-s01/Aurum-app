@@ -124,8 +124,7 @@ class _ProfileHero extends StatelessWidget {
                   imageUrl: avatarUrl,
                   fit: BoxFit.cover,
                   // LOW-END DEVICE FIX (2GB RAM): heavily blurred (28σ)
-                  // full-screen background — same reasoning as the shorts
-                  // feed's blurred layer, a small decode target looks
+                  // full-screen background — a small decode target looks
                   // identical once blurred this hard, so there's no
                   // reason to decode a Google profile photo at its native
                   // resolution just to blur away all its detail.
