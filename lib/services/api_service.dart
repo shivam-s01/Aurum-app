@@ -4173,20 +4173,41 @@ class ApiService {
   // ArtistSimple.id by fetchHomeArtistsCombined() below, so artist-chip
   // navigation and list keys are anchored to a real, collision-proof
   // identifier instead of a name string.
+  //
+  // TIMEOUT TIGHTENED (10s -> 4s) + DIRECT FALLBACK ADDED
+  // ("worker slow ho tab bhi production-level artist data ready rahe"):
+  // fetchHomeArtistsCombined() below runs this concurrently with the
+  // Saavn-sourced fetchHomeArtists() via Future.wait — that call only
+  // finishes as slow as its SLOWEST leg, so a 10s worker timeout meant a
+  // fully healthy Saavn leg could still sit blocked for up to 10s behind
+  // a struggling Worker. Cut to 4s so a slow/degraded Worker fails fast
+  // instead of stalling the whole home-artist load.
+  //
+  // On top of the shorter timeout, this now also has its own fallback
+  // that never depends on the Worker at all: if the Worker call times
+  // out, errors, or comes back empty/degraded, _fetchYtMusicArtistsDirect
+  // below hits YT Music's InnerTube search API directly from the client
+  // (same _ytmApiKey already used by _resolveYtChannelId) using a small
+  // set of high-recognition seed queries. This mirrors the Worker's own
+  // search-seed fallback logic, just runs client-side so a Worker outage
+  // or slowdown can never take real YT artist data off the home screen —
+  // only total loss of internet would.
   // ═══════════════════════════════════════════════════════════════════
   static Future<List<YtHomeArtist>> fetchYtMusicHomeArtists(
       {int limit = 12}) async {
     try {
       final uri = Uri.parse('$_saavn/api/yt-music-home-artists?limit=$limit');
-      final resp = await http.get(uri).timeout(const Duration(seconds: 10));
+      final resp = await http.get(uri).timeout(const Duration(seconds: 4));
       if (resp.statusCode != 200) {
-        _log('[fetchYtMusicHomeArtists] HTTP ${resp.statusCode}');
-        return const [];
+        _log('[fetchYtMusicHomeArtists] HTTP ${resp.statusCode}, falling back to direct YT');
+        return _fetchYtMusicArtistsDirect(limit: limit);
       }
       final data = jsonDecode(resp.body);
-      if (data['success'] != true) return const [];
+      if (data['success'] != true) {
+        return _fetchYtMusicArtistsDirect(limit: limit);
+      }
       final results = (data['data']?['results'] as List?) ?? [];
-      return results
+      final parsed = results
           .map<YtHomeArtist?>((r) {
             final channelId = (r['channelId'] ?? '').toString();
             final name = _cleanText((r['name'] ?? '').toString());
@@ -4196,8 +4217,149 @@ class ApiService {
           })
           .whereType<YtHomeArtist>()
           .toList();
+
+      // Worker responded but had nothing usable (e.g. its own degraded
+      // static-fallback list, or a genuinely empty shelf) — try direct
+      // as a second attempt rather than accepting a thin/generic result.
+      if (parsed.isEmpty || data['degraded'] == true) {
+        final direct = await _fetchYtMusicArtistsDirect(limit: limit);
+        return direct.isNotEmpty ? direct : parsed;
+      }
+      return parsed;
     } catch (e) {
-      _log('[fetchYtMusicHomeArtists] error: $e');
+      _log('[fetchYtMusicHomeArtists] error: $e, falling back to direct YT');
+      return _fetchYtMusicArtistsDirect(limit: limit);
+    }
+  }
+
+  /// Direct-from-client YT Music artist fetch, bypassing the Worker
+  /// entirely. Used when the Worker is slow, erroring, or degraded, so
+  /// the home screen's artist row always has a real, working data path
+  /// and never depends on a single backend being healthy.
+  ///
+  /// Hits YT Music's WEB_REMIX search InnerTube endpoint directly (same
+  /// API key/client the Worker itself uses) for a handful of
+  /// high-recognition seed artists, then pulls channelId/name/thumbnail
+  /// straight out of each song result's artist run — same extraction
+  /// approach as the Worker's own search-seed fallback.
+  static Future<List<YtHomeArtist>> _fetchYtMusicArtistsDirect(
+      {int limit = 12}) async {
+    const seeds = [
+      'Arijit Singh',
+      'Diljit Dosanjh',
+      'Sony Music India',
+      'T-Series',
+      'Shreya Ghoshal',
+      'Anirudh Ravichander',
+      'Pritam',
+      'AP Dhillon',
+    ];
+
+    try {
+      final responses = await Future.wait(seeds.map((q) async {
+        try {
+          final uri = Uri.parse(
+            'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
+          );
+          final resp = await _client.post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Origin': 'https://music.youtube.com',
+              'Referer': 'https://music.youtube.com/',
+            },
+            body: jsonEncode({
+              'context': {
+                'client': {
+                  'clientName': 'WEB_REMIX',
+                  'clientVersion': '1.20240101.01.00',
+                  'hl': 'en',
+                  'gl': 'IN',
+                },
+              },
+              'query': q,
+            }),
+          ).timeout(const Duration(seconds: 4));
+          if (resp.statusCode != 200) return null;
+          return jsonDecode(resp.body) as Map<String, dynamic>;
+        } catch (_) {
+          return null;
+        }
+      }));
+
+      final seen = <String>{};
+      final out = <YtHomeArtist>[];
+
+      for (final json in responses) {
+        if (json == null) continue;
+        try {
+          final tabs = (json['contents']?['tabbedSearchResultsRenderer']?['tabs']
+                  as List?) ??
+              const [];
+          for (final tab in tabs) {
+            final sections = (tab['tabRenderer']?['content']
+                    ?['sectionListRenderer']?['contents'] as List?) ??
+                const [];
+            for (final section in sections) {
+              final shelf = section['musicShelfRenderer'];
+              if (shelf == null) continue;
+              final items = (shelf['contents'] as List?) ?? const [];
+              for (final item in items) {
+                final r = item['musicResponsiveListItemRenderer'];
+                if (r == null) continue;
+                final flexColumns = (r['flexColumns'] as List?) ?? const [];
+                if (flexColumns.length < 2) continue;
+                final subRuns = (flexColumns[1]['musicResponsiveListItemFlexColumnRenderer']
+                            ?['text']?['runs'] as List?) ??
+                    const [];
+                Map<String, dynamic>? artistRun;
+                for (final run in subRuns) {
+                  final pageType = run['navigationEndpoint']?['browseEndpoint']
+                          ?['browseEndpointContextSupportedConfigs']
+                      ?['browseEndpointContextMusicConfig']?['pageType'];
+                  if (pageType == 'MUSIC_PAGE_TYPE_ARTIST') {
+                    artistRun = run as Map<String, dynamic>;
+                    break;
+                  }
+                }
+                if (artistRun == null) continue;
+                final channelId = (artistRun['navigationEndpoint']
+                            ?['browseEndpoint']?['browseId'] ??
+                        '')
+                    .toString();
+                final name = _cleanText((artistRun['text'] ?? '').toString());
+                if (channelId.isEmpty || name.isEmpty) continue;
+                if (!channelId.startsWith('UC')) continue;
+                if (!seen.add(channelId)) continue;
+
+                final thumbs = (r['thumbnail']?['musicThumbnailRenderer']
+                        ?['thumbnail']?['thumbnails'] as List?) ??
+                    const [];
+                String image = '';
+                if (thumbs.isNotEmpty) {
+                  final best = thumbs.last;
+                  final rawUrl = (best['url'] ?? '').toString();
+                  image = rawUrl.isNotEmpty
+                      ? rawUrl.replaceAll(
+                          RegExp(r'=w\d+-h\d+.*$'), '=w300-h300')
+                      : '';
+                }
+                if (image.isEmpty) continue;
+
+                out.add(YtHomeArtist(
+                    channelId: channelId, name: name, imageUrl: image));
+                if (out.length >= limit) return out;
+              }
+            }
+          }
+        } catch (_) {
+          continue;
+        }
+      }
+      return out;
+    } catch (e) {
+      _log('[_fetchYtMusicArtistsDirect] error: $e');
       return const [];
     }
   }
@@ -5743,12 +5905,53 @@ class ApiService {
   /// results whenever the query text itself matches one or more artists —
   /// same WEB_REMIX endpoint/params as _resolveYtChannelId but returns
   /// every match instead of just the first.
+  ///
+  /// TIGHTENED + RETRY ADDED ("ekdam fast aur kabhi khaali na jaaye"):
+  /// timeout cut 5s -> 3s since this is a live, keystroke-driven row that
+  /// must never visibly lag behind the song results next to it. If the
+  /// first attempt times out, errors, or the JSON shape doesn't parse
+  /// (YT Music occasionally reshuffles response structure), one fast
+  /// retry with a plain unfiltered query (no Artists-shelf params) is
+  /// made — a general search still surfaces artist entries in its
+  /// results when the top hit is an artist, so this catches cases where
+  /// the dedicated Artists filter itself misfires without ever falling
+  /// back to a slower or lower-quality source.
   static Future<List<ArtistSimple>> searchArtists(String query, {int limit = 12}) async {
     if (query.trim().isEmpty) return const [];
+
+    final primary = await _searchArtistsAttempt(query, limit,
+        useArtistFilter: true, timeout: const Duration(seconds: 3));
+    if (primary.isNotEmpty) return primary;
+
+    // Fast single retry, unfiltered — catches transient/shape-mismatch
+    // failures on the filtered call without adding real latency (still
+    // capped tight, and only runs when the first attempt truly found
+    // nothing).
+    return _searchArtistsAttempt(query, limit,
+        useArtistFilter: false, timeout: const Duration(seconds: 3));
+  }
+
+  static Future<List<ArtistSimple>> _searchArtistsAttempt(
+      String query, int limit,
+      {required bool useArtistFilter, required Duration timeout}) async {
     try {
       final uri = Uri.parse(
         'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
       );
+      final body = <String, dynamic>{
+        'context': {
+          'client': {
+            'clientName': 'WEB_REMIX',
+            'clientVersion': _ytmClientVersion,
+            'hl': 'en',
+            'gl': 'IN',
+          },
+        },
+        'query': query,
+      };
+      if (useArtistFilter) {
+        body['params'] = 'Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D'; // Artists filter
+      }
       final resp = await _client.post(
         uri,
         headers: {
@@ -5757,19 +5960,8 @@ class ApiService {
           'Origin': 'https://music.youtube.com',
           'Referer': 'https://music.youtube.com/',
         },
-        body: jsonEncode({
-          'context': {
-            'client': {
-              'clientName': 'WEB_REMIX',
-              'clientVersion': _ytmClientVersion,
-              'hl': 'en',
-              'gl': 'IN',
-            },
-          },
-          'query': query,
-          'params': 'Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D', // Artists filter
-        }),
-      ).timeout(const Duration(seconds: 5));
+        body: jsonEncode(body),
+      ).timeout(timeout);
       if (resp.statusCode != 200) return const [];
       final decoded = jsonDecode(resp.body);
       if (decoded is! Map) return const [];
@@ -5785,7 +5977,17 @@ class ApiService {
           for (final item in items) {
             final r = item?['musicResponsiveListItemRenderer'];
             if (r == null) continue;
-            final browseId = (r['navigationEndpoint']?['browseEndpoint']?['browseId'] ?? '').toString();
+
+            // In unfiltered mode a shelf can mix songs/albums/artists —
+            // only accept an item whose own browseId (or first flex-run
+            // navigation) is tagged MUSIC_PAGE_TYPE_ARTIST, so a
+            // same-named song never gets mistaken for the artist card.
+            final navEndpoint = r['navigationEndpoint']?['browseEndpoint'];
+            final pageType = navEndpoint?['browseEndpointContextSupportedConfigs']
+                ?['browseEndpointContextMusicConfig']?['pageType'];
+            if (!useArtistFilter && pageType != 'MUSIC_PAGE_TYPE_ARTIST') continue;
+
+            final browseId = (navEndpoint?['browseId'] ?? '').toString();
             if (!browseId.startsWith('UC') || !seen.add(browseId)) continue;
             final name = (r['flexColumns']?[0]?['musicResponsiveListItemFlexColumnRenderer']
                     ?['text']?['runs']?[0]?['text'] ?? '').toString();
@@ -5799,7 +6001,7 @@ class ApiService {
       }
       return out;
     } catch (e) {
-      _log('[searchArtists] error: $e');
+      _log('[_searchArtistsAttempt] error: $e');
       return const [];
     }
   }
