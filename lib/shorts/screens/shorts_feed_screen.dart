@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -80,11 +81,17 @@ class ShortsFeedScreen extends StatefulWidget {
   State<ShortsFeedScreen> createState() => _ShortsFeedScreenState();
 }
 
-class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
+class _ShortsFeedScreenState extends State<ShortsFeedScreen>
+    with WidgetsBindingObserver {
   ShortsFeedController _controller = ShortsFeedController();
   PageController _pageController = PageController();
   bool _showHeart = false;
   bool _resolvingFullSong = false;
+  Timer? _resolvingFullSongSafetyTimer;
+  // Was this card actually playing right before the app went to
+  // background — so returning to foreground only resumes if the user
+  // hadn't already paused it themselves before backgrounding.
+  bool _wasPlayingBeforeBackground = false;
   // Bumped on every category switch / preferences-driven restart.
   // Used as a Widget key for the PageView so Flutter treats the
   // post-switch feed as a brand-new widget instance rather than
@@ -95,11 +102,51 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller.init();
+  }
+
+  // FIX ("background mein chali gayi toh song ruk jaye" — confirmed:
+  // Shorts had no AppLifecycleState handling anywhere in the module, so
+  // audio kept playing under a locked screen / home button / app
+  // switcher exactly like a normal music player would — except Shorts
+  // content is expected to behave like short-form video, which every
+  // comparable app pauses on backgrounding). native engine keeps its
+  // own play/pause state, so this only needs to mirror app foreground/
+  // background into a single togglePlayPause() call at each transition
+  // — same native call the pause button already uses.
+  //
+  // Deliberately reacts to `paused` only, not `inactive` — `inactive`
+  // fires on brief, non-backgrounding interruptions too (pulling down
+  // the notification shade, an incoming call banner, the iOS app
+  // switcher preview), and pausing on every one of those would be
+  // over-eager compared to how every comparable short-form feed
+  // actually behaves (YouTube Shorts/Reels only pause on a real
+  // backgrounding, not a transient overlay). `paused` is what fires
+  // once the app is actually no longer visible.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (!mounted) return;
+    if (state == AppLifecycleState.paused) {
+      if (_controller.isPlaying) {
+        _wasPlayingBeforeBackground = true;
+        _controller.togglePlayPause();
+      } else {
+        _wasPlayingBeforeBackground = false;
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      if (_wasPlayingBeforeBackground && !_controller.isPlaying) {
+        _controller.togglePlayPause();
+      }
+      _wasPlayingBeforeBackground = false;
+    }
   }
 
   @override
   void dispose() {
+    _resolvingFullSongSafetyTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     _controller.dispose();
     super.dispose();
@@ -185,7 +232,8 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
   /// never via the Shorts video stream itself.
   Future<aurum.Song> _resolveFullSong(ShortItem item) async {
     final query = '${item.artist} ${item.title}';
-    final results = await ApiService.quickSearch(query, limit: 5);
+    final results = await ApiService.quickSearch(query, limit: 5)
+        .timeout(const Duration(seconds: 10), onTimeout: () => []);
     if (results.isNotEmpty) return results.first;
     // Fallback: minimal Song from the video's own identity. No
     // playable streamUrl of our own to hand over here — Saavn search
@@ -205,6 +253,12 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
   Future<void> _onListenFull(ShortItem item) async {
     if (_resolvingFullSong) return;
     setState(() => _resolvingFullSong = true);
+    _resolvingFullSongSafetyTimer?.cancel();
+    _resolvingFullSongSafetyTimer = Timer(const Duration(seconds: 15), () {
+      if (mounted && _resolvingFullSong) {
+        setState(() => _resolvingFullSong = false);
+      }
+    });
     _controller.togglePlayPause(); // pause the Shorts clip
 
     try {
@@ -212,7 +266,10 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
 
       if (!mounted) return;
       final player = prov.Provider.of<PlayerProvider>(context, listen: false);
-      await player.playSong(songToPlay);
+      await player.playSong(songToPlay).timeout(
+        const Duration(seconds: 12),
+        onTimeout: () => throw TimeoutException('playSong timed out'),
+      );
 
       if (!mounted) return;
       Navigator.of(context).pop(); // exit Shorts back to wherever it was opened from
@@ -231,6 +288,7 @@ class _ShortsFeedScreenState extends State<ShortsFeedScreen> {
         );
       }
     } finally {
+      _resolvingFullSongSafetyTimer?.cancel();
       if (mounted) setState(() => _resolvingFullSong = false);
     }
   }

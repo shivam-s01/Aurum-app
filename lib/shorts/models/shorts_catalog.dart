@@ -118,4 +118,40 @@ class ShortsCatalog {
     'Bhojpuri': ['bhojpuri', 'bhojpuriya'],
     'Punjabi': ['punjabi', 'panjabi'],
   };
+
+  /// FIX ("category select karo, uske songs aayein, ekdam accurate" —
+  /// iTunes Search has no real genre/mood field, so category matching
+  /// was 100% dependent on free-text search relevance alone — no
+  /// verification step existed at all (unlike languageTitleHints
+  /// above, which already did this for language). A loose/generic
+  /// category term like "Sad" or "Party" often pulls in tangentially-
+  /// related or outright unrelated results because iTunes' text search
+  /// ranks on overall relevance, not category fit. These hints give
+  /// each category a keyword fingerprint to check a result's own
+  /// title/artist against — same defensive pattern as the language
+  /// check, applied to categories. Deliberately NOT exhaustive or
+  /// strict: a category with no hint list here, or where hints would
+  /// wipe an entire page, still falls back to best-effort results
+  /// (see the filtering logic in ItunesShortsApi), so a thin catalog
+  /// never produces an empty feed — this only removes results a
+  /// category clearly does NOT match.
+  static const Map<String, List<String>> categoryTitleHints = {
+    'Sad': ['sad', 'dard', 'judaai', 'viraha', 'gham', 'break up', 'breakup'],
+    'Party': ['party', 'dance', 'dj', 'club', 'nasha'],
+    'Workout': ['workout', 'gym', 'pump', 'beast', 'motivation'],
+    'Chill': ['chill', 'relax', 'calm', 'mellow'],
+    'LoFi': ['lofi', 'lo-fi', 'beats'],
+    'Sleep': ['sleep', 'lullaby', 'calm', 'peaceful'],
+    'Hip Hop': ['hip hop', 'hip-hop', 'rap'],
+    'Rap': ['rap', 'hip hop', 'hip-hop'],
+    'Rock': ['rock'],
+    'EDM': ['edm', 'electronic', 'dance', 'dj', 'remix'],
+    'Instrumental': ['instrumental'],
+    'Classical': ['classical', 'symphony', 'raag', 'raga'],
+    '90s': ['90s', '1990', '1991', '1992', '1993', '1994', '1995', '1996', '1997', '1998', '1999'],
+    'Retro': ['retro', 'old', 'classic', 'evergreen'],
+    'Anime': ['anime', 'op', 'ed', 'theme'],
+    'K-Pop': ['kpop', 'k-pop'],
+    'J-Pop': ['jpop', 'j-pop'],
+  };
 }

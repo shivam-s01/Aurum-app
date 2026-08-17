@@ -191,18 +191,38 @@ class ItunesShortsApi {
       final hints = language != null
           ? ShortsCatalog.languageTitleHints[language]
           : null;
-      if (hints == null || hints.isEmpty) return items;
+      var filtered = items;
+      if (hints != null && hints.isNotEmpty) {
+        final languageFiltered = items
+            .where((i) => hints.any((h) =>
+                i.title.toLowerCase().contains(h) ||
+                i.artist.toLowerCase().contains(h)))
+            .toList();
+        if (languageFiltered.isNotEmpty) filtered = languageFiltered;
+      }
 
-      // Only filter if the hint list is non-empty AND filtering
-      // wouldn't wipe the page — otherwise a thin catalog for that
-      // language would return nothing at all rather than best-effort
-      // results.
-      final filtered = items
-          .where((i) => hints.any((h) =>
-              i.title.toLowerCase().contains(h) ||
-              i.artist.toLowerCase().contains(h)))
-          .toList();
-      return filtered.isNotEmpty ? filtered : items;
+      // FIX ("category select karo, uske songs aayein, ekdam accurate"
+      // — confirmed: iTunes Search has no genre/mood field, so category
+      // matching relied purely on text-search relevance with zero
+      // verification, unlike the language check right above which
+      // already did this). Same pattern, applied per-category: only
+      // narrows the page down to items whose own title/artist actually
+      // contains a category keyword — never wipes a page down to
+      // nothing (falls back to the unfiltered/language-filtered set if
+      // the category filter would remove everything), so a category
+      // with thin iTunes coverage still shows best-effort results
+      // rather than an empty feed.
+      final categoryHints = ShortsCatalog.categoryTitleHints[category];
+      if (categoryHints != null && categoryHints.isNotEmpty) {
+        final categoryFiltered = filtered
+            .where((i) => categoryHints.any((h) =>
+                i.title.toLowerCase().contains(h) ||
+                i.artist.toLowerCase().contains(h)))
+            .toList();
+        if (categoryFiltered.isNotEmpty) filtered = categoryFiltered;
+      }
+
+      return filtered;
     } on TimeoutException {
       return const [];
     } catch (_) {
