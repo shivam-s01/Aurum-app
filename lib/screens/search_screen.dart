@@ -905,7 +905,7 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildTabBar(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
       child: Container(
         height: 38,
         decoration: BoxDecoration(
@@ -992,7 +992,7 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildHeader(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       child: Row(children: [
         ShaderMask(
           shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
@@ -1006,7 +1006,7 @@ class _SearchScreenState extends State<SearchScreen>
     final l10n = AppLocalizations.of(context)!;
     final focused = _focusNode.hasFocus;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOut,
@@ -1073,7 +1073,7 @@ class _SearchScreenState extends State<SearchScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 8, 8),
+          padding: const EdgeInsets.fromLTRB(20, 4, 8, 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1280,7 +1280,7 @@ class _SearchScreenState extends State<SearchScreen>
 
   Widget _sectionLabel(BuildContext context, String label) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
       child: Text(label.toUpperCase(), style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
     );
   }
@@ -1592,7 +1592,7 @@ class _BrowseTabState extends State<_BrowseTab> {
         if (widget.result.topAlbum != null && widget.result.topAlbumTracks.isNotEmpty) ...[
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
               child: Row(children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
@@ -1632,7 +1632,7 @@ class _BrowseTabState extends State<_BrowseTab> {
                 controller: _artistsScrollController,
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 // PERF: horizontal carousel pop-in fix.
                 cacheExtent: 500,
                 itemCount: widget.result.artists.length,
@@ -1659,7 +1659,7 @@ class _BrowseTabState extends State<_BrowseTab> {
                 controller: _albumsScrollController,
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 // PERF: horizontal carousel pop-in fix.
                 cacheExtent: 700,
                 itemCount: widget.result.albums.length,
@@ -1701,7 +1701,7 @@ class _BrowseTabState extends State<_BrowseTab> {
       children: [
         // Back header
         Padding(
-          padding: const EdgeInsets.fromLTRB(4, 4, 16, 8),
+          padding: const EdgeInsets.fromLTRB(4, 4, 20, 8),
           child: Row(children: [
             IconButton(icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18), onPressed: _back, color: AurumTheme.textPrimaryOf(context)),
             Expanded(child: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 16, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
@@ -1738,7 +1738,7 @@ class _BrowseTabState extends State<_BrowseTab> {
 
   Widget _sectionLabel(BuildContext context, String label) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       child: Text(label.toUpperCase(), style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
     );
   }

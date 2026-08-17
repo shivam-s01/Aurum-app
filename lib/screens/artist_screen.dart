@@ -404,7 +404,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
         child: ListView.builder(
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           // PERF (low-end device smoothness): this row decodes album
           // artwork over the network — without a cacheExtent, a fast
           // swipe only builds/decodes images as they cross into the

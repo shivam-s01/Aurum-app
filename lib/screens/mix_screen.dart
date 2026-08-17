@@ -608,7 +608,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
 
           // Mix header
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
             child: Row(
               children: [
                 AurumArtwork(
@@ -775,7 +775,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
           if (widget.artists.isNotEmpty) ...[
             Divider(color: AurumTheme.dividerOf(context), height: 16),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text('GO TO',

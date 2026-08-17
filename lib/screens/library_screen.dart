@@ -383,7 +383,7 @@ class LibraryScreen extends StatelessWidget {
       children: [
         ...recent.asMap().entries.map(
               (e) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: SongTile(song: e.value, queue: recent, index: e.key, curatedQueue: true),
               ),
             ),
@@ -2480,7 +2480,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
                   child: FadeTransition(
                     opacity: _headerFade,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
                       child: Row(children: [
                         Text(
                           l10n.librarySongsCount(history.length),
@@ -2614,7 +2614,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
                             if (showHeader)
                               Padding(
                                 padding:
-                                    const EdgeInsets.fromLTRB(16, 20, 16, 6),
+                                    const EdgeInsets.fromLTRB(20, 20, 20, 6),
                                 child: Text(
                                   currentGroup,
                                   style: TextStyle(
@@ -3206,7 +3206,7 @@ class _AlbumsScreen extends StatelessWidget {
             )
           else
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               sliver: SliverGrid(
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
@@ -3488,7 +3488,7 @@ class _ArtistsScreen extends StatelessWidget {
             )
           else
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, i) => _FollowedArtistTile(artist: followed[i]),

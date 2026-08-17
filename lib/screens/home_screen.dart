@@ -1992,7 +1992,7 @@ class _SongSectionRowState extends State<_SongSectionRow> {
   Widget build(BuildContext context) {
     final section = widget.section;
     return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
+      padding: const EdgeInsets.only(top: 28, left: 20, right: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2063,7 +2063,7 @@ class _SongSectionRowState extends State<_SongSectionRow> {
               // per-card right:12 margin was consumed by the last item
               // there wasn't a matching gap to the edge like the left side
               // has. Bumping this to 16 mirrors the left inset exactly.
-              padding: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.only(right: 20),
               itemCount: section.songs.length.clamp(0, 12),
               itemBuilder: (_, i) {
                 // CRASH FIX: section.songs can be replaced mid-scroll
@@ -2461,7 +2461,7 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
   Widget build(BuildContext context) {
     final section = widget.section;
     return Padding(
-      padding: const EdgeInsets.only(top: 24, left: 16, right: 16),
+      padding: const EdgeInsets.only(top: 24, left: 20, right: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2507,7 +2507,7 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               cacheExtent: 600,
-              padding: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.only(right: 20),
               itemCount: section.songs.length.clamp(0, 12),
               itemBuilder: (_, i) {
                 if (i >= section.songs.length) return const SizedBox.shrink();
@@ -2571,7 +2571,7 @@ class _ProfileAvatarButton extends StatelessWidget {
     final avatarUrl = context.watch<AuthProvider>().avatarUrl;
 
     return Padding(
-      padding: const EdgeInsets.only(right: 16, left: 4),
+      padding: const EdgeInsets.only(right: 20, left: 4),
       child: AurumPressable(
         scaleAmount: 0.90,
         onTap: () => _openProfile(context),
@@ -2869,7 +2869,7 @@ class _RecentlyPlayedSection extends StatelessWidget {
     if (songs.isEmpty) return const SizedBox.shrink();
     final player = context.read<PlayerProvider>();
     return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
+      padding: const EdgeInsets.only(top: 28, left: 20, right: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2889,7 +2889,7 @@ class _RecentlyPlayedSection extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               cacheExtent: 600,
-              padding: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.only(right: 20),
               itemBuilder: (_, i) => AurumPressable(
                 scaleAmount: 0.96,
                 onTap: () {
@@ -2987,7 +2987,7 @@ class _ArtistStripState extends State<_ArtistStrip> {
     // Kept at top:28 to match every other section's rhythm (Trending
     // Playlists, each SongSection) — see the file-wide note on this.
     return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
+      padding: const EdgeInsets.only(top: 28, left: 20, right: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3288,7 +3288,7 @@ class _YtPlaylistsForYouSectionState
     final cards = _cards;
 
     return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 16, right: 16),
+      padding: const EdgeInsets.only(top: 28, left: 20, right: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3320,7 +3320,7 @@ class _YtPlaylistsForYouSectionState
                     scrollDirection: Axis.horizontal,
                     physics: const BouncingScrollPhysics(),
                     cacheExtent: 600,
-                    padding: const EdgeInsets.only(right: 16),
+                    padding: const EdgeInsets.only(right: 20),
                     itemCount: cards.length,
                     itemBuilder: (_, i) => _YtHomePlaylistCardWidget(
                       key: ValueKey(
@@ -3358,7 +3358,7 @@ class _MoodChipRow extends StatelessWidget {
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.only(right: 16),
+        padding: const EdgeInsets.only(right: 20),
         // PERF: mood chips are cheap (AnimatedContainer + Text, no
         // network image), but caching a little extra off-screen width
         // still avoids a build/layout hitch on the very first frame a
@@ -3420,7 +3420,7 @@ class _YtPlaylistsForYouSkeleton extends StatelessWidget {
       controller: scrollController,
       scrollDirection: Axis.horizontal,
       physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(right: 16),
+      padding: const EdgeInsets.only(right: 20),
       itemCount: 4,
       itemBuilder: (_, __) => Container(
         width: 130,

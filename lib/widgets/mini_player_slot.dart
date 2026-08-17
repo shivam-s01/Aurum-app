@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/player_provider.dart';
-import '../services/audio_prefs.dart';
-import '../screens/main_shell.dart' show AurumBottomNavBar;
 import 'mini_player.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -22,21 +20,21 @@ import 'mini_player.dart';
 // full-screen Now Playing view (FullPlayerScreen) hides both entirely,
 // same as Echo's STATE_EXPANDED case.
 //
-// WHY THE RESERVED SPACE BELOW MATTERS: Echo Nightly's nav bar and player
-// bar are siblings in ONE persistent view tree — when the nav bar
-// translates itself away, the player bar's own bottom margin is computed
-// independently (setPlayerNavViewInsets), so it never visibly shifts.
-// Aurum's pushed screens are a separate Scaffold from MainShell entirely
-// (no shared parent to animate), so simply omitting the nav bar here
-// would leave the mini player sitting `barHeight` lower than it does on
-// Home/Search/Library — a visible snap/jump right when a screen is
-// pushed or popped, reading as janky rather than intentional. Reserving
-// an invisible spacer of the exact same height (+ the same docked/
-// floating bottom padding AurumBottomNavBar itself uses) keeps the mini
-// player pinned at an identical vertical position in both places, so
-// only the nav bar's absence changes, not the mini player's position —
-// exactly the "balanced" feel Echo achieves via shared-parent animation,
-// reached here by shared sizing instead.
+// FIX ("ghost pill" on Mix/Playlist/Liked/Downloads — the nav bar itself
+// was correctly gone here, but this slot used to reserve an invisible
+// SizedBox the exact height of AurumBottomNavBar underneath the mini
+// player, "so the mini player doesn't visibly jump vertically when a
+// screen is pushed/popped." In practice that spacer wasn't fully
+// invisible: it sat inside the same Scaffold-implicit Material fill
+// described below, so on any theme/blur combination where that fill
+// wasn't pure transparent it painted as a flat, nav-bar-shaped strip
+// with nothing in it — exactly the "ekdam pill" artifact, since it's
+// literally the nav bar's footprint with all its content stripped out.
+// Echo Nightly does NOT reserve this space; its mini player simply sits
+// lower on pushed fragments than on the tab host, with no phantom
+// footprint held open beneath it. Deleting the spacer here matches that
+// exactly — the mini player now just floats with its own safe-area
+// bottom inset, nothing reserved beneath it.
 //
 // USAGE: wrap whatever a pushed content screen would otherwise pass as
 // `bottomNavigationBar:` — if that screen has none, just set
@@ -63,53 +61,34 @@ class MiniPlayerSlot extends StatelessWidget {
       elevation: 0,
       surfaceTintColor: Colors.transparent,
       child: RepaintBoundary(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // FIX (white flash on auto-skip reappear — see the matching,
-            // more detailed comment in main_shell.dart's bottomNavigationBar
-            // for the full mechanism): wrapped in AnimatedSize +
-            // AnimatedSwitcher instead of an instant SizedBox.shrink() ↔
-            // MiniPlayer() swap, so the layout height change is smoothed
-            // over real time rather than jumping in a single frame — that
-            // single-frame jump was what let this Scaffold's implicit
-            // Material fill flash visible for a beat.
-            AnimatedSize(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              alignment: Alignment.bottomCenter,
-              child: Selector<PlayerProvider, bool>(
-                selector: (_, p) => p.miniPlayerVisible,
-                builder: (context, visible, __) => AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 180),
-                  switchInCurve: Curves.easeOut,
-                  switchOutCurve: Curves.easeIn,
-                  transitionBuilder: (child, anim) =>
-                      FadeTransition(opacity: anim, child: child),
-                  child: visible
-                      ? const MiniPlayer(key: ValueKey('mini_player_visible'))
-                      : const SizedBox.shrink(key: ValueKey('mini_player_hidden')),
-                ),
+        child: SafeArea(
+          top: false,
+          // FIX (white flash on auto-skip reappear — see the matching,
+          // more detailed comment in main_shell.dart's bottomNavigationBar
+          // for the full mechanism): wrapped in AnimatedSize +
+          // AnimatedSwitcher instead of an instant SizedBox.shrink() ↔
+          // MiniPlayer() swap, so the layout height change is smoothed
+          // over real time rather than jumping in a single frame — that
+          // single-frame jump was what let this Scaffold's implicit
+          // Material fill flash visible for a beat.
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.bottomCenter,
+            child: Selector<PlayerProvider, bool>(
+              selector: (_, p) => p.miniPlayerVisible,
+              builder: (context, visible, __) => AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (child, anim) =>
+                    FadeTransition(opacity: anim, child: child),
+                child: visible
+                    ? const MiniPlayer(key: ValueKey('mini_player_visible'))
+                    : const SizedBox.shrink(key: ValueKey('mini_player_hidden')),
               ),
             ),
-            // Invisible reserved space — NOT a rendered nav bar (no icons,
-            // no tap targets, no background), just the same footprint one
-            // would have occupied. See the "WHY THE RESERVED SPACE BELOW
-            // MATTERS" doc comment above for the full reasoning.
-            ValueListenableBuilder<String>(
-              valueListenable: AudioPrefs.navBarStyleNotifier,
-              builder: (context, navStyle, _) {
-                final docked = navStyle == 'Docked';
-                return SafeArea(
-                  top: false,
-                  child: SizedBox(
-                    height: AurumBottomNavBar.barHeight +
-                        (docked ? 0 : 10),
-                  ),
-                );
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );

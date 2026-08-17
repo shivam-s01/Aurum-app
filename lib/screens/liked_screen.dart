@@ -97,7 +97,7 @@ class LikedScreen extends StatelessWidget {
                   (context, index) {
                     if (index == 0) {
                       return Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                         child: Row(
                           children: [
                             Text(l10n.librarySongsCount(songs.length), style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13)),

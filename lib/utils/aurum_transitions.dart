@@ -767,61 +767,55 @@ class AurumDepthRoute<T> extends PageRouteBuilder<T> {
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             if (!_animsOn()) return child;
 
-            // PERF: only build the Tween/CurvedAnimation objects this
-            // frame's branch actually needs — computing both the
-            // incoming AND outgoing set unconditionally (then discarding
-            // whichever one isTopRoute didn't pick) allocated two unused
-            // Animation objects on every single transition frame for
-            // whichever route is currently in the background.
+            // FIX ("playlist khulte waqt jhatka/floating jaisa lagta hai,
+            // Echo Nighty jaisa solid/clean feel chahiye" — confirmed):
+            // this used to be a Material "Shared Axis Z" transition —
+            // the incoming screen visibly zoomed in from 80% scale to
+            // 100% while fading in, and the outgoing screen zoomed out to
+            // 110% while fading out. That scale animation is exactly what
+            // reads as "floating in" rather than a clean, solid screen
+            // push — Echo Nighty (and most production Android apps) use
+            // a much simpler, subtler transition with no scale/zoom at
+            // all: the incoming screen fades in while sliding up a small
+            // fixed distance, and the outgoing screen just fades out in
+            // place. Removing the ScaleTransition entirely — keeping only
+            // fade + a small Y-offset slide — is what makes this read as
+            // "solid" instead of "floaty": nothing changes size mid-
+            // transition, so there's no zoom-bounce sensation at all.
             final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
 
             final Widget content;
             if (isTopRoute) {
-              // Incoming (this route): fade in from the 100ms mark
-              // through 300ms (the back 2/3 of the timeline), scale
-              // 0.80→1.0 across the full timeline — exact
-              // MaterialSharedAxis.Z "entering" values. Reverse (pop,
-              // this route sliding back out) mirrors the same interval
-              // so a tap-back looks like the exact time-reverse of the
-              // push, not a different curve.
+              // Incoming (this route): fade in across the whole
+              // timeline, sliding up from a small fixed offset — subtle
+              // enough to feel intentional without any zoom/scale.
               final incomingFade = CurvedAnimation(
                 parent: animation,
-                curve: const Interval(1 / 3, 1.0, curve: Curves.easeOutCubic),
-                reverseCurve:
-                    const Interval(1 / 3, 1.0, curve: Curves.easeInCubic),
+                curve: Curves.easeOutCubic,
+                reverseCurve: Curves.easeInCubic,
               );
-              final incomingScale = Tween<double>(begin: 0.80, end: 1.0)
-                  .animate(
-                CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeOutCubic,
-                  reverseCurve: Curves.easeInCubic,
-                ),
-              );
+              final incomingSlide = Tween<Offset>(
+                begin: const Offset(0, 0.04),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+                reverseCurve: Curves.easeInCubic,
+              ));
               content = FadeTransition(
                 opacity: incomingFade,
-                child: ScaleTransition(
-                  scale: incomingScale,
+                child: SlideTransition(
+                  position: incomingSlide,
                   child: child,
                 ),
               );
             } else {
               // Something is pushed on top of this route right now —
-              // apply only the outgoing fade+scale (this route already
-              // finished its own incoming animation long ago). Fade out
-              // over the FIRST 100ms only, scale 1.0→1.10 across the
-              // full timeline — exact MaterialSharedAxis.Z "exiting"
-              // values, mirroring the isTopRoute guard already used by
-              // AurumPageRoute/AurumSlidePageRoute for the same
-              // stale-secondaryAnimation safety.
-              final outgoingFade = Tween<double>(begin: 1.0, end: 0.0)
-                  .animate(
-                CurvedAnimation(
-                  parent: secondaryAnimation,
-                  curve: const Interval(0.0, 1 / 3, curve: Curves.easeInCubic),
-                ),
-              );
-              final outgoingScale = Tween<double>(begin: 1.0, end: 1.10)
+              // apply only a simple fade-out in place, no slide/scale.
+              // This route already finished its own incoming animation
+              // long ago, so it just needs to recede visually while the
+              // new route takes over.
+              final outgoingFade = Tween<double>(begin: 1.0, end: 0.85)
                   .animate(
                 CurvedAnimation(
                   parent: secondaryAnimation,
@@ -830,32 +824,13 @@ class AurumDepthRoute<T> extends PageRouteBuilder<T> {
               );
               content = FadeTransition(
                 opacity: outgoingFade,
-                child: ScaleTransition(
-                  scale: outgoingScale,
-                  child: child,
-                ),
+                child: child,
               );
             }
 
-            // BUG FIX ("Playlist for You mix pe click karo to black flash
-            // aata hai"): this used to wrap both branches in an opaque
-            // ColoredBox(color: AurumTheme.bgOf(context)) backdrop.
-            // During a push, the incoming route's own fade only starts
-            // at the 1/3 mark of the timeline (exact MaterialSharedAxis.Z
-            // spec — see the incomingFade Interval above), so for the
-            // first 100ms the incoming content sits at opacity 0 — with
-            // that opaque backdrop behind it, all that was visible for
-            // those 100ms was a flat frame of the theme's background
-            // color and nothing else, reading as a "black flash" on any
-            // dark theme. Real Shared-Axis-Z transitions rely on the
-            // OUTGOING route staying visible underneath the whole time
-            // (only its own opacity/scale animate) — never an opaque
-            // filler behind both routes. Returning `content` directly
-            // (PageRouteBuilder's own transition Stack already composites
-            // this route over whatever's beneath it) lets the previous
-            // screen's real content show through for that entire handoff
-            // window, exactly like Echo's own MDC transition, instead of
-            // a blank color filling the gap.
+            // Real, already-themed content from the previous route stays
+            // visible underneath the whole time (opaque: false above) —
+            // no filler backdrop behind either branch.
             return content;
           },
         );

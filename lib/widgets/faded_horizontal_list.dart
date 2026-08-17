@@ -90,10 +90,37 @@ class _FadedHorizontalListState extends State<FadedHorizontalList> {
     if (!mounted) return;
     final c = widget.controller!;
     if (!c.hasClients) return;
+    // FIX ("Top Hits" / any short row — last card reads as cut-off/hazy
+    // behind a permanent right-edge fade): maxScrollExtent is 0 whenever
+    // the row's content is short enough to fit on screen without any
+    // scrolling at all (few items, or a narrow screen with room to
+    // spare). Previously `atEnd` only compared offset to maxScrollExtent
+    // — with maxScrollExtent already at 0, offset (also 0) trivially
+    // satisfied "at end", so this SHOULD have suppressed the fade... but
+    // right after the very first layout pass, ListView's Sliver hasn't
+    // always reported a final maxScrollExtent yet on the postFrameCallback
+    // this fires from (particularly once real network images swap in for
+    // placeholders and cards resize), leaving a stale 0 vs a genuinely
+    // non-zero extent for one extra frame — during that window `atEnd`
+    // could read true==true by coincidence but the NEXT layout pass
+    // (once images load and the row's true width is known) could recompute
+    // a small positive maxScrollExtent, flipping the fade back on for a
+    // row that still visually has nothing left to scroll to (last card
+    // fully on-screen with a little padding after it) — exactly the
+    // "Top Hits" card reading as permanently faded/cut at the edge.
+    // Fix: treat any maxScrollExtent below a small px threshold as "no
+    // real scrolling possible here", not just exactly 0 — this absorbs
+    // that late-layout jitter and keeps the fade off for rows that are
+    // functionally non-scrollable, matching Spotify/Echo (no edge cue at
+    // all on a row that already shows everything it has).
+    const noScrollThreshold = 4.0;
+    final hasRoomToScroll =
+        c.position.maxScrollExtent > noScrollThreshold;
     final atStart = c.offset <= c.position.minScrollExtent + 0.5;
-    final atEnd = c.offset >= c.position.maxScrollExtent - 0.5;
-    final newLeft = widget.fadeLeft && !atStart;
-    final newRight = !atEnd;
+    final atEnd = !hasRoomToScroll ||
+        c.offset >= c.position.maxScrollExtent - 0.5;
+    final newLeft = widget.fadeLeft && hasRoomToScroll && !atStart;
+    final newRight = hasRoomToScroll && !atEnd;
     if (newLeft != _showLeft || newRight != _showRight) {
       setState(() {
         _showLeft = newLeft;

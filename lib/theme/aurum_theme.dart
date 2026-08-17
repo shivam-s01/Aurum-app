@@ -37,10 +37,22 @@ class AurumTheme {
   static const Color amoledDivider     = Color(0xFF1A1A1A);
 
   // ── Light Theme ──
-  static const Color lightBg           = Color(0xFFF8F6F0);
-  static const Color lightBgCard       = Color(0xFFFFFFFF);
-  static const Color lightBgElevated   = Color(0xFFF0EDE4);
-  static const Color lightBgSurface    = Color(0xFFE8E4D8);
+  // Echo Nightly parity: its light mode never hand-picks a separate
+  // "cream" vs "white" pair — every surface (echoBackground = colorSurface,
+  // navBackground = colorSurfaceContainer, cards = colorSurfaceContainerHigh)
+  // is derived from ONE Material3 tonal palette, stepping lightness by only
+  // a couple of points per tier. That's why gaps between Echo's cards never
+  // read as a patch: base/nav/card are the same hue within a tight ~2-4%
+  // lightness band, not two different hues (cream vs pure white) 5%+ apart.
+  // Reworked here the same way — one warm-neutral hue across all four
+  // tiers, in Echo's own base→nav→card lightness order (base darkest,
+  // card lightest, matching colorSurface → colorSurfaceContainerHigh):
+  //   lightBg (base, darkest) → lightBgSurface (nav/sections)
+  //   → lightBgElevated → lightBgCard (cards, lightest)
+  static const Color lightBg           = Color(0xFFF5F3ED);
+  static const Color lightBgSurface    = Color(0xFFEEEBE2);
+  static const Color lightBgElevated   = Color(0xFFF2F0E8);
+  static const Color lightBgCard       = Color(0xFFF9F7F1);
   static const Color lightTextPrimary  = Color(0xFF1A1610);
   static const Color lightTextSecondary = Color(0xFF6B6456);
   static const Color lightTextMuted    = Color(0xFFAA9F8E);
