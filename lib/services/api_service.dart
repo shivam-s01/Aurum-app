@@ -3532,6 +3532,20 @@ class ApiService {
               .map((r2) => (r2?['text'] ?? '').toString())
               .where((s) => s.isNotEmpty)
               .join(', ');
+          // NEW ("search mein song ka artist bhi aana chahiye, tap karne
+          // layak"): grab the FIRST artist run's real channelId (browseId)
+          // straight from the same browseEndpoint pageType check used to
+          // build artistRuns above — this is YouTube's own stable per-
+          // channel id, exactly what ArtistScreen/fetchArtist need to open
+          // the artist's real YT channel with zero extra network round-trip
+          // just to resolve a name. Only the primary/first artist is kept
+          // (a song with multiple featured artists still opens the main one).
+          final firstArtistChannelId = artistRuns.isNotEmpty
+              ? (artistRuns.first?['navigationEndpoint']?['browseEndpoint']
+                      ?['browseId'] ??
+                  '')
+                  .toString()
+              : '';
 
           dynamic albumRun;
           for (final run in subRuns) {
@@ -3584,6 +3598,7 @@ class ApiService {
             // the open video index, so isPremiumQuality() should treat it
             // identically to a verified-popular upload.
             viewCount: 1000000,
+            artistChannelId: firstArtistChannelId.isNotEmpty ? firstArtistChannelId : null,
           ));
           if (out.length >= limit) return out;
         }
@@ -5650,6 +5665,157 @@ class ApiService {
   // ARTIST PAGE
   // ===========================================================================
 
+  // ═══════════════════════════════════════════════════════════════════
+  // YOUTUBE-PRIMARY ARTIST RESOLUTION
+  // ("YT se artist ekdam perfect aaye, Saavn sirf tab jab YT channel na
+  // mile") — resolveArtistId now tries a real YouTube channel FIRST for
+  // every name lookup, only falling back to Saavn's artist id when no YT
+  // channel can be found at all. The returned id is prefixed 'yt_' for a
+  // YouTube channel or 'saavn_' for a Saavn artist id, mirroring the
+  // ArtistSimple.id convention fetchHomeArtistsCombined() already
+  // established — fetchArtist() below switches on that prefix.
+  // ═══════════════════════════════════════════════════════════════════
+
+  /// Resolve an artist name straight to a real YouTube channelId using YT
+  /// Music's own WEB_REMIX search (same InnerTube endpoint/key
+  /// _searchYtMusicDirectRaw uses), filtered to the "Artists" shelf so a
+  /// same-named song/album never gets picked instead of the channel.
+  static Future<String?> _resolveYtChannelId(String name) async {
+    if (name.trim().isEmpty) return null;
+    try {
+      final uri = Uri.parse(
+        'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
+      );
+      final resp = await _client.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Origin': 'https://music.youtube.com',
+          'Referer': 'https://music.youtube.com/',
+        },
+        body: jsonEncode({
+          'context': {
+            'client': {
+              'clientName': 'WEB_REMIX',
+              'clientVersion': _ytmClientVersion,
+              'hl': 'en',
+              'gl': 'IN',
+            },
+          },
+          'query': name,
+          // "Artists" filter param (WEB_REMIX search chip) — restricts the
+          // shelf to artist/channel cards only, same family as
+          // _ytmSongsFilterParam above but for the Artists chip.
+          'params': 'Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D',
+        }),
+      ).timeout(const Duration(seconds: 6));
+      if (resp.statusCode != 200) return null;
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map) return null;
+
+      final tabs = decoded['contents']?['tabbedSearchResultsRenderer']?['tabs'] as List? ?? const [];
+      for (final tab in tabs) {
+        final sections = tab?['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List? ?? const [];
+        for (final section in sections) {
+          final shelf = section?['musicShelfRenderer'] ?? section?['musicCardShelfRenderer'];
+          final items = (shelf?['contents'] as List?) ?? const [];
+          for (final item in items) {
+            final r = item?['musicResponsiveListItemRenderer'];
+            final browseId = r?['navigationEndpoint']?['browseEndpoint']?['browseId'] ??
+                shelf?['title']?['runs']?[0]?['navigationEndpoint']?['browseEndpoint']?['browseId'];
+            if (browseId != null && browseId.toString().startsWith('UC')) {
+              return browseId.toString();
+            }
+          }
+        }
+      }
+    } catch (e) {
+      _log('[_resolveYtChannelId] error: $e');
+    }
+    return null;
+  }
+
+  /// NEW ("search mein artist bhi aaye" — dedicated Artists row): searches
+  /// YT Music's Artists shelf directly for the query and returns up to
+  /// [limit] matching artist cards (channelId + name + thumbnail). Used by
+  /// search_screen.dart to show a horizontal "Artists" row above song
+  /// results whenever the query text itself matches one or more artists —
+  /// same WEB_REMIX endpoint/params as _resolveYtChannelId but returns
+  /// every match instead of just the first.
+  static Future<List<ArtistSimple>> searchArtists(String query, {int limit = 12}) async {
+    if (query.trim().isEmpty) return const [];
+    try {
+      final uri = Uri.parse(
+        'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
+      );
+      final resp = await _client.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Origin': 'https://music.youtube.com',
+          'Referer': 'https://music.youtube.com/',
+        },
+        body: jsonEncode({
+          'context': {
+            'client': {
+              'clientName': 'WEB_REMIX',
+              'clientVersion': _ytmClientVersion,
+              'hl': 'en',
+              'gl': 'IN',
+            },
+          },
+          'query': query,
+          'params': 'Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D', // Artists filter
+        }),
+      ).timeout(const Duration(seconds: 5));
+      if (resp.statusCode != 200) return const [];
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map) return const [];
+
+      final out = <ArtistSimple>[];
+      final seen = <String>{};
+      final tabs = decoded['contents']?['tabbedSearchResultsRenderer']?['tabs'] as List? ?? const [];
+      for (final tab in tabs) {
+        final sections = tab?['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List? ?? const [];
+        for (final section in sections) {
+          final shelf = section?['musicShelfRenderer'];
+          final items = (shelf?['contents'] as List?) ?? const [];
+          for (final item in items) {
+            final r = item?['musicResponsiveListItemRenderer'];
+            if (r == null) continue;
+            final browseId = (r['navigationEndpoint']?['browseEndpoint']?['browseId'] ?? '').toString();
+            if (!browseId.startsWith('UC') || !seen.add(browseId)) continue;
+            final name = (r['flexColumns']?[0]?['musicResponsiveListItemFlexColumnRenderer']
+                    ?['text']?['runs']?[0]?['text'] ?? '').toString();
+            if (name.isEmpty) continue;
+            final thumbs = r['thumbnail']?['musicThumbnailRenderer']?['thumbnail']?['thumbnails'] as List? ?? const [];
+            final image = thumbs.isNotEmpty ? (thumbs.last['url'] ?? '').toString() : '';
+            out.add(ArtistSimple(id: 'yt_$browseId', name: _cleanText(name), imageUrl: image));
+            if (out.length >= limit) return out;
+          }
+        }
+      }
+      return out;
+    } catch (e) {
+      _log('[searchArtists] error: $e');
+      return const [];
+    }
+  }
+
+  /// Public resolver used by ArtistScreen: tries a real YouTube channel
+  /// first, Saavn only as a fallback when no YT channel exists for that
+  /// name. Returned id is prefixed so fetchArtist() knows which source to
+  /// hit — never mixed, never guessed twice.
+  static Future<String?> resolveArtistId(String name) async {
+    final ytId = await _resolveYtChannelId(name);
+    if (ytId != null && ytId.isNotEmpty) return 'yt_$ytId';
+    final saavnId = await searchArtistByName(name);
+    if (saavnId != null && saavnId.isNotEmpty) return 'saavn_$saavnId';
+    return null;
+  }
+
   /// Resolve an artist's Saavn ID from their display name (used when navigating
   /// from a song tile, where we only have the artist's name string).
   static Future<String?> searchArtistByName(String name) async {
@@ -5676,15 +5842,138 @@ class ApiService {
 
   /// Fetch full artist page data: profile, top songs, top albums and singles.
   ///
-  /// songCount/albumCount are requests, not guarantees — the API returns
-  /// however many actually exist for that artist (confirmed: asking for 200
-  /// on an artist with only 33 songs just returns 33, no error/truncation
-  /// issue). So we ask high by default to make sure prolific artists aren't
-  /// cut short — it costs nothing for artists with fewer songs.
+  /// ROUTING (YouTube-primary): artistId is expected prefixed — 'yt_<UC...>'
+  /// resolved via resolveArtistId()/fetchHomeArtistsCombined() routes to
+  /// _fetchArtistFromYoutube; 'saavn_<id>' (fallback-only path, used when no
+  /// YT channel exists for the name) routes to the original Saavn fetch
+  /// below. A bare unprefixed id (old callers / deep links saved before this
+  /// change) is treated as a legacy Saavn id for backward compatibility.
   static Future<Artist?> fetchArtist(String artistId,
       {int songCount = 100, int albumCount = 100}) async {
     if (artistId.isEmpty) return null;
+    if (artistId.startsWith('yt_')) {
+      final channelId = artistId.substring(3);
+      final ytArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount);
+      if (ytArtist != null) return ytArtist;
+      // YT channel fetch failed (deleted channel, network hiccup, etc.) —
+      // last-resort Saavn-by-name fallback so the page doesn't just die.
+      return null;
+    }
+    final saavnId = artistId.startsWith('saavn_') ? artistId.substring(6) : artistId;
+    return _fetchArtistFromSaavn(saavnId, songCount: songCount, albumCount: albumCount);
+  }
 
+  /// YouTube-primary artist page: channel avatar/banner/subscriber count
+  /// come straight from youtube_explode_dart's ChannelClient.get(), bio
+  /// from its getAboutPage(), and Top Songs from its popularity-sorted
+  /// uploads pages (getUploadsFromPage) — mapped to Song objects exactly
+  /// like _songFromYtVideo, quality-gated the same way search results are
+  /// so a channel's non-music uploads (vlogs, shorts, interviews, etc.)
+  /// don't flood the Top Songs list.
+  static Future<Artist?> _fetchArtistFromYoutube(String channelId,
+      {int songCount = 100}) async {
+    try {
+      // Channel object already exposes title/logoUrl/bannerUrl/
+      // subscribersCount directly (youtube_explode_dart's ChannelClient.get
+      // parses these straight off the channel page) — no manual scraping
+      // needed for those fields.
+      final channel = await _yt.channels.get(channelId)
+          .timeout(const Duration(seconds: 8));
+
+      // Full bio/description lives on the About page specifically, not the
+      // main channel page — getAboutPage() is the package's own dedicated
+      // call for it, same client, same reliability as .get() above.
+      String bio = '';
+      try {
+        final about = await _yt.channels.getAboutPage(channelId)
+            .timeout(const Duration(seconds: 6));
+        bio = _cleanText(about.description ?? '');
+      } catch (e) {
+        _log('[_fetchArtistFromYoutube] getAboutPage failed: $e');
+      }
+
+      // Uploads → Top Songs, sorted by POPULARITY (not upload date) so
+      // "Top Songs" actually means the artist's biggest songs, not just
+      // their most recent uploads — a prolific channel's older hits would
+      // otherwise never surface if newest-first pagination hit songCount
+      // before reaching them. getUploadsFromPage(videoSorting: popularity)
+      // also returns each video's REAL view count directly from the page
+      // (unlike the plain getUploads() stream, whose Video.engagement can
+      // come back with a null viewCount for some entries) — critical here
+      // because RecommendationEngine.isPremiumQuality() hard-rejects any
+      // YouTube song with viewCount == null anywhere downstream (queue,
+      // favorites cross-checks, etc.), which would have silently vanished
+      // real songs from this list. Quality-gated the same way search
+      // results are so a channel mixing music with shorts/vlogs/
+      // interviews still shows a clean, music-only Top Songs list.
+      final topSongs = <Song>[];
+      try {
+        var page = await _yt.channels
+            .getUploadsFromPage(channelId, videoSorting: VideoSorting.popularity)
+            .timeout(const Duration(seconds: 10));
+        var pagesFetched = 0;
+        // Capped at 6 pages (channel pages are ~30 videos each, so this
+        // covers up to ~180 candidates before quality-gating) — enough
+        // headroom to fill songCount even after non-music/duration
+        // rejections thin the list, without risking an unbounded number
+        // of round-trips against a channel with thousands of uploads.
+        while (true) {
+          for (final v in page) {
+            final base = _songFromYtVideo(v);
+            final song = Song(
+              id: base.id, title: base.title, artist: base.artist,
+              album: base.album, artworkUrl: base.artworkUrl, streamUrl: null,
+              duration: base.duration, source: SongSource.youtube,
+              // Real view count from the popularity-sorted page — falls
+              // back to a trusted sentinel only in the rare case this
+              // specific entry's count came back null, so a single gap in
+              // the page data can't hide a legitimate song from every
+              // downstream isPremiumQuality() check.
+              viewCount: base.viewCount ?? 1000000,
+              artistChannelId: channelId,
+            );
+            if (RecommendationEngine.isNonMusicContent(song)) continue;
+            if (song.duration != null && (song.duration! < 60 || song.duration! > 1200)) continue;
+            topSongs.add(song);
+            if (topSongs.length >= songCount) break;
+          }
+          if (topSongs.length >= songCount) break;
+          pagesFetched++;
+          if (pagesFetched >= 6) break;
+          final next = await page.nextPage().timeout(const Duration(seconds: 10), onTimeout: () => null);
+          if (next == null) break;
+          page = next;
+        }
+      } catch (e) {
+        _log('[_fetchArtistFromYoutube] getUploadsFromPage failed: $e');
+      }
+
+      return Artist(
+        id: 'yt_$channelId',
+        name: _cleanText(channel.title),
+        imageUrl: channel.logoUrl,
+        followerCount: channel.subscribersCount ?? 0,
+        isVerified: false, // youtube_explode_dart's Channel doesn't expose this
+        bio: bio,
+        topSongs: topSongs,
+        topAlbums: const [],
+        singles: const [],
+        source: ArtistSource.youtube,
+        bannerUrl: channel.bannerUrl.isNotEmpty ? channel.bannerUrl : null,
+      );
+    } catch (e) {
+      _log('[_fetchArtistFromYoutube] failed for channelId=$channelId: $e');
+      return null;
+    }
+  }
+
+  /// Original Saavn-backed artist fetch — now ONLY reached as a fallback
+  /// when _fetchArtistFromYoutube finds no matching channel at all (see
+  /// resolveArtistId/fetchArtist routing above). Behavior unchanged from
+  /// before: Saavn profile fields + Saavn's own topSongs, blended with a
+  /// best-effort YT top-up search.
+  static Future<Artist?> _fetchArtistFromSaavn(String artistId,
+      {int songCount = 100, int albumCount = 100}) async {
     final path = '/api/artists/$artistId?songCount=$songCount&albumCount=$albumCount';
     Map<String, dynamic>? body;
     for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
@@ -5779,7 +6068,7 @@ class ApiService {
       }
 
       return Artist(
-        id: (d['id'] ?? artistId).toString(),
+        id: 'saavn_${(d['id'] ?? artistId).toString()}',
         name: _cleanText((d['name'] ?? '').toString()),
         imageUrl: _onrenderArtwork(d),
         followerCount: _parseInt(d['followerCount']) ?? 0,
@@ -5788,6 +6077,7 @@ class ApiService {
         topSongs: topSongs,
         topAlbums: topAlbums,
         singles: singles,
+        source: ArtistSource.saavn,
       );
     } catch (e) {
       _log('[artist] fetchArtist parse failed: $e');

@@ -21,6 +21,8 @@ import '../widgets/aurum_empty_state.dart';
 import '../widgets/aurum_equalizer_bars.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_transitions.dart';
+import 'artist_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Staggered list item — fade + slide up, same system as home_screen.dart's
@@ -180,6 +182,11 @@ class _SearchScreenState extends State<SearchScreen>
 
   // Search tab state
   List<Song>   _results        = [];
+  // NEW ("search mein artist bhi aaye"): artist matches for the current
+  // query, shown as a horizontal row above the song results — separate
+  // list, own fetch, never merged into _results so song-result logic
+  // (dedup, queues, staggered animation) stays untouched.
+  List<ArtistSimple> _artistResults = [];
   // Vibe/related expansion, kept separate from _results so the UI shows it
   // as its own labeled "You might also like" section — never silently
   // merged into the direct matches (that mixing was why unrelated songs
@@ -592,11 +599,18 @@ class _SearchScreenState extends State<SearchScreen>
       _showLiveLoader = false;
       _showHistory = false;
       _results = [];
+      _artistResults = [];
       _suggestions = [];
       _resultQueues = [];
       _relatedQueues = [];
     });
     _saveToHistory(query);
+    // Fire the Artists-row lookup independently — never blocks or delays
+    // song results, updates in place whenever it resolves.
+    ApiService.searchArtists(query).then((artists) {
+      if (!mounted || _controller.text.trim() != query) return;
+      setState(() { _artistResults = artists; });
+    });
     // YT-STABILITY FIX ("YT results aate hain phir gayab ho ke sirf Saavn
     // bachta hai"): if the live pass already found real YT songs, freeze
     // them — permanently, no swap, no length comparison, no fallback
@@ -694,6 +708,7 @@ class _SearchScreenState extends State<SearchScreen>
     // doesn't mean they want the keyboard back. They can tap the bar again.
     setState(() {
       _results = []; _relatedResults = []; _liveResults = []; _suggestions = [];
+      _artistResults = [];
       _liveLoading = false; _showLiveLoader = false; _loading = false;
       _showHistory = _history.isNotEmpty;
       _resultQueues = []; _relatedQueues = [];
@@ -1331,15 +1346,30 @@ class _SearchScreenState extends State<SearchScreen>
 
     return Stack(
       children: [
-        ListView.builder(
-          key: const ValueKey('results'),
-          physics: const BouncingScrollPhysics(),
-          // PERF: same pop-in fix as history list above — search results
-          // often get scrolled through quickly.
-          cacheExtent: 800,
-          itemCount: itemCount,
-          padding: const EdgeInsets.only(bottom: 80),
-          itemBuilder: (_, i) {
+        Column(
+          children: [
+            // SPOTIFY-PATTERN ("song search kare to uska artist bhi
+            // premium level dikhe"): a single "Top Result" artist card,
+            // shown ONLY when the query itself is a strong match for that
+            // artist's name (not just any artist tangentially returned
+            // for the query) — exactly Spotify's own rule for when an
+            // artist earns the top-result slot vs. just appearing lower
+            // down. Reuses _artistResults (already fetched for the
+            // "Artists" row below) — zero extra network call, so this
+            // stays lightweight regardless of how prominent the card
+            // looks.
+            if (_topResultArtist != null) _buildTopResultCard(_topResultArtist!),
+            if (_artistResults.isNotEmpty) _buildArtistRow(),
+            Expanded(
+              child: ListView.builder(
+                key: const ValueKey('results'),
+                physics: const BouncingScrollPhysics(),
+                // PERF: same pop-in fix as history list above — search results
+                // often get scrolled through quickly.
+                cacheExtent: 800,
+                itemCount: itemCount,
+                padding: const EdgeInsets.only(bottom: 80),
+                itemBuilder: (_, i) {
             // CRASH FIX: _results/itemCount mismatch during scroll+update
             // race. itemCount was computed from _results.length at build()
             // time, but setState() can update _results mid-scroll — i can
@@ -1417,6 +1447,9 @@ class _SearchScreenState extends State<SearchScreen>
               ),
             );
           },
+              ),
+            ),
+          ],
         ),
         // Thin top progress line while a new submit-search is refreshing
         // these same results — this is the "premium" refresh cue: the
@@ -1428,6 +1461,160 @@ class _SearchScreenState extends State<SearchScreen>
             child: SizedBox(height: 2, child: AurumM3Loader(height: 2)),
           ),
       ],
+    );
+  }
+
+  // SPOTIFY-PATTERN: which _artistResults entry (if any) qualifies for the
+  // single "Top Result" slot above the Artists row. Only the FIRST artist
+  // match counts (searchArtists() already returns YT Music's own ranking,
+  // so [0] is its best match) — and only when the query text itself is
+  // clearly about that artist (name contains query or vice versa,
+  // case-insensitive), not just any artist that happened to appear in
+  // results for an unrelated song query like "Tum Hi Ho". Kept as a plain
+  // getter (not cached state) since it's a pure, cheap derivation off
+  // fields already in state — recomputes for free on every build.
+  ArtistSimple? get _topResultArtist {
+    if (_artistResults.isEmpty) return null;
+    final query = _controller.text.trim().toLowerCase();
+    if (query.isEmpty) return null;
+    final top = _artistResults.first;
+    final name = top.name.toLowerCase();
+    if (name.contains(query) || query.contains(name)) return top;
+    return null;
+  }
+
+  // NEW ("search mein artist bhi aaye" — Spotify-pattern top result):
+  // single prominent card for a strong artist-name match, shown above
+  // everything else exactly the way Spotify's own search puts an artist
+  // in the "Top Result" slot when the query is clearly about them. Kept
+  // lightweight — reuses the same AurumArtwork/AurumPressable widgets and
+  // ArtistScreen navigation the Artists row below already uses, just a
+  // different (larger, single-item) layout.
+  Widget _buildTopResultCard(ArtistSimple a) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: AurumPressable(
+        onTap: () {
+          AurumHaptics.light();
+          Navigator.push(
+            context,
+            AurumDepthRoute(
+              builder: (_) => ArtistScreen(artistId: a.id, artistName: a.name),
+            ),
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AurumTheme.bgCardOf(context),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              ClipOval(
+                child: AurumArtwork(url: a.imageUrl, size: 64),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Top Result',
+                      style: TextStyle(
+                        color: AurumTheme.textMutedOf(context),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      a.name,
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Artist',
+                      style: TextStyle(
+                        color: AurumTheme.textSecondaryOf(context),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // NEW ("search mein artist bhi aaye"): horizontal row of artist cards
+  // matching the current query, shown above the song results. Tapping a
+  // card opens ArtistScreen with the channelId already resolved (no extra
+  // name-search round-trip, since searchArtists() already returned it
+  // prefixed 'yt_<channelId>'). Skips whichever artist is already shown in
+  // the Top Result card above (same Spotify convention — a match doesn't
+  // appear twice on screen).
+  Widget _buildArtistRow() {
+    final rowArtists = _topResultArtist == null
+        ? _artistResults
+        : _artistResults.where((a) => a.id != _topResultArtist!.id).toList();
+    if (rowArtists.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 96,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        itemCount: rowArtists.length,
+        itemBuilder: (_, i) {
+          final a = rowArtists[i];
+          return Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: AurumPressable(
+              onTap: () {
+                AurumHaptics.light();
+                Navigator.push(
+                  context,
+                  AurumDepthRoute(
+                    builder: (_) => ArtistScreen(artistId: a.id, artistName: a.name),
+                  ),
+                );
+              },
+              child: SizedBox(
+                width: 64,
+                child: Column(
+                  children: [
+                    ClipOval(
+                      child: AurumArtwork(url: a.imageUrl, size: 56),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      a.name,
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
