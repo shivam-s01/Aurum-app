@@ -131,19 +131,63 @@ class NativeAudioEngine {
   // render hidden/disabled until the first real snapshot arrives, and
   // "unavailable" already produces exactly that — no separate null
   // handling needed at call sites.
-  final _castState = BehaviorSubject<CastState>.seeded(const CastState());
+  //
+  // BATTERY FIX: this used to be a BehaviorSubject fed by a permanent
+  // constructor-time .listen() on _castStateEvents (same pattern as
+  // _state/_errors/_outputDevices, which is correct for those — they're
+  // needed for the whole app session). Cast state is different: the
+  // Kotlin side (AurumCastManager.startCastStateDiscovery/
+  // stopCastStateDiscovery, wired to this exact EventChannel's
+  // onListen/onCancel) only stops its LAN mDNS/SSDP discovery scan once
+  // NOTHING is subscribed to this channel. A permanent constructor-level
+  // .listen() meant onListen fired once at app launch and onCancel never
+  // fired at all — discovery ran for the entire app session regardless
+  // of whether any cast-button widget was ever on screen, silently
+  // defeating that native-side fix. _lastCastState below keeps the same
+  // "always have a snapshot" convenience the old seeded BehaviorSubject
+  // gave callers, without keeping a permanent platform-channel
+  // subscription alive to produce it.
+  CastState _lastCastState = const CastState();
 
   Stream<NativeEngineState> get stateStream => _state.stream;
   Stream<PlaybackErrorEvent> get errorStream => _errors.stream;
   Stream<AudioOutputDevices?> get outputDevicesStream => _outputDevices.stream;
-  Stream<CastState> get castStateStream => _castState.stream;
-  CastState get castState => _castState.value;
+
+  /// Live cast availability/connection updates. Deliberately NOT
+  /// auto-subscribed at construction — same reasoning as
+  /// [castRoutesStream] below: each .listen() (StreamBuilder mounting,
+  /// widget disposing) is exactly what starts/stops Kotlin's low-
+  /// intensity MediaRouter discovery on the native side (see
+  /// AurumCastManager.startCastStateDiscovery/stopCastStateDiscovery).
+  /// receiveBroadcastStream() is itself a broadcast stream, so multiple
+  /// simultaneous listeners (e.g. CastIconButton + CastingBanner both
+  /// mounted at once) share one underlying platform subscription rather
+  /// than each opening their own — the platform channel only sees
+  /// onListen when the first Dart listener attaches and onCancel when
+  /// the last one detaches.
+  ///
+  /// IMPORTANT: built ONCE and cached (not rebuilt per access) —
+  /// CastIconButton/CastingBanner call this from build(), which re-runs
+  /// on every PlayerProvider.notifyListeners() (i.e. multiple times a
+  /// second during normal playback, via context.watch). If this were a
+  /// plain getter constructing a fresh Stream each call, StreamBuilder
+  /// would see a new stream identity on every rebuild and tear down +
+  /// recreate its subscription every time — thrashing Kotlin's
+  /// start/stopCastStateDiscovery in a tight loop instead of the clean
+  /// mount/unmount-scoped on/off this was meant to achieve.
+  late final Stream<CastState> castStateStream = _castStateEvents
+      .receiveBroadcastStream()
+      .map(_parseCastState)
+      .map((s) {
+        _lastCastState = s;
+        return s;
+      });
+  CastState get castState => _lastCastState;
   NativeEngineState get value => _state.value;
 
   StreamSubscription? _stateSub;
   StreamSubscription? _errorSub;
   StreamSubscription? _outputDevicesSub;
-  StreamSubscription? _castStateSub;
 
   // Fired when AurumMediaSessionService (lock screen / notification heart)
   // reports a like-toggle tap for the given song ID. PlayerProvider sets
@@ -212,12 +256,6 @@ class NativeAudioEngine {
       _outputDevices.add(_parseOutputDevices(raw));
     }, onError: (Object e, StackTrace st) {
       debugPrint('[NativeAudioEngine] output-device stream error (ignored): $e');
-    });
-
-    _castStateSub = _castStateEvents.receiveBroadcastStream().listen((raw) {
-      _castState.add(_parseCastState(raw));
-    }, onError: (Object e, StackTrace st) {
-      debugPrint('[NativeAudioEngine] cast-state stream error (ignored): $e');
     });
   }
 
@@ -682,11 +720,9 @@ class NativeAudioEngine {
     await _stateSub?.cancel();
     await _errorSub?.cancel();
     await _outputDevicesSub?.cancel();
-    await _castStateSub?.cancel();
     await _state.close();
     await _errors.close();
     await _outputDevices.close();
-    await _castState.close();
   }
 }
 

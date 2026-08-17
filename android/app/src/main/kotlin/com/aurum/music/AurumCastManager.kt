@@ -147,26 +147,67 @@ class AurumCastManager(
     // CastContext.castState stays stuck at NO_DEVICES_AVAILABLE (which
     // the Dart side reads as "hide the button") until something actually
     // asks MediaRouter to scan — the Cast SDK does NOT start route
-    // discovery on its own just because CastContext exists. Every other
-    // Cast app (YouTube, Spotify) keeps an active MediaRouter callback
-    // registered for exactly this reason. We register an empty one here,
-    // scoped to the same mergedSelector the picker dialog uses, purely to
-    // force ACTIVE_SCAN so castState reflects real devices on the LAN
-    // without the user having to open the picker first.
+    // discovery on its own just because CastContext exists. We register
+    // an empty callback here, scoped to the same mergedSelector the
+    // picker dialog uses, purely to force discovery so castState
+    // reflects real devices on the LAN without the user having to open
+    // the picker first.
+    //
+    // BATTERY FIX (was: registered permanently in init{}, from the
+    // moment AurumCastManager was first constructed — which happens the
+    // instant ANYTHING touches the lazy `castManager` getter on
+    // AurumAudioEngine, including just wiring onSessionStarted/
+    // onSessionEnded at app startup, i.e. every single launch, cast
+    // never used or not). A permanently-registered MediaRouter callback
+    // keeps MediaRouter's discovery machinery (LAN mDNS/SSDP scanning)
+    // alive for the manager's entire lifetime, independent of whether
+    // any screen showing the cast button is even visible. Measured
+    // impact: ~10%/507mAh battery over 24h with only ~1h46m screen-on,
+    // ~2h49m background usage — i.e. hours of silent scanning with the
+    // app backgrounded and nothing casting.
+    //
+    // Fix: this callback is now started/stopped in lockstep with
+    // CAST_STATE_EVENT_CHANNEL's onListen/onCancel (see
+    // AurumEngineChannelHandler) — the same "only run while something
+    // is actually listening" discipline already used for
+    // pickerScanCallback/startRouteDiscovery below. The cast button is
+    // only ever on-screen while that channel has a live Dart listener,
+    // so this now scans only while a screen that could show the cast
+    // button is actually visible, and stops the moment it isn't —
+    // mirroring exactly how AurumMediaSessionService already tears
+    // itself down via onTaskRemoved when nothing is playing.
     private val discoveryCallback = object : MediaRouter.Callback() {}
+    private var discoveryActive = false
 
     init {
         castContext?.addCastStateListener(castStateListener)
         castContext?.sessionManager?.addSessionManagerListener(
             sessionManagerListener, CastSession::class.java,
         )
-        castContext?.mergedSelector?.let { selector ->
-            MediaRouter.getInstance(context).addCallback(
-                selector,
-                discoveryCallback,
-                MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
-            )
-        }
+    }
+
+    /** Starts low-intensity discovery so castState/describeState() reflect
+     *  real LAN devices — call when a screen with the cast button becomes
+     *  visible (CAST_STATE_EVENT_CHANNEL.onListen). Safe to call more than
+     *  once; no-ops if already active. */
+    fun startCastStateDiscovery() {
+        if (discoveryActive) return
+        val selector = castContext?.mergedSelector ?: return
+        MediaRouter.getInstance(context).addCallback(
+            selector,
+            discoveryCallback,
+            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
+        )
+        discoveryActive = true
+    }
+
+    /** Stops discovery — call when the cast-button screen goes away
+     *  (CAST_STATE_EVENT_CHANNEL.onCancel) so scanning doesn't keep
+     *  running in the background. */
+    fun stopCastStateDiscovery() {
+        if (!discoveryActive) return
+        MediaRouter.getInstance(context).removeCallback(discoveryCallback)
+        discoveryActive = false
     }
 
     val isCasting: Boolean
@@ -186,9 +227,11 @@ class AurumCastManager(
     }
 
     /** Dedicated callback ONLY active while the picker sheet is open —
-     *  separate from [discoveryCallback] above (which stays registered
-     *  permanently at a low intensity just to keep castState accurate
-     *  for the button icon). This one uses CALLBACK_FLAG_PERFORM_ACTIVE_SCAN,
+     *  separate from [discoveryCallback] above (which now only runs while
+     *  a screen showing the cast button is visible, via
+     *  start/stopCastStateDiscovery, to keep castState accurate for the
+     *  button icon without scanning indefinitely). This one uses
+     *  CALLBACK_FLAG_PERFORM_ACTIVE_SCAN,
      *  which is more battery-intensive and per Android's own docs should
      *  only be requested while the user is actively picking a device —
      *  hence registering/unregistering it around startRouteDiscovery/
@@ -381,7 +424,7 @@ class AurumCastManager(
             sessionManagerListener, CastSession::class.java,
         )
         router?.removeCallback(pickerScanCallback)
-        router?.removeCallback(discoveryCallback)
+        stopCastStateDiscovery()
         castPlayer?.setSessionAvailabilityListener(null)
         castPlayer?.release()
         relayServer.stop()

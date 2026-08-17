@@ -418,6 +418,21 @@ class AurumMediaSessionService : MediaSessionService() {
             release()
             mediaSession = null
         }
+        // LEAK FIX: previously only player.release() ran above — this
+        // left AurumAudioOutputManager's BroadcastReceiver (audio device
+        // change events) and AurumCastManager's CastStateListener/
+        // SessionManagerListener (registered against the process-wide
+        // shared CastContext singleton) permanently registered against
+        // an engine instance nothing else references anymore. Neither
+        // is a runaway loop by itself, but each Service
+        // create/destroy cycle (sticky restart, repeated background/
+        // foreground transitions) leaked one more of each — receivers
+        // and listeners that silently keep doing small amounts of work
+        // forever, on top of whatever the *current* engine instance is
+        // also doing. engine.release() (see AurumAudioEngine) already
+        // correctly tears down every one of these; it just needs to
+        // actually be called here before sharedEngine is cleared below.
+        AurumMediaSessionService.sharedEngine?.release()
         instance = null
         // FIX (related to the onPlaybackResumption fix above): this service
         // has no onStartCommand override, so it inherits MediaSessionService's

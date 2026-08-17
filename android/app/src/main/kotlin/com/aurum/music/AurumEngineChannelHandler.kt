@@ -139,10 +139,17 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                 engine.castManager.onStateChanged = {
                     sink.success(engine.castManager.describeState())
                 }
+                // BATTERY FIX: LAN discovery now runs only while a screen
+                // with the cast button is actually visible (this channel
+                // only has a live listener then), instead of for the
+                // manager's entire lifetime — see discoveryCallback's doc
+                // in AurumCastManager for the full story.
+                engine.castManager.startCastStateDiscovery()
                 sink.success(engine.castManager.describeState())
             }
             override fun onCancel(args: Any?) {
                 engine.castManager.onStateChanged = null
+                engine.castManager.stopCastStateDiscovery()
             }
         })
 
@@ -621,6 +628,12 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
     fun release() {
         stateJob?.cancel()
         engine.castManager.onStateChanged = null
+        // Cast button is gone along with the Activity — stop LAN
+        // discovery too, same reasoning as the EventChannel's onCancel
+        // above. Safety net in case onCancel doesn't fire first during
+        // teardown (e.g. process death skipping the normal Flutter
+        // engine detach sequence).
+        engine.castManager.stopCastStateDiscovery()
         // NOTE: onSessionStarted/onSessionEnded are deliberately NOT
         // cleared here — engine (and its castManager) is the shared,
         // service-owned instance (see sharedEngine), which can outlive
