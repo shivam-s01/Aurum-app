@@ -478,19 +478,39 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
               child: Row(
                 children: [
-                  ...song.artist.split(',').take(3).map((a) => _ArtistChip(
-                        name: a.trim(),
-                        onTap: () {
-                          Navigator.pop(context);
-                          Navigator.push(
-                            widget.rootContext,
-                            AurumDepthRoute(
-                              builder: (_) =>
-                                  ArtistScreen(artistName: a.trim()),
+                  ...song.artist.split(',').take(3).map((a) {
+                    final trimmed = a.trim();
+                    // FIX ("search mein song ka artist bhi aana chahiye, tap
+                    // karne layak"): when this song already carries a known
+                    // YouTube artist channelId (set by _searchYtMusicDirect's
+                    // browseEndpoint parse), pass it straight through as a
+                    // pre-resolved 'yt_<channelId>' id — ArtistScreen opens
+                    // the real channel immediately, zero extra name-search
+                    // round-trip. Only the FIRST chip (the song's primary
+                    // artist) gets this fast path, since artistChannelId is
+                    // only ever populated for the primary artist; any
+                    // additional featured-artist chips still resolve by name
+                    // through the normal yt-then-saavn fallback.
+                    final isPrimary = song.artist.split(',').first.trim() == trimmed;
+                    final fastId = (isPrimary && song.artistChannelId != null)
+                        ? 'yt_${song.artistChannelId}'
+                        : null;
+                    return _ArtistChip(
+                      name: trimmed,
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          widget.rootContext,
+                          AurumDepthRoute(
+                            builder: (_) => ArtistScreen(
+                              artistId: fastId,
+                              artistName: trimmed,
                             ),
-                          );
-                        },
-                      )),
+                          ),
+                        );
+                      },
+                    );
+                  }),
                   if (song.album.isNotEmpty)
                     _AlbumChip(
                       albumName: song.album,

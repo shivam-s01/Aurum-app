@@ -15,6 +15,12 @@ class Song {
   final String? localPath; // ← NEW: set for local songs, null for online
   final SongSource source;
   final int? viewCount; // YouTube-only quality signal; null for Saavn/local
+  // YouTube channel id (format "UC...") for this song's primary artist, when
+  // known — lets song_tile.dart/full_player_screen.dart open ArtistScreen
+  // straight on the real YT channel instead of resolving by name. Null for
+  // Saavn/local songs and any YT result whose search response didn't carry
+  // an artist browseEndpoint (falls back to name-based resolution).
+  final String? artistChannelId;
 
   Song({
     required this.id,
@@ -29,6 +35,7 @@ class Song {
     this.localPath,
     this.source = SongSource.saavn,
     this.viewCount,
+    this.artistChannelId,
   });
 
   /// True when this song came from the device library
@@ -56,6 +63,9 @@ class Song {
       localPath: json['localPath'],
       source: source,
       viewCount: json['viewCount'] is int ? json['viewCount'] as int : null,
+      artistChannelId: (json['artistChannelId'] as String?)?.isNotEmpty == true
+          ? json['artistChannelId'] as String
+          : null,
     );
   }
 
@@ -129,6 +139,7 @@ class Song {
     'localPath': localPath,
     'source': source.name,
     'viewCount': viewCount,
+    'artistChannelId': artistChannelId,
   };
 
   Song copyWith({String? streamUrl, String? localPath}) => Song(
@@ -144,6 +155,7 @@ class Song {
     localPath: localPath ?? this.localPath,
     source: source,
     viewCount: viewCount,
+    artistChannelId: artistChannelId,
   );
 }
 

@@ -3078,7 +3078,7 @@ class _ArtistChip extends StatelessWidget {
     AurumHaptics.selection();
     final id = artist.id.isNotEmpty
         ? artist.id
-        : await ApiService.searchArtistByName(artist.name);
+        : await ApiService.resolveArtistId(artist.name);
     if (id == null || !context.mounted) return;
     AurumDepthRoute.to(
       context,

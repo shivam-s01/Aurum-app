@@ -23,7 +23,9 @@ import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 
 class ArtistScreen extends StatefulWidget {
-  /// Either pass a known Saavn artistId, or just an artistName to resolve it.
+  /// Either a pre-resolved id — 'yt_<channelId>' or 'saavn_<id>' — or just
+  /// an artistName to resolve (tries a real YouTube channel first, Saavn
+  /// only as fallback — see ApiService.resolveArtistId).
   final String? artistId;
   final String artistName;
 
@@ -50,8 +52,16 @@ class _ArtistScreenState extends State<ArtistScreen> {
       _failed = false;
     });
     try {
+      // ROUTING (YouTube-primary): widget.artistId, when passed, is already
+      // prefixed ('yt_<channelId>' or 'saavn_<id>') by whichever caller
+      // resolved it — song tiles pass 'yt_<artistChannelId>' directly when
+      // a song already carries a known channel id (zero extra lookup), the
+      // "Artists" search chip passes it from its own channel search. Only
+      // when no id was passed at all (artist reached by name only) do we
+      // fall back to resolveArtistId(), which tries a real YouTube channel
+      // first and Saavn only if no channel exists for that name.
       String? id = widget.artistId;
-      id ??= await ApiService.searchArtistByName(widget.artistName);
+      id ??= await ApiService.resolveArtistId(widget.artistName);
       if (!mounted) return;
       if (id == null || id.isEmpty) {
         setState(() {
