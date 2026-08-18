@@ -1083,6 +1083,28 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withAlpha(165),
       useSafeArea: false,
+      // STABILITY FIX ("Up Next panel ko fast/bade upward swipe se kholne
+      // par kabhi-kabhi 'chhut jaata hai', jagah pe fit nahi hota — jaisa
+      // detached/glitchy ho gaya"): showModalBottomSheet's own built-in
+      // drag-to-dismiss was left at its default (enableDrag: true), which
+      // runs Flutter's OWN internal AnimationController driving this
+      // sheet's real vertical position — completely independent of and in
+      // parallel with _PremiumContentPanelState's own complete custom
+      // drag system (_dragYNotifier, _springBackCtrl, _exitCtrl,
+      // Transform.translate). Two separate systems both trying to own the
+      // same sheet's position is exactly the class of bug that produces
+      // "position doesn't match what was expected" — a fast/large
+      // upward-then-release gesture could leave Flutter's internal sheet
+      // animation and this panel's own custom transform disagreeing about
+      // where the sheet actually is, reading as the panel detaching from
+      // or not settling into its correct position. Since every drag/
+      // dismiss interaction the panel needs (handle-drag, list-swipe-
+      // down-to-dismiss, spring-back, animated exit) is already fully and
+      // deliberately implemented inside _PremiumContentPanelState itself,
+      // there is no remaining reason for the framework's own competing
+      // drag system to be active at all — disabling it here removes the
+      // second, conflicting source of truth entirely.
+      enableDrag: false,
       builder: (_) => _PremiumContentPanel(
         bg1: _currentBg1,
         bg2: _currentBg2,
@@ -4215,25 +4237,55 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                                 // stolen scroll gestures, just the natural
                                 // "can't scroll further, so the swipe
                                 // closes the sheet" feel.
-                                child: NotificationListener<OverscrollNotification>(
+                                child: NotificationListener<ScrollNotification>(
+                                  // FIX ("Up Next list se fast swipe-down
+                                  // karne par panel bahut fast/black jaisa
+                                  // dikhta hai aur band nahi hota, sirf
+                                  // back button se hatta hai"): the
+                                  // dismiss decision used to live on a
+                                  // sibling GestureDetector's
+                                  // onVerticalDragEnd — but once the
+                                  // ListView's own scroll drag wins the
+                                  // gesture arena (which it always does,
+                                  // being the more specific/nested
+                                  // recognizer), that GestureDetector's
+                                  // pan recognizer never starts, so its
+                                  // onVerticalDragEnd never fires. Only
+                                  // the OverscrollNotification below was
+                                  // still reaching _dragY, so a fast
+                                  // swipe pushed the panel almost fully
+                                  // off-screen/transparent via
+                                  // Transform.translate + Opacity, but
+                                  // _dismiss()/_springBackToZero() were
+                                  // never called on release — the panel
+                                  // was left stranded exactly where the
+                                  // finger let go (reading as "black"/
+                                  // stuck) until an unrelated code path
+                                  // (the system back button) popped the
+                                  // route instead. ScrollEndNotification
+                                  // is the correct native "finger lifted
+                                  // after this scroll gesture" signal —
+                                  // listening for it here (instead of a
+                                  // competing GestureDetector) means the
+                                  // same drag/scroll gesture that moved
+                                  // _dragY is also what decides, on
+                                  // release, whether to dismiss or spring
+                                  // back — no arena conflict possible.
                                   onNotification: (notification) {
-                                    if (notification.overscroll < 0) {
+                                    if (notification is OverscrollNotification &&
+                                        notification.overscroll < 0) {
                                       _springBackCtrl.stop();
                                       _dragY += -notification.overscroll;
+                                    } else if (notification is ScrollEndNotification) {
+                                      if (_dragY > 90) {
+                                        _dismiss();
+                                      } else if (_dragY > 0) {
+                                        _springBackToZero();
+                                      }
                                     }
                                     return false;
                                   },
-                                  child: GestureDetector(
-                                    onVerticalDragEnd: (d) {
-                                      if (_dragY <= 0) return;
-                                      if (_dragY > 90 ||
-                                          (d.primaryVelocity ?? 0) > 600) {
-                                        _dismiss();
-                                      } else {
-                                        _springBackToZero();
-                                      }
-                                    },
-                                    child: AnimatedSwitcher(
+                                  child: AnimatedSwitcher(
                                   duration: _tabSwitchDuration,
                                   switchInCurve: Curves.easeOut,
                                   switchOutCurve: Curves.easeIn,
@@ -4256,7 +4308,6 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                                     child: _buildTabContent(),
                                   ),
                                 ),
-                                  ),
                                 ),
                               ),
                             ]),
@@ -6139,7 +6190,28 @@ class _BlurredArtworkCoreState extends State<_BlurredArtworkCore> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
+    // PERF FIX (low-end devices: full player's edges/bottom visibly take
+    // an extra beat to "fill in" after opening, instead of being complete
+    // from the first frame): toImage() below is a genuine GPU→CPU
+    // readback — on a slow device it can itself take multiple frames to
+    // complete, not the "effectively instant" it is on a fast one. Firing
+    // it from the very first post-frame callback means that readback is
+    // competing for the same frame budget as the route's own 380ms
+    // slide-up transition AND every other widget's first layout/paint —
+    // exactly the kind of contention that reads as "screen slowly
+    // finishing filling itself in" on weaker hardware, even though
+    // nothing is actually un-laid-out; it's a paint/GPU stall, not a
+    // sizing bug. Delaying the first attempt past the transition's own
+    // duration means the bake only starts once the route has visually
+    // settled and stopped competing for frame time, so the live
+    // ImageFiltered blur (already correctly sized/positioned from frame
+    // one) simply stays on screen a little longer instead of stalling
+    // everything else. The existing debugNeedsPaint retry loop below is
+    // unchanged and still covers artwork that's slower to decode than
+    // this delay.
+    Future.delayed(const Duration(milliseconds: 420), () {
+      if (mounted) _capture();
+    });
   }
 
   @override

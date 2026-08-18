@@ -2244,10 +2244,43 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       _scheduleSkipFlush(index);
       return;
     }
-    // Shuffled, or an out-of-range index — no safe optimistic guess to
-    // make (see the doc comment on the optimistic block above). Flush any
-    // already-pending debounced skip immediately so it isn't silently
-    // swallowed, then fall through to a direct call.
+    // Shuffled, or an out-of-range index.
+    // PERF FIX ("Up Next mein song tap karne pe kabhi turant switch hota
+    // hai, kabhi 1-3 sec lag jaata hai"): the lag was specifically this
+    // branch — under shuffle it had NO optimistic update at all (unlike
+    // the non-shuffle branch above), so it directly awaited the real
+    // native skipToQueueItem() round-trip (up to a 4s timeout) before
+    // touching _currentSong/_currentIndex or calling notifyListeners() —
+    // the UI simply sat frozen on the old song for however long that
+    // native call actually took. The old comment reasoned there was "no
+    // safe optimistic guess to make" under shuffle, but that conflated
+    // two different things: shuffle only makes the *next-in-line* song
+    // ambiguous (skipNext/skipPrev genuinely can't know it without asking
+    // the engine) — a direct tap on a specific Up Next row is never
+    // ambiguous, shuffle or not. The row tapped IS the target; index
+    // already tells us exactly which Song that is via _queue[index],
+    // whether or not shuffle later reorders anything else. Applying the
+    // same immediate optimistic update as the non-shuffle branch, then
+    // debouncing the actual native call, closes this gap the same way
+    // skipNext()/skipPrev() already are for the sequential case.
+    if (index >= 0 && index < _queue.length) {
+      _currentIndex = index;
+      _currentSong = _queue[index];
+      _lastHandledIndex = index;
+      _expectedSongId = _currentSong!.id;
+      _expectedSongIdSetAt = DateTime.now();
+      _position = Duration.zero;
+      _duration = Duration.zero;
+      if (_currentSong!.artworkUrl.isNotEmpty) {
+        ArtworkPaletteCache.warm(_currentSong!.artworkUrl);
+      }
+      notifyListeners();
+      _scheduleSkipFlush(index);
+      return;
+    }
+    // Genuinely out-of-range index — nothing to optimistically show.
+    // Flush any already-pending debounced skip immediately so it isn't
+    // silently swallowed, then fall through to a direct call.
     _skipDebounce?.cancel();
     _skipDebounce = null;
     _skipDebounceTargetIndex = null;
