@@ -562,7 +562,10 @@ class AurumAudioEngine(
                 if (pausedForTransientFocusLoss) {
                     // Auto-resume — this was a call/transient interruption,
                     // not the user or another app deliberately taking over.
-                    player.play()
+                    // FIX ("pause karo, khud restart ho jaata hai"): but not
+                    // if the user also explicitly paused during the call —
+                    // their pause always wins over an auto-resume here.
+                    if (!userPaused) player.play()
                     pausedForTransientFocusLoss = false
                 }
                 // pausedForSustainedFocusLoss is intentionally NOT
@@ -662,6 +665,27 @@ class AurumAudioEngine(
     // field's doc comment. Only ever read/written from the resolve loop
     // below (single-threaded via `scope`), same as isResolving.
     private var resolveTakingLong = false
+
+    // FIX ("pause karo, khud restart ho jaata hai" — player silently
+    // resuming on its own after a pause): pause() previously only ever
+    // called player.pause() — it never recorded that the user explicitly
+    // wanted playback stopped. Three background recovery paths run on
+    // their own coroutine timeline, independent of user taps: the
+    // network-reconnect listener (registerReconnectListener), and the
+    // mid-resolve recovery handlers handleFreshStartIdle/
+    // handleMidStreamIdle. All three call player.play() unconditionally
+    // once a stuck resolve/retry finally succeeds — with nothing to tell
+    // them the user paused sometime during that retry window. A pause
+    // that happened to land while a stream was mid-resolve (a common
+    // moment to pause — the user is waiting on a slow network) got
+    // silently overridden the instant that retry completed, which looks
+    // exactly like the player randomly restarting itself with no tap
+    // from the user. Set true in pause(), cleared in play() and in
+    // playQueueInternal/skip paths (a fresh explicit play always wins),
+    // and checked immediately before every recovery-triggered
+    // player.play() call below — a paused user is never resumed out from
+    // under them by a background retry.
+    private var userPaused = false
 
     // Media3's playlist == the "ConcatenatingAudioSource" equivalent.
     // We track song IDs in the same order as player.mediaItemCount to
@@ -1065,6 +1089,11 @@ class AurumAudioEngine(
         val mySession = playSessionId
         isLoadingNewSong = true
         restoredSilently = false
+        // A fresh explicit play/queue start is unambiguous "user wants
+        // this playing" intent — always clears any stale userPaused left
+        // over from whatever was playing before (see userPaused doc
+        // comment above play()/pause()).
+        userPaused = false
 
         val safeIndex = if (songs.isEmpty()) 0 else startIndex.coerceIn(0, songs.size - 1)
         var effectiveIndex = safeIndex
@@ -1568,7 +1597,10 @@ class AurumAudioEngine(
                     try {
                         setSingleMediaItemInternal(freshUrl, songToRetry)
                         isResolving = false
-                        player.play()
+                        // FIX ("pause karo, khud restart ho jaata hai"): only
+                        // resume if the user hasn't paused since this retry
+                        // started — see userPaused doc comment above.
+                        if (!userPaused) player.play()
                         pushState()
                     } catch (e: Exception) {
                         isResolving = false
@@ -1640,7 +1672,7 @@ class AurumAudioEngine(
                 ) {
                     try {
                         player.prepare()
-                        player.play()
+                        if (!userPaused) player.play()
                         pushState()
                     } catch (_: Exception) { /* falls through to advancePastDeadSong below */ }
                 }
@@ -1694,7 +1726,9 @@ class AurumAudioEngine(
                 advancePastDeadSong(songNow, sessionAtIdle)
                 return
             }
-            player.play()
+            // FIX ("pause karo, khud restart ho jaata hai"): only resume
+            // if the user hasn't paused since this retry started.
+            if (!userPaused) player.play()
             // FIX (same spinner-stuck fix as handleMidStreamIdle's success
             // path below): explicit push instead of relying solely on the
             // player listener's own callbacks for this recovery-specific
@@ -1742,7 +1776,7 @@ class AurumAudioEngine(
                     try {
                         player.prepare()
                         player.seekTo(pos)
-                        player.play()
+                        if (!userPaused) player.play()
                         pushState()
                     } catch (_: Exception) { /* falls through to advancePastDeadSong below */ }
                 }
@@ -1793,7 +1827,15 @@ class AurumAudioEngine(
                 val item = buildMediaItem(song, freshUrl)
                 player.replaceMediaItem(idx, item)
                 player.seekTo(idx, pos)
-                player.play()
+                // FIX ("pause karo, khud restart ho jaata hai"): only
+                // resume if the user hasn't paused since this retry
+                // started — see userPaused doc comment above. This is
+                // the most commonly-hit of the three recovery paths
+                // (fires on any expired/dead stream URL, which YouTube/
+                // Saavn CDN links commonly become after sitting idle),
+                // so this guard is the one most likely to fix the
+                // reported "randomly restarts after I pause" behavior.
+                if (!userPaused) player.play()
                 isResolving = false
                 // FIX (spinner stuck forever after a successful
                 // expired-URL recovery — the one case this whole
@@ -2187,11 +2229,13 @@ class AurumAudioEngine(
         }
 
     fun play() {
+        userPaused = false
         activeCastPlayer?.let { it.play(); return }
         restoredSilently = false
         player.play()
     }
     fun pause() {
+        userPaused = true
         activeCastPlayer?.let { it.pause(); return }
         player.pause()
     }
@@ -2347,6 +2391,7 @@ class AurumAudioEngine(
                     currentIndex = index
                     pushState()
                     player.seekTo(livePos, 0)
+                    userPaused = false
                     player.play()
                 } else {
                     playQueueInternal(queueSongs, index)

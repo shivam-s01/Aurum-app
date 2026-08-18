@@ -434,6 +434,18 @@
   "libraryDownloadFailedTapRetry": "Fehlgeschlagen — zum Wiederholen tippen",
   "libraryDownloadFromPlayerDesc": "Lade einen Song aus dem Player herunter, um ihn offline zu hören.",
   "libraryDownloadedCountHeader": "{count, plural, =1{1 HERUNTERGELADEN} other{{count} HERUNTERGELADEN}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 Song} other{{count} Songs}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "WIRD HERUNTERGELADEN",
   "libraryDownloadingPercent": "Wird heruntergeladen • {percent}%",
   "libraryEditPlaylist": "Playlist bearbeiten",

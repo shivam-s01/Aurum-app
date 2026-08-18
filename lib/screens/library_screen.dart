@@ -2834,8 +2834,55 @@ class _LocalFilesScreen extends StatelessWidget {
 // ══════════════════════════════════════════════════════════════════════════════
 // Downloads Screen (unchanged, kept public for NavigatorKey usage in main.dart)
 // ══════════════════════════════════════════════════════════════════════════════
-class DownloadsScreen extends StatelessWidget {
+// PRODUCTION-GRADE PASS ("ekdam Echo Nightly jaisa feel, ekdam lightweight,
+// low-end pe makkhan chale"): this screen previously showed a percent as
+// plain text and nothing else — no visual progress, no storage summary, no
+// transition animation when a download finishes or is removed. Three
+// changes below, each picked specifically because it's cheap on a low-end
+// device, not just because it looks nicer:
+//   1. A thin circular progress RING around the artwork (CustomPainter,
+//      one arc draw — costs nothing like a shader/blur would) replaces the
+//      flat opacity+spinner combo, same premium-app language as Spotify/
+//      YT Music/Echo Nightly's own download indicators.
+//   2. A storage-summary header ("12 songs · 84 MB") using fileSizeBytes,
+//      which DownloadItem already tracks — zero new state, just a fold
+//      over data already being persisted.
+//   3. AnimatedSwitcher + AnimatedList-style implicit transitions so a
+//      download finishing (moves from "Downloading" to "Downloaded") or a
+//      delete doesn't jump-cut the list — a short fade/slide, same 220ms
+//      timing already used everywhere else in the app for consistency.
+class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({super.key});
+
+  @override
+  State<DownloadsScreen> createState() => _DownloadsScreenState();
+}
+
+class _DownloadsScreenState extends State<DownloadsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Fresh push (or re-push) of this screen — treat this as a brand new
+    // "initial build" session. Every _DownloadTileEntrance alive during
+    // the upcoming first frame will read true and skip its own fade
+    // (AurumDepthRoute's page transition already covers that moment);
+    // this flips to false right after that first frame paints, so any
+    // row appearing later plays the fade normally. See
+    // _DownloadsSessionGate's own comment for the full reasoning.
+    _DownloadsSessionGate.isInitialBuild = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _DownloadsSessionGate.isInitialBuild = false;
+    });
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 MB';
+    const kb = 1024;
+    const mb = kb * 1024;
+    const gb = mb * 1024;
+    if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(2)} GB';
+    return '${(bytes / mb).toStringAsFixed(1)} MB';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2844,6 +2891,8 @@ class DownloadsScreen extends StatelessWidget {
     final inProgress = downloads.inProgress;
     final completed = downloads.completed;
     final isEmpty = inProgress.isEmpty && completed.isEmpty;
+    final totalBytes = completed.fold<int>(
+        0, (sum, d) => sum + (d.fileSizeBytes ?? 0));
 
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
@@ -2883,6 +2932,30 @@ class DownloadsScreen extends StatelessWidget {
               ),
             ),
           ),
+          // Storage summary strip — only meaningful once something is
+          // actually downloaded, so it's skipped entirely on the empty
+          // state (no dead "0 songs · 0 MB" row to greet a new user).
+          if (completed.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                child: Row(
+                  children: [
+                    Icon(Icons.sd_storage_rounded,
+                        size: 14, color: AurumTheme.textMutedOf(context)),
+                    const SizedBox(width: 6),
+                    Text(
+                      l10n.libraryDownloadsStorageSummary(
+                          completed.length, _formatBytes(totalBytes)),
+                      style: TextStyle(
+                          color: AurumTheme.textMutedOf(context),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (isEmpty)
             SliverFillRemaining(
               child: Center(
@@ -2928,7 +3001,10 @@ class DownloadsScreen extends StatelessWidget {
               SliverToBoxAdapter(child: _sectionHeader(context, l10n.libraryDownloadingHeader)),
               SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  (context, i) => _DownloadTile(item: inProgress[i]),
+                  (context, i) => _DownloadTileEntrance(
+                    key: ValueKey('dl_prog_${inProgress[i].song.id}'),
+                    child: _DownloadTile(item: inProgress[i]),
+                  ),
                   childCount: inProgress.length,
                 ),
               ),
@@ -2940,10 +3016,13 @@ class DownloadsScreen extends StatelessWidget {
                       context, l10n.libraryDownloadedCountHeader(completed.length))),
               SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  (context, i) => _DownloadTile(
-                    item: completed[i],
-                    queue: completed,
-                    queueIndex: i,
+                  (context, i) => _DownloadTileEntrance(
+                    key: ValueKey('dl_done_${completed[i].song.id}'),
+                    child: _DownloadTile(
+                      item: completed[i],
+                      queue: completed,
+                      queueIndex: i,
+                    ),
                   ),
                   childCount: completed.length,
                 ),
@@ -2967,6 +3046,202 @@ class DownloadsScreen extends StatelessWidget {
               letterSpacing: 1.5)),
     );
   }
+}
+
+// PRODUCTION-GRADE PROGRESS RING ("download songs bhe ekdam top level ka,
+// Echo Nightly style"): replaces the old opacity+small-spinner combo with
+// a real determinate ring showing actual download progress, same visual
+// language as Spotify/YT Music's own download indicators. Deliberately a
+// CustomPainter drawing one arc rather than Flutter's own
+// CircularProgressIndicator — same visual result, but a single Canvas.drawArc
+// call per repaint is cheaper than the animation/paint machinery
+// CircularProgressIndicator carries (built for material-spec ripple +
+// indeterminate-mode support this use case doesn't need), and it repaints
+// only when `progress` actually changes (driven by DownloadProvider's own
+// notifyListeners, already throttled to once per whole percent — see
+// download_provider.dart) rather than ticking every frame.
+class _DownloadProgressRing extends StatelessWidget {
+  final String artworkUrl;
+  final double progress;
+  const _DownloadProgressRing({required this.artworkUrl, required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Opacity(
+              opacity: 0.55,
+              child: AurumArtwork(url: artworkUrl, size: 48, borderRadius: 8),
+            ),
+          ),
+          // Soft scrim so the ring reads clearly over busy album art,
+          // same purpose as the old Opacity(0.4) wash — just tuned
+          // slightly lighter since the ring itself now carries most of
+          // the "this is downloading" signal.
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.black.withValues(alpha: 0.18),
+            ),
+          ),
+          CustomPaint(
+            size: const Size(30, 30),
+            painter: _RingPainter(
+              progress: progress.clamp(0.0, 1.0),
+              trackColor: Colors.white.withValues(alpha: 0.25),
+              progressColor: AurumTheme.gold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RingPainter extends CustomPainter {
+  final double progress;
+  final Color trackColor;
+  final Color progressColor;
+  const _RingPainter({
+    required this.progress,
+    required this.trackColor,
+    required this.progressColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = (size.shortestSide - 3) / 2;
+    const strokeWidth = 2.6;
+
+    final trackPaint = Paint()
+      ..color = trackColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+    canvas.drawCircle(center, radius, trackPaint);
+
+    if (progress > 0) {
+      final progressPaint = Paint()
+        ..color = progressColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round;
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        -math.pi / 2,
+        2 * math.pi * progress,
+        false,
+        progressPaint,
+      );
+    }
+  }
+
+  // Only repaint when the actual progress value changes — not on every
+  // rebuild of the parent tile (e.g. theme/locale changes elsewhere in
+  // the tree), keeping this genuinely cheap on a long downloading list.
+  @override
+  bool shouldRepaint(covariant _RingPainter oldDelegate) =>
+      oldDelegate.progress != progress ||
+      oldDelegate.trackColor != trackColor ||
+      oldDelegate.progressColor != progressColor;
+}
+
+// LIGHTWEIGHT ENTRANCE ("naya download list mein aaye to smooth aaye, page
+// khulte hi sab tiles pe apna alag fade na chale — glitch jaisa lagta
+// tha"): the earlier version played this fade/slide on EVERY tile the
+// instant it built — including the very first frame the whole screen
+// appears on. That collided with AurumDepthRoute's own page-level
+// fade+slide-up transition (see aurum_transitions.dart) running at the
+// exact same moment: two independent opacity animations stacked on top of
+// each other, starting at slightly different instants, reads as a
+// glitch/stutter rather than something intentional — this tile-level fade
+// was invisible under the page's much bigger fade for most of the
+// transition, then popped in abruptly right at the end, which is exactly
+// the "animation isn't working / feels off" behavior reported.
+//
+// Fix: a row present on the very first build of the list (i.e. the screen
+// just opened) skips its own animation entirely — the page transition
+// already sells that moment, nothing more is needed. A row that appears
+// LATER, while you're already sitting on this screen (a download finishing
+// and moving from "Downloading" into "Downloaded"), still gets the
+// fade/slide-in — which is what this was actually built for.
+//
+// Deliberately NOT an AnimationController/SingleTickerProviderStateMixin
+// either way — that would mean one live ticker per row, real per-frame
+// cost on a long list (50+ downloads) for something that only ever needs
+// to play once. TweenAnimationBuilder has no persistent vsync subscription
+// at all: it runs its 220ms tween once and is fully inert — zero ticker,
+// zero rebuild — the moment it completes.
+class _DownloadTileEntrance extends StatefulWidget {
+  final Widget child;
+  const _DownloadTileEntrance({super.key, required this.child});
+
+  @override
+  State<_DownloadTileEntrance> createState() => _DownloadTileEntranceState();
+}
+
+class _DownloadTileEntranceState extends State<_DownloadTileEntrance> {
+  // Captured once, in initState, against DownloadsScreen's own
+  // `_isInitialBuild` flag (see that State below) — true for every row
+  // still being built during the screen's first frame (skip: page
+  // transition already covers it), false for a row created afterward
+  // (play the fade: this is a genuinely new arrival mid-session).
+  late final bool _skipAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _skipAnimation = _DownloadsSessionGate.isInitialBuild;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_skipAnimation) return widget.child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(
+          offset: Offset(0, (1 - t) * 12),
+          child: child,
+        ),
+      ),
+      child: widget.child,
+    );
+  }
+}
+
+// Tiny frame-identity gate — lets every tile ask "was I born on the same
+// frame the screen itself first appeared?" without each row needing its
+// own timestamp/comparison plumbing. `screenOpenedFrame` is stamped once
+// in DownloadsScreen's build (first call only); `currentFrame` is
+// Flutter's own monotonically increasing frame counter, already tracked
+// by the engine for every frame regardless of this feature — reading it
+// costs nothing extra.
+// Session-identity gate — every _DownloadTileEntrance checks
+// `isInitialBuild` in its own initState (see that class above) to decide
+// whether to skip its fade. `isInitialBuild` starts true and flips to
+// false via a single addPostFrameCallback scheduled by DownloadsScreen's
+// own State the first (and only the first) time it builds — every tile
+// alive during that first frame reads `true` and skips its animation
+// (the page-push transition already covers that moment); anything
+// created afterward reads `false` and plays the fade normally. Reset to
+// true in DownloadsScreen.initState so re-opening the screen (a fresh
+// push) is correctly treated as a new "initial build" again, not a
+// continuation of whatever session came before.
+class _DownloadsSessionGate {
+  static bool isInitialBuild = true;
 }
 
 class _DownloadTile extends StatelessWidget {
@@ -3003,27 +3278,9 @@ class _DownloadTile extends StatelessWidget {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       leading: item.isDownloading
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Opacity(
-                    opacity: 0.4,
-                    child: AurumArtwork(url: song.artworkUrl, size: 48, borderRadius: 8),
-                  ),
-                  SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: Center(
-                      child: AurumM3Loader(
-                        width: 22,
-                        height: 2.5,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          ? _DownloadProgressRing(
+              artworkUrl: song.artworkUrl,
+              progress: item.progress,
             )
           : AurumStackedArtwork(
               url: song.artworkUrl,

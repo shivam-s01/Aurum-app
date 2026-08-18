@@ -426,6 +426,18 @@
   "libraryDownloadFailedTapRetry": "विफल — फिर से कोशिश करने के लिए टैप करें",
   "libraryDownloadFromPlayerDesc": "ऑफ़लाइन सुनने के लिए प्लेयर से कोई गाना डाउनलोड करें।",
   "libraryDownloadedCountHeader": "{count, plural, =1{1 डाउनलोड हुआ} other{{count} डाउनलोड हुए}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 गाना} other{{count} गाने}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "डाउनलोड हो रहा है",
   "libraryDownloadingPercent": "डाउनलोड हो रहा है • {percent}%",
   "libraryEditPlaylist": "प्लेलिस्ट संपादित करें",

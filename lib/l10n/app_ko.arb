@@ -434,6 +434,18 @@
   "libraryDownloadFailedTapRetry": "실패 — 탭하여 재시도",
   "libraryDownloadFromPlayerDesc": "플레이어에서 곡을 다운로드하여 오프라인으로 들어보세요.",
   "libraryDownloadedCountHeader": "{count, plural, other{{count}개 다운로드됨}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 곡} other{{count} 곡}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "다운로드 중",
   "libraryDownloadingPercent": "다운로드 중 • {percent}%",
   "libraryEditPlaylist": "재생목록 편집",

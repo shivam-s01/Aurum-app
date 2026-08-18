@@ -713,10 +713,12 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                   color: Colors.purpleAccent,
                   onTap: () {
                     if (songs.isEmpty) return;
-                    for (final s in songs) {
-                      unawaited(player.addToQueue(s));
-                    }
-                    _snack('Added ${songs.length} songs to queue');
+                    Navigator.pop(context);
+                    unawaited(player.addSongsToQueue(songs).then((added) {
+                      _snack(added > 0
+                          ? 'Added $added song${added == 1 ? '' : 's'} to queue'
+                          : 'Already in queue');
+                    }));
                   },
                 ),
                 _GridOption(

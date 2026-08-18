@@ -4,6 +4,7 @@ import '../main.dart' show aurumRouteObserver;
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
+import 'dart:ui' as ui show Image;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/scheduler.dart' show Ticker;
@@ -695,17 +696,26 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   bool _panelOpen = false;
 
-  // PERF FIX (godmode recheck): _pauseAmbientAnims/_resumeAmbientAnims
-  // existed solely to stop/restart the now-removed _breatheCtrl loop (see
-  // that field's own FIX comment above for the full history) — nothing
-  // else in this screen was ever driven by them. Kept as harmless no-ops,
-  // rather than deleting every call site, since app-lifecycle/panel-open
-  // hooks calling them is still exactly the right place to pause/resume
-  // ambient motion if a genuinely visible ambient animation is ever added
-  // back here in the future.
-  void _pauseAmbientAnims() {}
+  // PERF FIX (godmode recheck): existed solely to stop/restart the
+  // now-removed _breatheCtrl loop (see that field's own FIX comment
+  // above for the full history) — nothing else in this screen was ever
+  // driven by them, UNTIL the Ken Burns pan/zoom on the blurred
+  // background was reinstated (see _StaticBlurArtworkState) to exactly
+  // match Echo Nightly's own KenBurnsView. That controller now genuinely
+  // needs pausing here too — same battery reasoning as everything else
+  // in this file: no ticker should run while backgrounded or while the
+  // Up Next/Lyrics/Info panel is covering this layer entirely. A
+  // GlobalKey lets this screen reach into that State without threading a
+  // callback down through every intermediate widget.
+  final GlobalKey<_StaticBlurArtworkState> _kenBurnsKey = GlobalKey();
 
-  void _resumeAmbientAnims() {}
+  void _pauseAmbientAnims() {
+    _kenBurnsKey.currentState?.pause();
+  }
+
+  void _resumeAmbientAnims() {
+    _kenBurnsKey.currentState?.resume();
+  }
 
   // ── Palette / song cache ──
   Future<void> _extractColor(String url, {bool isLight = false}) async {
@@ -3991,13 +4001,16 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     final isLight = Theme.of(context).brightness == Brightness.light;
     final screenH = MediaQuery.of(context).size.height;
     final topInset = MediaQuery.of(context).padding.top;
-    // Previously 0.95 * screenH — tall enough to reach almost the very top
-    // of the screen, under the status bar/notch, which read as the whole
-    // full player relocating upward rather than a sheet rising over it.
-    // Cap it well below the safe-area top so there's always a clear gap
-    // showing the full player (and status bar) behind the sheet.
+    // FIX ("Up Next page Echo Nightly jitni height pe nahi ja raha"):
+    // 0.80 * screenH capped this panel noticeably shorter than Echo
+    // Nightly's PlayerMoreFragment, which sits almost flush under the
+    // status bar (see fragment_player_more.xml's tiny fixed top margin).
+    // Bumped to 0.92 — still leaves a sliver of the full player/status
+    // bar visible above it (so it never reads as a full-screen route
+    // swap), but now genuinely matches the reference height instead of
+    // stopping noticeably short.
     final panelHeight =
-        (screenH * 0.80).clamp(360.0, screenH - topInset - 56.0);
+        (screenH * 0.92).clamp(360.0, screenH - topInset - 12.0);
     // NOTE: dragFraction/dragOpacity/scale/opacity are NOT computed here —
     // this outer build() only runs once per gesture (see the PERF comment
     // on the ValueListenableBuilder below); the real per-frame versions
@@ -4126,6 +4139,20 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                               // has zero competing recognizers — native,
                               // instant, smooth scroll from the very first
                               // pixel of drag.
+                              // FIX ("swipe down se panel band hi nahi hota
+                              // tha"): the drag-to-dismiss GestureDetector
+                              // used to wrap ONLY the 32×4px handle bar
+                              // itself — a genuinely tiny target, especially
+                              // one-handed with a thumb, so most swipe-down
+                              // attempts landed just outside it and did
+                              // nothing. Widened to the full handle+padding
+                              // strip (32px tall touch band across the
+                              // panel's whole width) so any swipe-down
+                              // starting near the top of the sheet — not
+                              // just a pixel-perfect hit on the small bar —
+                              // registers. The visual handle indicator
+                              // stays the same small pill; only the hit
+                              // area grew.
                               GestureDetector(
                                 behavior: HitTestBehavior.opaque,
                                 onVerticalDragUpdate: (d) {
@@ -4142,9 +4169,12 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                                     _springBackToZero();
                                   }
                                 },
-                                child: Padding(
-                                  padding: const EdgeInsets.only(
-                                      top: 12, bottom: 6),
+                                child: Container(
+                                  width: double.infinity,
+                                  color: Colors.transparent,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14),
+                                  alignment: Alignment.center,
                                   child: Container(
                                     width: 32,
                                     height: 4,
@@ -4157,19 +4187,51 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                               ),
                               _buildTabBar(isLight),
                               Expanded(
-                                // AnimatedSwitcher instead of a single
-                                // shared FadeTransition: each tab page
-                                // (Queue/Lyrics/Info) is a different
-                                // height, so fading one static child in
-                                // place used to jump-cut the container
-                                // size the instant _activeTab changed —
-                                // the fade masked color, not layout, so
-                                // it still read as a jerky snap. Keying
-                                // by _activeTab lets old/new pages
-                                // cross-fade independently with their
-                                // own sizes, which is what actually
-                                // reads as smooth.
-                                child: AnimatedSwitcher(
+                                // FIX ("Up Next list ke andar se swipe-down
+                                // se panel band nahi hota, sirf upar wale
+                                // chhote handle se hota tha"): drag-to-
+                                // dismiss lived only on the handle strip so
+                                // it would never fight the list's own
+                                // scroll gesture — correct for the middle
+                                // of a long list, but it meant a swipe-down
+                                // starting ANYWHERE on the list itself (the
+                                // far more natural, YouTube/Echo-Nightly-
+                                // like place to start that gesture) did
+                                // nothing at all. OverscrollNotification is
+                                // the right native signal for this: with
+                                // ClampingScrollPhysics (no rubber-band),
+                                // Flutter still emits one the instant a
+                                // drag continues past the list's top edge
+                                // — i.e. only once there's nowhere left to
+                                // scroll. Feeding that into the exact same
+                                // _dragY/_dismiss path the handle already
+                                // uses means the list scrolls completely
+                                // normally right up until it's actually at
+                                // the top, and only then does further
+                                // downward drag hand off to closing the
+                                // panel — no competing recognizer, no
+                                // stolen scroll gestures, just the natural
+                                // "can't scroll further, so the swipe
+                                // closes the sheet" feel.
+                                child: NotificationListener<OverscrollNotification>(
+                                  onNotification: (notification) {
+                                    if (notification.overscroll < 0) {
+                                      _springBackCtrl.stop();
+                                      _dragY += -notification.overscroll;
+                                    }
+                                    return false;
+                                  },
+                                  child: GestureDetector(
+                                    onVerticalDragEnd: (d) {
+                                      if (_dragY <= 0) return;
+                                      if (_dragY > 90 ||
+                                          (d.primaryVelocity ?? 0) > 600) {
+                                        _dismiss();
+                                      } else {
+                                        _springBackToZero();
+                                      }
+                                    },
+                                    child: AnimatedSwitcher(
                                   duration: _tabSwitchDuration,
                                   switchInCurve: Curves.easeOut,
                                   switchOutCurve: Curves.easeIn,
@@ -4190,6 +4252,8 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                                   child: KeyedSubtree(
                                     key: ValueKey(_activeTab),
                                     child: _buildTabContent(),
+                                  ),
+                                ),
                                   ),
                                 ),
                               ),
@@ -4444,11 +4508,11 @@ class _QueuePage extends StatelessWidget {
                   ),
                 ),
               ),
-            // Up next list — drag handle reorders, swipe reveals delete,
-            // long-press opens quick actions. SliverReorderableList keeps
-            // this on the same lightweight sliver scroll as everything
-            // else above (no nested scrollables, no extra scroll
-            // controller wiring needed).
+            // Up next list — drag handle reorders (long-press-free, grabs
+            // instantly), tap X removes. SliverReorderableList keeps this
+            // on the same lightweight sliver scroll as everything else
+            // above (no nested scrollables, no extra scroll controller
+            // wiring needed).
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
               sliver: SliverReorderableList(
@@ -4736,79 +4800,19 @@ class _QueueTile extends StatefulWidget {
   State<_QueueTile> createState() => _QueueTileState();
 }
 
-class _QueueTileState extends State<_QueueTile>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _swipeCtrl;
-  late Animation<double> _settleAnim;
-  double _dragOffset = 0;
-  bool _swiped = false;
-
-  static const double _deleteRevealWidth = 76.0;
-  static const double _swipeOpenThreshold = 56.0;
-
-  @override
-  void initState() {
-    super.initState();
-    _swipeCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 220));
-    _settleAnim = AlwaysStoppedAnimation(0.0);
-  }
-
-  @override
-  void dispose() {
-    _swipeCtrl.dispose();
-    super.dispose();
-  }
-
-  void _handleSwipeEnd() {
-    // Past the full delete-reveal width + a firm flick → remove outright.
-    if (_dragOffset.abs() > _deleteRevealWidth + 30) {
-      AurumHaptics.heavy();
-      _swiped = true;
-      _swipeCtrl.forward().then((_) {
-        if (mounted) widget.onRemove();
-      });
-      return;
-    }
-    // Past the open threshold → snap fully open to reveal the delete
-    // button (Spotify/YT Music style), rather than springing back.
-    if (_dragOffset.abs() > _swipeOpenThreshold) {
-      AurumHaptics.light();
-      final fromOffset = _dragOffset;
-      _settleAnim = Tween<double>(begin: fromOffset, end: -_deleteRevealWidth)
-          .animate(CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic));
-      _swipeCtrl.forward(from: 0.0).then((_) {
-        if (mounted) setState(() => _dragOffset = -_deleteRevealWidth);
-        _swipeCtrl.reset();
-      });
-      return;
-    }
-    // Otherwise spring back closed.
-    final fromOffset = _dragOffset;
-    _settleAnim = Tween<double>(begin: fromOffset, end: 0.0).animate(
-      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
-    );
-    _swipeCtrl.forward(from: 0.0).then((_) {
-      if (mounted) setState(() => _dragOffset = 0);
-      _swipeCtrl.reset();
-    });
-  }
-
-  void _closeSwipe() {
-    if (_dragOffset == 0) return;
-    final fromOffset = _dragOffset;
-    _settleAnim = Tween<double>(begin: fromOffset, end: 0.0).animate(
-      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
-    );
-    _swipeCtrl.forward(from: 0.0).then((_) {
-      if (mounted) setState(() => _dragOffset = 0);
-      _swipeCtrl.reset();
-    });
-  }
-
+class _QueueTileState extends State<_QueueTile> {
+  // FIX ("Up Next songs Echo Nightly jaisa fixed layout — hamesha ek
+  // visible X, swipe hataa do"): this used to carry its own
+  // AnimationController + drag-offset state + a Stack/reveal-behind-tile
+  // layer purely to support swipe-to-delete (Spotify/YT Music style).
+  // Replacing that with a plain always-visible X icon is both what was
+  // asked for AND meaningfully lighter: every tile in a long Up Next
+  // list no longer owns a live AnimationController or runs an
+  // AnimatedBuilder on every frame of a swipe gesture — on a low-end
+  // device with 50+ queued songs that's a real number of controllers
+  // removed, not just fewer lines of code.
   void _confirmDelete() {
     AurumHaptics.heavy();
-    setState(() => _swiped = true);
     widget.onRemove();
   }
 
@@ -4840,81 +4844,12 @@ class _QueueTileState extends State<_QueueTile>
 
   @override
   Widget build(BuildContext context) {
-    if (_swiped) return const SizedBox.shrink();
     final isLight = Theme.of(context).brightness == Brightness.light;
 
     return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _swipeCtrl,
-        builder: (_, child) {
-          final offset = _swiped
-              ? _dragOffset
-              : (_swipeCtrl.isAnimating || _dragOffset == _settleAnim.value)
-                  ? _settleAnim.value
-                  : _dragOffset;
-          final revealFrac =
-              (offset.abs() / _deleteRevealWidth).clamp(0.0, 1.0);
-          return Stack(
-            children: [
-              // ── Delete action revealed behind the tile (Spotify/YT
-              // Music style) — fades/scales in as the tile slides away,
-              // never visible at rest.
-              if (revealFrac > 0)
-                Positioned.fill(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 4),
-                        child: GestureDetector(
-                          onTap: _confirmDelete,
-                          child: Container(
-                            width: _deleteRevealWidth - 8,
-                            height: double.infinity,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: Color.lerp(
-                                  Colors.red.withAlpha(140),
-                                  Colors.red.withAlpha(230),
-                                  revealFrac),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Opacity(
-                              opacity: revealFrac,
-                              child: const Icon(Icons.delete_rounded,
-                                  color: Colors.white, size: 22),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              Transform.translate(
-                offset: Offset(offset, 0),
-                child: child,
-              ),
-            ],
-          );
-        },
-        child: GestureDetector(
-          onTap: () {
-            if (_dragOffset != 0) {
-              _closeSwipe();
-              return;
-            }
-            widget.onTap();
-          },
+      child: GestureDetector(
+          onTap: widget.onTap,
           onLongPress: _showQuickActions,
-          onHorizontalDragUpdate: (d) {
-            _swipeCtrl.stop();
-            setState(() {
-              _dragOffset += d.delta.dx;
-              _dragOffset = _dragOffset.clamp(-_deleteRevealWidth - 30, 0.0);
-            });
-          },
-          onHorizontalDragEnd: (_) => _handleSwipeEnd(),
           child: Builder(builder: (context) {
             final tileBg = widget.isNextUp
                 ? (isLight
@@ -4990,6 +4925,20 @@ class _QueueTileState extends State<_QueueTile>
                   ],
                 )),
                 const SizedBox(width: 8),
+                // Screenshot spec: X (remove) is always visible, sits
+                // just left of the drag handle — tap removes immediately,
+                // no swipe/reveal step needed. A plain IconButton here is
+                // the lightest possible way to do this: no controller, no
+                // extra gesture arena, nothing to animate at rest.
+                IconButton(
+                  onPressed: _confirmDelete,
+                  icon: Icon(Icons.close_rounded, color: dragColor, size: 18),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                      minWidth: 32, minHeight: 32),
+                  splashRadius: 18,
+                ),
+                const SizedBox(width: 4),
                 // FIX (YT Music-style "drag handle ko press karke song ko
                 // list mein kahi bhi drop karna" not working reliably):
                 // this used to be a plain ReorderableDragStartListener
@@ -5016,10 +4965,24 @@ class _QueueTileState extends State<_QueueTile>
                 // onTap/onLongPress normally, and once armed the item
                 // follows the finger to ANY position in the list exactly
                 // like YouTube Music/Spotify, not just adjacent swaps.
+                // FIX ("drag ekdam natural, Echo Nightly ka
+                // ItemTouchHelper jaisa instant"): the handle already
+                // has its own isolated opaque GestureDetector above, so
+                // there's no ambiguous gesture to wait out — the 500ms
+                // long-press-to-arm delay (ReorderableDelayedDragStartListener)
+                // that made sense back when this shared an arena with
+                // swipe-to-delete is no longer needed now that swipe-to-
+                // delete is gone entirely (replaced by the always-visible
+                // X). Android's ItemTouchHelper (what Echo Nightly's
+                // queue actually rides on) starts a drag the instant you
+                // press and move on its handle — no wait at all. Switching
+                // to the non-delayed listener matches that: press the
+                // handle, it's already grabbed, follows the finger from
+                // the very first pixel of movement.
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {},
-                  child: ReorderableDelayedDragStartListener(
+                  child: ReorderableDragStartListener(
                     index: widget.reorderIndex,
                     child: Padding(
                       padding: const EdgeInsets.all(8),
@@ -5031,8 +4994,7 @@ class _QueueTileState extends State<_QueueTile>
             );
           }),
         ),
-      ),
-    );
+      );
   }
 }
 
@@ -5831,7 +5793,7 @@ class _BgLayer extends StatelessWidget {
                   children: [...previousChildren, if (currentChild != null) currentChild],
                 ),
                 child: _StaticBlurArtwork(
-                  key: ValueKey('${song.id}_${song.artworkUrl}'),
+                  key: _kenBurnsKey,
                   song: song,
                   isLight: isLight,
                   isDragging: isDragging,
@@ -5996,7 +5958,7 @@ class _BgLayer extends StatelessWidget {
 // filter would, so this reads as a slow Echo-style Ken Burns drift on the
 // background artwork for ~0 extra frame cost.
 // ─────────────────────────────────────────────────────────────────────────────
-class _StaticBlurArtwork extends StatelessWidget {
+class _StaticBlurArtwork extends StatefulWidget {
   final Song song;
   final bool isLight;
   final bool isDragging;
@@ -6009,6 +5971,93 @@ class _StaticBlurArtwork extends StatelessWidget {
   });
 
   @override
+  State<_StaticBlurArtwork> createState() => _StaticBlurArtworkState();
+}
+
+// EXACT MATCH ("Echo Nightly ka blur background genuinely slowly pans/
+// zooms — Ken Burns — usse hataana galat tha"): Echo Nightly's own
+// bg_image is a KenBurnsView (fragment_player.xml), not a static image —
+// confirmed by reading the actual layout. It was removed here for
+// performance when the background was still a LIVE blur shader running
+// every frame — animating a Transform on top of THAT was genuinely
+// expensive (re-compositing a 20-22σ blur every frame). Now that
+// _BlurredArtworkCore bakes the blur to a static bitmap once per song
+// (see that class's own comment), a slow pan/zoom on top of the finished
+// bitmap is just a single cheap GPU transform on an already-rasterized
+// texture — the same category of cost as the drag-transform elsewhere in
+// this file, not the blur shader's cost. Restoring it now matches Echo
+// exactly while staying just as lightweight as the fully-static version
+// was.
+class _StaticBlurArtworkState extends State<_StaticBlurArtwork>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _kenBurnsCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    // Slow, subtle — 18s round trip, same tempo as the app's other
+    // ambient/breathing motion elsewhere in this file, so nothing on
+    // screen ever feels like it's animating at a different "speed of
+    // life" than anything else.
+    _kenBurnsCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 18),
+    );
+    // EDGE CASE FIX: this widget is keyed per-song (see the ValueKey at
+    // the call site), so a song change during an active drag creates a
+    // brand new State here — didUpdateWidget below (which normally
+    // handles pausing on drag) never runs for a freshly-created State,
+    // only for one that persists across rebuilds. Checking
+    // widget.isDragging here too means a song change mid-drag still
+    // starts paused instead of ticking for one frame before anything
+    // downstream notices.
+    if (!widget.isDragging) {
+      _kenBurnsCtrl.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _kenBurnsCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_StaticBlurArtwork old) {
+    super.didUpdateWidget(old);
+    // Pause the ticker entirely while mid-dismiss-drag — matches the
+    // app-wide pattern (_pauseAmbientAnims in the full player screen) of
+    // not spending any frame budget on ambient motion while a gesture is
+    // actively competing for it. Skipped if the parent already paused
+    // this for a different reason (backgrounded/panel open) — that pause
+    // should only be lifted by resume() above, not by the drag ending.
+    if (widget.isDragging && !old.isDragging) {
+      _kenBurnsCtrl.stop();
+    } else if (!widget.isDragging && old.isDragging && !_pausedByParent) {
+      _kenBurnsCtrl.repeat(reverse: true);
+    }
+  }
+
+  // Reached via GlobalKey from _FullPlayerScreenState's
+  // _pauseAmbientAnims/_resumeAmbientAnims — stops this ticker while the
+  // app is backgrounded or the Up Next/Lyrics/Info panel is covering this
+  // layer, so no GPU time is spent animating something nobody can see.
+  bool _pausedByParent = false;
+
+  void pause() {
+    _pausedByParent = true;
+    _kenBurnsCtrl.stop();
+  }
+
+  void resume() {
+    if (!_pausedByParent) return;
+    _pausedByParent = false;
+    if (!widget.isDragging) {
+      _kenBurnsCtrl.repeat(reverse: true);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     // NOTE: previously short-circuited to SizedBox.shrink() here when
     // song.artworkUrl was empty, which skipped this whole layer for local
@@ -6017,19 +6066,26 @@ class _StaticBlurArtwork extends StatelessWidget {
     // "layer" during swipe-to-dismiss. _BlurredArtworkCore now handles
     // the empty-artwork case itself (gradient placeholder instead of
     // nothing), so it's safe to always build it here too.
-    // SPEED FIX (Spotify-level instant open): Ken Burns pan/zoom drift was
-    // a perpetually-running Transform on top of the heaviest layer on this
-    // whole screen (22σ blur + 1.55x scaled full-bleed artwork), ticking
-    // every frame for as long as the full player stayed open — pure
-    // ongoing GPU cost with no bearing on how fast the screen opens, but
-    // it does compete for frame budget with the open transition itself on
-    // lower-end devices, which is exactly what reads as "atakta hai" right
-    // when the player is trying to slide up. Spotify/YT Music/Apple Music
-    // don't animate their blurred backdrop at all — it's static. Removing
-    // this entirely (not just freezing it) means _BlurredArtworkCore is
-    // now truly built ONCE per song with zero per-frame cost forever
-    // after, matching that reference behavior.
-    return _BlurredArtworkCore(song: song, isLight: isLight);
+    return AnimatedBuilder(
+      animation: _kenBurnsCtrl,
+      builder: (context, child) {
+        final t = Curves.easeInOut.transform(_kenBurnsCtrl.value);
+        // Small, slow drift — a scale of 1.0→1.06 and a few px of pan,
+        // same subtlety as Echo's own KenBurnsView defaults (a gentle
+        // "the photo is quietly alive" feel, never a noticeable zoom).
+        final scale = 1.0 + 0.06 * t;
+        final dx = -6.0 + 12.0 * t;
+        final dy = -4.0 + 8.0 * t;
+        return Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.identity()
+            ..translate(dx, dy)
+            ..scale(scale),
+          child: child,
+        );
+      },
+      child: _BlurredArtworkCore(song: widget.song, isLight: widget.isLight),
+    );
   }
 }
 
@@ -6037,43 +6093,201 @@ class _StaticBlurArtwork extends StatelessWidget {
 // Burns Transform wrapper above can sit outside it without ever forcing
 // this (expensive) subtree to rebuild. This widget itself is still only
 // built once per song via the ValueKey at the call site.
-class _BlurredArtworkCore extends StatelessWidget {
+//
+// BATTERY FIX ("Echo Nightly jitna lightweight feel kyun nahi aata" — root
+// cause): being built once per song (via ValueKey) only means the WIDGET
+// TREE doesn't rebuild every frame — it never meant the GPU stopped
+// working. ImageFiltered/ImageFilter.blur is a live shader: Flutter's
+// compositor re-runs the actual Gaussian blur on every single composited
+// frame this layer is on screen, for as long as the full player stays
+// open, even though the artwork underneath is 100% unchanged the whole
+// time. That's genuinely one of the most expensive things a mobile GPU can
+// be asked to do continuously, and it's exactly what Echo Nightly does NOT
+// do — its loadBlurred() (Coil's BlurTransformation) runs the blur exactly
+// ONCE, off the render thread, produces a plain bitmap, and from then on
+// it's just drawing a static image — zero ongoing shader cost, however
+// long the screen stays open.
+//
+// This now reproduces that same one-time-bake approach in Flutter:
+// _BlurredArtworkCore renders the expensive ImageFiltered subtree exactly
+// once inside an offstage RepaintBoundary, captures it to a ui.Image via
+// toImage() the instant it's painted, and from then on displays that
+// captured bitmap with a plain RawImage — which costs Flutter nothing more
+// than blitting a texture, the same as any normal photo. The blur shader
+// itself now runs once per song instead of ~60 times/sec for the entire
+// time the full player is open, which is the actual, structural fix for
+// the battery/heaviness gap — not a tuning tweak.
+class _BlurredArtworkCore extends StatefulWidget {
   final Song song;
   final bool isLight;
 
   const _BlurredArtworkCore({required this.song, required this.isLight});
 
   @override
+  State<_BlurredArtworkCore> createState() => _BlurredArtworkCoreState();
+}
+
+class _BlurredArtworkCoreState extends State<_BlurredArtworkCore> {
+  final GlobalKey _repaintKey = GlobalKey();
+  ui.Image? _snapshot;
+  bool _capturing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
+  }
+
+  @override
+  void didUpdateWidget(_BlurredArtworkCore old) {
+    super.didUpdateWidget(old);
+    // New song (this widget is only rebuilt at all when the ValueKey at
+    // the call site changes, i.e. a genuinely new song) — drop the old
+    // bitmap and re-bake for the new artwork.
+    if (old.song.id != widget.song.id ||
+        old.song.artworkUrl != widget.song.artworkUrl) {
+      _snapshot?.dispose();
+      _snapshot = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
+    }
+  }
+
+  Future<void> _capture() async {
+    if (_capturing || !mounted) return;
+    _capturing = true;
+    // One extra frame so AurumArtwork's own async decode (network/content://
+    // /file, whichever this song uses) has actually painted something real
+    // before the snapshot — capturing too early would just bake the
+    // shimmer/placeholder in as a permanent "blurred" image for this song.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    try {
+      final boundary = _repaintKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      if (boundary == null || boundary.debugNeedsPaint) {
+        // Not ready yet (artwork still decoding) — try again next frame
+        // rather than baking in an incomplete/placeholder paint.
+        _capturing = false;
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
+        }
+        return;
+      }
+      // devicePixelRatio 1.0 is deliberate: the source artwork is already
+      // decoded at a small capped resolution (AurumArtwork._cacheSize) and
+      // then heavily blurred — baking at full device pixel ratio would
+      // capture detail the blur immediately destroys anyway, for several
+      // times the memory and capture cost. This mirrors AurumArtwork's own
+      // existing "why decode more than the blur can preserve" reasoning.
+      final image = await boundary.toImage(pixelRatio: 1.0);
+      if (!mounted) {
+        image.dispose();
+        return;
+      }
+      setState(() {
+        _snapshot?.dispose();
+        _snapshot = image;
+      });
+    } catch (_) {
+      // Capture failures (e.g. zero-size boundary during a transient
+      // layout pass) just mean this song keeps showing the live blur —
+      // never worse than before this fix, never a crash.
+    } finally {
+      _capturing = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _snapshot?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // FIX ("white/flat layer on swipe-down for local songs with no
-    // embedded artwork"): this used to return SizedBox.shrink() whenever
-    // song.artworkUrl was empty — which is common for local/offline files
-    // scanned by local_music_service.dart when the MP3 has no embedded
-    // art and MediaStore has nothing cached for it either (see e.g. "Gora
-    // Rang", "Jodaa" in the library — generic note icon, no artwork).
-    // Skipping this layer entirely left only _BgLayer's flat L0 base
-    // (Color(0xFFE8E2D6) in light mode) plus a near-invisible low-alpha
-    // vignette on screen — a plain, colorless sheet that reads as a
-    // "white layer" sliding down during the swipe-to-dismiss drag, since
-    // _DragTransform fades/translates this whole background along with
-    // everything else and there was nothing but flat color underneath it
-    // to fade. A soft static gradient placeholder here (no image decode
-    // needed, so cost is negligible) keeps this layer visually present
-    // for every song, artwork or not, so the drag always fades something
-    // with actual depth instead of a flat wash.
-    if (song.artworkUrl.isEmpty) {
+    // Empty-artwork case is already the cheapest possible paint (a flat
+    // gradient, no image, no blur) — capturing/snapshotting it would only
+    // add overhead for zero benefit, so this bypasses the whole bake
+    // pipeline and always renders live (which costs nothing extra here).
+    if (widget.song.artworkUrl.isEmpty) {
       return DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: isLight
+            colors: widget.isLight
                 ? [const Color(0xFFDCD3C0), const Color(0xFFC9BCA0)]
                 : [const Color(0xFF241F38), const Color(0xFF120F24)],
           ),
         ),
       );
     }
+    final snapshot = _snapshot;
+    return RepaintBoundary(
+      child: ClipRect(
+        // FIX ("bake complete hote hi ek chhota pop/flicker awkward lag
+        // sakta hai"): switching from the live blur to the baked bitmap
+        // is a genuine widget swap (different subtree entirely), and even
+        // though both paint the same blurred artwork, a live shader vs a
+        // rasterized bitmap can differ by a sub-pixel of softness — enough
+        // to read as a faint pop on a hard cut, right at the one moment
+        // this whole optimization is supposed to be invisible. A short
+        // crossfade (same 220ms/easeOut used everywhere else artwork
+        // fades in this app — AurumArtwork._FadeInImage) makes the
+        // hand-off imperceptible instead of a snap, at effectively zero
+        // extra cost since it only plays once per song, right after the
+        // one-time bake.
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            fit: StackFit.expand,
+            children: [
+              ...previousChildren,
+              if (currentChild != null) currentChild,
+            ],
+          ),
+          child: snapshot != null
+              // Post-bake: a plain static bitmap. No shader, no live filter —
+              // this is exactly as cheap as drawing any other photo, no
+              // matter how long the full player stays open.
+              ? SizedBox.expand(
+                  key: const ValueKey('baked'),
+                  child: RawImage(image: snapshot, fit: BoxFit.cover),
+                )
+              // Pre-bake (first frame or first frame of a new song only):
+              // the real live-blur subtree, wrapped in its own
+              // RepaintBoundary so _capture() above can snapshot it. This
+              // is the only moment the shader actually runs per song.
+              : RepaintBoundary(
+                  key: _repaintKey,
+                  child: _LiveBlurArtwork(
+                    song: widget.song,
+                    isLight: widget.isLight,
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+// The genuinely expensive subtree (Transform.scale 1.55x + 20-22σ blur
+// shader) — isolated here so _BlurredArtworkCoreState above can capture it
+// via its own RepaintBoundary and then never build it again for this song.
+class _LiveBlurArtwork extends StatelessWidget {
+  final Song song;
+  final bool isLight;
+
+  const _LiveBlurArtwork({required this.song, required this.isLight});
+
+  @override
+  Widget build(BuildContext context) {
+    // NOTE: the empty-artwork short-circuit lives in
+    // _BlurredArtworkCoreState.build() now (this widget is only ever
+    // constructed once artworkUrl is known non-empty), so this subtree
+    // can assume real artwork exists.
     return RepaintBoundary(
       child: ClipRect(
         // FIX ("swipe down karte waqt blur background bahut upar tak
@@ -6095,8 +6309,21 @@ class _BlurredArtworkCore extends StatelessWidget {
         // transform is applied to it further up the tree — the outer
         // ClipRect in _DragTransform is now a second, redundant safety
         // net instead of the only thing preventing this.
+        // EXACT MATCH FIX: Echo Nightly's own bg_image (the KenBurnsView
+        // holding the blurred artwork in fragment_player.xml) has no
+        // alpha attribute at all — it's fully opaque (1.0). All of the
+        // darkening/tinting look comes from the SEPARATE gradient_track
+        // radial overlay drawn on top of it (already replicated by
+        // _StaticTintVignettePainter/_LightVignettePainter below — see
+        // that class's own comment confirming it targets the same
+        // footprint). Aurum's artwork layer was carrying its own
+        // 0.88-0.90 opacity on top of that, effectively double-applying
+        // the darkening the vignette layer already does correctly —
+        // matching Echo's actual 1.0 here is both the literal exact
+        // match and removes a redundant blend the vignette already
+        // covers.
         child: Opacity(
-          opacity: isLight ? 0.90 : 0.88,
+          opacity: 1.0,
           child: Transform.scale(
             scale: 1.55,
             child: ImageFiltered(

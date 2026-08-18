@@ -426,6 +426,18 @@
   "libraryDownloadFailedTapRetry": "Échec — appuyez pour réessayer",
   "libraryDownloadFromPlayerDesc": "Téléchargez un morceau depuis le lecteur pour l'écouter hors ligne.",
   "libraryDownloadedCountHeader": "{count, plural, =1{1 TÉLÉCHARGÉ} other{{count} TÉLÉCHARGÉS}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 chanson} other{{count} chansons}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "TÉLÉCHARGEMENT",
   "libraryDownloadingPercent": "Téléchargement • {percent}%",
   "libraryEditPlaylist": "Modifier la playlist",

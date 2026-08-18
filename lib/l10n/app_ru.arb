@@ -426,6 +426,18 @@
   "libraryDownloadFailedTapRetry": "Не удалось — нажмите, чтобы повторить",
   "libraryDownloadFromPlayerDesc": "Скачайте трек из плеера, чтобы слушать без интернета.",
   "libraryDownloadedCountHeader": "{count, plural, one{{count} ЗАГРУЖЕН} few{{count} ЗАГРУЖЕНО} many{{count} ЗАГРУЖЕНО} other{{count} ЗАГРУЖЕНО}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 песня} other{{count} песен}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "ЗАГРУЗКА",
   "libraryDownloadingPercent": "Загрузка • {percent}%",
   "libraryEditPlaylist": "Изменить плейлист",

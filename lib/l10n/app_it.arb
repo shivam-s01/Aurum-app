@@ -434,6 +434,18 @@
   "libraryDownloadFailedTapRetry": "Non riuscito — tocca per riprovare",
   "libraryDownloadFromPlayerDesc": "Scarica un brano dal player per ascoltarlo offline.",
   "libraryDownloadedCountHeader": "{count, plural, =1{1 SCARICATO} other{{count} SCARICATI}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 brano} other{{count} brani}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "DOWNLOAD IN CORSO",
   "libraryDownloadingPercent": "Download in corso • {percent}%",
   "libraryEditPlaylist": "Modifica playlist",

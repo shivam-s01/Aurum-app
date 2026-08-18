@@ -426,6 +426,18 @@
   "libraryDownloadFailedTapRetry": "失敗しました — タップして再試行",
   "libraryDownloadFromPlayerDesc": "プレイヤーから曲をダウンロードしてオフラインで聴けます。",
   "libraryDownloadedCountHeader": "{count, plural, other{{count}件ダウンロード済み}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1曲} other{{count}曲}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "ダウンロード中",
   "libraryDownloadingPercent": "ダウンロード中 • {percent}%",
   "libraryEditPlaylist": "プレイリストを編集",

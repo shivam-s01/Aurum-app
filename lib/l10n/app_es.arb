@@ -438,6 +438,18 @@
   "libraryDownloadFailedTapRetry": "Error — toca para reintentar",
   "libraryDownloadFromPlayerDesc": "Descarga una canción desde el reproductor para escucharla sin conexión.",
   "libraryDownloadedCountHeader": "{count, plural, =1{1 DESCARGADA} other{{count} DESCARGADAS}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 canción} other{{count} canciones}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "DESCARGANDO",
   "libraryDownloadingPercent": "Descargando • {percent}%",
   "libraryEditPlaylist": "Editar playlist",

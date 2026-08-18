@@ -426,6 +426,18 @@
   "libraryDownloadFailedTapRetry": "தோல்வி — மீண்டும் முயற்சிக்க தட்டவும்",
   "libraryDownloadFromPlayerDesc": "ஆஃப்லைனில் கேட்க பிளேயரிலிருந்து ஒரு பாடலைப் பதிவிறக்கவும்.",
   "libraryDownloadedCountHeader": "{count, plural, other{{count} பதிவிறக்கப்பட்டது}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 பாடல்கள்} other{{count} பாடல்கள்}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "பதிவிறக்குகிறது",
   "libraryDownloadingPercent": "பதிவிறக்குகிறது • {percent}%",
   "libraryEditPlaylist": "பிளேலிஸ்டைத் திருத்து",

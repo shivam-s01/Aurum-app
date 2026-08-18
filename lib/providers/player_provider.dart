@@ -1198,10 +1198,30 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   LoopMode get loopMode       => _loopMode;
   bool     get shuffle        => _shuffle;
   bool     get showFullPlayer => _showFullPlayer;
-  Song?    get currentSong    => _currentSong;
+  // FIX ("mini player/hero card khaali music-note icon dikhata hai, koi
+  // title/artist nahi, jaisे kuch stuck ho gaya ho"): every UI surface
+  // that reads currentSong (mini_player.dart, home_screen.dart's hero
+  // card) only ever checked `currentSong == null` before deciding to
+  // render the "now playing" card — a non-null Song whose id AND title
+  // are both empty (which can happen if a corrupted/stale persisted
+  // queue entry gets restored via restoreQueueSilently, or a native
+  // state event reports a song that never resolved real metadata) still
+  // passed that check and rendered as a populated-looking card with
+  // nothing actually in it: placeholder icon, blank title, blank artist.
+  // Filtering it out here, in the one getter every consumer already
+  // reads through, means a broken Song can never reach the UI at all —
+  // those surfaces correctly fall back to their own empty/idle state
+  // instead, with no changes needed in either widget file.
+  Song? get currentSong {
+    final s = _currentSong;
+    if (s == null) return null;
+    if (s.id.trim().isEmpty && s.title.trim().isEmpty) return null;
+    return s;
+  }
+
   List<Song> get queue        => _queue;
   int      get currentIndex   => _currentIndex;
-  bool     get hasSong        => _currentSong != null;
+  bool     get hasSong        => currentSong != null;
 
   // DEBUG ONLY — temporary diagnostic snapshot for tracking down the
   // "seek bar stuck at 00:00" report. Remove once root-caused. Exposes the
@@ -2066,10 +2086,58 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  // FIX ("same song repeats/duplicates in Up Next"): this and playNext()
+  // below were the only two queue-insertion paths in this file with ZERO
+  // duplicate protection — every other path (initial smart-queue build,
+  // auto-extend) runs a 3-layer check (exact id, normalized title, fuzzy
+  // title-match) before adding anything. These two are reachable from
+  // bulk "Add [whole album/mix] to Queue" actions (album_screen.dart,
+  // mix_screen.dart) as well as individual song-tile taps — a song
+  // already sitting in Up Next (from an earlier play, or simply present
+  // twice within the same album/mix being bulk-added) would silently
+  // double up with nothing to catch it. Same 3-layer check as everywhere
+  // else, applied against the live queue at call time.
+  bool _isDuplicateInQueue(Song song) {
+    if (_queue.any((s) => s.id == song.id)) return true;
+    final tk = _normTitleForDedup(song.title);
+    for (final s in _queue) {
+      if (_normTitleForDedup(s.title) == tk) return true;
+      if (RecommendationEngine.isSameSongSmart(song.title, s.title)) return true;
+    }
+    return false;
+  }
+
   Future<void> addToQueue(Song song) async {
+    if (_isDuplicateInQueue(song)) return;
     await _engine.addToQueue(song);
     _queue.add(song);
     notifyListeners();
+  }
+
+  // FIX ("same song repeats/duplicates in Up Next" — bulk-add race):
+  // callers that add a whole album/mix used to loop
+  // `for (final s in songs) { unawaited(player.addToQueue(s)); }` — every
+  // call fired at once (fire-and-forget), so a call for song #2 could
+  // read `_queue` before song #1's own addToQueue() had finished
+  // appending to it. Two reuploads of the same track sitting at
+  // different positions in the same album/mix could both pass the
+  // duplicate check and both land in Up Next, because neither call ever
+  // saw the other's result in time. Processing the whole batch here,
+  // sequentially (one add fully finishes — including its own
+  // _isDuplicateInQueue check against the now-updated queue — before the
+  // next one starts), closes that race: every song in the batch is
+  // checked against the true, up-to-date queue state, including
+  // whatever the batch itself has already added.
+  Future<int> addSongsToQueue(List<Song> songs) async {
+    var added = 0;
+    for (final song in songs) {
+      if (_isDuplicateInQueue(song)) continue;
+      await _engine.addToQueue(song);
+      _queue.add(song);
+      added++;
+    }
+    if (added > 0) notifyListeners();
+    return added;
   }
 
   // NativeAudioEngine has no dedicated "insert at front" method — the old
@@ -2078,6 +2146,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // the visible behavior (song plays immediately after the current one)
   // is preserved without needing a native-side API change.
   Future<void> playNext(Song song) async {
+    if (_isDuplicateInQueue(song)) return;
     await _engine.addToQueue(song);
     _queue.add(song);
     final from = _queue.length - 1;

@@ -438,6 +438,18 @@
   "libraryDownloadFailedTapRetry": "失败 — 点击重试",
   "libraryDownloadFromPlayerDesc": "从播放器下载歌曲以离线收听。",
   "libraryDownloadedCountHeader": "{count, plural, other{已下载 {count} 首}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1首} other{{count}首}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "下载中",
   "libraryDownloadingPercent": "下载中 • {percent}%",
   "libraryEditPlaylist": "编辑播放列表",

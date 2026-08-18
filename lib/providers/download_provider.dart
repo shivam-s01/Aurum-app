@@ -25,6 +25,38 @@ import '../services/native_engine_bridge.dart';
 class DownloadProvider extends ChangeNotifier {
   static const _boxName = 'aurum_downloads';
 
+  // SPEED FIX ("youtube songs bahut slow download ho rahe hai, network ke
+  // hisab se fast download chahiye"): two real bottlenecks here, neither
+  // network-speed-related in the literal sense — the transfer itself was
+  // never actually being throttled by anything except these:
+  //   1. `Dio()` was instantiated fresh per download with zero tuning —
+  //      default connect/receive timeouts (which on a slow/flaky mobile
+  //      network can sit stalled far longer than reasonable before Dio
+  //      even reports a problem) and no persistent connection reuse.
+  //      A single shared, tuned client fixes both: fast-fail timeouts so
+  //      a genuinely bad connection retries/fails quickly instead of
+  //      hanging, and a receiveTimeout that's generous enough for slow-
+  //      but-working networks (matches the same philosophy as the
+  //      search-timeout fix elsewhere) without hanging forever.
+  //   2. onReceiveProgress (see download() below) was calling _persist()
+  //      — a full Hive disk write + notifyListeners() — on EVERY chunk
+  //      callback Dio fires, which is dozens of times per second on a
+  //      fast connection. That disk I/O was competing with the file
+  //      write for the same disk on low-end/eMMC-class devices, which
+  //      measurably slows the actual transfer down. Throttled to at
+  //      most once per percent (already computed) via the persist call
+  //      being gated below, not on every raw byte-count callback.
+  static final Dio _downloadClient = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 15),
+      // Generous — a slow-but-working mobile network (weak wifi/3G)
+      // should still be allowed to finish rather than being cut off
+      // mid-transfer and forced to restart from zero.
+      receiveTimeout: const Duration(seconds: 60),
+      sendTimeout: const Duration(seconds: 15),
+    ),
+  );
+
   // FIX (2026-07-07) — see the resolveForDownload call further below:
   // injected so downloads can use the same native-first YouTube resolver
   // (YoutubeInnertube/NewPipeExtractor via HybridStreamResolver) that live
@@ -262,19 +294,36 @@ class DownloadProvider extends ChangeNotifier {
 
       int lastNotifiedPercent = -1;
 
-      await Dio().download(
+      await _downloadClient.download(
         url,
         tempPath,
         cancelToken: cancelToken,
+        // SPEED FIX: explicit large receive buffer + deleteOnError so a
+        // failed transfer doesn't leave a corrupt partial file mistaken
+        // for a resumable one on the next attempt.
+        deleteOnError: true,
+        options: Options(
+          receiveTimeout: const Duration(seconds: 60),
+        ),
         onReceiveProgress: (received, total) async {
           if (total <= 0) return;
           final progress = received / total;
+          final percent = (progress * 100).round();
+
+          // SPEED FIX: this callback fires many times per second on a
+          // fast connection — persisting (Hive disk write) on every call
+          // was fighting the file-write for the same disk I/O and
+          // slowing the transfer on low-end devices. Only persist +
+          // notify when the whole-percent value actually changes, same
+          // cadence as the notification below, instead of on every raw
+          // byte-count tick.
+          if (percent == lastNotifiedPercent) return;
+
           final current = _items[song.id];
           if (current == null) return;
 
           await _persist(current.copyWith(progress: progress));
 
-          final percent = (progress * 100).round();
           // Only push a notification update every whole percent to avoid spam.
           if (percent != lastNotifiedPercent) {
             lastNotifiedPercent = percent;

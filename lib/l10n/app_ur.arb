@@ -438,6 +438,18 @@
   "libraryDownloadFailedTapRetry": "ناکام — دوبارہ کوشش کے لیے تھپتھپائیں",
   "libraryDownloadFromPlayerDesc": "آف لائن سننے کے لیے پلیئر سے کوئی گانا ڈاؤن لوڈ کریں۔",
   "libraryDownloadedCountHeader": "{count, plural, one{1 ڈاؤن لوڈ ہوا} other{{count} ڈاؤن لوڈ ہوئے}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 گانا} other{{count} گانے}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "ڈاؤن لوڈ ہو رہا ہے",
   "libraryDownloadingPercent": "ڈاؤن لوڈ ہو رہا ہے • {percent}%",
   "libraryEditPlaylist": "پلے لسٹ میں ترمیم کریں",

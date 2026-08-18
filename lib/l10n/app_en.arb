@@ -759,6 +759,18 @@
       }
     }
   },
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 song} other{{count} songs}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen, e.g. '12 songs · 84 MB'",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "DOWNLOADING",
   "libraryDownloadingPercent": "Downloading • {percent}%",
   "@libraryDownloadingPercent": {

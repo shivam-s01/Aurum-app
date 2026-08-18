@@ -2823,10 +2823,35 @@ class ApiService {
     // entirely so both paths are identically YT-only end-to-end; Saavn
     // stays wired for playback/albums/browse, just not for populating
     // quickSearch's result list.
-    final ytFuture = _searchYt(q, limit: limit + 20)
-        .timeout(const Duration(seconds: 4), onTimeout: () => <Song>[])
-        .catchError((_) => <Song>[]);
-    var ytQuickResults = await ytFuture;
+    // SLOW-NETWORK FIX ("search slow network pe sahi se handle nahi kar
+    // raha"): this used to wrap _searchYt in its own hard 4s timeout with
+    // onTimeout: [] — a SEPARATE, SHORTER cutoff than _searchYt's own
+    // internal race logic, so even a healthy-but-slow call that was about
+    // to succeed got discarded here and silently replaced with an empty
+    // list. This is the actual per-keystroke path the search bar calls,
+    // so this was the real reason live search looked broken on a slow
+    // connection. Fast path is unchanged (still ~4s for the normal case);
+    // if nothing has landed by then, we now wait a real extra window
+    // instead of giving up, so a slow-but-working network still gets its
+    // results shown instead of a false empty state.
+    List<Song> ytQuickResults;
+    final ytFuture = _searchYt(q, limit: limit + 20);
+    try {
+      ytQuickResults = await ytFuture.timeout(const Duration(seconds: 4));
+    } on TimeoutException {
+      // Fast path didn't land in time — do NOT fire a second _searchYt
+      // call (that would double the network traffic on the exact slow
+      // connection this is meant to help). Keep waiting on the SAME
+      // future; _searchYt's own internal legs run up to 9s, so this
+      // gives the already-in-flight call a real chance to finish.
+      try {
+        ytQuickResults = await ytFuture.timeout(const Duration(seconds: 5));
+      } catch (_) {
+        ytQuickResults = const <Song>[];
+      }
+    } catch (_) {
+      ytQuickResults = const <Song>[];
+    }
 
     // SPEED FIX (2026-08-13 — per-keystroke path, highest speed sensitivity
     // in the whole file): this used to be TWO SEPARATE if-blocks, each with
@@ -3330,14 +3355,28 @@ class ApiService {
     // approach, but on a live-typing search bar that's the right trade:
     // worst case is now bounded by whichever source is faster right now,
     // not by waiting out the worker's own timeout first.
+    //
+    // SLOW-NETWORK FIX ("search slow network pe sahi se handle nahi kar
+    // raha"): each leg used to get a hard 3s cutoff with onTimeout: []
+    // — on a genuinely slow but working connection (weak wifi, 3G),
+    // 3s often isn't enough for either call to land, so BOTH legs would
+    // silently return empty and the user would see "no results" for a
+    // query that just needed a couple more seconds. Individual leg
+    // timeouts are now longer (9s) so a slow call still gets to
+    // finish instead of being cut off exactly when it was about to
+    // succeed, and the leg futures are no longer discarded after the
+    // fast path — a late-arriving result still updates the completer
+    // via checkDone() same as a fast one would. The 3s window below is
+    // now only a FAST-PATH short-circuit for the common good-network
+    // case, not the only chance the search gets.
     final workerFuture = _searchYtMusic(query, limit)
-        .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
+        .timeout(const Duration(seconds: 9), onTimeout: () => <Song>[])
         .catchError((e) {
           _log('[_searchYt] yt-music-search (worker) error: $e');
           return <Song>[];
         });
     final directFuture = _searchYtMusicDirect(query, limit)
-        .timeout(const Duration(seconds: 3), onTimeout: () => <Song>[])
+        .timeout(const Duration(seconds: 9), onTimeout: () => <Song>[])
         .catchError((e) {
           _log('[_searchYt] yt-music-search (direct) error: $e');
           return <Song>[];
@@ -3367,12 +3406,22 @@ class ApiService {
       checkDone();
     });
 
-    // Hard ceiling matching each source's own timeout — never waits
-    // longer than the slower of the two even in the worst case.
-    return firstNonEmpty.future.timeout(
-      const Duration(seconds: 3, milliseconds: 200),
-      onTimeout: () => workerResult ?? directResult ?? const <Song>[],
-    );
+    // FAST PATH: on a healthy connection this resolves in 1-3s exactly
+    // like before — no change to the common case. If neither leg has
+    // answered by then, we do NOT give up: we keep waiting on the same
+    // firstNonEmpty completer (which workerFuture/directFuture above
+    // will still complete whenever they actually finish, up to their
+    // own 9s ceiling) instead of returning a false empty result. Total
+    // worst-case wait is bounded by the 9s leg timeout, not by this
+    // fast-path window.
+    try {
+      return await firstNonEmpty.future.timeout(const Duration(seconds: 3));
+    } on TimeoutException {
+      return firstNonEmpty.future.timeout(
+        const Duration(seconds: 7),
+        onTimeout: () => workerResult ?? directResult ?? const <Song>[],
+      );
+    }
   }
 
   // Fixed, public, unauthenticated INNERTUBE key used by the WEB_REMIX web
@@ -3645,6 +3694,18 @@ class ApiService {
       final songs = results
           .map<Song>((r) {
             final rawArtist = _cleanText((r['artist'] ?? '').toString(), collapseJukeboxTitle: false);
+            // FIX ("search mein artist tap na hona" — worker leg was
+            // dropping this field): the Worker's parseYtMusicSearch
+            // already computes and sends artistChannelId in its JSON
+            // (see worker.js), but this mapper never read it, so any
+            // search result answered by the worker leg of _searchYt()'s
+            // race (which wins almost every time — single fast edge
+            // call vs a cold InnerTube call from the phone) came back
+            // with artistChannelId: null and no tappable artist chip.
+            // _parseYtMusicDirectSearch (the direct-Dart leg) already
+            // mapped this correctly — this brings the worker leg to
+            // parity with it.
+            final rawArtistChannelId = (r['artistChannelId'] ?? '').toString();
             return Song(
               id: (r['videoId'] ?? '').toString(),
               title: _cleanText((r['title'] ?? '').toString()),
@@ -3661,6 +3722,7 @@ class ApiService {
               streamUrl: null,
               duration: r['duration'] is int ? r['duration'] as int : null,
               source: SongSource.youtube,
+              artistChannelId: rawArtistChannelId.isNotEmpty ? rawArtistChannelId : null,
               // FIX (critical — was silently emptying every home-feed
               // section and quick-search YT slot): RecommendationEngine.
               // isPremiumQuality() hard-rejects ANY SongSource.youtube
@@ -4143,6 +4205,7 @@ class ApiService {
       return results
           .map<Song>((r) {
             final rawArtist = _cleanText((r['artist'] ?? '').toString(), collapseJukeboxTitle: false);
+            final rawArtistChannelId = (r['artistChannelId'] ?? '').toString();
             return Song(
               id: (r['videoId'] ?? '').toString(),
               title: _cleanText((r['title'] ?? '').toString()),
@@ -4153,6 +4216,7 @@ class ApiService {
               duration: r['duration'] is int ? r['duration'] as int : null,
               source: SongSource.youtube,
               viewCount: 1000000,
+              artistChannelId: rawArtistChannelId.isNotEmpty ? rawArtistChannelId : null,
             );
           })
           .where((s) => s.id.isNotEmpty && s.title.isNotEmpty)
@@ -4279,6 +4343,16 @@ class ApiService {
                 },
               },
               'query': q,
+              // FIX ("home pe artist kabhi khaali na dikhe"): pin this to
+              // the Songs-shelf filter, same param _searchYtMusicDirect
+              // already uses — an unfiltered query can come back as a
+              // "Top result" card / mixed shelf layout whose structure
+              // doesn't match the musicShelfRenderer parse below at all,
+              // so a seed could silently yield zero artist runs even
+              // though YT Music has the data. Songs-shelf results are
+              // consistently shaped and consistently carry a tagged
+              // MUSIC_PAGE_TYPE_ARTIST run per song.
+              'params': _ytmSongsFilterParam,
             }),
           ).timeout(const Duration(seconds: 4));
           if (resp.statusCode != 200) return null;
@@ -4297,10 +4371,25 @@ class ApiService {
           final tabs = (json['contents']?['tabbedSearchResultsRenderer']?['tabs']
                   as List?) ??
               const [];
+          final sections = <dynamic>[];
           for (final tab in tabs) {
-            final sections = (tab['tabRenderer']?['content']
+            sections.addAll((tab['tabRenderer']?['content']
                     ?['sectionListRenderer']?['contents'] as List?) ??
-                const [];
+                const []);
+          }
+          // FIX: a Songs-filtered query can come back without the tabbed
+          // wrapper at all — flat sectionListRenderer.contents straight
+          // off the response root, same shape _parseYtMusicDirectSearch
+          // already handles for the equivalent song-search call. Without
+          // this fallback a seed in this shape silently produced zero
+          // artist runs even though the data was present.
+          if (sections.isEmpty) {
+            sections.addAll(
+                (json['contents']?['sectionListRenderer']?['contents']
+                        as List?) ??
+                    const []);
+          }
+          {
             for (final section in sections) {
               final shelf = section['musicShelfRenderer'];
               if (shelf == null) continue;
@@ -6051,7 +6140,7 @@ class ApiService {
   /// below. A bare unprefixed id (old callers / deep links saved before this
   /// change) is treated as a legacy Saavn id for backward compatibility.
   static Future<Artist?> fetchArtist(String artistId,
-      {int songCount = 100, int albumCount = 100}) async {
+      {int songCount = 30, int albumCount = 100}) async {
     if (artistId.isEmpty) return null;
     if (artistId.startsWith('yt_')) {
       final channelId = artistId.substring(3);
@@ -6073,26 +6162,55 @@ class ApiService {
   /// so a channel's non-music uploads (vlogs, shorts, interviews, etc.)
   /// don't flood the Top Songs list.
   static Future<Artist?> _fetchArtistFromYoutube(String channelId,
-      {int songCount = 100}) async {
+      {int songCount = 30}) async {
     try {
-      // Channel object already exposes title/logoUrl/bannerUrl/
-      // subscribersCount directly (youtube_explode_dart's ChannelClient.get
-      // parses these straight off the channel page) — no manual scraping
-      // needed for those fields.
-      final channel = await _yt.channels.get(channelId)
+      // PERF (biggest lever on artist-screen open time): channel.get(),
+      // getAboutPage(), and getUploadsFromPage() are three independent
+      // network calls — none needs another's result — but were
+      // previously awaited one after another, stacking their latencies
+      // (up to 8s + 6s + 7s = 21s worst case) purely because of call
+      // order, not any real dependency. Firing all three together with
+      // Future.wait bounds the worst case to whichever ONE is slowest,
+      // not their sum — exactly the difference that matters on a slow
+      // connection or low-end device where every network round-trip is
+      // already expensive.
+      final channelFuture = _yt.channels.get(channelId)
           .timeout(const Duration(seconds: 8));
+      final aboutFuture = () async {
+        try {
+          return await _yt.channels.getAboutPage(channelId)
+              .timeout(const Duration(seconds: 6));
+        } catch (e) {
+          _log('[_fetchArtistFromYoutube] getAboutPage failed: $e');
+          return null;
+        }
+      }();
+      final uploadsFuture = () async {
+        try {
+          return await _yt.channels
+              .getUploadsFromPage(channelId, videoSorting: VideoSorting.popularity)
+              .timeout(const Duration(seconds: 7));
+        } catch (e) {
+          _log('[_fetchArtistFromYoutube] getUploadsFromPage failed: $e');
+          return null;
+        }
+      }();
 
-      // Full bio/description lives on the About page specifically, not the
-      // main channel page — getAboutPage() is the package's own dedicated
-      // call for it, same client, same reliability as .get() above.
-      String bio = '';
-      try {
-        final about = await _yt.channels.getAboutPage(channelId)
-            .timeout(const Duration(seconds: 6));
-        bio = _cleanText(about.description ?? '');
-      } catch (e) {
-        _log('[_fetchArtistFromYoutube] getAboutPage failed: $e');
-      }
+      final channel = await channelFuture;
+      final about = await aboutFuture;
+      final firstPage = await uploadsFuture;
+
+      final bio = _cleanText(about?.description ?? '');
+
+      // FIX ("Arijit Singh - Topic" raw suffix showing on artist screen):
+      // YouTube auto-generates a "Topic" channel for every artist known to
+      // YT Music, separate from their own official upload channel — its
+      // channel.title always carries this literal " - Topic" suffix.
+      // Strip it so the artist header shows the real, clean artist name
+      // the same way YT Music's own UI does.
+      final cleanName = _cleanText(channel.title)
+          .replaceAll(RegExp(r'\s*-\s*Topic\s*$', caseSensitive: false), '')
+          .trim();
 
       // Uploads → Top Songs, sorted by POPULARITY (not upload date) so
       // "Top Songs" actually means the artist's biggest songs, not just
@@ -6109,50 +6227,91 @@ class ApiService {
       // results are so a channel mixing music with shorts/vlogs/
       // interviews still shows a clean, music-only Top Songs list.
       final topSongs = <Song>[];
-      try {
-        var page = await _yt.channels
-            .getUploadsFromPage(channelId, videoSorting: VideoSorting.popularity)
-            .timeout(const Duration(seconds: 10));
-        var pagesFetched = 0;
-        // Capped at 6 pages (channel pages are ~30 videos each, so this
-        // covers up to ~180 candidates before quality-gating) — enough
-        // headroom to fill songCount even after non-music/duration
-        // rejections thin the list, without risking an unbounded number
-        // of round-trips against a channel with thousands of uploads.
-        while (true) {
-          for (final v in page) {
-            final base = _songFromYtVideo(v);
-            final song = Song(
-              id: base.id, title: base.title, artist: base.artist,
-              album: base.album, artworkUrl: base.artworkUrl, streamUrl: null,
-              duration: base.duration, source: SongSource.youtube,
-              // Real view count from the popularity-sorted page — falls
-              // back to a trusted sentinel only in the rare case this
-              // specific entry's count came back null, so a single gap in
-              // the page data can't hide a legitimate song from every
-              // downstream isPremiumQuality() check.
-              viewCount: base.viewCount ?? 1000000,
-              artistChannelId: channelId,
-            );
-            if (RecommendationEngine.isNonMusicContent(song)) continue;
-            if (song.duration != null && (song.duration! < 60 || song.duration! > 1200)) continue;
-            topSongs.add(song);
+      if (firstPage != null) {
+        try {
+          var page = firstPage;
+          var pagesFetched = 0;
+          // PERF (low-end device, fast first paint): page cap now scales
+          // with songCount instead of a flat 6 — a channel page returns
+          // ~30 uploads, so covering songCount candidates needs roughly
+          // (songCount / 30) + 2 pages (the +2 is headroom for quality-gate
+          // rejections thinning the list — non-music uploads, wrong
+          // duration). Capped at 6 as an absolute ceiling so a channel with
+          // an unusually low music-hit-rate can't still chain unbounded
+          // round-trips. With the new songCount default of 30 this keeps
+          // the common case to a single page (the one already fetched
+          // above, in parallel) instead of always allowing up to 6.
+          final maxPages = ((songCount / 30).ceil() + 2).clamp(1, 6);
+          while (true) {
+            for (final v in page) {
+              final base = _songFromYtVideo(v);
+              final song = Song(
+                id: base.id, title: base.title, artist: base.artist,
+                album: base.album, artworkUrl: base.artworkUrl, streamUrl: null,
+                duration: base.duration, source: SongSource.youtube,
+                // Real view count from the popularity-sorted page — falls
+                // back to a trusted sentinel only in the rare case this
+                // specific entry's count came back null, so a single gap in
+                // the page data can't hide a legitimate song from every
+                // downstream isPremiumQuality() check.
+                viewCount: base.viewCount ?? 1000000,
+                artistChannelId: channelId,
+              );
+              if (RecommendationEngine.isNonMusicContent(song)) continue;
+              if (song.duration != null && (song.duration! < 60 || song.duration! > 1200)) continue;
+              topSongs.add(song);
+              if (topSongs.length >= songCount) break;
+            }
             if (topSongs.length >= songCount) break;
+            pagesFetched++;
+            if (pagesFetched >= maxPages) break;
+            final next = await page.nextPage().timeout(const Duration(seconds: 7), onTimeout: () => null);
+            if (next == null) break;
+            page = next;
           }
-          if (topSongs.length >= songCount) break;
-          pagesFetched++;
-          if (pagesFetched >= 6) break;
-          final next = await page.nextPage().timeout(const Duration(seconds: 10), onTimeout: () => null);
-          if (next == null) break;
-          page = next;
+        } catch (e) {
+          _log('[_fetchArtistFromYoutube] getUploadsFromPage failed: $e');
         }
-      } catch (e) {
-        _log('[_fetchArtistFromYoutube] getUploadsFromPage failed: $e');
+      }
+
+      // FIX ("neeche kuch bhi nahi hai" — empty Top Songs on an artist
+      // page): channel.get() + getAboutPage() succeeding tells us the
+      // channel itself is real and reachable, but getUploadsFromPage()
+      // can still legitimately come back empty for a "Topic" channel —
+      // youtube_explode_dart's own tracker (package issue #135) documents
+      // FatalFailureException / empty results on channels whose Uploads
+      // tab doesn't match the standard creator-channel layout, which is
+      // exactly what an auto-generated Topic channel is. Rather than ship
+      // a photo + bio with a dead empty list underneath (worse than just
+      // failing outright), fall back to a direct YT Music search for the
+      // artist's own cleaned name — the same InnerTube search path
+      // already proven reliable for the main search bar — and keep only
+      // results whose artistChannelId actually matches this artist (or,
+      // failing that, whose artist name matches), so an unrelated
+      // same-named channel's songs can't leak onto this page.
+      if (topSongs.isEmpty && cleanName.isNotEmpty) {
+        try {
+          final fallbackResults = await _searchYtMusicDirect(cleanName, songCount * 2);
+          final matched = fallbackResults.where((s) {
+            if (s.artistChannelId != null) return s.artistChannelId == channelId;
+            return s.artist.trim().toLowerCase() == cleanName.toLowerCase();
+          }).take(songCount).toList();
+          if (matched.isNotEmpty) {
+            topSongs.addAll(matched.map((s) => Song(
+                  id: s.id, title: s.title, artist: s.artist, album: s.album,
+                  artworkUrl: s.artworkUrl, streamUrl: null, duration: s.duration,
+                  source: SongSource.youtube, viewCount: s.viewCount ?? 1000000,
+                  artistChannelId: channelId,
+                )));
+          }
+        } catch (e) {
+          _log('[_fetchArtistFromYoutube] search fallback failed: $e');
+        }
       }
 
       return Artist(
         id: 'yt_$channelId',
-        name: _cleanText(channel.title),
+        name: cleanName.isNotEmpty ? cleanName : _cleanText(channel.title),
         imageUrl: channel.logoUrl,
         followerCount: channel.subscribersCount ?? 0,
         isVerified: false, // youtube_explode_dart's Channel doesn't expose this

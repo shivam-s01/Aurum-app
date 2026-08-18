@@ -434,6 +434,18 @@
   "libraryDownloadFailedTapRetry": "Thất bại — nhấn để thử lại",
   "libraryDownloadFromPlayerDesc": "Tải một bài hát từ trình phát để nghe ngoại tuyến.",
   "libraryDownloadedCountHeader": "{count, plural, other{{count} ĐÃ TẢI XUỐNG}}",
+  "libraryDownloadsStorageSummary": "{count, plural, =1{1 bài hát} other{{count} bài hát}} · {size}",
+  "@libraryDownloadsStorageSummary": {
+    "description": "Storage summary strip on Downloads screen",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "libraryDownloadingHeader": "ĐANG TẢI XUỐNG",
   "libraryDownloadingPercent": "Đang tải xuống • {percent}%",
   "libraryEditPlaylist": "Chỉnh sửa Playlist",
