@@ -4009,10 +4009,46 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
       ..forward();
   }
 
+  // Captures the live drag offset (in px) at the moment dismiss is
+  // committed, so _exitCtrl's slide-out can continue seamlessly from
+  // wherever the panel actually was — instead of snapping back to 0
+  // first. See _dismiss() below.
+  double _dismissStartDragY = 0;
+
   void _dismiss() {
     if (_isDismissing) return;
     _isDismissing = true;
     AurumHaptics.light();
+    // FIX ("thoda sa niche karo to panel turant invisible ho jata hai,
+    // phir ekdum niche chala jata hai — awkward jump"): _dismiss() used to
+    // just start _exitCtrl and leave _dragY frozen at whatever pixel value
+    // the finger released at. The live-drag opacity math above already
+    // reaches 0 by _dragY == 90px (this handle's own dismiss threshold —
+    // see the comment on panelDragFraction/dragOpacity), so ANY dismiss
+    // triggered by crossing that threshold was, by construction, already
+    // fully transparent the instant _dismiss() ran — before _exitCtrl's
+    // 280ms translate had moved it anywhere. The panel then kept sliding
+    // for another 280ms while completely invisible, only to pop() at the
+    // end: "vanish first, THEN jump down".
+    //
+    // An earlier version of this fix hard-reset _dragY to 0 right here to
+    // remove that frozen drag-opacity term. That traded one bug for
+    // another: since _exitCtrl hasn't advanced yet at the instant
+    // forward() is called, offset/opacity/scale all evaluate to their
+    // fully-open resting values (0, 1.0, 1.0) for exactly one frame before
+    // the exit animation's own translate starts moving — a visible snap
+    // BACK to fully-open, then a slide down, right at release. Capturing
+    // the actual release position instead (_dismissStartDragY) and having
+    // the exit's offset/opacity continue FROM there (see the
+    // ValueListenableBuilder below, which now blends _dismissStartDragY
+    // with _exitCtrl's own progress once dismissing) means there is no
+    // reset frame at all — the panel simply continues its motion smoothly
+    // from wherever the finger let go, all the way off-screen, as one
+    // unbroken slide+fade. This matches the full player's own swipe-down
+    // dismiss, which never resets position before its exit animation
+    // either.
+    _springBackCtrl.stop();
+    _dismissStartDragY = _dragY;
     _exitCtrl.forward().then((_) {
       if (mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
@@ -4023,8 +4059,27 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
+    final screenW = MediaQuery.of(context).size.width;
     final screenH = MediaQuery.of(context).size.height;
     final topInset = MediaQuery.of(context).padding.top;
+    // FIX ("niche aur kinaro pe white/grey gap dikhta hai, dheere dheere
+    // fill hota hai"): useSafeArea:false on the showModalBottomSheet call
+    // means THIS build() is responsible for the full physical screen
+    // height, bottom system inset included. panelHeight used to be
+    // measured purely against screenH with no bottomInset term at all —
+    // so on any gesture-nav / 3-button-nav device (i.e. virtually all of
+    // them), the sheet's ClipRRect stopped short of the true bottom edge
+    // by exactly that inset, and the raw barrierColor/scaffold behind it
+    // showed through as a flat grey/white strip along the bottom (and
+    // briefly at the very edges during the first layout pass, since the
+    // SizedBox was never pinned to an explicit full width either — hence
+    // the "gap that fills in over a couple frames" look). Adding
+    // bottomInset here and consuming it as extra panel height (not
+    // padding-in-content) means the glass/blur itself now genuinely
+    // reaches the physical bottom edge — same fix pattern Echo Nightly's
+    // fragment_player_more.xml gets for free from insetting against
+    // WindowInsetsCompat natively.
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     // FIX ("Up Next page Echo Nightly jitni height pe nahi ja raha"):
     // 0.80 * screenH capped this panel noticeably shorter than Echo
     // Nightly's PlayerMoreFragment, which sits almost flush under the
@@ -4033,8 +4088,8 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     // bar visible above it (so it never reads as a full-screen route
     // swap), but now genuinely matches the reference height instead of
     // stopping noticeably short.
-    final panelHeight =
-        (screenH * 0.92).clamp(360.0, screenH - topInset - 12.0);
+    final panelHeight = (screenH * 0.92 + bottomInset)
+        .clamp(360.0, screenH - topInset - 12.0 + bottomInset);
     // NOTE: dragFraction/dragOpacity/scale/opacity are NOT computed here —
     // this outer build() only runs once per gesture (see the PERF comment
     // on the ValueListenableBuilder below); the real per-frame versions
@@ -4071,7 +4126,37 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
         ? AurumTheme.lightTextMuted.withAlpha(90)
         : Colors.white.withAlpha(40);
 
-    return AnimatedBuilder(
+    // FIX ("dark mode AUR light mode dono mein panel ke kinare aur neeche
+    // white/mismatched gap dikhta hai, kuch seconds mein dheere-dheere
+    // fill hota hai"): the bottomInset extension to panelHeight above
+    // gets the glass panel's own content to reach the true bottom edge,
+    // but doesn't stop the OS from painting its system nav bar ON TOP of
+    // that edge in whatever color it last had — which, since this sheet
+    // (useSafeArea:false) never sets its own SystemUiOverlayStyle, is
+    // whatever the full player screen behind it left configured. Making
+    // the nav bar fully transparent here means there is nothing for the
+    // OS to paint there at all, in either theme, with zero lag/settle
+    // time — the panel's own bottomInset-extended background shows
+    // straight through instead.
+    final overlayStyle = isLight
+        ? SystemUiOverlayStyle.dark.copyWith(
+            statusBarColor: Colors.transparent,
+            systemNavigationBarColor: Colors.transparent,
+            systemNavigationBarDividerColor: Colors.transparent,
+            systemNavigationBarContrastEnforced: false,
+            systemNavigationBarIconBrightness: Brightness.dark,
+          )
+        : SystemUiOverlayStyle.light.copyWith(
+            statusBarColor: Colors.transparent,
+            systemNavigationBarColor: Colors.transparent,
+            systemNavigationBarDividerColor: Colors.transparent,
+            systemNavigationBarContrastEnforced: false,
+            systemNavigationBarIconBrightness: Brightness.light,
+          );
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: overlayStyle,
+      child: AnimatedBuilder(
       animation: _exitCtrl,
       builder: (context, _) {
         // PERF: dragFraction/dragOpacity/scale depend on _dragY, which now
@@ -4105,14 +4190,69 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
             // instead keeps the same "hold solid, only fade right at the
             // very end" feel, correctly sized to how far this handle
             // actually travels before letting go.
-            final panelDragFraction = (dragY / 90.0).clamp(0.0, 1.0);
-            final dragFraction = (dragY / screenH).clamp(0.0, 1.0);
+            // FIX (continued from _dismiss()): once a dismiss is committed,
+            // freeze the drag-position term at exactly where the finger
+            // released (_dismissStartDragY) instead of continuing to read
+            // the live _dragYNotifier — which _dismiss() no longer resets,
+            // so it stays exactly at the release value anyway, but reading
+            // it explicitly here makes the intent unambiguous. Opacity
+            // also stops depending on dragOpacity once dismissing: if the
+            // release happened past the 90px threshold, dragOpacity is
+            // already pinned at 0, which would keep this panel invisible
+            // for the entire exit — instead, _exitFade alone (1.0 → 0
+            // over the last 30% of the 280ms exit) now owns opacity during
+            // dismissal, so the panel stays visibly on-screen and simply
+            // slides+fades out as one continuous motion with no reset and
+            // no premature vanish.
+            // FIX ("Up Next ko hand se niche kro to woh bahut jaldi/
+            // achanak gayab ho jata hai — thoda sa drag karte hi
+            // invisible, full player ke swipe-down jaisa natural/
+            // gradual nahi lagta"): opacity here used to fade against
+            // panelDragFraction = dragY/90 — i.e. the SAME 90px used
+            // only as the release-dismiss threshold. Since dragOpacity's
+            // falloff window was (panelDragFraction-0.75)/0.25, the
+            // panel went from fully opaque to fully invisible across
+            // just ~22px of real finger movement (67.5px→90px) — a tiny
+            // flick, nowhere close to how far the panel had actually
+            // moved on screen. The full player's own swipe-down
+            // (_DragTransform above) fades against the FULL screen
+            // height instead — dismissProgress = dragY/screenH, with
+            // fade only in the last 25% of that full-screen drag — so
+            // it stays visibly present and tracks the hand the entire
+            // way down, only dissolving right at the very end. Using
+            // that exact same screenH-relative formula here (instead of
+            // the 90px one) gives Up Next the identical natural, full-
+            // hand-travel feel: drag it all the way down like the full
+            // player, or barely nudge it and let go to spring back —
+            // the 90px/600px-velocity numbers below still decide WHEN a
+            // release counts as "dismiss" vs "spring back", they just no
+            // longer also drive how fast the panel visually fades.
+            final effectiveDragY = _isDismissing ? _dismissStartDragY : dragY;
+            final dragFraction = (effectiveDragY / screenH).clamp(0.0, 1.0);
             final dragOpacity =
-                (1.0 - ((panelDragFraction - 0.75) / 0.25).clamp(0.0, 1.0));
+                1.0 - ((dragFraction - 0.75) / 0.25).clamp(0.0, 1.0);
             final scale = (1.0 - dragFraction * 0.06).clamp(0.88, 1.0);
-            final opacity = (dragOpacity * _exitFade.value).clamp(0.0, 1.0);
+            final opacity = _isDismissing
+                ? _exitFade.value
+                : (dragOpacity * _exitFade.value).clamp(0.0, 1.0);
             return Transform.translate(
-              offset: Offset(0, dragY.clamp(0.0, screenH * 0.5) + exitOffsetY),
+              offset: Offset(
+                  0,
+                  // FIX (continued): translate used to hard-clamp at
+                  // screenH * 0.5, so even a full, deliberate drag all
+                  // the way to the bottom of the screen stopped moving
+                  // visually at the halfway point — while the opacity
+                  // fade above (now correctly screenH-relative) kept
+                  // expecting the drag to continue past that. The panel
+                  // would sit frozen at half-screen, still fading, which
+                  // read as stuck rather than following the hand. Full
+                  // player's own _DragTransform clamps to the actual
+                  // screenH so the live drag can travel the entire way
+                  // off-screen with the finger — matching that here
+                  // means Up Next can genuinely be dragged all the way
+                  // down (or pulled back up) by hand, exactly like the
+                  // full player itself.
+                  effectiveDragY.clamp(0.0, screenH) + exitOffsetY),
               child: Transform.scale(
                 scale: scale,
                 alignment: Alignment.topCenter,
@@ -4124,6 +4264,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
             );
           },
           child: SizedBox(
+                width: screenW,
                 height: panelHeight,
                 child: ClipRRect(
                   borderRadius:
@@ -4180,10 +4321,31 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                               GestureDetector(
                                 behavior: HitTestBehavior.opaque,
                                 onVerticalDragUpdate: (d) {
-                                  if (d.delta.dy > 0) {
-                                    _springBackCtrl.stop();
-                                    _dragY += d.delta.dy;
-                                  }
+                                  // FIX ("hand se upar bhi le ja sakte
+                                  // — thoda niche khींchne ke baad
+                                  // wapas upar dhakka do to turant
+                                  // follow kare, sirf release ke baad
+                                  // spring-back animation ka intezaar
+                                  // na karna pade"): only d.delta.dy > 0
+                                  // (downward) was ever applied to
+                                  // _dragY — any upward movement mid-
+                                  // drag was silently dropped, so
+                                  // pulling back up with the finger
+                                  // still down did nothing until you
+                                  // let go and the separate spring-back
+                                  // animation kicked in. Clamping the
+                                  // running total to >= 0 (instead of
+                                  // gating on delta direction) lets the
+                                  // panel track the finger smoothly in
+                                  // BOTH directions during the live
+                                  // drag — exactly how the full
+                                  // player's own swipe-down already
+                                  // behaves — while still never going
+                                  // negative (which would push the
+                                  // panel above its resting position).
+                                  _springBackCtrl.stop();
+                                  _dragY = (_dragY + d.delta.dy)
+                                      .clamp(0.0, double.infinity);
                                 },
                                 onVerticalDragEnd: (d) {
                                   if (_dragY > 90 ||
@@ -4305,7 +4467,10 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                                   ),
                                   child: KeyedSubtree(
                                     key: ValueKey(_activeTab),
-                                    child: _buildTabContent(),
+                                    child: Padding(
+                                      padding: EdgeInsets.only(bottom: bottomInset),
+                                      child: _buildTabContent(),
+                                    ),
                                   ),
                                 ),
                                 ),
@@ -4342,6 +4507,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
               ),
         );
       },
+    ),
     );
   }
 
@@ -5218,17 +5384,44 @@ class _LyricsPageState extends State<_LyricsPage> {
     final idx = result.activeIndexFor(position);
     if (idx != _activeIndex) {
       _activeIndex = idx;
+      // FIX ("line change hote hi lyrics bounce karke niche aa jaate
+      // hain, Spotify jaisa stable nahi" — CONFIRMED still present in
+      // the post-frame-setState version): posting setState() to the
+      // frame AFTER scrollTo() starts avoided the same-frame conflict,
+      // but scrollTo()'s own 320ms animation and the active line's
+      // AnimatedScale/AnimatedContainer/AnimatedDefaultTextStyle (also
+      // 320ms, starting one frame later) still ran CONCURRENTLY —
+      // ScrollablePositionedList keeps re-measuring item extents as
+      // they change, so while the target line was still mid-grow, the
+      // list could still nudge/correct its own offset under it. Net
+      // result: still a small but visible settle/overshoot right as
+      // the line finished growing, same symptom as before, just
+      // smaller. Splitting this into two explicit phases removes the
+      // overlap entirely: (1) setState() first so the target line
+      // jumps straight to its FINAL grown size/height with no
+      // animation, (2) only THEN call scrollTo() against that already-
+      // stable extent. The line's grow is now visually carried by
+      // AnimatedScale/AnimatedContainer's own 320ms tween starting from
+      // its last frame's smaller values (Flutter's implicit animations
+      // interpolate from whatever was on screen, not from a hard reset)
+      // — so the growth still animates smoothly in place exactly as
+      // before, it's just that ScrollablePositionedList now targets a
+      // number that never moves under it mid-flight.
+      if (mounted) setState(() {});
       if (idx >= 0 && _scrollController.isAttached) {
-        _scrollController.scrollTo(
-          index: idx,
-          duration: const Duration(milliseconds: 320),
-          curve: Curves.easeOutCubic,
-          // Keeps the active line roughly a third of the way down the
-          // viewport instead of pinned to the very top.
-          alignment: 0.35,
-        );
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _scrollController.isAttached) {
+            _scrollController.scrollTo(
+              index: idx,
+              duration: const Duration(milliseconds: 320),
+              curve: Curves.easeOutCubic,
+              // Keeps the active line roughly a third of the way down
+              // the viewport instead of pinned to the very top.
+              alignment: 0.35,
+            );
+          }
+        });
       }
-      setState(() {});
     }
   }
 

@@ -425,6 +425,24 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   DateTime? _expectedSongIdSetAt;
   static const Duration _expectedSongIdTimeout = Duration(seconds: 3);
 
+  // FIX (mini player X dismiss → song reappears by itself, no audio
+  // actually playing): stopAndClear() awaits _engine.stop() and
+  // clearQueue(), then wipes _currentSong/_expectedSongId locally. But the
+  // native platform-channel state stream can still have one stray event
+  // in flight from BEFORE the stop — a snapshot of the old
+  // currentSongId/queueIds captured just before the native call landed,
+  // delivered a beat late. Normally _expectedSongId is what lets
+  // _onEngineState reject a stale event like that, but stopAndClear()
+  // just set _expectedSongId to null (a clean-slate reset), so that stale
+  // post-stop event sails straight through isConfirmedSwitch and
+  // repopulates _currentSong with the very song the user just dismissed —
+  // no audio actually resumes (the engine really did stop), it's purely a
+  // UI relapse. _dismissedUntil records a short window right after
+  // stopAndClear() during which _onEngineState drops every incoming event
+  // outright, so that trailing stale snapshot has nowhere left to land.
+  DateTime? _dismissedUntil;
+  static const Duration _dismissSuppressWindow = Duration(milliseconds: 700);
+
   // FIX (see playQueue/playSong timeout doc comment in native_engine_bridge.
   // dart): surfaces to the UI when a play attempt genuinely failed or timed
   // out (native call hung / stream never resolved), instead of the app
@@ -648,6 +666,17 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // currentIndex from the old AurumAudioHandler-backed provider.
   // ---------------------------------------------------------------------------
   void _onEngineState(NativeEngineState state) {
+    // FIX (mini player X dismiss → song reappears): see _dismissedUntil
+    // doc comment above. Drop everything for a short window right after
+    // stopAndClear() so a trailing stale pre-stop event can't repopulate
+    // _currentSong. Checked first, before any other field gets touched,
+    // so a suppressed event has zero effect on state this tick.
+    if (_dismissedUntil != null) {
+      if (DateTime.now().isBefore(_dismissedUntil!)) {
+        return;
+      }
+      _dismissedUntil = null;
+    }
     // FIX (permanent UI freeze after rapid/spam skip): see the
     // _expectedSongIdSetAt doc comment on the field declaration above for
     // the full mechanism. If the current optimistic guess has gone
@@ -1326,6 +1355,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // continue to omit it (defaults false) and keep the old smart-queue
   // rebuild behavior unchanged.
   Future<void> playSong(Song song, {List<Song>? queue, int? index, bool curatedQueue = false}) async {
+    // Starting fresh playback always supersedes any pending post-dismiss
+    // suppression window (see _dismissedUntil doc comment) — otherwise
+    // tapping a new song within ~700ms of hitting X on the mini player
+    // would have its own genuine state events silently dropped too.
+    _dismissedUntil = null;
     _lastHandledIndex = null;
     _uiPlaySession++;
     final mySession = _uiPlaySession;
@@ -1931,6 +1965,9 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// Returns true if skip was allowed, false if limit reached (UI should show gate).
   Future<bool> skipNext() async {
     if (skipLimitReached) return false; // caller shows PremiumGate
+    // Defense-in-depth alongside playSong()'s _dismissedUntil clear — see
+    // matching comment in skipToIndex().
+    _dismissedUntil = null;
     unawaited(_engine.autoSleepGuardRecordActivity());
     _recordSkip();
     _fireEarlySkipIfArmed(); // ← behavior tracking hook
@@ -2018,6 +2055,9 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> skipPrev() async {
+    // Defense-in-depth alongside playSong()'s _dismissedUntil clear — see
+    // matching comment in skipToIndex().
+    _dismissedUntil = null;
     unawaited(_engine.autoSleepGuardRecordActivity());
     // Same reasoning as skipNext — only safe to guess the next index
     // optimistically when the queue is in linear order.
@@ -2208,6 +2248,12 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> skipToIndex(int index) async {
+    // Defense-in-depth alongside playSong()'s _dismissedUntil clear: this
+    // path is unreachable in practice right after a dismiss (stopAndClear
+    // empties _queue, so there's nothing to tap in Up Next), but clearing
+    // here too means that stays true even if a future change ever lets
+    // _queue survive a stop.
+    _dismissedUntil = null;
     // BUG: unlike skipNext()/skipPrev(), this had NO optimistic update —
     // tapping a song directly in the queue screen left title/artwork/
     // background showing the OLD song until the native engine's state
@@ -2348,8 +2394,22 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _skipDebounce?.cancel();
     _skipDebounce = null;
     _skipDebounceTargetIndex = null;
-    await _engine.stop();
-    await _engine.clearQueue();
+    // FIX (X on mini player did nothing if the native stop/clearQueue call
+    // ever threw — e.g. a platform-channel hiccup): these two awaits used
+    // to run unguarded, so an exception here would abort stopAndClear()
+    // entirely and skip every line below, leaving _currentSong non-null
+    // and the mini player still showing the "stopped" song as if the tap
+    // never happened. The Dart-side state below (queue/currentSong/
+    // expectation fields) is what the mini player and UI actually read,
+    // so it must always get cleared regardless of whether the native call
+    // itself succeeded — a failed native stop is logged, not allowed to
+    // block the UI from reflecting "nothing playing".
+    try {
+      await _engine.stop();
+      await _engine.clearQueue();
+    } catch (e) {
+      debugPrint('[Aurum] stopAndClear native call failed: $e');
+    }
     _queue = [];
     _currentSong = null;
     _currentIndex = 0;
@@ -2376,6 +2436,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _duration = Duration.zero;
     _isLoading = false;
     _isPlaying = false;
+    _dismissedUntil = DateTime.now().add(_dismissSuppressWindow);
     notifyListeners();
   }
 

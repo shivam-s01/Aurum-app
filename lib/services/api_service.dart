@@ -1805,12 +1805,31 @@ class ApiService {
   static Future<String?> resolveDownloadUrl(Song song, {List<String> qualityOrder = const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps']}) async {
     if (song.isLocal) return song.localPath;
 
-    // NOTE: the Flask Saavn backend has no by-id lookup, so there's no
-    // dedicated download-quality endpoint to call here anymore — the old
-    // /api/songs?ids= route 404s (Node-style API shape, not what's
-    // deployed). resolveStreamUrl already gets the best available Saavn
-    // URL (via search-provided streamUrl or the CF worker's id lookup),
-    // so just use that directly for downloads too.
+    // FIX ("download quality select karo to usi quality mein download ho,
+    // 320kbps select kiya to top-level quality"): this used to just call
+    // resolveStreamUrl(song), which resolves via AudioPrefs.qualityOrder()
+    // — the PLAYBACK quality ladder (streamQuality/dataSaver settings) —
+    // completely ignoring the qualityOrder the caller (DownloadProvider)
+    // built from the user's chosen Downloads quality setting. A user on
+    // "Data Saver" playback but "320kbps" download quality was silently
+    // getting low-bitrate files. Now the download path resolves Saavn
+    // directly by id using the CALLER's qualityOrder, so the Downloads
+    // screen's own quality selector is what actually decides the bitrate.
+    if (song.source == SongSource.saavn && song.id.isNotEmpty) {
+      final url = await _retry(
+        () => _saavnStreamById(
+          song.id,
+          title: song.title,
+          artist: song.artist,
+          qualityOrder: qualityOrder,
+        ),
+        attempts: 2,
+      );
+      if (url != null) return url;
+      // Fall through to the generic resolver only if the quality-aware
+      // by-id path genuinely found nothing (e.g. song has no downloadUrl
+      // list at all) — better to get SOME file than none.
+    }
     return resolveStreamUrl(song);
   }
 
@@ -3718,7 +3737,7 @@ class ApiService {
               // uses so downstream widgets treat it identically.
               artist: rawArtist.isNotEmpty ? rawArtist : 'Unknown',
               album: _cleanText((r['album'] ?? '').toString()),
-              artworkUrl: (r['image'] ?? '').toString(),
+              artworkUrl: _upgradeYtThumbnail((r['image'] ?? '').toString()),
               streamUrl: null,
               duration: r['duration'] is int ? r['duration'] as int : null,
               source: SongSource.youtube,
@@ -4211,7 +4230,7 @@ class ApiService {
               title: _cleanText((r['title'] ?? '').toString()),
               artist: rawArtist.isNotEmpty ? rawArtist : 'Unknown',
               album: _cleanText((r['album'] ?? '').toString()),
-              artworkUrl: (r['image'] ?? '').toString(),
+              artworkUrl: _upgradeYtThumbnail((r['image'] ?? '').toString()),
               streamUrl: null,
               duration: r['duration'] is int ? r['duration'] as int : null,
               source: SongSource.youtube,
@@ -4571,7 +4590,7 @@ class ApiService {
           title: _cleanText((r['title'] ?? '').toString()),
           artist: rawArtist.isNotEmpty ? rawArtist : 'Unknown',
           album: _cleanText((r['album'] ?? '').toString()),
-          artworkUrl: (r['image'] ?? '').toString(),
+          artworkUrl: _upgradeYtThumbnail((r['image'] ?? '').toString()),
           streamUrl: null,
           duration: r['duration'] is int ? r['duration'] as int : null,
           source: SongSource.youtube,
@@ -4705,6 +4724,27 @@ class ApiService {
       if (url != null && url.toString().isNotEmpty) return url.toString();
     }
     return '';
+  }
+
+  // FIX ("Saavn ko backup mein daala — thumbnail HD aani chahiye har
+  // jagah"): the CF worker's /api/yt-music-search, /api/mix-refresh, and
+  // playlist-import routes all forward YT Music's raw InnerTube thumbnail
+  // URL as-is — whatever low/medium size InnerTube happened to return by
+  // default (often a small square crop meant for a compact list row, not
+  // a full-screen player background). The DIRECT-Dart search leg
+  // (_parseYtMusicDirectSearch) already fixes this for its own results by
+  // rewriting the URL's =w###-h### size suffix up to 544x544 — but that
+  // upgrade only lived in that one function, so any song that came back
+  // via the worker leg instead (which wins the _searchYt() race almost
+  // every time — a single fast edge call beats a cold on-device InnerTube
+  // call) kept whatever small thumbnail the worker forwarded, with
+  // nothing to catch it. Centralizing the same upgrade here and applying
+  // it at every raw worker-image call site means it's no longer leg-
+  // dependent — a song looks the same (full HD art) regardless of which
+  // of the two parallel paths actually answered first.
+  static String _upgradeYtThumbnail(String url) {
+    if (url.isEmpty) return url;
+    return url.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w544-h544');
   }
 
   // ===========================================================================
@@ -5240,6 +5280,7 @@ class ApiService {
     String songId, {
     String title = '',
     String artist = '',
+    List<String>? qualityOrder,
   }) async {
     // 2026-07-17 FIX #3: jiosaavn-op v2 has a working, reliable id-based
     // lookup — /api/songs/:id — confirmed via direct curl returning clean
@@ -5272,7 +5313,7 @@ class ApiService {
               songData = data;
             }
             if (songData != null) {
-              return _extractSaavnStreamUrl(songData);
+              return _extractSaavnStreamUrl(songData, qualityOrder: qualityOrder);
             }
           }
         }
@@ -5349,7 +5390,8 @@ class ApiService {
               (j) => (j['id'] ?? '').toString() == songId,
               orElse: () => list.first,
             );
-            return _onrenderStreamUrl(match) ?? _extractSaavnStreamUrl(match);
+            return _onrenderStreamUrl(match, qualityOrder: qualityOrder) ??
+                _extractSaavnStreamUrl(match, qualityOrder: qualityOrder);
           }
         }
       } catch (e) {
@@ -5381,7 +5423,17 @@ class ApiService {
     return fallbackCompleter.future;
   }
 
-  static String? _onrenderStreamUrl(Map<String, dynamic> j) {
+  static String? _onrenderStreamUrl(Map<String, dynamic> j, {List<String>? qualityOrder}) {
+    // If a specific quality ladder was requested (download flow), prefer the
+    // v2-style downloadUrl[] list FIRST — it's the only shape that actually
+    // carries multiple bitrate options to choose from. The flat '320kbps'
+    // field below is a single fixed tier with no ladder, so honoring a
+    // caller's quality preference means checking the ladder-aware path
+    // before falling back to that fixed field.
+    if (qualityOrder != null) {
+      final viaLadder = _extractSaavnStreamUrl(j, qualityOrder: qualityOrder);
+      if (viaLadder != null) return viaLadder;
+    }
     final url320   = (j['320kbps'] ?? '').toString();
     if (url320.startsWith('http')) {
       AudioPrefs.lastResolvedKbps = 320;
@@ -5393,13 +5445,13 @@ class ApiService {
       return _proxiedSaavnUrl(urlMedia);
     }
     // v2 (jiosaavn-op / saavn.dev style) — downloadUrl: [{quality, url}, ...]
-    return _extractSaavnStreamUrl(j);
+    return _extractSaavnStreamUrl(j, qualityOrder: qualityOrder);
   }
 
-  static String? _extractSaavnStreamUrl(Map<String, dynamic> song) {
+  static String? _extractSaavnStreamUrl(Map<String, dynamic> song, {List<String>? qualityOrder}) {
     final downloads = song['downloadUrl'] as List?;
     if (downloads != null && downloads.isNotEmpty) {
-      for (final q in AudioPrefs.qualityOrder()) {
+      for (final q in qualityOrder ?? AudioPrefs.qualityOrder()) {
         final match = downloads.firstWhere(
           (d) => d is Map && d['quality'] == q &&
                  (d['url'] as String?)?.startsWith('http') == true,

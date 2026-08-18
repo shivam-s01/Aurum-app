@@ -46,6 +46,23 @@ class DownloadProvider extends ChangeNotifier {
   //      measurably slows the actual transfer down. Throttled to at
   //      most once per percent (already computed) via the persist call
   //      being gated below, not on every raw byte-count callback.
+  // SPEED FIX ("youtube songs download bahut slow" — separate root cause
+  // from the timeout/persist fixes above): googlevideo.com CDN throttles
+  // or de-prioritizes requests that don't look like they're coming from a
+  // real browser — no User-Agent header at all (Dio's bare default) gets
+  // served noticeably slower/lower-priority than a request with a normal
+  // browser UA. This is exactly why native playback (AurumAudioEngine.kt's
+  // createHttpFactory) already sets a real Chrome User-Agent on its
+  // ExoPlayer HTTP data source and streams at full speed — the download
+  // path went through Dio directly and never got the same treatment, so
+  // Saavn downloads were fine (its CDN doesn't care) but YouTube-sourced
+  // downloads crawled. Setting the identical UA here (and Referer, which
+  // googlevideo also checks) gets YouTube downloads the same treatment
+  // playback already gets, matched header-for-header.
+  static const _browserUserAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
   static final Dio _downloadClient = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 15),
@@ -54,6 +71,9 @@ class DownloadProvider extends ChangeNotifier {
       // mid-transfer and forced to restart from zero.
       receiveTimeout: const Duration(seconds: 60),
       sendTimeout: const Duration(seconds: 15),
+      headers: {
+        'User-Agent': _browserUserAgent,
+      },
     ),
   );
 
@@ -304,6 +324,14 @@ class DownloadProvider extends ChangeNotifier {
         deleteOnError: true,
         options: Options(
           receiveTimeout: const Duration(seconds: 60),
+          // SPEED FIX (YouTube specifically): googlevideo.com also checks
+          // Referer on top of User-Agent — a request with a UA but no
+          // Referer can still get throttled. Harmless no-op for Saavn's
+          // CDN, which doesn't check this header at all, so it's safe to
+          // send unconditionally rather than branching on song.source.
+          headers: song.source == SongSource.youtube
+              ? {'Referer': 'https://www.youtube.com/'}
+              : null,
         ),
         onReceiveProgress: (received, total) async {
           if (total <= 0) return;
