@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/artwork_palette_cache.dart';
@@ -1347,6 +1348,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             child: _BgLayer(
                               song: song,
                               bgCtrl: _bgColorCtrl,
+                              kenBurnsKey: _kenBurnsKey,
                               startBg1: _currentBg1,
                               startBg2: _currentBg2,
                               startBg3: _currentBg3,
@@ -5688,6 +5690,7 @@ class _BgLayer extends StatelessWidget {
   final Color startBg1, startBg2, startBg3, startBg4;
   final Color targetBg1, targetBg2, targetBg3, targetBg4;
   final bool isDragging;
+  final GlobalKey<_StaticBlurArtworkState> kenBurnsKey;
 
   const _BgLayer({
     required this.song,
@@ -5700,6 +5703,7 @@ class _BgLayer extends StatelessWidget {
     required this.targetBg2,
     required this.targetBg3,
     required this.targetBg4,
+    required this.kenBurnsKey,
     this.isDragging = false,
   });
 
@@ -5793,7 +5797,7 @@ class _BgLayer extends StatelessWidget {
                   children: [...previousChildren, if (currentChild != null) currentChild],
                 ),
                 child: _StaticBlurArtwork(
-                  key: _kenBurnsKey,
+                  key: kenBurnsKey,
                   song: song,
                   isLight: isLight,
                   isDragging: isDragging,
