@@ -385,8 +385,34 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   /// Smoothly animates _dragY back to 0 after a cancelled drag, instead
   /// of snapping instantly. Uses an easeOutBack curve for a subtle
   /// "settle" feel rather than a linear slide.
-  void _springBackDrag() {
+  // FIX ("swipe down/up ekdam makkhan jaisa, Echo Nightly ki
+  // BottomSheetBehavior jaisa settle honा chahiye"): this used to always
+  // animate back over a fixed 420ms regardless of how the finger was
+  // moving at release — a slow, deliberate half-drag and a fast flick-back
+  // both took exactly 420ms to settle, which reads as canned/robotic
+  // rather than physical. Android's BottomSheetBehavior (what Echo
+  // Nightly's panel actually rides on) settles with duration scaled to
+  // the release velocity — a fast flick snaps back quickly, a slow
+  // release eases back unhurried. Scaling duration by how far AND how
+  // fast the drag was releasing reproduces that same felt-weight without
+  // adding any physics engine or extra dependency — just a duration
+  // computed from the same velocity Flutter's gesture callback already
+  // hands us for free.
+  void _springBackDrag([double velocity = 0]) {
     final start = _dragY;
+    if (start == 0) return;
+    // Distance-only fallback duration (used when no velocity is known,
+    // e.g. onVerticalDragCancel), clamped to a sensible premium range.
+    var durationMs = (start.abs() / 2).clamp(180, 420).round();
+    // A fast release should settle noticeably quicker than a slow one —
+    // this is the actual "makkhan" feel: it responds to how you let go,
+    // not a single fixed timing for every release.
+    final speed = velocity.abs();
+    if (speed > 0) {
+      final velocityMs = (start.abs() / speed * 1000).clamp(120, 420);
+      durationMs = velocityMs.round();
+    }
+    _springBackCtrl.duration = Duration(milliseconds: durationMs);
     _springBackCtrl.reset();
     final anim = Tween<double>(begin: start, end: 0.0).animate(
       CurvedAnimation(parent: _springBackCtrl, curve: Curves.easeOutCubic),
@@ -403,6 +429,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _springBackCtrl.forward().whenCompleteOrCancel(() {
       anim.removeListener(listener);
       if (mounted) _dragY = 0;
+      // Both spring paths (_springBackDrag and _completeDismissDrag)
+      // share this one controller and set their own .duration on every
+      // call before forward()'ing, so restoring it here isn't load-
+      // bearing for correctness — kept only so the controller's resting
+      // value matches its actual declared default (320ms, see initState)
+      // rather than a stale value from whichever call ran last.
+      _springBackCtrl.duration = const Duration(milliseconds: 320);
     });
   }
 
@@ -1238,7 +1271,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   _dragY = 0;
                   _openPanel();
                 } else {
-                  _springBackDrag();
+                  _springBackDrag(velocity);
                 }
                 _dragIsUpward = false;
               },
@@ -1254,6 +1287,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 if (_isDragging && mounted) setState(() => _isDragging = false);
                 _dragIsUpward = false;
                 _upwardDragDistance = 0;
+                // No velocity available on a cancel — falls back to the
+                // distance-only duration inside _springBackDrag.
                 _springBackDrag();
               },
               child: _DragTransform(
@@ -3866,8 +3901,11 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   double get _dragY => _dragYNotifier.value;
   set _dragY(double v) => _dragYNotifier.value = v;
 
-  late final AnimationController _tabCtrl;
-  late final Animation<double> _tabFade;
+  // Removed: unused fade controller. Tab switching now uses a plain
+  // AnimatedSwitcher (see _buildTabContent) — cheaper, and avoids the
+  // size-jump jank a single-controller FadeTransition had when pages
+  // of different heights swapped mid-fade.
+  static const _tabSwitchDuration = Duration(milliseconds: 140);
 
   // Spring-back-to-zero controller for an aborted drag-to-dismiss.
   late final AnimationController _springBackCtrl;
@@ -3883,11 +3921,6 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 220));
-    _tabFade = CurvedAnimation(parent: _tabCtrl, curve: Curves.easeOut);
-    _tabCtrl.forward();
-
     _springBackCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 420));
     _springBackCtrl.addListener(() {
@@ -3918,7 +3951,6 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
 
   @override
   void dispose() {
-    _tabCtrl.dispose();
     _springBackCtrl.dispose();
     _exitCtrl.dispose();
     _dragYNotifier.dispose();
@@ -3928,11 +3960,10 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   void _switchTab(int idx) {
     if (idx == _activeTab) return;
     AurumHaptics.selection();
-    _tabCtrl.reverse().then((_) {
-      if (!mounted) return;
-      setState(() => _activeTab = idx);
-      _tabCtrl.forward();
-    });
+    // Instant switch, Echo Nightly style (fragment show/hide — no
+    // blank/flicker gap). AnimatedSwitcher below handles the crossfade
+    // purely visually so this stays a single, cheap setState.
+    setState(() => _activeTab = idx);
   }
 
   void _springBackToZero() {
@@ -4124,13 +4155,44 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                                   ),
                                 ),
                               ),
+                              _buildTabBar(isLight),
                               Expanded(
-                                child: FadeTransition(
-                                  opacity: _tabFade,
-                                  child: _buildTabContent(),
+                                // AnimatedSwitcher instead of a single
+                                // shared FadeTransition: each tab page
+                                // (Queue/Lyrics/Info) is a different
+                                // height, so fading one static child in
+                                // place used to jump-cut the container
+                                // size the instant _activeTab changed —
+                                // the fade masked color, not layout, so
+                                // it still read as a jerky snap. Keying
+                                // by _activeTab lets old/new pages
+                                // cross-fade independently with their
+                                // own sizes, which is what actually
+                                // reads as smooth.
+                                child: AnimatedSwitcher(
+                                  duration: _tabSwitchDuration,
+                                  switchInCurve: Curves.easeOut,
+                                  switchOutCurve: Curves.easeIn,
+                                  transitionBuilder: (child, animation) =>
+                                      FadeTransition(
+                                    opacity: animation,
+                                    child: child,
+                                  ),
+                                  layoutBuilder:
+                                      (currentChild, previousChildren) =>
+                                          Stack(
+                                    alignment: Alignment.topCenter,
+                                    children: [
+                                      ...previousChildren,
+                                      if (currentChild != null) currentChild,
+                                    ],
+                                  ),
+                                  child: KeyedSubtree(
+                                    key: ValueKey(_activeTab),
+                                    child: _buildTabContent(),
+                                  ),
                                 ),
                               ),
-                              _buildTabBar(isLight),
                             ]),
                           ),
                           // Thin top edge-light — the bit of light a real
@@ -4179,82 +4241,73 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     }
   }
 
+  // Echo Nightly's actual PlayerMoreFragment spec (fragment_player_more.xml
+  // + styles.xml): MaterialButtonToggleGroup, 48dp tall, 6dp gap between
+  // segments (each segment its own rounded button, not one shared track
+  // with a sliding highlight), active segment = solid filled button,
+  // inactive = flat/transparent. Matched 1:1 here instead of the smaller
+  // 40dp single-track version from before.
   Widget _buildTabBar(bool isLight) {
     final l10n = AppLocalizations.of(context)!;
-    final tabs = [
-      (Icons.queue_music_rounded, l10n.fpQueue),
-      (Icons.lyrics_rounded, l10n.fpLyrics),
-      (Icons.info_outline_rounded, l10n.fpInfo),
-    ];
+    final tabs = [l10n.fpQueue, l10n.fpLyrics, l10n.fpInfo];
 
-    final dividerColor =
-        isLight ? AurumTheme.lightDivider : Colors.white.withAlpha(14);
-    final accent = context.watch<ThemeProvider>().accentColor;
-    final inactiveColor =
-        isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(80);
-    final inactiveTextColor =
-        isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(70);
+    final inactiveBg =
+        isLight ? Colors.black.withAlpha(10) : Colors.white.withAlpha(16);
+    final activeBg =
+        isLight ? Colors.white : Colors.white.withAlpha(235);
+    final activeText = Colors.black87;
+    final inactiveText =
+        isLight ? AurumTheme.lightTextMuted : Colors.white.withAlpha(150);
 
-    return SafeArea(
-      top: false,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Divider(color: dividerColor, height: 1),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              children: List.generate(tabs.length, (i) {
-                final isActive = _activeTab == i;
-                return Expanded(
-                  child: AurumPressable(
-                    scaleAmount: 0.94,
-                    haptic: false,
-                    onTap: () => _switchTab(i),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            tabs[i].$1,
-                            size: 20,
-                            color: isActive ? accent : inactiveColor,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            tabs[i].$2,
-                            style: TextStyle(
-                              color: isActive
-                                  ? accent
-                                  : inactiveTextColor,
-                              fontSize: 11,
-                              fontWeight: isActive
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 220),
-                            curve: Curves.easeOutCubic,
-                            width: isActive ? 18 : 0,
-                            height: 2,
-                            decoration: BoxDecoration(
-                              color: accent,
-                              borderRadius: BorderRadius.circular(1),
-                            ),
-                          ),
-                        ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+      child: SizedBox(
+        height: 48,
+        child: Row(
+          children: List.generate(tabs.length, (i) {
+            final isActive = _activeTab == i;
+            return Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: i == 0 ? 0 : 3,
+                  right: i == tabs.length - 1 ? 0 : 3,
+                ),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _switchTab(i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    decoration: BoxDecoration(
+                      color: isActive ? activeBg : inactiveBg,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: isActive
+                          ? [
+                              BoxShadow(
+                                color: Colors.black.withAlpha(30),
+                                blurRadius: 6,
+                                offset: const Offset(0, 1),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      tabs[i],
+                      style: TextStyle(
+                        color: isActive ? activeText : inactiveText,
+                        fontSize: 13,
+                        fontWeight:
+                            isActive ? FontWeight.w600 : FontWeight.w500,
+                        letterSpacing: 0.1,
                       ),
                     ),
                   ),
-                );
-              }),
-            ),
-          ),
-        ],
+                ),
+              ),
+            );
+          }),
+        ),
       ),
     );
   }
@@ -4309,8 +4362,20 @@ class _QueuePage extends StatelessWidget {
           if (i != current) upNext.add(i);
         }
 
+        // FIX ("Up Next mein songs upar-niche stuck jaisa lagta tha,
+        // reorder drag ke time list ka apna bounce/rubber-band feel
+        // usse fight karta tha"): BouncingScrollPhysics (iOS-style
+        // rubber-band overscroll) actively resists/springs back against
+        // SliverReorderableList's own autoscroll-near-edge behavior —
+        // dragging a tile close to the top/bottom of this list fights
+        // the bounce instead of scrolling cleanly, which is exactly what
+        // reads as "stuck". Echo Nightly (and every Android-native list)
+        // uses a flat, no-bounce ClampingScrollPhysics — the list simply
+        // stops dead at its edges with zero spring resistance, so a
+        // reorder-drag's autoscroll near an edge is perfectly smooth and
+        // predictable instead of fighting a rubber band.
         return CustomScrollView(
-          physics: const BouncingScrollPhysics(),
+          physics: const ClampingScrollPhysics(),
           slivers: [
             // Now Playing header
             if (current != null && current < queue.length)
