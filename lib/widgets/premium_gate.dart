@@ -21,6 +21,7 @@ import '../providers/auth_provider.dart';
 import '../screens/premium_screen.dart';
 import '../utils/aurum_transitions.dart';
 import '../utils/aurum_haptics.dart';
+import 'google_logo.dart';
 
 class PremiumGate {
   static void show(
@@ -398,13 +399,30 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(
-                                    isSignedIn
-                                        ? Icons.workspace_premium_rounded
-                                        : Icons.login_rounded,
-                                    color: Colors.black,
-                                    size: 18,
-                                  ),
+                                  // Signed-in state keeps the premium crown
+                                  // icon; signed-out state shows Google's
+                                  // official "G" mark since this button's
+                                  // primary action is a Google sign-in —
+                                  // per Google's branding guidelines, the
+                                  // logo must always appear with the
+                                  // account-provider action it triggers,
+                                  // never as a bare unlabeled icon.
+                                  isSignedIn
+                                      ? const Icon(
+                                          Icons.workspace_premium_rounded,
+                                          color: Colors.black,
+                                          size: 18,
+                                        )
+                                      : Container(
+                                          width: 20,
+                                          height: 20,
+                                          padding: const EdgeInsets.all(2),
+                                          decoration: const BoxDecoration(
+                                            color: Colors.white,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const GoogleLogo(size: 16),
+                                        ),
                                   const SizedBox(width: 8),
                                   Text(
                                     isSignedIn
@@ -740,16 +758,26 @@ class _LoginGateSheetState extends State<_LoginGateSheet>
                                   borderRadius: BorderRadius.circular(16),
                                 ),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(
-                                    Icons.login_rounded,
-                                    color: Colors.black,
-                                    size: 18,
+                                  // Google's official "G" mark — this
+                                  // button's action IS a Google sign-in,
+                                  // so the real brand mark belongs here
+                                  // (see Google's Sign in with Google
+                                  // branding guidelines).
+                                  Container(
+                                    width: 20,
+                                    height: 20,
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: const BoxDecoration(
+                                      color: Colors.white,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const GoogleLogo(size: 16),
                                   ),
-                                  SizedBox(width: 8),
-                                  Text(
+                                  const SizedBox(width: 8),
+                                  const Text(
                                     'Sign in with Google',
                                     style: TextStyle(
                                       color: Colors.black,

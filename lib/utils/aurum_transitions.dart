@@ -782,50 +782,73 @@ class AurumDepthRoute<T> extends PageRouteBuilder<T> {
             // fade + a small Y-offset slide — is what makes this read as
             // "solid" instead of "floaty": nothing changes size mid-
             // transition, so there's no zoom-bounce sensation at all.
-            final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+            // BUG FIX ("playlist se bahar aane par animation chalta
+            // nahi hai" — pop had no exit animation, confirmed):
+            // this used to gate the ENTIRE content tree on
+            // `ModalRoute.of(context)?.isCurrent`, using `animation` only
+            // when isCurrent was true and falling back to
+            // `secondaryAnimation` otherwise. That's wrong for a plain
+            // pop: the instant Navigator.pop() is called, this route
+            // stops being the navigator's "current" route almost
+            // immediately (the route below becomes current), well before
+            // the 300ms reverse transition has actually finished
+            // animating out. So isTopRoute flipped to false right at the
+            // start of the pop, which switched this route onto
+            // `secondaryAnimation` instead of `animation` — but
+            // secondaryAnimation only moves when something is pushed ON
+            // TOP of this route; during a pop nothing is being pushed on
+            // top, so it just sits at 0 the whole time (Tween(1.0, 0.85)
+            // evaluates to a constant 1.0). The real reversing
+            // `animation` (1 -> 0 over 300ms) was computed correctly by
+            // Flutter the whole time but never actually got used once
+            // isCurrent flipped — so the screen just vanished instantly
+            // with no visible exit motion, exactly the reported bug.
+            //
+            // Fix: this route's OWN enter/exit motion is always driven
+            // by `animation` (that's what a pop reverses), full stop —
+            // no isCurrent branching on it at all. `secondaryAnimation`
+            // is layered on separately, only for the "something else was
+            // pushed on top of me and I need to visually recede" case,
+            // exactly matching how AurumPageRoute/AurumSlidePageRoute
+            // already handle this correctly above.
+            final incomingFade = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic,
+            );
+            final incomingSlide = Tween<Offset>(
+              begin: const Offset(0, 0.04),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic,
+            ));
 
-            final Widget content;
-            if (isTopRoute) {
-              // Incoming (this route): fade in across the whole
-              // timeline, sliding up from a small fixed offset — subtle
-              // enough to feel intentional without any zoom/scale.
-              final incomingFade = CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOutCubic,
-                reverseCurve: Curves.easeInCubic,
-              );
-              final incomingSlide = Tween<Offset>(
-                begin: const Offset(0, 0.04),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOutCubic,
-                reverseCurve: Curves.easeInCubic,
-              ));
-              content = FadeTransition(
-                opacity: incomingFade,
-                child: SlideTransition(
-                  position: incomingSlide,
-                  child: child,
-                ),
-              );
-            } else {
-              // Something is pushed on top of this route right now —
-              // apply only a simple fade-out in place, no slide/scale.
-              // This route already finished its own incoming animation
-              // long ago, so it just needs to recede visually while the
-              // new route takes over.
-              final outgoingFade = Tween<double>(begin: 1.0, end: 0.85)
-                  .animate(
-                CurvedAnimation(
-                  parent: secondaryAnimation,
-                  curve: Curves.easeInCubic,
-                ),
-              );
-              content = FadeTransition(
-                opacity: outgoingFade,
+            // PERF: only build a secondaryAnimation-driven fade when
+            // something is actually pushed on top of this route right
+            // now — skips the extra CurvedAnimation/Tween hookup on the
+            // overwhelmingly common case (this route sitting alone at
+            // the top of the stack, mid push or pop).
+            final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+            final recedeFade = isTopRoute
+                ? null
+                : Tween<double>(begin: 1.0, end: 0.85).animate(
+                    CurvedAnimation(
+                      parent: secondaryAnimation,
+                      curve: Curves.easeInCubic,
+                    ),
+                  );
+
+            Widget content = FadeTransition(
+              opacity: incomingFade,
+              child: SlideTransition(
+                position: incomingSlide,
                 child: child,
-              );
+              ),
+            );
+            if (recedeFade != null) {
+              content = FadeTransition(opacity: recedeFade, child: content);
             }
 
             // Real, already-themed content from the previous route stays
