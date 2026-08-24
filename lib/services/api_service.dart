@@ -1805,7 +1805,7 @@ class ApiService {
   // ===========================================================================
   // DOWNLOAD URL RESOLUTION — honors a caller-supplied quality priority list
   // ===========================================================================
-  static Future<String?> resolveDownloadUrl(Song song, {List<String> qualityOrder = const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps']}) async {
+  static Future<String?> resolveDownloadUrl(Song song, {List<String> qualityOrder = const ['320kbps', '160kbps']}) async {
     if (song.isLocal) return song.localPath;
 
     // FIX ("download quality select karo to usi quality mein download ho,
@@ -5375,10 +5375,30 @@ class ApiService {
           return _proxiedSaavnUrl(match['url'] as String);
         }
       }
-      final last = downloads.last;
-      if (last is Map && (last['url'] as String?)?.startsWith('http') == true) {
-        AudioPrefs.lastResolvedKbps = null; // unknown tier, fell through to the last entry
-        return _proxiedSaavnUrl(last['url'] as String);
+      // BUGFIX (download quality mismatch): this used to fall through to
+      // `downloads.last` whenever none of the caller's requested tiers
+      // matched — but `downloads.last` is frequently the LOWEST bitrate
+      // entry (e.g. 12kbps), not a reasonable "next best" choice. A user
+      // who selected 320kbps and whose song only listed up to 96kbps was
+      // silently handed a 12kbps file with no indication anything had
+      // downgraded. Now: only fall through to the highest-bitrate entry
+      // actually present in the list (by parsing each tier's kbps number),
+      // so an unmatched request still gets the best real option available
+      // for that song — never the worst one.
+      final withKbps = downloads
+          .whereType<Map>()
+          .where((d) => (d['url'] as String?)?.startsWith('http') == true)
+          .map((d) => (
+                kbps: int.tryParse((d['quality'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? -1,
+                url: d['url'] as String,
+              ))
+          .where((e) => e.kbps >= 0)
+          .toList();
+      if (withKbps.isNotEmpty) {
+        withKbps.sort((a, b) => b.kbps.compareTo(a.kbps));
+        final best = withKbps.first;
+        AudioPrefs.lastResolvedKbps = best.kbps;
+        return _proxiedSaavnUrl(best.url);
       }
     }
     final su = song['media_url'] ?? song['streamUrl'];
@@ -6093,7 +6113,7 @@ class ApiService {
   /// below. A bare unprefixed id (old callers / deep links saved before this
   /// change) is treated as a legacy Saavn id for backward compatibility.
   static Future<Artist?> fetchArtist(String artistId,
-      {int songCount = 30, int albumCount = 100}) async {
+      {int songCount = 100, int albumCount = 100}) async {
     if (artistId.isEmpty) return null;
     if (artistId.startsWith('yt_')) {
       final channelId = artistId.substring(3);
@@ -6115,7 +6135,7 @@ class ApiService {
   /// so a channel's non-music uploads (vlogs, shorts, interviews, etc.)
   /// don't flood the Top Songs list.
   static Future<Artist?> _fetchArtistFromYoutube(String channelId,
-      {int songCount = 30}) async {
+      {int songCount = 100}) async {
     try {
       // PERF (biggest lever on artist-screen open time): channel.get(),
       // getAboutPage(), and getUploadsFromPage() are three independent
@@ -6183,18 +6203,18 @@ class ApiService {
       if (firstPage != null) {
         try {
           var page = firstPage;
-          var pagesFetched = 0;
-          // PERF (low-end device, fast first paint): page cap now scales
-          // with songCount instead of a flat 6 — a channel page returns
-          // ~30 uploads, so covering songCount candidates needs roughly
-          // (songCount / 30) + 2 pages (the +2 is headroom for quality-gate
-          // rejections thinning the list — non-music uploads, wrong
-          // duration). Capped at 6 as an absolute ceiling so a channel with
-          // an unusually low music-hit-rate can't still chain unbounded
-          // round-trips. With the new songCount default of 30 this keeps
-          // the common case to a single page (the one already fetched
-          // above, in parallel) instead of always allowing up to 6.
-          final maxPages = ((songCount / 30).ceil() + 2).clamp(1, 6);
+          // NO LIMIT ("koi limit na rahe, artist ke sab songs beyond
+          // aaye"): removed both the fixed songCount ceiling and the
+          // maxPages cap — this now walks every page of the channel's
+          // uploads until YouTube itself says there are no more
+          // (page.nextPage() returns null), so a channel with hundreds of
+          // uploads gets its full catalog, not a truncated slice. The only
+          // guard left is a per-page network timeout (unchanged from
+          // before) so a single stalled request can't hang the whole
+          // fetch forever — that's a crash/hang guard, not a song-count
+          // limit. songCount is now just a soft target used by the
+          // Saavn-side query param below; it no longer caps YouTube's
+          // walk.
           while (true) {
             for (final v in page) {
               final base = _songFromYtVideo(v);
@@ -6213,11 +6233,7 @@ class ApiService {
               if (RecommendationEngine.isNonMusicContent(song)) continue;
               if (song.duration != null && (song.duration! < 60 || song.duration! > 1200)) continue;
               topSongs.add(song);
-              if (topSongs.length >= songCount) break;
             }
-            if (topSongs.length >= songCount) break;
-            pagesFetched++;
-            if (pagesFetched >= maxPages) break;
             final next = await page.nextPage().timeout(const Duration(seconds: 7), onTimeout: () => null);
             if (next == null) break;
             page = next;
@@ -6325,10 +6341,17 @@ class ApiService {
       // quality pipeline (isSearchQuality/isNonMusicContent gating already
       // applied inside _searchYt's callers elsewhere; dedup below still
       // keeps Saavn's own catalog authoritative and first).
+      // TUNED ("YT se artist songs zyada se zyada aaye, koi limit na
+      // rahe"): 60 -> 150 — single bounded search call (not paginated),
+      // so raising this doesn't add extra round-trips, just asks the one
+      // call for a deeper result set. Saavn's own topSongs above is
+      // already uncapped (backend returns everything for the requested
+      // songCount, no client-side .take() here); this just brings the YT
+      // half of the blend up to the same "as much as possible" standard.
       final artistNameForYt = (d['name'] ?? '').toString();
       final ytTopSongs = artistNameForYt.isEmpty
           ? <Song>[]
-          : await _searchYt('$artistNameForYt songs', limit: 60)
+          : await _searchYt('$artistNameForYt songs', limit: 150)
               .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
               .catchError((_) => <Song>[]);
 

@@ -10,6 +10,7 @@ import '../models/song.dart';
 import '../models/download_item.dart';
 import '../services/notification_service.dart';
 import '../services/api_service.dart';
+import '../services/audio_prefs.dart';
 import '../services/native_engine_bridge.dart';
 
 /// Manages downloading songs for offline playback.
@@ -73,6 +74,16 @@ class DownloadProvider extends ChangeNotifier {
       sendTimeout: const Duration(seconds: 15),
       headers: {
         'User-Agent': _browserUserAgent,
+        // SPEED FIX: MP3 audio is already compressed — asking the server
+        // to gzip it again (Dio/HttpClient's default Accept-Encoding)
+        // wastes CPU time on both ends for zero size benefit, and some
+        // hosts respond slower once they detour through their compression
+        // path for content that doesn't compress further. Requesting the
+        // identity encoding means the server streams raw bytes straight
+        // through — the actual bottleneck (network throughput) is
+        // unaffected either way, but this removes a needless CPU step
+        // that was pure overhead on every single download.
+        'Accept-Encoding': 'identity',
       },
     ),
   );
@@ -308,20 +319,22 @@ class DownloadProvider extends ChangeNotifier {
 
     // ── Resolve quality order for this download ────────────────────────────
     final rawQuality = prefs.getString('download_quality') ?? '320kbps';
-    // Build a priority list that starts with the user's chosen quality and
-    // falls back gracefully, so we always get something even if that exact
-    // quality isn't available from the API.
+    // Only two real tiers are offered now (see settings_storage_screen.dart):
+    // 320kbps and 160kbps. Quality order is deliberately SHORT — the user's
+    // exact chosen tier first, with only ONE graceful step down to the next
+    // real tier if that exact bitrate genuinely isn't available for this
+    // song. Never drops further to 96/48/12kbps: a user who picked 320kbps
+    // and silently got a 12kbps file (this used to happen — see
+    // _extractSaavnStreamUrl's old "grab downloads.last" fallback) has no
+    // way to know their download isn't what they asked for.
     final List<String> qualityOrder;
     switch (rawQuality) {
-      case '96kbps':
-        qualityOrder = const ['96kbps', '48kbps', '12kbps'];
-        break;
-      case '128kbps':
-        qualityOrder = const ['160kbps', '96kbps', '48kbps', '12kbps'];
+      case '160kbps':
+        qualityOrder = const ['160kbps', '320kbps'];
         break;
       case '320kbps':
       default:
-        qualityOrder = const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
+        qualityOrder = const ['320kbps', '160kbps'];
     }
 
     // Show "queued" immediately so the UI reacts instantly, even while we
@@ -342,7 +355,20 @@ class DownloadProvider extends ChangeNotifier {
       }
     }
 
-    String? url = song.streamUrl;
+    String? url = song.source == SongSource.saavn ? null : song.streamUrl;
+    // FLOOR FIX (Saavn only): a pre-populated song.streamUrl (e.g. from a
+    // search result's media_url field) carries no known bitrate — see
+    // _extractSaavnStreamUrl's media_url fallback, which explicitly sets
+    // AudioPrefs.lastResolvedKbps = null because that shape doesn't report
+    // a tier at all. Using it as-is here would let a Saavn download
+    // silently skip the quality resolution below entirely, bypassing the
+    // 160kbps floor for a URL of literally unknown quality. Saavn always
+    // re-resolves fresh through resolveDownloadUrl (which the floor check
+    // right below then verifies), so the floor is enforced unconditionally
+    // for every Saavn download, not just ones that needed a fresh resolve.
+    // YouTube-sourced songs are unaffected — their streamUrl (when present)
+    // is kept as before, and they don't carry Saavn-style kbps tiers to
+    // floor-check in the first place.
     if (url == null || url.isEmpty || !url.startsWith('http')) {
       try {
         // FIX (2026-07-07) — "YouTube downloads fail / stuck resolving":
@@ -364,6 +390,21 @@ class DownloadProvider extends ChangeNotifier {
         }
         url ??= await ApiService.resolveDownloadUrl(song, qualityOrder: qualityOrder);
       } catch (_) {
+        url = null;
+      }
+
+      // FLOOR (Saavn only): never accept a Saavn download below 160kbps.
+      // resolveDownloadUrl/_extractSaavnStreamUrl can still fall through to
+      // "best available in this song's list" when neither requested tier
+      // matches — for a song whose list tops out at, say, 96kbps, that's
+      // still below the 160/320kbps floor this app now promises. Reject it
+      // outright here rather than silently handing over a sub-160kbps file.
+      // Doesn't apply to YouTube-sourced downloads (_engine.resolveForDownload
+      // above) — those don't carry discrete Saavn-style kbps tiers at all.
+      if (song.source == SongSource.saavn &&
+          url != null &&
+          AudioPrefs.lastResolvedKbps != null &&
+          AudioPrefs.lastResolvedKbps! < 160) {
         url = null;
       }
     }

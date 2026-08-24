@@ -57,7 +57,16 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
     setState(() {
       _maxSongCache        = p.getDouble('max_song_cache')   ?? 500.0;
       _maxImageCache       = p.getDouble('max_image_cache')  ?? 100.0;
-      _downloadQuality     = p.getString('download_quality') ?? '320kbps';
+      // MIGRATION: 96kbps/128kbps used to be valid choices here. An
+      // existing install with one of those saved would no longer find a
+      // matching entry in the now-trimmed ['160kbps', '320kbps'] options
+      // list, which the dropdown widget can't render (value not in its
+      // options). Map old values to the nearest current tier.
+      _downloadQuality     = switch (p.getString('download_quality')) {
+        '96kbps' || '128kbps' => '160kbps',
+        final q? => q,
+        null => '320kbps',
+      };
       _autoDownloadLiked   = p.getBool('auto_download_liked')  ?? false;
       _downloadWifiOnly    = p.getBool('download_wifi_only')   ?? true;
       _downloadedSize  = downloadSize;
@@ -158,7 +167,12 @@ class _SettingsStorageScreenState extends State<SettingsStorageScreen> {
                   title: l10n.ssDownloadQuality,
                   subtitle: l10n.ssDownloadQualitySubtitle,
                   value: _downloadQuality,
-                  options: const ['96kbps', '128kbps', '320kbps'],
+                  // Only the two real Saavn tiers that matter for download
+                  // quality — 320kbps (best available) and 160kbps. No
+                  // 96/128kbps options: those silently downgraded further
+                  // (see download_provider.dart) instead of giving users a
+                  // predictable, exact-tier result.
+                  options: const ['160kbps', '320kbps'],
                   onChanged: (v) { setState(() => _downloadQuality = v!); _save('download_quality', v!); },
                 ),
 

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import '../widgets/aurum_pressable.dart';
-import '../widgets/mini_player_slot.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
@@ -831,22 +830,29 @@ class _SearchScreenState extends State<SearchScreen>
         // the keyboard height instead, keeps one consistent layout.
         resizeToAvoidBottomInset: false,
         backgroundColor: AurumTheme.bgOf(context),
-        // extendBody: true — matches MainShell's outer Scaffold so search
-        // results scroll underneath the floating glass nav bar/mini player
-        // instead of stopping in a flat strip above it (see main_shell.dart
-        // for the matching change + rationale).
-        extendBody: true,
-        // FIX ("search screen pe mini player background me layer jaisa
-        // dikhta hai"): this Scaffold used to rely on MainShell's OUTER
-        // mini player showing through from underneath — since this screen
-        // never claimed its own bottomNavigationBar slot, the mini player
-        // had no real place to sit in THIS Scaffold's layer stack and just
-        // floated over the content as a translucent overlay instead of a
-        // proper opaque bar. Home/Library both bind MiniPlayerSlot() here
-        // directly (see library_screen.dart's matching Scaffold) — doing
-        // the same here gives Search the identical solid slot/layer those
-        // screens already have, nothing else about the layout changes.
-        bottomNavigationBar: const MiniPlayerSlot(),
+        // BUGFIX (duplicate mini player on Search — two players stacked
+        // on screen at once): SearchScreen is a ROOT TAB inside MainShell's
+        // IndexedStack (exactly like HomeScreen), not a screen pushed via
+        // Navigator.push. MainShell's own Scaffold already renders a
+        // persistent MiniPlayer + nav bar in ITS bottomNavigationBar,
+        // unconditionally, underneath all three tabs (see main_shell.dart).
+        // A previous fix here added `extendBody: true` and
+        // `bottomNavigationBar: const MiniPlayerSlot()` to this screen's
+        // OWN inner Scaffold to solve a "mini player looks like a
+        // translucent overlay" visual glitch — but MiniPlayerSlot renders
+        // a real, second MiniPlayer widget. That pattern is only correct
+        // for screens actually PUSHED on top of a tab (Liked Songs,
+        // Downloads, Album, Artist, etc. — see MiniPlayerSlot's own doc
+        // comment and how library_screen.dart uses it for its pushed
+        // sub-screens), where the nav bar is hidden and something needs to
+        // reserve/show the mini player in its place. Search never leaves
+        // the tab host, so MainShell's outer MiniPlayer was already
+        // correctly on screen the whole time — this inner one was purely
+        // extra. Matches HomeScreen exactly: no extendBody, no
+        // bottomNavigationBar, no MiniPlayerSlot. The original "layered/
+        // translucent" glitch this used to work around should be revisited
+        // separately if it resurfaces — stacking a second real player is
+        // not an acceptable fix for it.
         body: SafeArea(
           child: Padding(
             padding: EdgeInsets.only(
@@ -1281,7 +1287,29 @@ class _SearchScreenState extends State<SearchScreen>
       ));
     }
 
-    return KeyedSubtree(key: const ValueKey('live'), child: content);
+    return KeyedSubtree(
+      key: const ValueKey('live'),
+      // BUGFIX ("search mein artist bhi aaye" — nahi aata tha, real mein):
+      // the Musify-style Artists section (see _buildArtistSection) was
+      // only ever wired into _buildResults(), which _buildBody() only
+      // reaches once _results (the SUBMITTED search's song list) is
+      // non-empty. Most of what a user actually sees while typing — and
+      // often even right after hitting search, until the debounced full
+      // search resolves — is THIS panel, _buildLivePanel, which had no
+      // artist rendering at all. _artistResults itself was already being
+      // fetched correctly on every _search() call (see
+      // ApiService.searchArtists in _search() above); it just never had
+      // anywhere to render on this screen. Prepending the same section
+      // here (identical to _buildResults()'s own placement) means artists
+      // now show up as soon as they resolve, on whichever panel is
+      // actually on screen at the time — not only after a full submit.
+      child: Column(
+        children: [
+          _buildArtistSection(context),
+          Expanded(child: content),
+        ],
+      ),
+    );
   }
 
   Widget _buildLiveProgressBar(BuildContext context) {
@@ -1363,18 +1391,11 @@ class _SearchScreenState extends State<SearchScreen>
       children: [
         Column(
           children: [
-            // SPOTIFY-PATTERN ("song search kare to uska artist bhi
-            // premium level dikhe"): a single "Top Result" artist card,
-            // shown ONLY when the query itself is a strong match for that
-            // artist's name (not just any artist tangentially returned
-            // for the query) — exactly Spotify's own rule for when an
-            // artist earns the top-result slot vs. just appearing lower
-            // down. Reuses _artistResults (already fetched for the
-            // "Artists" row below) — zero extra network call, so this
-            // stays lightweight regardless of how prominent the card
-            // looks.
-            if (_topResultArtist != null) _buildTopResultCard(_topResultArtist!),
-            if (_artistResults.isNotEmpty) _buildArtistRow(),
+            // MUSIFY-STYLE ("search mein artist bhi aaye", matched to the
+            // Musify reference screenshot): labeled "Artists" section with
+            // a vertical list of full-width rows, shown above the Songs
+            // section — see _buildArtistSection.
+            _buildArtistSection(context),
             // SMOOTH FIX ("results scroll karte time stuck jaisa feel"):
             // this list had no RepaintBoundary anywhere above it — header,
             // search bar and tab bar sat in the same paint layer as the
@@ -1488,156 +1509,109 @@ class _SearchScreenState extends State<SearchScreen>
     );
   }
 
-  // SPOTIFY-PATTERN: which _artistResults entry (if any) qualifies for the
-  // single "Top Result" slot above the Artists row. Only the FIRST artist
-  // match counts (searchArtists() already returns YT Music's own ranking,
-  // so [0] is its best match) — and only when the query text itself is
-  // clearly about that artist (name contains query or vice versa,
-  // case-insensitive), not just any artist that happened to appear in
-  // results for an unrelated song query like "Tum Hi Ho". Kept as a plain
-  // getter (not cached state) since it's a pure, cheap derivation off
-  // fields already in state — recomputes for free on every build.
-  ArtistSimple? get _topResultArtist {
-    if (_artistResults.isEmpty) return null;
-    final query = _controller.text.trim().toLowerCase();
-    if (query.isEmpty) return null;
-    final top = _artistResults.first;
-    final name = top.name.toLowerCase();
-    if (name.contains(query) || query.contains(name)) return top;
-    return null;
-  }
+  // MUSIFY-STYLE ("same aisa chahiye" — reference: Musify app search UI):
+  // vertical list, not a horizontal scroll row — each artist is a full-width
+  // row (circular avatar, name, "Artist" subtitle, trailing chevron),
+  // exactly the same row shape as a song result below it, under a labeled
+  // section header with a small leading icon. Replaces the earlier
+  // Spotify-style horizontal-scroll row + separate "Top Result" hero card
+  // per explicit direction to match Musify's simpler vertical-list pattern
+  // instead.
+  // CAP FIX ("aisa na lage ki artists hi khatam nahi ho rahe" —
+  // ApiService.searchArtists() fetches up to 12 artists (see limit: 12 in
+  // api_service.dart), and this section used to render every single one
+  // as a full-width, uncapped Column above the Songs list. At ~72px per
+  // row, 12 artists is ~860px — on a typical phone that pushes the entire
+  // Songs section (the thing most people actually searched for) off the
+  // bottom of the first screen, so the user has to scroll past a wall of
+  // artist rows before seeing a single song. Real reference apps
+  // (Spotify, Musify) cap this row count and let the section stay a
+  // small, glanceable block instead of dominating the results. Capping
+  // here (not by lowering the API's own limit) keeps ArtistScreen /
+  // any other future consumer of the full 12-result list unaffected —
+  // this is purely how many of them SearchScreen chooses to *render*.
+  static const int _maxVisibleArtists = 4;
 
-  // NEW ("search mein artist bhi aaye" — Spotify-pattern top result):
-  // single prominent card for a strong artist-name match, shown above
-  // everything else exactly the way Spotify's own search puts an artist
-  // in the "Top Result" slot when the query is clearly about them. Kept
-  // lightweight — reuses the same AurumArtwork/AurumPressable widgets and
-  // ArtistScreen navigation the Artists row below already uses, just a
-  // different (larger, single-item) layout.
-  Widget _buildTopResultCard(ArtistSimple a) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: AurumPressable(
-        onTap: () {
-          AurumHaptics.light();
-          Navigator.push(
-            context,
-            AurumDepthRoute(
-              builder: (_) => ArtistScreen(artistId: a.id, artistName: a.name),
-            ),
-          );
-        },
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AurumTheme.bgCardOf(context),
-            borderRadius: BorderRadius.circular(12),
-          ),
+  Widget _buildArtistSection(BuildContext context) {
+    if (_artistResults.isEmpty) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
+    final visible = _artistResults.length > _maxVisibleArtists
+        ? _artistResults.sublist(0, _maxVisibleArtists)
+        : _artistResults;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
           child: Row(
             children: [
-              ClipOval(
-                child: AurumArtwork(url: a.imageUrl, size: 64),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Top Result',
-                      style: TextStyle(
-                        color: AurumTheme.textMutedOf(context),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.6,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      a.name,
-                      style: TextStyle(
-                        color: AurumTheme.textPrimaryOf(context),
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Artist',
-                      style: TextStyle(
-                        color: AurumTheme.textSecondaryOf(context),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
+              Icon(Icons.person_rounded, color: AurumTheme.gold, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                l10n.libraryArtists,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
         ),
-      ),
+        ...List.generate(visible.length, (i) {
+          final a = visible[i];
+          return _buildArtistListTile(context, a);
+        }),
+      ],
     );
   }
 
-  // NEW ("search mein artist bhi aaye"): horizontal row of artist cards
-  // matching the current query, shown above the song results. Tapping a
-  // card opens ArtistScreen with the channelId already resolved (no extra
-  // name-search round-trip, since searchArtists() already returned it
-  // prefixed 'yt_<channelId>'). Skips whichever artist is already shown in
-  // the Top Result card above (same Spotify convention — a match doesn't
-  // appear twice on screen).
-  Widget _buildArtistRow() {
-    final rowArtists = _topResultArtist == null
-        ? _artistResults
-        : _artistResults.where((a) => a.id != _topResultArtist!.id).toList();
-    if (rowArtists.isEmpty) return const SizedBox.shrink();
-    return SizedBox(
-      height: 96,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemCount: rowArtists.length,
-        itemBuilder: (_, i) {
-          final a = rowArtists[i];
-          return Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: AurumPressable(
-              onTap: () {
-                AurumHaptics.light();
-                Navigator.push(
-                  context,
-                  AurumDepthRoute(
-                    builder: (_) => ArtistScreen(artistId: a.id, artistName: a.name),
+  Widget _buildArtistListTile(BuildContext context, ArtistSimple a) {
+    return AurumPressable(
+      onTap: () {
+        AurumHaptics.light();
+        Navigator.push(
+          context,
+          AurumDepthRoute(
+            builder: (_) => ArtistScreen(artistId: a.id, artistName: a.name),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Row(
+          children: [
+            ClipOval(child: AurumArtwork(url: a.imageUrl, size: 56)),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    a.name,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                );
-              },
-              child: SizedBox(
-                width: 64,
-                child: Column(
-                  children: [
-                    ClipOval(
-                      child: AurumArtwork(url: a.imageUrl, size: 56),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Artist',
+                    style: TextStyle(
+                      color: AurumTheme.textSecondaryOf(context),
+                      fontSize: 13,
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      a.name,
-                      style: TextStyle(
-                        color: AurumTheme.textPrimaryOf(context),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          );
-        },
+            Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 22),
+          ],
+        ),
       ),
     );
   }

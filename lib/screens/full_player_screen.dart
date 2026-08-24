@@ -380,6 +380,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _artworkCtrl.dispose();
     _playBtnCtrl.dispose();
     _bgColorCtrl.dispose();
+    _immersiveCtrl.dispose();
     _springBackCtrl.dispose();
     _dragYNotifier.dispose();
     super.dispose();
@@ -717,6 +718,41 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
   void _resumeAmbientAnims() {
     _kenBurnsKey.currentState?.resume();
+  }
+
+  // Immersive Lyrics overlay — full-screen thumbnail↔lyrics morph, driven
+  // entirely in-place (no pushed route) so it can reuse _currentBg1..4,
+  // the live song, and _pauseAmbientAnims/_resumeAmbientAnims directly
+  // with zero prop plumbing, exactly like _openPanel reuses them for the
+  // Up Next/Lyrics/Info sheet above.
+  bool _immersiveLyricsOpen = false;
+  late final AnimationController _immersiveCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 520),
+    reverseDuration: const Duration(milliseconds: 420),
+  );
+  double _immersiveDragY = 0.0;
+  bool _immersiveDragging = false;
+
+  void _openImmersiveLyrics() {
+    if (_immersiveLyricsOpen) return;
+    AurumHaptics.medium();
+    setState(() => _immersiveLyricsOpen = true);
+    _pauseAmbientAnims();
+    _immersiveCtrl.forward(from: 0.0);
+  }
+
+  void _closeImmersiveLyrics() {
+    if (!_immersiveLyricsOpen) return;
+    AurumHaptics.light();
+    _immersiveDragY = 0.0;
+    _immersiveCtrl.reverse(from: _immersiveCtrl.value).whenComplete(() {
+      if (!mounted) return;
+      setState(() => _immersiveLyricsOpen = false);
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        _resumeAmbientAnims();
+      }
+    });
   }
 
   // ── Palette / song cache ──
@@ -1329,7 +1365,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               },
               child: _DragTransform(
                 dragYListenable: _dragYNotifier,
-                child: Scaffold(
+                child: PopScope(
+                  // Back button, while the immersive lyrics overlay is
+                  // showing, closes the overlay instead of the whole
+                  // player — same "innermost thing closes first" pattern
+                  // as the Up Next/Lyrics/Info sheet, just via canPop
+                  // instead of a Navigator route since the overlay isn't
+                  // pushed as its own route (see _openImmersiveLyrics).
+                  canPop: !_immersiveLyricsOpen,
+                  onPopInvokedWithResult: (didPop, _) {
+                    if (didPop) return;
+                    _closeImmersiveLyrics();
+                  },
+                  child: Scaffold(
                       // FIX (permanent removal of cold-start white/cream
                       // flash — confirmed reproducible in every theme
                       // mode): this used to branch on isDarkOf(context) to
@@ -1422,9 +1470,46 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               child: _buildBody(context, player, song),
                             ),
                           ),
+                          // Immersive Lyrics overlay — sits above
+                          // everything else in this Stack (drawn last),
+                          // covering the full player entirely once open.
+                          // Kept mounted only while opening/open/closing
+                          // (IgnorePointer + opacity 0 the rest of the
+                          // time would still cost a build; an if-guard on
+                          // _immersiveLyricsOpen plus the controller
+                          // itself staying alive across toggles is
+                          // cheaper and matches how _openPanel's sheet is
+                          // only in the tree while shown).
+                          if (_immersiveLyricsOpen || _immersiveCtrl.value > 0)
+                            Positioned.fill(
+                              child: _ImmersiveLyricsOverlay(
+                                controller: _immersiveCtrl,
+                                song: song,
+                                bg1: _currentBg1,
+                                bg2: _currentBg2,
+                                bg3: _currentBg3,
+                                bg4: _currentBg4,
+                                dragY: _immersiveDragY,
+                                isDragging: _immersiveDragging,
+                                onClose: _closeImmersiveLyrics,
+                                onDragStart: () =>
+                                    setState(() => _immersiveDragging = true),
+                                onDragUpdate: (dy) =>
+                                    setState(() => _immersiveDragY = dy),
+                                onDragEnd: (shouldClose) {
+                                  setState(() => _immersiveDragging = false);
+                                  if (shouldClose) {
+                                    _closeImmersiveLyrics();
+                                  } else {
+                                    setState(() => _immersiveDragY = 0.0);
+                                  }
+                                },
+                              ),
+                            ),
                         ],
                       ),
                     ),
+                  ),
               ),
         );
       },
@@ -1511,15 +1596,33 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             ),
             SizedBox(height: vGapSm * 0.3),
             // sitting between title/artist and the seek bar. Tapping it
-            // opens straight to the full Lyrics tab.
+            // opens straight to the full Lyrics tab. Hidden (not removed)
+            // while the immersive full-screen lyrics overlay is open —
+            // showing a redundant single-line ticker underneath the
+            // full-screen lyrics view it triggers would be the exact
+            // "awkward moment" the overlay is meant to avoid. Reappears
+            // the instant the overlay closes, same as before.
             ValueListenableBuilder<bool>(
               valueListenable: AudioPrefs.showLyricsOnPlayerNotifier,
               builder: (context, show, _) {
-                if (!show) return const SizedBox.shrink();
-                return _InlineLyricsStrip(
-                  hPad: hPad,
-                  bgLuma: _currentBg2.computeLuminance(),
-                  onTap: () => _openPanel(initialTab: 1),
+                if (!show || _immersiveLyricsOpen) {
+                  return const SizedBox.shrink();
+                }
+                return Row(
+                  children: [
+                    Expanded(
+                      child: _InlineLyricsStrip(
+                        hPad: hPad,
+                        bgLuma: _currentBg2.computeLuminance(),
+                        onTap: () => _openPanel(initialTab: 1),
+                      ),
+                    ),
+                    _ImmersiveLyricsTriggerButton(
+                      bgLuma: _currentBg2.computeLuminance(),
+                      onTap: _openImmersiveLyrics,
+                    ),
+                    SizedBox(width: hPad * 0.5),
+                  ],
                 );
               },
             ),
@@ -2251,6 +2354,358 @@ class _SongInfo extends StatelessWidget {
 //    song's lyrics resolve, instead of clearing to blank first — avoids a
 //    visible blank flash between tracks.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Immersive Lyrics — trigger button + full-screen overlay.
+//
+// Trigger: a small pill-style icon button sitting next to the inline
+// lyrics strip. Tapping it opens a full-screen, theme-matched lyrics view
+// with a glow-aura loading transition (the "Gemini-style" morph the user
+// asked for) — album art fades out through a soft accent-colored glow
+// pulse, settling into a calm, static (non-glowing) lyrics screen once
+// the transition completes. Reuses _LyricsPage for the actual lyrics
+// content/fetch/scroll/sync logic rather than duplicating it — that
+// widget is already fully self-contained (watches PlayerProvider,
+// fetches, romanizes Devanagari, tracks the active line) so it drops in
+// unchanged.
+//
+// Kept as an in-place overlay inside _FullPlayerScreenState (not a
+// pushed route) so it can read _currentBg1..4 / the live song directly,
+// same reasoning as _openPanel's sheet above.
+// ─────────────────────────────────────────────────────────────────────────────
+class _ImmersiveLyricsTriggerButton extends StatelessWidget {
+  final double bgLuma;
+  final VoidCallback onTap;
+  const _ImmersiveLyricsTriggerButton({
+    required this.bgLuma,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bgIsLight = bgLuma >= 0.5;
+    final iconColor =
+        bgIsLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(180);
+    final fillColor = bgIsLight
+        ? AurumTheme.lightTextPrimary.withAlpha(18)
+        : Colors.white.withAlpha(22);
+
+    return AurumPressable(
+      onTap: onTap,
+      scaleAmount: 0.90,
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: fillColor,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(Icons.open_in_full_rounded, size: 15, color: iconColor),
+      ),
+    );
+  }
+}
+
+class _ImmersiveLyricsOverlay extends StatefulWidget {
+  final AnimationController controller;
+  final Song song;
+  final Color bg1, bg2, bg3, bg4;
+  final double dragY;
+  final bool isDragging;
+  final VoidCallback onClose;
+  final VoidCallback onDragStart;
+  final ValueChanged<double> onDragUpdate;
+  final ValueChanged<bool> onDragEnd; // true = should close
+
+  const _ImmersiveLyricsOverlay({
+    required this.controller,
+    required this.song,
+    required this.bg1,
+    required this.bg2,
+    required this.bg3,
+    required this.bg4,
+    required this.dragY,
+    required this.isDragging,
+    required this.onClose,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+  });
+
+  @override
+  State<_ImmersiveLyricsOverlay> createState() => _ImmersiveLyricsOverlayState();
+}
+
+class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
+  // Drag-to-dismiss threshold — matches the feel of the player's own
+  // swipe-down-to-dismiss elsewhere in this file (distance-based, with a
+  // velocity escape hatch for a fast flick that hasn't crossed the
+  // distance threshold yet).
+  static const double _dismissDistance = 120.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
+
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, child) {
+        // t: 0 = fully closed (thumbnail/player visible, overlay
+        // invisible), 1 = fully open (lyrics settled, glow gone).
+        final rawT = widget.controller.value;
+        // Eased progress drives every visual below — a raw linear t reads
+        // mechanical; easeInOutCubic gives the transition a soft
+        // start/end and a quicker middle, the same "weighted" feel
+        // premium app transitions (Gemini included) use instead of a
+        // constant-speed morph.
+        final t = Curves.easeInOutCubic.transform(rawT);
+
+        // Glow intensity: ramps up fast at the start of the transition,
+        // peaks tightly around the midpoint — exactly where the
+        // thumbnail→lyrics swap happens below — then eases back to zero
+        // as the lyrics screen settles. Narrower peak (pow) than a plain
+        // sine so the glow is genuinely doing the covering at the swap
+        // instant, not just glowing gently the whole time.
+        final glow = math.pow(math.sin(t * math.pi).clamp(0.0, 1.0), 0.6) as double;
+
+        // Thumbnail and lyrics swap in a tight window centered exactly on
+        // the glow's peak (t≈0.5) — the glow-wash covers the instant of
+        // exchange, so it reads as "the glow consumes the thumbnail and
+        // releases the lyrics" rather than two independent fades that
+        // merely overlap the glow. A narrow ~0.24-wide crossfade window
+        // (vs. the old sprawling 0.55/0.45 split) keeps the swap decisive
+        // instead of mushy.
+        final artOpacity = (1.0 - ((t - 0.38) / 0.24)).clamp(0.0, 1.0);
+        final lyricsOpacity = ((t - 0.5) / 0.30).clamp(0.0, 1.0);
+
+        // Subtle scale + blur on the outgoing/incoming layers — the
+        // thumbnail eases outward (1.0 → 1.06) as it's consumed by the
+        // glow, lyrics ease inward (0.97 → 1.0) as they're released —
+        // reinforcing the "morph through the glow" read instead of a
+        // flat cross-dissolve. Kept small (6%/3%) so it stays premium,
+        // not gimmicky.
+        final artScale = 1.0 + (t.clamp(0.0, 0.62) / 0.62) * 0.06;
+        final lyricsScale = 0.97 + lyricsOpacity * 0.03;
+        final artBlur = (glow * 3.0);
+
+        // Drag-to-dismiss: follows the finger 1:1 while dragging, and
+        // fades proportionally so it reads as "pulling the lyrics away"
+        // rather than the whole screen just sliding with no feedback.
+        final dragT = widget.isDragging
+            ? (widget.dragY / (MediaQuery.of(context).size.height * 0.6))
+                .clamp(0.0, 1.0)
+            : 0.0;
+        final overlayOpacity = t * (1 - dragT);
+
+        if (t <= 0.0 && !widget.isDragging) {
+          return const SizedBox.shrink();
+        }
+
+        return IgnorePointer(
+          ignoring: t < 0.98,
+          child: Opacity(
+            opacity: overlayOpacity,
+            child: Transform.translate(
+              offset: Offset(0, widget.isDragging ? widget.dragY : 0),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                // Tap anywhere closes — per spec (swipe + tap + back all
+                // close it). Lyrics content itself doesn't need its own
+                // taps here (scrolling only), so a full-surface tap
+                // target is safe.
+                onTap: widget.onClose,
+                onVerticalDragStart: (_) => widget.onDragStart(),
+                onVerticalDragUpdate: (d) {
+                  if (d.delta.dy > 0) {
+                    widget.onDragUpdate(
+                        (widget.dragY + d.delta.dy).clamp(0.0, 1000.0));
+                  }
+                },
+                onVerticalDragEnd: (d) {
+                  final fastFlick = d.primaryVelocity != null &&
+                      d.primaryVelocity! > 600;
+                  final pastThreshold = widget.dragY > _dismissDistance;
+                  widget.onDragEnd(fastFlick || pastThreshold);
+                },
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Theme-matched dynamic background — the exact same
+                    // 4-color gradient the player itself uses, so this
+                    // reads as a continuation of the player rather than a
+                    // different screen.
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [widget.bg1, widget.bg2, widget.bg3, widget.bg4],
+                        ),
+                      ),
+                    ),
+                    // Glow-aura pulse around the screen edge during the
+                    // transition — the "Gemini-style" loading aura. Pure
+                    // decoration, ignores hits, fades to nothing once
+                    // settled (glow == 0 at t == 0 and t == 1).
+                    if (glow > 0.001)
+                      IgnorePointer(
+                        child: CustomPaint(
+                          painter: _GlowAuraPainter(
+                            color: accent,
+                            intensity: glow,
+                            t: t,
+                          ),
+                        ),
+                      ),
+                    // Outgoing thumbnail/artwork — eases outward and
+                    // softly blurs as the glow-wash sweeps over it, so it
+                    // reads as being "consumed" by the glow rather than
+                    // just fading in place.
+                    if (artOpacity > 0.001)
+                      Opacity(
+                        opacity: artOpacity,
+                        child: Transform.scale(
+                          scale: artScale,
+                          child: ImageFiltered(
+                            imageFilter: ImageFilter.blur(
+                              sigmaX: artBlur,
+                              sigmaY: artBlur,
+                            ),
+                            child: Center(
+                              child: AspectRatio(
+                                aspectRatio: 1,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(48),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(24),
+                                    child: AurumArtwork(
+                                      url: widget.song.artworkUrl,
+                                      size: double.infinity,
+                                      borderRadius: 24,
+                                      fadeIn: false,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    // Incoming lyrics content — reuses _LyricsPage as-is
+                    // (self-contained fetch/sync/scroll), eased inward
+                    // (scale 0.97→1.0) as it's released from the glow so
+                    // the swap reads as one continuous morph rather than
+                    // a flat cross-dissolve on top of the same theme-
+                    // matched gradient.
+                    if (lyricsOpacity > 0.001)
+                      Opacity(
+                        opacity: lyricsOpacity,
+                        child: Transform.scale(
+                          scale: lyricsScale,
+                          child: SafeArea(
+                            child: Column(
+                              children: [
+                                const SizedBox(height: 8),
+                                Container(
+                                  width: 36,
+                                  height: 4,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withAlpha(60),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                                const Expanded(child: _LyricsPage()),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Continuous glowing border traced around the full screen edge — the
+/// actual Gemini-style "screen aura" treatment: a single stroked outline
+/// following the screen perimeter, softened with a blur so it reads as a
+/// glow rather than a hard line, with a slow hue/position drift so it
+/// doesn't look static. Uses MaskFilter.blur (a cheap, GPU-friendly blur
+/// on a thin stroke path — nothing close to the cost of a full-screen
+/// ImageFilter blur) so it stays smooth on low-end devices, matching the
+/// rest of this file's perf-conscious painters (see _WaveformPainter,
+/// _StaticTintVignettePainter above).
+class _GlowAuraPainter extends CustomPainter {
+  final Color color;
+  final double intensity; // 0..1
+  final double t; // 0..1 — overall transition progress, drives drift
+  const _GlowAuraPainter({
+    required this.color,
+    required this.intensity,
+    required this.t,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (intensity <= 0.001) return;
+    final rect = Offset.zero & size;
+    final radius = Radius.circular(size.shortestSide * 0.08);
+    final rrect = RRect.fromRectAndRadius(rect.deflate(1.5), radius);
+    final path = Path()..addRRect(rrect);
+
+    // Slow drift of the gradient's sweep angle over the transition so the
+    // glow visibly travels around the border rather than sitting static —
+    // same "alive" feel as Gemini's own loading aura.
+    final sweepOffset = t * 2 * math.pi;
+
+    // Outer soft bloom — wide blur, low opacity, gives the diffuse glow
+    // that bleeds inward from the edge.
+    final bloomPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 10
+      ..shader = SweepGradient(
+        colors: [
+          color.withAlpha((90 * intensity).round()),
+          color.withAlpha((30 * intensity).round()),
+          color.withAlpha((90 * intensity).round()),
+        ],
+        stops: const [0.0, 0.5, 1.0],
+        transform: GradientRotation(sweepOffset),
+      ).createShader(rect)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14);
+    canvas.drawPath(path, bloomPaint);
+
+    // Inner crisp line — a thin, brighter core on top of the bloom, same
+    // trick Gemini's border uses: a soft wide glow plus a slightly
+    // sharper line riding along it.
+    final corePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..shader = SweepGradient(
+        colors: [
+          color.withAlpha((220 * intensity).round()),
+          color.withAlpha((90 * intensity).round()),
+          color.withAlpha((220 * intensity).round()),
+        ],
+        stops: const [0.0, 0.5, 1.0],
+        transform: GradientRotation(sweepOffset),
+      ).createShader(rect)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+    canvas.drawPath(path, corePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _GlowAuraPainter oldDelegate) =>
+      oldDelegate.intensity != intensity ||
+      oldDelegate.color != color ||
+      oldDelegate.t != t;
+}
+
 class _InlineLyricsStrip extends StatefulWidget {
   final double hPad;
   final double bgLuma;
