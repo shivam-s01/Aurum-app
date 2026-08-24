@@ -26,6 +26,7 @@ import '../widgets/mini_player_slot.dart';
 import 'artist_screen.dart';
 import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_sheet.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -404,7 +405,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
 
   void _showAlbumOptions(BuildContext context) {
     final rootContext = context;
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,

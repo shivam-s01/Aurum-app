@@ -39,6 +39,7 @@ import 'artist_screen.dart';
 import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 class MixScreen extends StatefulWidget {
   final String mixId;
@@ -529,7 +530,7 @@ class _MixScreenState extends State<MixScreen> {
 
   void _showMixOptions(BuildContext context) {
     final rootContext = context;
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,

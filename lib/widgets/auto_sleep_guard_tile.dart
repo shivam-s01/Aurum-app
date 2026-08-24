@@ -24,6 +24,7 @@ import 'package:provider/provider.dart';
 import '../services/native_engine_bridge.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 import '../l10n/generated/app_localizations.dart';
 
 class AutoSleepGuardTile extends StatefulWidget {
@@ -57,7 +58,7 @@ class _AutoSleepGuardTileState extends State<AutoSleepGuardTile> {
   }
 
   Future<void> _openSheet(BuildContext context) async {
-    final result = await showModalBottomSheet<_AutoSleepGuardResult>(
+    final result = await showAurumModalBottomSheet<_AutoSleepGuardResult>(
       context: context,
       backgroundColor: AurumTheme.bgCardOf(context),
       isScrollControlled: true,

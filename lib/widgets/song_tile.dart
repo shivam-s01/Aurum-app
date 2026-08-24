@@ -16,6 +16,7 @@ import 'aurum_artwork.dart';
 import 'aurum_like_button.dart';
 import 'aurum_stacked_artwork.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 class SongTile extends StatefulWidget {
   final Song song;
@@ -252,7 +253,9 @@ class _SongTileState extends State<SongTile> {
   void _showOptions(BuildContext context) {
     // FIX: capture rootContext BEFORE sheet opens (sheet has its own context)
     final rootContext = context;
-    showModalBottomSheet(
+    // FIX: routed through showAurumModalBottomSheet (lib/utils/aurum_sheet.dart)
+    // so the scrim always has an explicit barrierColor.
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,

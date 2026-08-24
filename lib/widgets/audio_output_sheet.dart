@@ -31,6 +31,7 @@ import '../providers/player_provider.dart';
 import '../services/native_engine_bridge.dart';
 import '../services/audio_prefs.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 import 'aurum_artwork.dart';
 
 /// Opens the audio output picker as a bottom sheet. Call this from any
@@ -39,7 +40,7 @@ import 'aurum_artwork.dart';
 Future<void> showAudioOutputSheet(BuildContext context) async {
   AurumHaptics.light();
   final isLight = Theme.of(context).brightness == Brightness.light;
-  await showModalBottomSheet(
+  await showAurumModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor:

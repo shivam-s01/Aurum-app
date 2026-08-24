@@ -15,6 +15,7 @@ import '../widgets/auto_sleep_guard_tile.dart';
 import '../widgets/battery_saver_mode_tile.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 // =============================================================================
 // Sleep Timer Service — singleton so it survives screen navigation
@@ -465,7 +466,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
   // ── Sleep Timer Sheet ──────────────────────────────────────────────────────
   void _showSleepTimerSheet(BuildContext context) {
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: AurumTheme.bgCardOf(context),
       isScrollControlled: true, // needed so the custom-duration keyboard doesn't cover the sheet
@@ -1568,7 +1569,7 @@ class EqualizerScreenState extends State<EqualizerScreen> {
 
   void _openPresetSheet(BuildContext context) {
     AurumHaptics.light();
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withOpacity(0.45),

@@ -388,33 +388,88 @@ class _GoogleMark extends StatelessWidget {
   }
 }
 
+/// Faithful redraw of the official Google "G" mark using real path
+/// geometry (not approximated arcs), scaled from a 48x48 source grid —
+/// this is the standard shape used in Google's own Sign-In buttons.
 class _GMarkPainter extends CustomPainter {
+  static const _blue = Color(0xFF4285F4);
+  static const _green = Color(0xFF34A853);
+  static const _yellow = Color(0xFFFBBC05);
+  static const _red = Color(0xFFEA4335);
+
   @override
   void paint(Canvas canvas, Size size) {
-    final r = size.width / 2;
-    final center = Offset(r, r);
-    final stroke = r * 0.62;
+    final scale = size.width / 48.0;
+    canvas.save();
+    canvas.scale(scale, scale);
 
-    Paint arc(Color c) => Paint()
-      ..color = c
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.butt;
+    final paint = Paint()..style = PaintingStyle.fill;
 
-    final rect = Rect.fromCircle(center: center, radius: r - stroke / 2);
-
-    // Four quadrant arcs approximating the Google "G" colour wheel.
-    canvas.drawArc(rect, -1.55, 1.50, false, arc(const Color(0xFF4285F4))); // blue
-    canvas.drawArc(rect, -0.05, 1.50, false, arc(const Color(0xFF34A853))); // green
-    canvas.drawArc(rect, 1.45, 1.50, false, arc(const Color(0xFFFBBC05))); // yellow
-    canvas.drawArc(rect, 2.95, 1.50, false, arc(const Color(0xFFEA4335))); // red
-
-    // Crossbar of the "G"
-    final bar = Paint()..color = const Color(0xFF4285F4);
-    canvas.drawRect(
-      Rect.fromLTWH(center.dx, center.dy - stroke * 0.18, r * 0.95, stroke * 0.36),
-      bar,
+    // Blue: right-side body + crossbar (the piece that makes it a "G").
+    paint.color = _blue;
+    canvas.drawPath(
+      Path()
+        ..moveTo(45.12, 24.5)
+        ..cubicTo(45.12, 22.98, 44.98, 21.52, 44.72, 20.1)
+        ..lineTo(24, 20.1)
+        ..lineTo(24, 28.36)
+        ..lineTo(35.86, 28.36)
+        ..cubicTo(35.34, 31.18, 33.74, 33.56, 31.32, 35.16)
+        ..lineTo(31.32, 40.62)
+        ..lineTo(38.48, 40.62)
+        ..cubicTo(42.66, 36.76, 45.12, 31.16, 45.12, 24.5)
+        ..close(),
+      paint,
     );
+
+    // Green: bottom curve.
+    paint.color = _green;
+    canvas.drawPath(
+      Path()
+        ..moveTo(24, 46)
+        ..cubicTo(29.88, 46, 34.82, 44.06, 38.48, 40.62)
+        ..lineTo(31.32, 35.16)
+        ..cubicTo(29.36, 36.46, 26.86, 37.22, 24, 37.22)
+        ..cubicTo(18.32, 37.22, 13.5, 33.36, 11.78, 28.14)
+        ..lineTo(4.4, 28.14)
+        ..lineTo(4.4, 33.78)
+        ..cubicTo(8.04, 41.02, 15.42, 46, 24, 46)
+        ..close(),
+      paint,
+    );
+
+    // Yellow: bottom-left curve.
+    paint.color = _yellow;
+    canvas.drawPath(
+      Path()
+        ..moveTo(11.78, 28.14)
+        ..cubicTo(11.32, 26.84, 11.06, 25.44, 11.06, 24)
+        ..cubicTo(11.06, 22.56, 11.32, 21.16, 11.78, 19.86)
+        ..lineTo(11.78, 14.22)
+        ..lineTo(4.4, 14.22)
+        ..cubicTo(2.86, 17.24, 2, 20.62, 2, 24)
+        ..cubicTo(2, 27.38, 2.86, 30.76, 4.4, 33.78)
+        ..lineTo(11.78, 28.14)
+        ..close(),
+      paint,
+    );
+
+    // Red: top curve.
+    paint.color = _red;
+    canvas.drawPath(
+      Path()
+        ..moveTo(24, 10.78)
+        ..cubicTo(27.16, 10.78, 29.98, 11.86, 32.2, 13.98)
+        ..lineTo(38.62, 7.56)
+        ..cubicTo(34.8, 3.98, 29.88, 2, 24, 2)
+        ..cubicTo(15.42, 2, 8.04, 6.98, 4.4, 14.22)
+        ..lineTo(11.78, 19.86)
+        ..cubicTo(13.5, 14.64, 18.32, 10.78, 24, 10.78)
+        ..close(),
+      paint,
+    );
+
+    canvas.restore();
   }
 
   @override

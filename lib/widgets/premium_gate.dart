@@ -21,6 +21,7 @@ import '../providers/auth_provider.dart';
 import '../screens/premium_screen.dart';
 import '../utils/aurum_transitions.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 import 'google_logo.dart';
 
 class PremiumGate {
@@ -30,7 +31,7 @@ class PremiumGate {
     String? description,
     bool requiresLoginOnly = false,
   }) {
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,

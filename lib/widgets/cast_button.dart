@@ -14,6 +14,7 @@ import '../providers/player_provider.dart';
 import '../services/native_engine_bridge.dart';
 import '../services/audio_prefs.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 /// Compact cast icon button for the full player's top bar. Renders
 /// nothing (zero width) if Cast isn't supported on this device, and
@@ -35,7 +36,7 @@ class CastIconButton extends StatelessWidget {
 
   void _showCastSheet(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: isLight ? AurumTheme.lightBgCard : AurumTheme.darkBgElevated,
       shape: const RoundedRectangleBorder(
@@ -46,7 +47,7 @@ class CastIconButton extends StatelessWidget {
 
   void _showDevicePickerSheet(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: isLight ? AurumTheme.lightBgCard : AurumTheme.darkBgElevated,
       shape: const RoundedRectangleBorder(

@@ -39,6 +39,7 @@ import '../widgets/audio_output_sheet.dart';
 import '../widgets/cast_button.dart';
 import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
 // NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
@@ -1126,7 +1127,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     final song = player.currentSong;
     if (song == null) return;
     AurumHaptics.light();
-    showModalBottomSheet(
+    // FIX: routed through showAurumModalBottomSheet (lib/utils/aurum_sheet.dart)
+    // so the scrim always has an explicit barrierColor.
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -3408,7 +3411,9 @@ void showSleepTimerForSong(BuildContext context, PlayerProvider player) {
   bool finishSong = false;
   bool fadeOut = SleepTimerService.instance.lastFadeOutChoice;
   AurumHaptics.light();
-  showModalBottomSheet(
+  // FIX: routed through showAurumModalBottomSheet (lib/utils/aurum_sheet.dart)
+  // so the scrim always has an explicit barrierColor.
+  showAurumModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
@@ -3445,7 +3450,9 @@ void showSongInfoDialog(BuildContext context, Song song) {
   ];
 
   AurumHaptics.light();
-  showModalBottomSheet(
+  // FIX: routed through showAurumModalBottomSheet (lib/utils/aurum_sheet.dart)
+  // so the scrim always has an explicit barrierColor.
+  showAurumModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
@@ -5038,7 +5045,9 @@ class _QueueTileState extends State<_QueueTile> {
   void _showQuickActions() {
     AurumHaptics.medium();
     final isLight = Theme.of(context).brightness == Brightness.light;
-    showModalBottomSheet(
+    // FIX: routed through showAurumModalBottomSheet (lib/utils/aurum_sheet.dart)
+    // so the scrim always has an explicit barrierColor.
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withOpacity(0.45),

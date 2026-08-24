@@ -13,6 +13,7 @@ import '../widgets/aurum_loader.dart';
 import '../services/audio_prefs.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 class SettingsAppearanceScreen extends StatefulWidget {
   const SettingsAppearanceScreen({super.key});
@@ -934,7 +935,9 @@ void _showSliderStyleSheet(
   String current,
   ValueChanged<String> onChanged,
 ) {
-  showModalBottomSheet(
+  // FIX: routed through showAurumModalBottomSheet (lib/utils/aurum_sheet.dart)
+  // so the scrim always has an explicit barrierColor.
+  showAurumModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,

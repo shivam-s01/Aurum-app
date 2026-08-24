@@ -11,6 +11,7 @@ import '../widgets/feedback_dialog.dart';
 import '../widgets/aurum_settings_tile.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 class SettingsAboutScreen extends StatefulWidget {
   const SettingsAboutScreen({super.key});
@@ -44,7 +45,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
 
   void _showPrivacyPolicy() {
     final l10n = AppLocalizations.of(context)!;
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

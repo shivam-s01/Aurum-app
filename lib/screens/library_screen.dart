@@ -61,6 +61,7 @@ import 'album_screen.dart';
 import 'mix_screen.dart';
 import '../widgets/aurum_focus_field.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Library Root
@@ -879,7 +880,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   void _showPlaylistOptions(BuildContext context, AurumPlaylist pl) {
     final l10n = AppLocalizations.of(context)!;
     final isLight = Theme.of(context).brightness == Brightness.light;
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor:
           isLight ? AurumTheme.lightBgCard : AurumTheme.darkBgElevated,
@@ -1058,7 +1059,7 @@ class _PlaylistHeader extends StatelessWidget {
     final provider = context.read<PlaylistProvider>();
     final l10n = AppLocalizations.of(context)!;
 
-    final action = await showModalBottomSheet<String>(
+    final action = await showAurumModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Container(
@@ -2071,7 +2072,7 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
   final isLight = Theme.of(context).brightness == Brightness.light;
   final l10n = AppLocalizations.of(context)!;
 
-  await showModalBottomSheet(
+  await showAurumModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor:
@@ -3603,7 +3604,7 @@ class _FollowedAlbumTile extends StatelessWidget {
       BuildContext context, String id, String name, String artworkUrl) {
     final rootContext = context;
     final l10n = AppLocalizations.of(context)!;
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => Container(
@@ -3867,7 +3868,7 @@ class _FollowedArtistTile extends StatelessWidget {
       BuildContext context, String id, String name, String imageUrl) {
     final rootContext = context;
     final l10n = AppLocalizations.of(context)!;
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => Container(

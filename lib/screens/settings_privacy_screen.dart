@@ -10,6 +10,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../widgets/aurum_focus_field.dart';
 import '../widgets/aurum_settings_tile.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 class SettingsPrivacyScreen extends StatefulWidget {
   const SettingsPrivacyScreen({super.key});
@@ -82,7 +83,7 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
 
   // ── PIN Setup Sheet ────────────────────────────────────────────────────────
   void _showPinSheet(BuildContext context) {
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       isScrollControlled: true,
       // FIX: same barrier-dismiss race as feedback_dialog.dart's

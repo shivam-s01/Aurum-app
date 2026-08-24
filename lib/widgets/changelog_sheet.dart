@@ -5,12 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 class ChangelogSheet extends StatefulWidget {
   const ChangelogSheet({super.key});
 
   static void show(BuildContext context) {
-    showModalBottomSheet(
+    showAurumModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

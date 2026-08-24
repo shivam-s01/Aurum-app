@@ -29,13 +29,14 @@ import '../providers/auth_provider.dart';
 import '../services/audio_prefs.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 import '../l10n/generated/app_localizations.dart';
 
 class BatterySaverModeTile extends StatelessWidget {
   const BatterySaverModeTile({super.key});
 
   Future<void> _openSheet(BuildContext context) async {
-    final result = await showModalBottomSheet<_BatterySaverResult>(
+    final result = await showAurumModalBottomSheet<_BatterySaverResult>(
       context: context,
       backgroundColor: AurumTheme.bgCardOf(context),
       isScrollControlled: true,

@@ -49,6 +49,7 @@ import '../providers/favorites_provider.dart';
 import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_sheet.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
 // NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
@@ -1120,7 +1121,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showSourceSheet(BuildContext context, SourceProvider src) {
     AurumHaptics.light();
-    showModalBottomSheet(
+    // FIX: routed through showAurumModalBottomSheet (lib/utils/aurum_sheet.dart)
+    // so the scrim always has an explicit barrierColor.
+    showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withOpacity(0.45),
