@@ -5513,8 +5513,7 @@ class ApiService {
         Future.delayed(delay, () async {
           // Skip if already cached — no wasted work
           final cacheKey = '${song.source.name}:${song.id}';
-          final cached = _streamCache[cacheKey];
-          if (cached != null && !cached.isExpired) {
+          if (_streamCache.get(cacheKey) != null) {
             _log('[prefetch] Already cached: "${song.title}"');
             return;
           }
@@ -5580,8 +5579,7 @@ class ApiService {
 
     // Also skip if URL already in local Dart cache — nothing to warm
     final cacheKey = 'youtube:${song.id}';
-    final cached = _streamCache[cacheKey];
-    if (cached != null && !cached.isExpired) return;
+    if (_streamCache.get(cacheKey) != null) return;
 
     if (_prewarmedIds.length > 1000) _prewarmedIds.clear(); // prevent unbounded growth
     _prewarmedIds.add(song.id);
