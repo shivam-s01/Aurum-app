@@ -726,9 +726,12 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // with zero prop plumbing, exactly like _openPanel reuses them for the
   // Up Next/Lyrics/Info sheet above.
   bool _immersiveLyricsOpen = false;
+  // 2.5s open (glow builds → covers → releases lyrics, Gemini-paced),
+  // faster 420ms close (dismissal should feel snappy, not slow like the
+  // reveal).
   late final AnimationController _immersiveCtrl = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 520),
+    duration: const Duration(milliseconds: 2500),
     reverseDuration: const Duration(milliseconds: 420),
   );
   double _immersiveDragY = 0.0;
@@ -2444,8 +2447,6 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
-
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, child) {
@@ -2454,38 +2455,56 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
         final rawT = widget.controller.value;
         // Eased progress drives every visual below — a raw linear t reads
         // mechanical; easeInOutCubic gives the transition a soft
-        // start/end and a quicker middle, the same "weighted" feel
-        // premium app transitions (Gemini included) use instead of a
-        // constant-speed morph.
+        // start/end, the "weighted" feel premium transitions use instead
+        // of a constant-speed morph.
         final t = Curves.easeInOutCubic.transform(rawT);
 
-        // Glow intensity: ramps up fast at the start of the transition,
-        // peaks tightly around the midpoint — exactly where the
-        // thumbnail→lyrics swap happens below — then eases back to zero
-        // as the lyrics screen settles. Narrower peak (pow) than a plain
-        // sine so the glow is genuinely doing the covering at the swap
-        // instant, not just glowing gently the whole time.
-        final glow = math.pow(math.sin(t * math.pi).clamp(0.0, 1.0), 0.6) as double;
+        // Directional wipe (left → right, matching Gemini's own
+        // full-screen wave-wipe variant — see the animation research
+        // this was built against): a soft-edged vertical band carrying
+        // the multi-color glow sweeps across the screen once. Everything
+        // BEHIND the band (to its left, once it has passed) is lyrics;
+        // everything AHEAD of the band (to its right, not yet reached)
+        // is still thumbnail. The band itself is where the glow is
+        // actually visible — thumbnail is "swept away" and lyrics are
+        // "revealed" by the same single moving edge, not two separate
+        // fades layered under a static wash.
+        //
+        // wipeX: 0 = band fully off-screen left (nothing swept yet),
+        // 1 = band fully off-screen right (entire screen swept, wipe
+        // complete). Runs across a wide middle portion of the timeline
+        // (8%→92%) so there's a brief settle at both ends before/after
+        // the sweep — avoids an abrupt start/stop.
+        final wipeX = ((t - 0.08) / 0.84).clamp(0.0, 1.0);
 
-        // Thumbnail and lyrics swap in a tight window centered exactly on
-        // the glow's peak (t≈0.5) — the glow-wash covers the instant of
-        // exchange, so it reads as "the glow consumes the thumbnail and
-        // releases the lyrics" rather than two independent fades that
-        // merely overlap the glow. A narrow ~0.24-wide crossfade window
-        // (vs. the old sprawling 0.55/0.45 split) keeps the swap decisive
-        // instead of mushy.
-        final artOpacity = (1.0 - ((t - 0.38) / 0.24)).clamp(0.0, 1.0);
-        final lyricsOpacity = ((t - 0.5) / 0.30).clamp(0.0, 1.0);
+        // Overall glow visibility: fades in just before the wipe starts
+        // moving, and fades out just after it finishes — so the glow
+        // band itself is the only thing on screen when the sweep isn't
+        // actively happening, and disappears cleanly once lyrics have
+        // fully taken over.
+        final glowVisibility = t < 0.08
+            ? (t / 0.08).clamp(0.0, 1.0)
+            : t > 0.92
+                ? (1.0 - ((t - 0.92) / 0.08)).clamp(0.0, 1.0)
+                : 1.0;
 
-        // Subtle scale + blur on the outgoing/incoming layers — the
-        // thumbnail eases outward (1.0 → 1.06) as it's consumed by the
-        // glow, lyrics ease inward (0.97 → 1.0) as they're released —
-        // reinforcing the "morph through the glow" read instead of a
-        // flat cross-dissolve. Kept small (6%/3%) so it stays premium,
+        // Thumbnail is revealed/hidden by the same wipeX line: fully
+        // visible ahead of the band, gone behind it. A soft feather
+        // (not a hard cut) right at the band keeps the edge from
+        // looking like a harsh clip.
+        final artOpacity = (1.0 - (wipeX / 0.55)).clamp(0.0, 1.0);
+        // Lyrics fade in as the band passes over roughly the screen's
+        // center, so by the time the band reaches the right edge the
+        // lyrics are already fully in place underneath.
+        final lyricsOpacity = ((wipeX - 0.35) / 0.45).clamp(0.0, 1.0);
+
+        // Subtle scale on the outgoing/incoming layers — thumbnail eases
+        // outward slightly as it's swept away, lyrics ease inward
+        // slightly as they're revealed. Kept small so it stays premium,
         // not gimmicky.
-        final artScale = 1.0 + (t.clamp(0.0, 0.62) / 0.62) * 0.06;
-        final lyricsScale = 0.97 + lyricsOpacity * 0.03;
-        final artBlur = (glow * 3.0);
+        final artScale = 1.0 + wipeX.clamp(0.0, 0.6) * 0.05;
+        final lyricsScale = 0.98 + lyricsOpacity * 0.02;
+        final artBlur = glowVisibility * 4.0;
 
         // Drag-to-dismiss: follows the finger 1:1 while dragging, and
         // fades proportionally so it reads as "pulling the lyrics away"
@@ -2542,16 +2561,17 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                         ),
                       ),
                     ),
-                    // Glow-aura pulse around the screen edge during the
-                    // transition — the "Gemini-style" loading aura. Pure
-                    // decoration, ignores hits, fades to nothing once
-                    // settled (glow == 0 at t == 0 and t == 1).
-                    if (glow > 0.001)
+                    // Directional glow wipe — multi-color (Gemini's real
+                    // red/yellow/green/blue palette, see research above)
+                    // vertical band sweeping left → right, carrying the
+                    // thumbnail-to-lyrics reveal with it. Pure decoration,
+                    // ignores hits.
+                    if (glowVisibility > 0.001)
                       IgnorePointer(
                         child: CustomPaint(
                           painter: _GlowAuraPainter(
-                            color: accent,
-                            intensity: glow,
+                            wipeX: wipeX,
+                            visibility: glowVisibility,
                             t: t,
                           ),
                         ),
@@ -2631,78 +2651,101 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
   }
 }
 
-/// Continuous glowing border traced around the full screen edge — the
-/// actual Gemini-style "screen aura" treatment: a single stroked outline
-/// following the screen perimeter, softened with a blur so it reads as a
-/// glow rather than a hard line, with a slow hue/position drift so it
-/// doesn't look static. Uses MaskFilter.blur (a cheap, GPU-friendly blur
-/// on a thin stroke path — nothing close to the cost of a full-screen
-/// ImageFilter blur) so it stays smooth on low-end devices, matching the
-/// rest of this file's perf-conscious painters (see _WaveformPainter,
+/// Directional multi-color glow wipe — the actual Gemini treatment
+/// researched for this feature: a soft vertical band, tinted with
+/// Gemini's own red/yellow/green/blue palette (see the animation
+/// research this was built against — "colorful wave that extends... and
+/// disappears once it reaches the edges"), sweeping left → right across
+/// the screen once. The band is where thumbnail is swept away and
+/// lyrics are revealed — the same moving edge drives both, not two
+/// independent fades under a static wash. A single soft-edged linear
+/// gradient band (no stroke paths, no multiple layered shaders) so it
+/// stays cheap on low-end devices, matching the rest of this file's
+/// perf-conscious painters (see _WaveformPainter,
 /// _StaticTintVignettePainter above).
 class _GlowAuraPainter extends CustomPainter {
-  final Color color;
-  final double intensity; // 0..1
-  final double t; // 0..1 — overall transition progress, drives drift
+  final double wipeX; // 0..1 — band position, 0 = off-screen left, 1 = off-screen right
+  final double visibility; // 0..1 — overall glow opacity (fades in/out at the very ends)
+  final double t; // 0..1 — overall transition progress
   const _GlowAuraPainter({
-    required this.color,
-    required this.intensity,
+    required this.wipeX,
+    required this.visibility,
     required this.t,
   });
 
+  // Gemini's own multi-color palette (red/yellow/green/blue), cycled
+  // along the band so the glow itself shifts hue as it travels rather
+  // than staying one flat color — matches the real Gemini full-screen
+  // aura this was built against.
+  static const List<Color> _palette = [
+    Color(0xFFEA4335), // red
+    Color(0xFFFBBC05), // yellow
+    Color(0xFF34A853), // green
+    Color(0xFF4285F4), // blue
+  ];
+
   @override
   void paint(Canvas canvas, Size size) {
-    if (intensity <= 0.001) return;
-    final rect = Offset.zero & size;
-    final radius = Radius.circular(size.shortestSide * 0.08);
-    final rrect = RRect.fromRectAndRadius(rect.deflate(1.5), radius);
-    final path = Path()..addRRect(rrect);
+    if (visibility <= 0.001) return;
 
-    // Slow drift of the gradient's sweep angle over the transition so the
-    // glow visibly travels around the border rather than sitting static —
-    // same "alive" feel as Gemini's own loading aura.
-    final sweepOffset = t * 2 * math.pi;
+    // Band center in pixels — travels from just off the left edge to
+    // just off the right edge as wipeX goes 0 → 1.
+    final bandWidth = size.width * 0.42;
+    final centerX = -bandWidth * 0.5 + wipeX * (size.width + bandWidth);
 
-    // Outer soft bloom — wide blur, low opacity, gives the diffuse glow
-    // that bleeds inward from the edge.
-    final bloomPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 10
-      ..shader = SweepGradient(
+    // Hue cycles slowly across the sweep (driven by t, not wipeX, so it
+    // keeps shifting even during the brief settle at each end) — picks a
+    // rotating pair from the palette and blends between them.
+    final cyclePos = (t * (_palette.length - 1)).clamp(0.0, _palette.length - 1.0);
+    final idxA = cyclePos.floor().clamp(0, _palette.length - 1);
+    final idxB = (idxA + 1).clamp(0, _palette.length - 1);
+    final localT = cyclePos - idxA;
+    final bandColor = Color.lerp(_palette[idxA], _palette[idxB], localT)!;
+
+    final alpha = (220 * visibility).round();
+    final paint = Paint()
+      ..shader = LinearGradient(
         colors: [
-          color.withAlpha((90 * intensity).round()),
-          color.withAlpha((30 * intensity).round()),
-          color.withAlpha((90 * intensity).round()),
+          bandColor.withAlpha(0),
+          bandColor.withAlpha(alpha),
+          bandColor.withAlpha(alpha),
+          bandColor.withAlpha(0),
         ],
-        stops: const [0.0, 0.5, 1.0],
-        transform: GradientRotation(sweepOffset),
-      ).createShader(rect)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14);
-    canvas.drawPath(path, bloomPaint);
+        stops: const [0.0, 0.35, 0.65, 1.0],
+      ).createShader(
+        Rect.fromLTWH(centerX - bandWidth / 2, 0, bandWidth, size.height),
+      );
+    canvas.drawRect(
+      Rect.fromLTWH(centerX - bandWidth / 2, 0, bandWidth, size.height),
+      paint,
+    );
 
-    // Inner crisp line — a thin, brighter core on top of the bloom, same
-    // trick Gemini's border uses: a soft wide glow plus a slightly
-    // sharper line riding along it.
+    // A brighter, tighter core line right at the band's center — same
+    // "wide soft glow + sharper inner line" layering the real Gemini
+    // aura uses, just riding along the moving band instead of a static
+    // border.
     final corePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..shader = SweepGradient(
+      ..shader = LinearGradient(
         colors: [
-          color.withAlpha((220 * intensity).round()),
-          color.withAlpha((90 * intensity).round()),
-          color.withAlpha((220 * intensity).round()),
+          bandColor.withAlpha(0),
+          Colors.white.withAlpha((160 * visibility).round()),
+          bandColor.withAlpha(0),
         ],
         stops: const [0.0, 0.5, 1.0],
-        transform: GradientRotation(sweepOffset),
-      ).createShader(rect)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
-    canvas.drawPath(path, corePaint);
+      ).createShader(
+        Rect.fromLTWH(centerX - bandWidth * 0.12, 0, bandWidth * 0.24, size.height),
+      )
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+    canvas.drawRect(
+      Rect.fromLTWH(centerX - bandWidth * 0.12, 0, bandWidth * 0.24, size.height),
+      corePaint,
+    );
   }
 
   @override
   bool shouldRepaint(covariant _GlowAuraPainter oldDelegate) =>
-      oldDelegate.intensity != intensity ||
-      oldDelegate.color != color ||
+      oldDelegate.wipeX != wipeX ||
+      oldDelegate.visibility != visibility ||
       oldDelegate.t != t;
 }
 
