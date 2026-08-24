@@ -72,6 +72,8 @@ import 'audio_prefs.dart';
 import 'recommendation_engine.dart';
 import 'music_source.dart';
 import 'native_related_videos.dart' show NativeRelatedVideos, YtRelatedVideo;
+import 'lightweight_stream_cache.dart';
+import 'lyrics_cache.dart';
 
 // =============================================================================
 // Result of a REAL playback attempt, used by debugPlaybackPath's
@@ -554,10 +556,12 @@ class ApiService {
   static const String _saavn          = 'https://aurum-worker.shivamsharma962122.workers.dev';
   static const String _worker         = AppConstants.apiBase;
 
-  // Stream cache
-  static final Map<String, _CachedStream> _streamCache = {};
+  // ✅ LIGHTWEIGHT CACHE (v1.0): Replaces unbounded Map
+  // Old: 150 URLs max (but often 500KB+), slow cleanup
+  // New: 30 URLs max, auto-cleanup, ~3KB memory
+  static final LightweightStreamCache _streamCache = LightweightStreamCache();
   static const Duration _streamTtl   = Duration(minutes: 50);
-  static const int      _maxCacheSize = 150;
+  static const int      _maxCacheSize = 30; // Lightweight!
 
   // Search cache
   static final Map<String, _CachedSearch> _searchCache = {};
@@ -767,8 +771,7 @@ class ApiService {
     _pendingResolutions.clear();
     _searchCache.clear();
     _quickSearchCache.clear();
-    _lyricsCache.clear();
-    _syncedLyricsCache.clear();
+    LyricsCache.clear();
     _activePrefetch?.cancel();
     _activePrefetch = null;
     _selectionPersistDebounce?.cancel();
@@ -4819,10 +4822,10 @@ class ApiService {
         : '${song.source.name}:anon:${song.title}:${song.artist}:${_anonymousResolveCounter++}';
 
     if (!forceRefresh && hasStableId) {
-      final cached = _streamCache[cacheKey];
-      if (cached != null && !cached.isExpired) {
+      final cachedUrl = _streamCache.get(cacheKey);
+      if (cachedUrl != null) {
         _log('[resolve] Cache HIT: "${song.title}"');
-        return cached.url;
+        return cachedUrl;
       }
     }
 
@@ -4837,14 +4840,13 @@ class ApiService {
         song.source == SongSource.saavn &&
         song.streamUrl != null &&
         song.streamUrl!.contains('/stream-proxy?url=')) {
-      final cached = _streamCache[cacheKey];
-      if (cached == null) {
+      final cachedUrl = _streamCache.get(cacheKey);
+      if (cachedUrl == null) {
         _log('[resolve] Pre-fetched Saavn URL (proxied): "${song.title}"');
         _writeStreamCache(cacheKey, song.streamUrl!);
         return song.streamUrl;
       }
-      if (!cached.isExpired) return cached.url;
-      _log('[resolve] Saavn pre-fetched expired — re-resolving');
+      return cachedUrl;
     }
 
     _log('[resolve] Resolving "${song.title}" source=${song.source.name}');
@@ -5182,96 +5184,7 @@ class ApiService {
     return null;
   }
 
-  // ── Invidious ────────────────────────────────────────────────────────────
-  static Future<String?> _invidiousStream(String videoId, String instance) async {
-    try {
-      final uri = Uri.parse('$instance/api/v1/videos/$videoId?fields=adaptiveFormats');
-      final res = await _client.get(uri, headers: {
-        'User-Agent': 'Mozilla/5.0',
-      }).timeout(const Duration(seconds: 7));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final formats = data['adaptiveFormats'] as List?;
-        if (formats == null || formats.isEmpty) return null;
 
-        final audio = formats.where((f) {
-          final type = (f['type'] ?? '').toString().toLowerCase();
-          return type.contains('audio');
-        }).toList();
-        if (audio.isEmpty) return null;
-
-        audio.sort((a, b) {
-          final bA = (a['bitrate'] as num? ?? 0).toInt();
-          final bB = (b['bitrate'] as num? ?? 0).toInt();
-          return bB.compareTo(bA);
-        });
-
-        final url = audio.first['url']?.toString();
-        if (url != null && url.startsWith('http')) {
-          _log('[invidious] OK $instance for $videoId');
-          return url;
-        }
-      }
-    } catch (e) {
-      _log('[invidious] $instance error: $e');
-    }
-    return null;
-  }
-
-  // ── youtube_explode_dart ─────────────────────────────────────────────────
-  // FIX (v5.1): Added webm/opus fallback + URL liveness validation.
-  // Previously only returned m4a/aac streams. On some regions/videos,
-  // youtube_explode_dart returns only webm (opus) streams — the old code
-  // returned null in that case, causing unnecessary fallback to Piped/Invidious.
-  // Now we try m4a first, then accept webm, and validate the chosen URL.
-  static Future<String?> _ytExplodeStream(String videoId) async {
-    try {
-      final manifest = await _yt.videos.streamsClient
-          .getManifest(VideoId(videoId))
-          .timeout(const Duration(seconds: 12));
-      if (manifest.audioOnly.isEmpty) return null;
-
-      // Prefer m4a/aac (widest Android compatibility)
-      final m4aStreams = manifest.audioOnly.where((s) {
-        final mime      = s.codec.mimeType.toLowerCase();
-        final container = s.container.name.toLowerCase();
-        return mime.contains('mp4') || mime.contains('aac') ||
-               container == 'mp4'  || container == 'm4a';
-      }).toList();
-
-      if (m4aStreams.isNotEmpty) {
-        m4aStreams.sort((a, b) =>
-            b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
-        final url = m4aStreams.first.url.toString();
-        _log('[ytExplode] m4a OK for $videoId (${m4aStreams.first.bitrate})');
-        return url;
-      }
-
-      // Fallback: accept webm/opus — ExoPlayer handles it fine
-      final webmStreams = manifest.audioOnly.where((s) {
-        final mime      = s.codec.mimeType.toLowerCase();
-        final container = s.container.name.toLowerCase();
-        return mime.contains('webm') || mime.contains('opus') ||
-               container == 'webm';
-      }).toList();
-
-      if (webmStreams.isNotEmpty) {
-        webmStreams.sort((a, b) =>
-            b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
-        final url = webmStreams.first.url.toString();
-        _log('[ytExplode] webm/opus fallback OK for $videoId');
-        return url;
-      }
-
-      // Last resort: highest bitrate regardless of container
-      final fallback = manifest.audioOnly.withHighestBitrate().url.toString();
-      _log('[ytExplode] generic fallback for $videoId');
-      return fallback;
-    } catch (e) {
-      _log('[ytExplode] Error for $videoId: $e');
-    }
-    return null;
-  }
 
   // ===========================================================================
   // SAAVN STREAM RESOLUTION
@@ -5516,26 +5429,16 @@ class ApiService {
   // CACHE MANAGEMENT
   // ===========================================================================
   static void _writeStreamCache(String key, String url) {
-    if (_streamCache.length >= _maxCacheSize) {
-      final expiredKeys = _streamCache.entries
-          .where((e) => e.value.isExpired).map((e) => e.key).toList();
-      for (final k in expiredKeys) _streamCache.remove(k);
-      if (_streamCache.length >= _maxCacheSize) {
-        final oldest = _streamCache.entries.reduce(
-          (a, b) => a.value.resolvedAt.isBefore(b.value.resolvedAt) ? a : b,
-        );
-        _streamCache.remove(oldest.key);
-      }
-    }
-    _streamCache[key] = _CachedStream(url);
+    // ✅ LIGHTWEIGHT: Automatic cleanup handled by LightweightStreamCache
+    _streamCache.set(key, url);
   }
 
   static void invalidateStream(Song song) {
-    _streamCache.remove('${song.source.name}:${song.id}');
+    _streamCache.invalidate('${song.source.name}:${song.id}');
   }
 
   static void clearExpiredCache() {
-    _streamCache.removeWhere((_, v) => v.isExpired);
+    _streamCache.cleanup();
     _searchCache.removeWhere((_, v) => v.isExpired);
     _quickSearchCache.removeWhere((_, v) => v.isExpired);
   }
@@ -6566,36 +6469,14 @@ class ApiService {
   // ===========================================================================
   // LYRICS
   // ===========================================================================
-  static final Map<String, String> _lyricsCache = {};
-  static final Map<String, LyricsResult> _syncedLyricsCache = {};
-  // LIGHTWEIGHT FIX ("ekdam lightweight rahe"): both lyrics caches had no
-  // upper bound — full lyrics text (often a few KB each) for every song
-  // the user ever opened the lyrics view for stayed in memory for the
-  // entire app session, forever. Over weeks of use this is a slow,
-  // unbounded memory leak. Capped with simple oldest-first eviction, same
-  // pattern _streamCache/_searchCache already use elsewhere in this file —
-  // once the cap is hit, the single oldest entry is dropped before adding
-  // the new one. A dropped entry just means that one song's lyrics are
-  // re-fetched (cheap, cached-by-source-API-anyway) if reopened later —
-  // not a functional bug, just bounded memory.
-  static const int _maxLyricsCache = 200;
-
-  static void _capLyricsCache() {
-    if (_lyricsCache.length > _maxLyricsCache) {
-      _lyricsCache.remove(_lyricsCache.keys.first);
-    }
-  }
-
-  static void _capSyncedLyricsCache() {
-    if (_syncedLyricsCache.length > _maxLyricsCache) {
-      _syncedLyricsCache.remove(_syncedLyricsCache.keys.first);
-    }
-  }
+  // Caching moved to lyrics_cache.dart (LyricsCache) to keep this file
+  // smaller and this concern self-contained. Behavior unchanged: bounded
+  // to 200 entries each, oldest-first eviction.
 
   static Future<String?> fetchLyrics(Song song) async {
     if (song.isLocal || song.id.isEmpty) return null;
     final cacheKey = '${song.source.name}:${song.id}';
-    if (_lyricsCache.containsKey(cacheKey)) return _lyricsCache[cacheKey];
+    if (LyricsCache.hasPlain(cacheKey)) return LyricsCache.getPlain(cacheKey);
 
     // LRCLIB first — it's a dedicated lyrics database and returns full
     // lyrics. Saavn's route only returns a short preview snippet (JioSaavn's
@@ -6618,8 +6499,7 @@ class ApiService {
       lyrics = await _fetchLyricsMania(song.artist, song.title);
     }
     if (lyrics != null && lyrics.isNotEmpty) {
-      _capLyricsCache();
-      _lyricsCache[cacheKey] = lyrics;
+      LyricsCache.setPlain(cacheKey, lyrics);
     }
     return lyrics;
   }
@@ -6631,8 +6511,8 @@ class ApiService {
   static Future<LyricsResult> fetchSyncedLyrics(Song song) async {
     if (song.isLocal || song.id.isEmpty) return const LyricsResult();
     final cacheKey = '${song.source.name}:${song.id}';
-    if (_syncedLyricsCache.containsKey(cacheKey)) {
-      return _syncedLyricsCache[cacheKey]!;
+    if (LyricsCache.hasSynced(cacheKey)) {
+      return LyricsCache.getSynced(cacheKey)!;
     }
 
     // The full fallback chain below (LRCLIB's up-to-9 query variants, then
@@ -6688,8 +6568,7 @@ class ApiService {
     }
 
     if (finalResult.hasAny) {
-      _capSyncedLyricsCache();
-      _syncedLyricsCache[cacheKey] = finalResult;
+      LyricsCache.setSynced(cacheKey, finalResult);
     }
     return finalResult;
   }
@@ -7574,7 +7453,7 @@ class ApiService {
       'prefetch_active':     _activePrefetch != null,
       'prefetch_queue_size': _prefetchQueue.length,
       'explode_warmed_up':   _explodeWarmedUp,
-      'lyrics_cached':       _lyricsCache.length,
+      'lyrics_cached':       LyricsCache.plainSize,
       'worker_base':         _worker,
       'saavn_base':          _saavn,
       'piped_instances':     _kPipedInstances,

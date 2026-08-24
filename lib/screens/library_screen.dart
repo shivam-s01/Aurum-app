@@ -130,8 +130,25 @@ class LibraryScreen extends StatelessWidget {
         IconButton(
           icon: Icon(Icons.settings_outlined,
               color: AurumTheme.textSecondaryOf(context)),
-          onPressed: () => AurumPageRoute.to(context, const SettingsScreen()),
+          // FIX ("liked/local/playlist se bahar aane par jo animation
+          // chalta hai, wahi Settings mein bhi chahiye"): Settings used
+          // AurumPageRoute — a full iOS-style horizontal slide-in-from-
+          // right with parallax on the screen behind. Liked Songs,
+          // Downloads, History, Playlist Detail, and Local Files all use
+          // AurumDepthRoute instead — the fade + small slide-up transition
+          // (with a correctly-animated pop/exit, see that route's own
+          // fix comment in aurum_transitions.dart). Switching Settings to
+          // AurumDepthRoute makes its push/pop match those screens
+          // exactly instead of using a different transition than the
+          // rest of Library's own destinations.
+          onPressed: () => AurumDepthRoute.to(context, const SettingsScreen()),
         ),
+        // Everything Settings opens onto from here (Player/Appearance/
+        // Language/Storage/Notifications/Privacy/About/Premium, plus the
+        // Profile screen) now also uses AurumDepthRoute — see
+        // settings_screen.dart, home_screen.dart, and premium_gate.dart
+        // for the matching change, so the whole Settings flow shares one
+        // consistent transition end to end, not just the entry point.
       ],
       flexibleSpace: FlexibleSpaceBar(
         titlePadding: const EdgeInsets.fromLTRB(20, 0, 0, 14),
@@ -910,6 +927,54 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 _showRenameDialog(context, pl);
               },
             ),
+            // FEATURE ("playlist details mai download ka option, ekdam
+            // fast"): downloads every song in this playlist concurrently
+            // through the same DownloadProvider.download() path a single
+            // manual download already uses — same quality/WiFi settings,
+            // same Downloads screen, same offline playback. Hidden when
+            // the playlist is empty or already fully downloaded, same as
+            // Play/Shuffle above hiding for an empty playlist.
+            if (pl.songs.isNotEmpty)
+              Builder(builder: (ctx2) {
+                final dl = ctx2.watch<DownloadProvider>();
+                final allDownloaded =
+                    pl.songs.every((s) => dl.isDownloaded(s.id));
+                final downloading = dl.isPlaylistDownloading(pl.id);
+                if (allDownloaded) return const SizedBox.shrink();
+                return ListTile(
+                  leading: downloading
+                      ? SizedBox(
+                          width: 24, height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            color: AurumTheme.gold,
+                            value: () {
+                              final (done, total) =
+                                  dl.playlistDownloadProgress(pl.songs);
+                              return total == 0 ? null : done / total;
+                            }(),
+                          ),
+                        )
+                      : const Icon(Icons.download_rounded,
+                          color: AurumTheme.gold),
+                  title: Text(
+                    downloading
+                        ? l10n.libraryDownloadingPlaylist
+                        : l10n.libraryDownloadPlaylist,
+                    style:
+                        TextStyle(color: AurumTheme.textPrimaryOf(context)),
+                  ),
+                  onTap: downloading
+                      ? null
+                      : () {
+                          Navigator.pop(ctx);
+                          context.read<DownloadProvider>().downloadPlaylist(
+                                playlistId: pl.id,
+                                songs: pl.songs,
+                              );
+                        },
+                );
+              }),
             ListTile(
               leading: const Icon(Icons.delete_outline_rounded,
                   color: Colors.redAccent),
@@ -1247,7 +1312,10 @@ class _PlaylistActionRow extends StatelessWidget {
     if (playlist.songs.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+      Row(
         children: [
           // Play All
           Expanded(
@@ -1320,6 +1388,40 @@ class _PlaylistActionRow extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+      // Inline "downloading playlist" progress — visible right under
+      // Play/Shuffle without needing to open the overflow menu, same
+      // pattern as the Downloads screen's own per-song progress rows.
+      Builder(builder: (ctx2) {
+        final dl = ctx2.watch<DownloadProvider>();
+        if (!dl.isPlaylistDownloading(playlist.id)) {
+          return const SizedBox.shrink();
+        }
+        final (done, total) = dl.playlistDownloadProgress(playlist.songs);
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 14, height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AurumTheme.gold,
+                  value: total == 0 ? null : done / total,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                AppLocalizations.of(context)!
+                    .libraryDownloadPlaylistProgress(done, total),
+                style: TextStyle(
+                    color: AurumTheme.textMutedOf(context), fontSize: 12),
+              ),
+            ],
+          ),
+        );
+      }),
         ],
       ),
     );
@@ -2354,12 +2456,6 @@ class _HistoryScreenState extends State<_HistoryScreen>
   }
 
   // ── Time label helpers ─────────────────────────────────────────────────────
-  static String _timeLabel(Song song) {
-    // Songs don't store timestamp, so we group by position in list:
-    // provider stores newest-first, so index 0 = most recent
-    return '';
-  }
-
   static String _groupLabel(int index, int total, AppLocalizations l10n) {
     if (index == 0) return l10n.libraryHistoryJustNow;
     if (index < 5) return l10n.libraryHistoryRecent;

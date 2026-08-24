@@ -2021,12 +2021,6 @@ class RecommendationEngine {
     return candidates[rotation.abs() % candidates.length];
   }
 
-  static String _moodQuery(Song song) {
-    final mood = _detectMoodEnum(song);
-    final lang = detectLanguage(song);
-    return _sessionMoodQuery(mood, lang);
-  }
-
   static String _sessionMoodQuery(SessionMood mood, String lang, {String? era, int rotation = 0}) {
     // Same fix as _moodSearchWord — a few real-phrasing variants per mood
     // instead of one static string, so this signal's query also rotates

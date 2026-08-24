@@ -153,13 +153,16 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
       if (success) {
         // Signed in — now go to premium screen
         Navigator.pop(context);
-        AurumPageRoute.to(context, const PremiumScreen());
+        // Matches Settings/Profile's fade + slide-up push (see
+        // aurum_transitions.dart's AurumDepthRoute) instead of the old
+        // horizontal slide-in-from-right.
+        AurumDepthRoute.to(context, const PremiumScreen());
       }
       // If cancelled/failed, sheet stays open
     } else {
       // Already signed in — go directly to premium screen
       Navigator.pop(context);
-      AurumPageRoute.to(context, const PremiumScreen());
+      AurumDepthRoute.to(context, const PremiumScreen());
     }
   }
 

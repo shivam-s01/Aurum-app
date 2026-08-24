@@ -66,7 +66,10 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: l10n.settingsPlayerAudioSubtitle,
                   onTap: () {
                     AurumHaptics.light();
-                    AurumPageRoute.to(context, SettingsPlayerScreen(audioEngine: engine));
+                    // Matches the Liked/Playlist fade + slide-up push
+                    // (see aurum_transitions.dart's AurumDepthRoute) —
+                    // Settings' whole sub-navigation now shares it.
+                    AurumDepthRoute.to(context, SettingsPlayerScreen(audioEngine: engine));
                   },
                 ),
                 const SizedBox(height: 10),
@@ -76,7 +79,7 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: l10n.settingsAppearanceSubtitle,
                   onTap: () {
                     AurumHaptics.light();
-                    AurumPageRoute.to(context, const SettingsAppearanceScreen());
+                    AurumDepthRoute.to(context, const SettingsAppearanceScreen());
                   },
                 ),
                 const SizedBox(height: 10),
@@ -86,7 +89,7 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: l10n.settingsLanguageSubtitle,
                   onTap: () {
                     AurumHaptics.light();
-                    AurumPageRoute.to(context, const SettingsLanguageScreen());
+                    AurumDepthRoute.to(context, const SettingsLanguageScreen());
                   },
                 ),
                 const SizedBox(height: 10),
@@ -96,7 +99,7 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: l10n.settingsStorageSubtitle,
                   onTap: () {
                     AurumHaptics.light();
-                    AurumPageRoute.to(context, const SettingsStorageScreen());
+                    AurumDepthRoute.to(context, const SettingsStorageScreen());
                   },
                 ),
                 const SizedBox(height: 10),
@@ -106,7 +109,7 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: l10n.settingsNotificationsSubtitle,
                   onTap: () {
                     AurumHaptics.light();
-                    AurumPageRoute.to(context, const SettingsNotificationsScreen());
+                    AurumDepthRoute.to(context, const SettingsNotificationsScreen());
                   },
                 ),
                 const SizedBox(height: 10),
@@ -116,7 +119,7 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: l10n.settingsPrivacySubtitle,
                   onTap: () {
                     AurumHaptics.light();
-                    AurumPageRoute.to(context, const SettingsPrivacyScreen());
+                    AurumDepthRoute.to(context, const SettingsPrivacyScreen());
                   },
                 ),
                 const SizedBox(height: 10),
@@ -126,7 +129,7 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: l10n.settingsAboutSubtitle,
                   onTap: () {
                     AurumHaptics.light();
-                    AurumPageRoute.to(context, const SettingsAboutScreen());
+                    AurumDepthRoute.to(context, const SettingsAboutScreen());
                   },
                 ),
               ]),
@@ -424,7 +427,7 @@ class _PremiumSettingsTile extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: () {
                   AurumHaptics.medium();
-                  AurumPageRoute.to(context, const PremiumScreen());
+                  AurumDepthRoute.to(context, const PremiumScreen());
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.transparent,

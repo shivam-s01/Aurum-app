@@ -748,6 +748,16 @@
     }
   },
   "libraryDescriptionOptionalLabel": "Description (optional)",
+  "libraryDownloadPlaylist": "Download playlist",
+  "libraryDownloadingPlaylist": "Downloading playlist…",
+  "libraryDownloadPlaylistProgress": "Downloading {done} of {total}",
+  "@libraryDownloadPlaylistProgress": {
+    "description": "Progress label shown while a playlist download is running",
+    "placeholders": {
+      "done": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
   "libraryDownloadFailedTapRetry": "Failed — tap to retry",
   "libraryDownloadFromPlayerDesc": "Download a song from the player to listen offline.",
   "libraryDownloadedCountHeader": "{count, plural, =1{1 DOWNLOADED} other{{count} DOWNLOADED}}",

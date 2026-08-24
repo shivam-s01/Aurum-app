@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import '../widgets/aurum_pressable.dart';
+import '../widgets/mini_player_slot.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
@@ -835,6 +836,17 @@ class _SearchScreenState extends State<SearchScreen>
         // instead of stopping in a flat strip above it (see main_shell.dart
         // for the matching change + rationale).
         extendBody: true,
+        // FIX ("search screen pe mini player background me layer jaisa
+        // dikhta hai"): this Scaffold used to rely on MainShell's OUTER
+        // mini player showing through from underneath — since this screen
+        // never claimed its own bottomNavigationBar slot, the mini player
+        // had no real place to sit in THIS Scaffold's layer stack and just
+        // floated over the content as a translucent overlay instead of a
+        // proper opaque bar. Home/Library both bind MiniPlayerSlot() here
+        // directly (see library_screen.dart's matching Scaffold) — doing
+        // the same here gives Search the identical solid slot/layer those
+        // screens already have, nothing else about the layout changes.
+        bottomNavigationBar: const MiniPlayerSlot(),
         body: SafeArea(
           child: Padding(
             padding: EdgeInsets.only(
@@ -1189,7 +1201,10 @@ class _SearchScreenState extends State<SearchScreen>
       final tailCount = query.isNotEmpty ? 1 : 0;
       final totalCount = headerCount + (hasLive ? _liveResults.length : 0) + tailCount;
 
-      content = ListView.builder(
+      // SMOOTH FIX: same RepaintBoundary isolation as the submit-search
+      // results list below — this live-typing list scrolls independently
+      // of the header/search bar above it, so it shouldn't repaint them.
+      content = RepaintBoundary(child: ListView.builder(
         padding: const EdgeInsets.only(bottom: 80),
         itemCount: totalCount,
         // PERF: bounds how much off-screen content gets pre-built while
@@ -1263,7 +1278,7 @@ class _SearchScreenState extends State<SearchScreen>
           }
           return _seeAllTile(context, query);
         },
-      );
+      ));
     }
 
     return KeyedSubtree(key: const ValueKey('live'), child: content);
@@ -1360,7 +1375,15 @@ class _SearchScreenState extends State<SearchScreen>
             // looks.
             if (_topResultArtist != null) _buildTopResultCard(_topResultArtist!),
             if (_artistResults.isNotEmpty) _buildArtistRow(),
+            // SMOOTH FIX ("results scroll karte time stuck jaisa feel"):
+            // this list had no RepaintBoundary anywhere above it — header,
+            // search bar and tab bar sat in the same paint layer as the
+            // ListView, so every scroll frame's repaint pass touched that
+            // whole static tree too instead of just the moving list.
+            // RepaintBoundary gives the list its own compositor layer so
+            // scrolling only repaints what's actually moving.
             Expanded(
+              child: RepaintBoundary(
               child: ListView.builder(
                 key: const ValueKey('results'),
                 physics: const BouncingScrollPhysics(),
@@ -1447,6 +1470,7 @@ class _SearchScreenState extends State<SearchScreen>
               ),
             );
           },
+              ),
               ),
             ),
           ],

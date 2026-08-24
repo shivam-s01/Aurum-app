@@ -97,6 +97,96 @@ class DownloadProvider extends ChangeNotifier {
 
   bool _initialized = false;
 
+  // ── FAST PLAYLIST DOWNLOAD ────────────────────────────────────────────────
+  // "playlist details mai download ka option, ekdam fast download": runs
+  // multiple songs of a playlist through the EXISTING, already-hardened
+  // download(Song) path above (WiFi check, quality fallback, native-first
+  // resolver, tuned Dio client, Hive persistence, notifications) — just N
+  // songs at once instead of one at a time. This is not a second download
+  // system: every song still goes through the exact same code as a single
+  // manual download, so it shows up in the Downloads screen / isDownloaded()
+  // / offline playback identically. The earlier draft of this feature
+  // (aurum_fast_playlist_download.dart) built a fully separate Hive box +
+  // Dio client + file layout that the rest of the app never knew about, and
+  // it referenced a `song.downloadUrl` field that doesn't exist on the Song
+  // model — it wouldn't have compiled. That file was not used here.
+  final Set<String> _activePlaylistDownloads = {};
+
+  bool isPlaylistDownloading(String playlistId) =>
+      _activePlaylistDownloads.contains(playlistId);
+
+  // Live progress for a playlist download in flight — (completed, total).
+  // Purely derived from _items (already the source of truth for each
+  // song's own status), so this needs no separate state to go stale.
+  (int, int) playlistDownloadProgress(List<Song> songs) {
+    final total = songs.length;
+    final done = songs.where((s) => isDownloaded(s.id)).length;
+    return (done, total);
+  }
+
+  /// Downloads every not-yet-downloaded song in [songs] concurrently, up to
+  /// [maxConcurrent] at a time. Safe to call again while already running for
+  /// the same [playlistId] — it's a no-op re-entry, matching download()'s
+  /// own "safe to call multiple times" contract.
+  Future<void> downloadPlaylist({
+    required String playlistId,
+    required List<Song> songs,
+    int maxConcurrent = 4,
+  }) async {
+    if (songs.isEmpty) return;
+    if (_activePlaylistDownloads.contains(playlistId)) return;
+
+    _activePlaylistDownloads.add(playlistId);
+    notifyListeners();
+
+    try {
+      // download() above already no-ops instantly for anything completed
+      // or currently downloading, so skipping isDownloaded() here isn't
+      // needed for correctness — but filtering the queue up front means
+      // the concurrency slots are spent only on songs that actually need
+      // a network round-trip, so a playlist that's mostly already offline
+      // finishes as fast as just its missing songs, not the whole list.
+      final pending = songs.where((s) => !isDownloaded(s.id)).toList();
+      if (pending.isEmpty) return;
+
+      final queue = List<Song>.from(pending);
+      final workerCount = pending.length < maxConcurrent
+          ? pending.length
+          : maxConcurrent;
+
+      Future<void> worker() async {
+        while (queue.isNotEmpty) {
+          if (!_activePlaylistDownloads.contains(playlistId)) return; // cancelled
+          final song = queue.removeAt(0);
+          try {
+            await download(song);
+          } catch (e) {
+            if (kDebugMode) {
+              debugPrint('[Aurum] downloadPlaylist: ${song.id} failed: $e');
+            }
+          }
+        }
+      }
+
+      await Future.wait(List.generate(workerCount, (_) => worker()));
+    } finally {
+      _activePlaylistDownloads.remove(playlistId);
+      notifyListeners();
+    }
+  }
+
+  /// Stops a playlist download in progress. Songs already mid-transfer via
+  /// download() are cancelled individually the same way a single download
+  /// would be (see cancelDownload below); songs not yet started simply
+  /// never get picked up once the flag flips.
+  void cancelPlaylistDownload(String playlistId, List<Song> songs) {
+    _activePlaylistDownloads.remove(playlistId);
+    for (final song in songs) {
+      if (isDownloading(song.id)) cancelDownload(song.id);
+    }
+    notifyListeners();
+  }
+
   List<DownloadItem> get items =>
       _items.values.toList()..sort((a, b) => b.addedAt.compareTo(a.addedAt));
 

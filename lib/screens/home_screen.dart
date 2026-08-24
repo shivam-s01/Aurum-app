@@ -680,12 +680,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // (Continue Listening / Rediscover Favorites only ever draw from songs
   // the user has actually played). Order follows `ids` (the engine's own
   // ranking), not `history`'s order.
-  List<Song> _songsForIds(List<Song> history, List<String> ids) {
-    if (ids.isEmpty) return [];
-    final byId = {for (final s in history) s.id: s};
-    return ids.map((id) => byId[id]).whereType<Song>().toList();
-  }
-
   Future<void> _loadOnline({bool clearExisting = true}) async {
     setState(() {
       // FIX (shimmer flash-over-cache race): this used to unconditionally
@@ -1112,7 +1106,11 @@ class _HomeScreenState extends State<HomeScreen> {
         IconButton(
           icon: Icon(Icons.settings_outlined,
               color: AurumTheme.textSecondaryOf(context)),
-          onPressed: () => AurumPageRoute.to(context, const SettingsScreen()),
+          // Same AurumDepthRoute switch as library_screen.dart's matching
+          // settings button — see that fix comment for the full reasoning.
+          // Everything downstream of Settings (Player/Appearance/Language/
+          // Storage/Notifications/Privacy/About/Premium) now matches too.
+          onPressed: () => AurumDepthRoute.to(context, const SettingsScreen()),
         ),
         const _ProfileAvatarButton(),
       ],
@@ -2566,7 +2564,11 @@ class _ProfileAvatarButton extends StatelessWidget {
     }
 
     // Signed in → go straight to ProfileScreen
-    await AurumPageRoute.to(context, const ProfileScreen());
+    // Same AurumDepthRoute switch as the Settings button above — Profile
+    // is reached from the same top bar, so it now shares the identical
+    // fade + slide-up push/pop instead of AurumPageRoute's horizontal
+    // slide-in-from-right.
+    await AurumDepthRoute.to(context, const ProfileScreen());
   }
 
   @override
@@ -3690,7 +3692,9 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
       child: AurumPressable(
         scaleAmount: 0.97,
-        onTap: () => AurumPageRoute.to(context, const PremiumScreen()),
+        // Same AurumDepthRoute switch as Settings/Profile above, so
+        // Premium's entry animation matches the rest of that flow too.
+        onTap: () => AurumDepthRoute.to(context, const PremiumScreen()),
         child: AnimatedBuilder(
           animation: _shimmer,
           builder: (_, __) {
