@@ -24,7 +24,6 @@ import '../providers/premium_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/song.dart';
 import '../models/lyrics.dart';
-import '../utils/devanagari_transliterator.dart';
 import '../theme/aurum_theme.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/audio_prefs.dart';
@@ -1491,7 +1490,20 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                           // same lifecycle reasoning as the content swap.
                           if (_immersiveLyricsOpen || _immersiveCtrl.value > 0)
                             Positioned.fill(
-                              child: _ImmersiveGlowLayer(controller: _immersiveCtrl),
+                              // RepaintBoundary here — this layer repaints
+                              // every animation tick (breathing glow, ~60
+                              // times/sec) for the full 3.8s open/420ms
+                              // close duration. Without its own boundary,
+                              // that continuous repaint work would get
+                              // grouped with whatever's above/below it in
+                              // the same layer, forcing more to redraw
+                              // than necessary each frame — costly on a
+                              // low-end device. Isolating it here keeps
+                              // the glow's per-frame cost contained to
+                              // just this layer.
+                              child: RepaintBoundary(
+                                child: _ImmersiveGlowLayer(controller: _immersiveCtrl),
+                              ),
                             ),
                         ],
                       ),
@@ -2184,19 +2196,28 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
                       maxArtSize: maxArtSize,
                     ),
                     if (widget.immersiveOpen || widget.immersiveCtrl.value > 0)
-                      _ImmersiveLyricsOverlay(
-                        controller: widget.immersiveCtrl,
-                        song: widget.song,
-                        bg1: widget.bg1,
-                        bg2: widget.bg2,
-                        bg3: widget.bg3,
-                        bg4: widget.bg4,
-                        dragY: widget.immersiveDragY,
-                        isDragging: widget.immersiveDragging,
-                        onClose: widget.onCloseImmersive,
-                        onDragStart: widget.onImmersiveDragStart,
-                        onDragUpdate: widget.onImmersiveDragUpdate,
-                        onDragEnd: widget.onImmersiveDragEnd,
+                      // RepaintBoundary — same reasoning as the
+                      // full-screen glow layer: this repaints every
+                      // animation tick for the whole open/close
+                      // duration, and sits in the same Stack as
+                      // _ArtworkVisual (which has its own drag/scale
+                      // transforms). Isolating it stops the two from
+                      // forcing each other to repaint on every frame.
+                      RepaintBoundary(
+                        child: _ImmersiveLyricsOverlay(
+                          controller: widget.immersiveCtrl,
+                          song: widget.song,
+                          bg1: widget.bg1,
+                          bg2: widget.bg2,
+                          bg3: widget.bg3,
+                          bg4: widget.bg4,
+                          dragY: widget.immersiveDragY,
+                          isDragging: widget.immersiveDragging,
+                          onClose: widget.onCloseImmersive,
+                          onDragStart: widget.onImmersiveDragStart,
+                          onDragUpdate: widget.onImmersiveDragUpdate,
+                          onDragEnd: widget.onImmersiveDragEnd,
+                        ),
                       ),
                   ],
                 ),
@@ -2652,13 +2673,18 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                 ? Curves.easeIn.transform((1.0 - ((t - 0.85) / 0.15)).clamp(0.0, 1.0))
                 : 1.0;
 
-        // Thumbnail and lyrics simply cross-fade in place — no sweep
-        // line, no left/right reveal edge. Thumbnail dissolves out
-        // through the first ~55% (while the aura is building/holding),
-        // lyrics dissolve in through the back half (~35%→85%) so the
-        // swap is fully complete by the time the aura releases.
-        final artOpacity = (1.0 - (t / 0.55)).clamp(0.0, 1.0);
-        final lyricsOpacity = ((t - 0.35) / 0.50).clamp(0.0, 1.0);
+        // Thumbnail and lyrics cross-fade in place — no sweep line, no
+        // left/right reveal edge. FIX (dead empty-background gap):
+        // thumbnail used to fully vanish at t=0.45 while lyrics had
+        // only just started fading in from t=0.40, leaving nearly a
+        // full second of the transition showing bare gradient with
+        // neither thumbnail nor legible lyrics — read as an awkward
+        // "hang" mid-animation. Lyrics now start fading in from the
+        // very beginning (t=0) and reach full opacity by t=0.55,
+        // solidly overlapping thumbnail's own fade-out window, so
+        // there's always at least one of the two clearly visible.
+        final artOpacity = (1.0 - (t / 0.45)).clamp(0.0, 1.0);
+        final lyricsOpacity = (t / 0.55).clamp(0.0, 1.0);
 
         // Subtle scale — thumbnail eases outward slightly as it
         // dissolves, lyrics ease inward slightly as they settle in.
@@ -2711,17 +2737,41 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                   final pastThreshold = widget.dragY > _dismissDistance;
                   widget.onDragEnd(fastFlick || pastThreshold);
                 },
-                child: Stack(
-                  fit: StackFit.expand,
+                // Rounded to match the artwork's own corner radius so
+                // the gradient background and lyrics content read as
+                // occupying the exact same rounded box the artwork did
+                // — no square-corner mismatch peeking out from behind
+                // the artwork's rounded shape mid-transition.
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Stack(
+                    fit: StackFit.expand,
                   children: [
-                    // Edge aura glow now renders separately, full-screen,
-                    // from the parent Stack (see _ImmersiveGlowLayer) —
-                    // not here. This overlay only owns the thumbnail↔
-                    // lyrics content swap, confined to the artwork's own
-                    // box. No background fill either: this box sits
-                    // directly on top of the artwork it's replacing, so
-                    // leaving it transparent lets the swap read as an
-                    // in-place morph instead of a separate opaque panel.
+                    // FIX ("thumbnail ke upar lyrics text tairte hue
+                    // awkward lagta hai, koi separation nahi"): with no
+                    // background here, once the thumbnail image started
+                    // fading, lyrics text sat directly on top of the
+                    // still-partially-visible artwork photo with nothing
+                    // behind it — reading as messy overlap instead of a
+                    // clean swap. A theme-matched gradient background
+                    // (same 4-color gradient the player itself already
+                    // uses via bg1..4, matching the old sheet's
+                    // colorful/professional look) fades in as the
+                    // artwork fades out, so lyrics always sit on a solid
+                    // backdrop, never directly on the photo.
+                    Opacity(
+                      opacity: (1 - artOpacity).clamp(0.0, 1.0),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [widget.bg1, widget.bg2, widget.bg3, widget.bg4],
+                          ),
+                        ),
+                      ),
+                    ),
                     // Outgoing thumbnail/artwork — eases outward and
                     // softly blurs as the glow-wash sweeps over it, so it
                     // reads as being "consumed" by the glow rather than
@@ -2762,31 +2812,38 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                     // the swap reads as one continuous morph rather than
                     // a flat cross-dissolve on top of the same theme-
                     // matched gradient.
+                    //
+                    // FIX: this was wrapped in SafeArea, which made sense
+                    // when this overlay covered the whole screen (needed
+                    // to dodge the status bar) but is meaningless now
+                    // that it's confined to the artwork's own box deep
+                    // inside the player's Column — SafeArea here was
+                    // just eating unnecessary top inset space from a box
+                    // that was never near the status bar to begin with.
                     if (lyricsOpacity > 0.001)
                       Opacity(
                         opacity: lyricsOpacity,
                         child: Transform.scale(
                           scale: lyricsScale,
-                          child: SafeArea(
-                            child: Column(
-                              children: [
-                                const SizedBox(height: 8),
-                                Container(
-                                  width: 36,
-                                  height: 4,
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withAlpha(60),
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 8),
+                              Container(
+                                width: 36,
+                                height: 4,
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withAlpha(60),
+                                  borderRadius: BorderRadius.circular(2),
                                 ),
-                                const Expanded(child: _LyricsPage()),
-                              ],
-                            ),
+                              ),
+                              const Expanded(child: _LyricsPage()),
+                            ],
                           ),
                         ),
                       ),
                   ],
+                  ),
                 ),
               ),
             ),
@@ -6146,19 +6203,17 @@ class _LyricsPageState extends State<_LyricsPage> {
       );
     } else if (_result!.hasSynced) {
       final rawLines = _result!.synced!;
-      final hasDevanagari = rawLines.any(
-        (l) => DevanagariTransliterator.containsDevanagari(l.text),
-      );
-      // Always romanize when the fetched lyrics contain Devanagari — no
-      // user toggle, this is the only display mode now.
-      final displayLines = hasDevanagari
-          ? rawLines
-              .map((l) => LyricLine(
-                    time: l.time,
-                    text: DevanagariTransliterator.transliterate(l.text),
-                  ))
-              .toList()
-          : rawLines;
+      // FIX ("Hindi + English dono mixed dikh raha hai, ekdam clean
+      // nahi"): this used to always romanize Devanagari lyrics into
+      // Roman-script text with no toggle — but the source lyrics here
+      // often already carry a mix of Devanagari and romanized words in
+      // the same line (as seen in the reported screenshot), so
+      // re-transliterating on top of that produced garbled, mixed
+      // output. The inline lyrics strip elsewhere on this screen
+      // never transliterates — it shows the fetched line exactly as
+      // returned — and that's what reads as clean. Matching that here:
+      // show the raw synced text unchanged, same as the inline strip.
+      final displayLines = rawLines;
       content = _SyncedLyricsView(
         key: const ValueKey('synced-lyrics'),
         lines: displayLines,
@@ -6169,10 +6224,9 @@ class _LyricsPageState extends State<_LyricsPage> {
       );
     } else {
       final rawPlain = _result!.plain ?? '';
-      final hasDevanagari = DevanagariTransliterator.containsDevanagari(rawPlain);
-      final displayPlain = hasDevanagari
-          ? DevanagariTransliterator.transliterate(rawPlain)
-          : rawPlain;
+      // Same fix as the synced-lyrics branch above — show raw text,
+      // matching the inline strip's always-original display.
+      final displayPlain = rawPlain;
       content = ValueListenableBuilder<LyricsStyle>(
         key: const ValueKey('plain-lyrics'),
         valueListenable: AudioPrefs.lyricsStyleNotifier,
