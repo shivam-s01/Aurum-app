@@ -63,6 +63,20 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final RecentlyPlayedProvider? _recentlyPlayed;
   FavoritesProvider? _favorites;
 
+  // FIX ("full player swipe-down se close karke dubara kholo to lyrics
+  // hat jaata hai"): FullPlayerScreen is pushed as a fresh Navigator
+  // route on every open (see pushFullPlayer in home_screen.dart) — so
+  // its own State, including the old local `_immersiveLyricsOpen` bool,
+  // is fully disposed on swipe-dismiss and starts over as `false` on
+  // the next open. PlayerProvider sits above the Navigator and survives
+  // route pushes/pops, so the "was immersive lyrics open" flag lives
+  // here instead — read once when FullPlayerScreen's State initializes
+  // and written back whenever the user opens/closes lyrics, so it
+  // genuinely persists across a close-and-reopen instead of resetting
+  // every time. Plain field, no notifyListeners() needed — only
+  // FullPlayerScreen's own initState reads it, never a reactive watch.
+  bool immersiveLyricsWasOpen = false;
+
   // Injected from main.dart once FavoritesProvider exists (created earlier
   // in the provider tree; PlayerProvider's constructor doesn't take a
   // BuildContext). Re-wires the like bridge + listens for external

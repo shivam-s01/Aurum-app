@@ -367,6 +367,20 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           context,
         ).catchError((_) {});
       }
+      // The immersive-lyrics restore itself now happens earlier, in
+      // didChangeDependencies (before first paint, so there's no
+      // thumbnail-then-lyrics flash on reopen — see the FIX comment
+      // there). One thing genuinely can't move that early though:
+      // _kenBurnsKey's target widget hasn't built yet at
+      // didChangeDependencies time, so calling .pause() there would
+      // hit a null currentState and silently do nothing. By this
+      // postFrameCallback the first frame (already showing lyrics
+      // settled, per the restore above) has built, so the Ken Burns
+      // background artwork drift can now actually be paused behind it —
+      // matching exactly what a fresh _openImmersiveLyrics() call does.
+      if (_immersiveLyricsOpen) {
+        _pauseAmbientAnims();
+      }
     });
   }
 
@@ -527,6 +541,22 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // genuine cold cache falls through to the existing async path.
     if (!_didSeedInitialPalette) {
       _didSeedInitialPalette = true;
+      // FIX ("full player swipe-down se close karo, dubara kholo to
+      // lyrics hat jaata hai" — flash-on-reopen follow-up): the earlier
+      // version of this restore lived inside build()'s
+      // addPostFrameCallback, which runs AFTER the first frame already
+      // painted with the fresh-State defaults (_immersiveLyricsOpen =
+      // false, thumbnail showing) — so on reopen there was a real,
+      // visible one-frame flash of the thumbnail before it snapped over
+      // to lyrics a beat later. didChangeDependencies runs before that
+      // first frame is ever painted (same reasoning as the palette seed
+      // right below), so restoring here means the very first frame
+      // already shows lyrics settled in place — no flash, no snap,
+      // genuinely seamless on reopen.
+      if (context.read<PlayerProvider>().immersiveLyricsWasOpen) {
+        _immersiveLyricsOpen = true;
+        _immersiveCtrl.value = 1.0;
+      }
       // FIX (undefined_getter build error): FullPlayerScreen has no `song`
       // field of its own — it's driven entirely by PlayerProvider's
       // currentSong (see _buildBody / the Selector further down this
@@ -749,6 +779,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     }
     AurumHaptics.medium();
     setState(() => _immersiveLyricsOpen = true);
+    // Persisted on PlayerProvider (survives this screen's own route
+    // pop/push) so a swipe-down-dismiss-then-reopen restores lyrics
+    // instead of resetting — see the didChangeDependencies restore
+    // above (near _didSeedInitialPalette).
+    context.read<PlayerProvider>().immersiveLyricsWasOpen = true;
     _pauseAmbientAnims();
     _immersiveCtrl.forward(from: 0.0);
   }
@@ -756,6 +791,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   void _closeImmersiveLyrics() {
     if (!_immersiveLyricsOpen) return;
     AurumHaptics.light();
+    context.read<PlayerProvider>().immersiveLyricsWasOpen = false;
     _immersiveDragY = 0.0;
     _immersiveCtrl.reverse(from: _immersiveCtrl.value).whenComplete(() {
       if (!mounted) return;
