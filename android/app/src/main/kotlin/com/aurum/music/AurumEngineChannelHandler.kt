@@ -366,6 +366,10 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
                     engine.setSpeed((call.argument<Number>("speed") ?: 1.0).toFloat())
                     result.success(null)
                 }
+                "setBatterySaverActive" -> {
+                    engine.setBatterySaverActive(call.argument<Boolean>("active") ?: false)
+                    result.success(null)
+                }
                 "setCurrentSongLiked" -> {
                     engine.setCurrentSongLiked(call.argument<Boolean>("liked") ?: false)
                     AurumMediaSessionService.instance?.onLikedStateChanged()

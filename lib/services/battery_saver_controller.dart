@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'audio_prefs.dart';
+import 'native_engine_bridge.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────
 /// BatterySaverController — subscribes to the native battery-percentage
@@ -35,6 +36,16 @@ class BatterySaverController {
     if (_started) return;
     _started = true;
     AudioPrefs.registerBatterySaverReevaluateHook(reevaluateNow);
+    // Keep native's pre-buffer forward-window (see AurumAudioEngine.
+    // priorityForwardWindow) in sync with the same activation state that
+    // already drives every UI/motion consumer — one listener, added here
+    // rather than inside _onBatteryLevel, so it also fires for the
+    // reevaluateNow() path (Settings toggle/threshold changes) without
+    // duplicating the push in two places. Push the current value
+    // immediately too, in case native's default (false) doesn't match a
+    // restored/persisted active state from a previous session.
+    AudioPrefs.batterySaverActiveNotifier.addListener(_pushToNative);
+    _pushToNative();
     try {
       _sub = _channel.receiveBroadcastStream().listen(
         _onBatteryLevel,
@@ -79,9 +90,23 @@ class BatterySaverController {
     _onBatteryLevel(level);
   }
 
+  void _pushToNative() {
+    // Fire-and-forget, matching every other native call in this
+    // controller's philosophy: a failure here (channel not ready yet
+    // during very early startup, odd platform build) must never crash or
+    // block anything — worst case native just keeps its last-known/default
+    // forward-window until the next successful push.
+    unawaited(
+      NativeAudioEngine()
+          .setBatterySaverActive(AudioPrefs.batterySaverActiveNotifier.value)
+          .catchError((_) {}),
+    );
+  }
+
   void dispose() {
     _sub?.cancel();
     _sub = null;
     _started = false;
+    AudioPrefs.batterySaverActiveNotifier.removeListener(_pushToNative);
   }
 }

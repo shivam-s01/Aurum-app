@@ -1,5 +1,6 @@
 package com.aurum.music
 
+import android.app.ActivityManager
 import android.content.Context
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -594,6 +595,34 @@ class AurumAudioEngine(
     // on every single playback event.
     private var hasAudioFocus = false
 
+    // FIX ("har song shuru hote waqt halka sa glitch/blip hota hai" — on
+    // essentially every play, not just literal first-ever-tap): the
+    // isFreshFocusGrab mute-then-180ms-fade below in onIsPlayingChanged
+    // was REACTIVE — it only ran after ExoPlayer had already started
+    // actually rendering audio (player.play() already returned, the
+    // listener fires off ExoPlayer's own async internal looper). That
+    // meant real, audible sound played for a brief moment at full volume,
+    // THEN got stomped to silent and faded back in — an audible
+    // mute/fade-in blip layered on top of audio that had already started,
+    // on every single play() where focus needed re-acquiring. Since
+    // hasAudioFocus flips false on ANY focus loss (a pause long enough
+    // for the OS to reclaim it, a phone call, tapping X on the mini
+    // player), that covers the overwhelming majority of real listening
+    // sessions, not just a one-time first-launch edge case — matching
+    // "sabhi songs mein ye problem hai".
+    //
+    // Fix: request focus PROACTIVELY, before player.play(), at the two
+    // real song-start points (playQueueInternal/playSongInternal) while
+    // player.volume is still 0f from hardStopAndMute() — so the OEM-chime
+    // silent-window trick still works exactly as before, but the mute
+    // happens BEFORE any audio is rendered, not after. This flag records
+    // that we already did that hand-off for the in-flight transition, so
+    // the reactive listener (still needed as a safety net for the
+    // handful of call sites that call player.play() directly, per the
+    // comment on it below) skips its own redundant mute-and-fade instead
+    // of stomping on audio that's already correctly playing.
+    private var focusPreHandledForThisStart = false
+
     private fun requestAudioFocus(): Boolean {
         if (hasAudioFocus) return true
         val attrs = android.media.AudioAttributes.Builder()
@@ -609,6 +638,32 @@ class AurumAudioEngine(
         val granted = audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         hasAudioFocus = granted
         return granted
+    }
+
+    // Called right before player.play() at the two genuine song-start
+    // entry points, while volume is still 0f (see focusPreHandledForThisStart
+    // doc comment above for the full reasoning). If this is a fresh focus
+    // grab, requests it and fades in from silence HERE — before any audio
+    // renders — so the reactive onIsPlayingChanged listener has nothing
+    // left to do for this transition.
+    private fun ensureFocusBeforePlay() {
+        val isFreshFocusGrab = !hasAudioFocus
+        requestAudioFocus()
+        // Only set when there's actually a fresh-grab mute+fade for the
+        // reactive listener to skip — on a normal resume (focus already
+        // held) that listener's mute+fade branch never runs anyway
+        // regardless of this flag, so leaving it false here removes any
+        // window for a stale `true` to survive past this call (e.g. if
+        // player.play() right after this never actually triggers
+        // onIsPlayingChanged — a thrown exception, a silent ExoPlayer
+        // failure) and wrongly suppress a LATER, genuinely-reactive
+        // fresh-grab dance from one of the direct-player.play() call
+        // sites (togglePlay, skipToNext, etc.) that don't go through this
+        // function at all.
+        if (isFreshFocusGrab) {
+            focusPreHandledForThisStart = true
+            fadeVolumeTo(1f, durationMs = 180L)
+        }
     }
 
     private fun abandonAudioFocus() {
@@ -648,6 +703,39 @@ class AurumAudioEngine(
     private var isLoadingNewSong = false
     private var splicingInProgress = false
     private var restoredSilently = false
+
+    // Mirrors Dart's AudioPrefs.batterySaverActiveNotifier — pushed down via
+    // setBatterySaverActive() whenever it changes on the Dart side (battery
+    // level crossing the user's threshold, or the feature toggled). Read
+    // only by resolveQueueInBackground()'s forward-window size below; every
+    // other battery-saver behavior (animations, bg style) is Dart-only and
+    // untouched by this flag. Defaults false so a cold app start (before
+    // the first native battery broadcast arrives) behaves exactly as
+    // before — full-smoothness pre-buffering — and only narrows once we
+    // hear otherwise.
+    @Volatile private var batterySaverActive = false
+
+    // Android's own "is this a genuinely low-RAM device" signal — set once
+    // by the OS at install/build time from actual device specs (see
+    // ActivityManager.isLowRamDevice docs: true on devices below the
+    // platform's minimum recommended RAM for a "full" experience,
+    // independent of current battery level). Reading it once at
+    // construction — it can never change for a given device — instead of
+    // inventing any new detection/polling of our own. This is a SEPARATE
+    // signal from batterySaverActive: a low-end device on 80% battery
+    // still benefits from the lighter pre-buffer window (less RAM held
+    // for queued MediaItems/buffers, less concurrent network/decode
+    // work), which battery-level-only gating would never catch.
+    private val isLowRamDevice: Boolean =
+        (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
+            ?.isLowRamDevice ?: false
+
+    private val priorityForwardWindow: Int
+        get() = if (batterySaverActive || isLowRamDevice) PRIORITY_FORWARD_WINDOW_SAVER else PRIORITY_FORWARD_WINDOW_NORMAL
+
+    fun setBatterySaverActive(active: Boolean) {
+        batterySaverActive = active
+    }
 
     // FIX (loading-stuck / "10-20s pe atak jaata hai"): between a tap and
     // ExoPlayer actually getting a MediaItem, player.playbackState stays
@@ -733,13 +821,15 @@ class AurumAudioEngine(
     companion object {
         // Prewarm window: how many songs ahead/behind the current one get
         // resolved + added to ExoPlayer's timeline immediately (vs. paced
-        // resolution further out). Forward window is 2 so two rapid
-        // next-taps in a row both land on an already-buffered song —
-        // Spotify-style instant skip. This trades a bit more background
-        // data/battery for that extra smoothness (previously 1, tightened
-        // down from an original 3 purely for data savings — bumped back up
-        // deliberately, not a regression).
-        private const val PRIORITY_FORWARD_WINDOW = 2
+        // resolution further out). Forward window is 4 by default so
+        // several rapid next-taps in a row all land on an already-buffered
+        // song — Spotify-style instant skip. This trades a bit more
+        // background data/battery for that extra smoothness. Under Battery
+        // Saver Mode (see batterySaverActive below) this drops to 2 —
+        // enough for one instant skip in a row, capping the background
+        // resolve/network work on low-end or low-battery devices.
+        private const val PRIORITY_FORWARD_WINDOW_NORMAL = 4
+        private const val PRIORITY_FORWARD_WINDOW_SAVER = 2
         private const val PRIORITY_BACKWARD_WINDOW = 1
         private const val PACED_RESOLVE_DELAY_MS = 2500L
 
@@ -831,14 +921,39 @@ class AurumAudioEngine(
                     // focus transition, not on every play() call, so normal
                     // resume-after-pause (focus already held) stays instant
                     // with no fade, matching every other player's feel.
-                    val isFreshFocusGrab = !hasAudioFocus
-                    if (isFreshFocusGrab) {
-                        cancelAllVolumeFades()
-                        player.volume = 0f
-                    }
-                    requestAudioFocus()
-                    if (isFreshFocusGrab) {
-                        fadeVolumeTo(1f, durationMs = 180L)
+                    //
+                    // FIX ("blip/glitch at the start of every song"): this
+                    // used to unconditionally do the mute+fade dance right
+                    // here — but by the time onIsPlayingChanged fires,
+                    // ExoPlayer has typically already started rendering
+                    // real audio (this listener is asynchronous/reactive).
+                    // That meant a moment of real audible sound, THEN a
+                    // stomp to silent, THEN a fade back in — an audible
+                    // artifact on essentially every play. The real
+                    // song-start entry points (playQueueInternal/
+                    // playSongInternal) now call ensureFocusBeforePlay()
+                    // themselves, BEFORE player.play(), while volume is
+                    // still 0f from hardStopAndMute() — so the mute+fade
+                    // already happened at the correct time for those paths,
+                    // with nothing audible to interrupt. This block now
+                    // only runs the fallback dance for the handful of call
+                    // sites that call player.play() directly and skipped
+                    // that pre-handling (see focusPreHandledForThisStart's
+                    // doc comment) — same safety net as before, just no
+                    // longer double-firing on top of an already-correct
+                    // fade-in.
+                    if (focusPreHandledForThisStart) {
+                        focusPreHandledForThisStart = false
+                    } else {
+                        val isFreshFocusGrab = !hasAudioFocus
+                        if (isFreshFocusGrab) {
+                            cancelAllVolumeFades()
+                            player.volume = 0f
+                        }
+                        requestAudioFocus()
+                        if (isFreshFocusGrab) {
+                            fadeVolumeTo(1f, durationMs = 180L)
+                        }
                     }
                 } else if (!pausedForTransientFocusLoss && !pausedForSustainedFocusLoss) {
                     abandonAudioFocus()
@@ -1059,22 +1174,79 @@ class AurumAudioEngine(
     // re-checks the session before the NEXT step, same as Dart's
     // _hardStopAndMute(sessionId:).
     // ─────────────────────────────────────────────────────────────────
-    private suspend fun hardStopAndMute(sessionId: Int) {
+    // Counts sessions currently between hardStopAndMute()'s volume=0f step
+    // and their own restoreVolume() — i.e. how many in-flight
+    // playQueueInternal calls currently want the player muted. Needed
+    // because sessionId alone (mySession == playSessionId) can't safely
+    // gate restoreVolume() in the finally block below: if it did, an
+    // ABANDONED session (superseded by a newer tap before it finished)
+    // would skip restoreVolume() entirely, since by the time its finally
+    // ran, playSessionId already pointed at the newer session. Nobody else
+    // was ever going to restore volume on that abandoned session's behalf
+    // — hardStopAndMute() only touches player.volume, it's never restored
+    // except in this same finally. That dangling mute is exactly the
+    // reported bug: "skip jaldi jaldi karta hu to volume automatically
+    // gir jata hai, dubara thik ho jata hai" — a session muted the player,
+    // got abandoned mid-flight by a fast follow-up tap, and nothing ever
+    // un-muted it; audio (or the next fast skipToNext()/skipToQueueItem
+    // call, which take a "already buffered" path that never touches
+    // volume, assuming it's already 1f) played silently until whichever
+    // session eventually DID finish and restore it.
+    private var mutedSessionCount = 0
+
+    // Returns true if this call actually set player.volume = 0f (i.e. it
+    // was still the current session at that instant) — false if it bailed
+    // before ever touching volume (superseded before even starting). Only
+    // a call that returns true has a mute contribution that later needs
+    // releasing via restoreVolume(); see mutedSessionCount's doc comment.
+    private suspend fun hardStopAndMute(sessionId: Int): Boolean {
         cancelAllVolumeFades()
         fadeJob = null
         fun stillCurrent() = sessionId == playSessionId
-        if (!stillCurrent()) return
+        if (!stillCurrent()) return false
         player.volume = 0f
-        if (!stillCurrent()) return
+        mutedSessionCount++
+        // Safety-net reset: a NEW transition is starting here, so any
+        // stale `true` left over from a previous ensureFocusBeforePlay()
+        // call whose player.play() never actually reached
+        // onIsPlayingChanged (thrown exception, silent ExoPlayer failure —
+        // see ensureFocusBeforePlay's doc comment) can't survive to wrongly
+        // suppress a later, unrelated fresh-focus-grab dance. Cheap and
+        // always correct to clear here: if THIS transition's own
+        // ensureFocusBeforePlay() call needs it set, that happens later,
+        // right before player.play(), well after this point.
+        focusPreHandledForThisStart = false
+        if (!stillCurrent()) return true
         player.pause()
-        if (!stillCurrent()) return
+        if (!stillCurrent()) return true
         player.stop()
-        if (!stillCurrent()) return
+        if (!stillCurrent()) return true
         player.clearMediaItems()
         liveMediaIds.clear()
+        return true
     }
 
-    private fun restoreVolume() { player.volume = 1f }
+    // Only actually restores player.volume once every session that muted
+    // it has also called this — see mutedSessionCount doc comment above.
+    // Guards against going negative (a session finishing without ever
+    // successfully muting — e.g. it bailed at hardStopAndMute's very
+    // first stillCurrent() check, before player.volume=0f ever ran) so
+    // this can never over-decrement and force a phantom restore while a
+    // real mute is still legitimately in flight.
+    //
+    // releaseVolumeToOne controls whether a genuine restore (down to
+    // mutedSessionCount == 0) actually snaps player.volume = 1f here, or
+    // leaves it alone. Needed for the fresh-focus-grab path in
+    // playQueueInternal/playSongInternal: ensureFocusBeforePlay() already
+    // started a 180ms fade up to 1f in that case (see its doc comment) —
+    // this function still MUST run (to release this session's counted
+    // mute contribution, or mutedSessionCount would leak and permanently
+    // block every future restore) but must NOT also snap volume to 1f
+    // itself, which would race/fight the fade already in progress.
+    private fun restoreVolume(releaseVolumeToOne: Boolean = true) {
+        if (mutedSessionCount > 0) mutedSessionCount--
+        if (mutedSessionCount == 0 && releaseVolumeToOne) player.volume = 1f
+    }
 
     // ─────────────────────────────────────────────────────────────────
     // MAIN ENTRY POINTS
@@ -1113,8 +1285,13 @@ class AurumAudioEngine(
         // path opt OUT of the finally's reset, while every other
         // exit/exception still gets the safety-net reset.
         var keepResolvingOnExit = false
+        // Tracks whether hardStopAndMute() below actually incremented
+        // mutedSessionCount for THIS call — only then does this session
+        // owe a matching restoreVolume() in finally. See both methods'
+        // doc comments.
+        var didMute = false
         try {
-            hardStopAndMute(mySession)
+            didMute = hardStopAndMute(mySession)
             if (mySession != playSessionId) return
 
             isResolving = true
@@ -1182,7 +1359,24 @@ class AurumAudioEngine(
             // biggest "does it feel instant like Spotify" win available
             // in this file.
             reapplySpeed()
-            restoreVolume()
+            // FIX ("blip/glitch at the start of every song"): call
+            // ensureFocusBeforePlay() FIRST, while volume is still 0f from
+            // hardStopAndMute() — it decides whether this needs the
+            // OEM-chime-masking fade (fresh focus grab) and, if so, starts
+            // that fade right here before any audio renders. restoreVolume()
+            // still runs unconditionally right after (its mutedSessionCount
+            // release must always happen, or the counter leaks — see its
+            // doc comment), but with releaseVolumeToOne=false on a fresh
+            // grab so it doesn't ALSO snap volume to 1f and race/fight the
+            // fade ensureFocusBeforePlay() just started. On a normal resume
+            // (focus already held — the common case for back-to-back songs
+            // in one session), ensureFocusBeforePlay() does nothing to
+            // volume, so the instant restoreVolume() is exactly what's
+            // needed — same zero-latency feel as before.
+            val freshGrab = !hasAudioFocus
+            ensureFocusBeforePlay()
+            restoreVolume(releaseVolumeToOne = !freshGrab)
+            didMute = false
             player.play()
             started = true
             scheduleSettlePushStates(mySession)
@@ -1200,8 +1394,25 @@ class AurumAudioEngine(
             if (!keepResolvingOnExit && mySession == playSessionId) {
                 isResolving = false
             }
+            // FIX ("skip jaldi jaldi karta hu to volume automatically gir
+            // jata hai, dubara thik ho jata hai"): restoreVolume() used to
+            // be gated behind `mySession == playSessionId` — an abandoned
+            // session (superseded by a fast follow-up tap before it
+            // finished) skipped it entirely, permanently leaving
+            // player.volume at whatever hardStopAndMute() had set it to
+            // (0f), since nothing else was ever responsible for restoring
+            // on that abandoned session's behalf. Every session that
+            // ACTUALLY MUTED (didMute — see hardStopAndMute's doc comment;
+            // a session that was already superseded before hardStopAndMute
+            // even ran never touched volume in the first place, so it must
+            // NOT call restoreVolume, or it would wrongly release a
+            // different session's still-active mute) calls restoreVolume()
+            // here unconditionally so its own contribution always gets
+            // released — restoreVolume()'s mutedSessionCount tracking (see
+            // its doc comment) is what safely prevents this from
+            // clobbering a genuinely newer session's still-active mute.
+            if (didMute) restoreVolume()
             if (mySession == playSessionId) {
-                restoreVolume()
                 isLoadingNewSong = false
                 if (!started) splicingInProgress = false
             } else {
@@ -1235,9 +1446,14 @@ class AurumAudioEngine(
         // lets the deliberate "network genuinely absent, stay pending"
         // return below opt out of the finally block's isResolving reset.
         var keepResolvingOnExit = false
+        // Tracks whether hardStopAndMute() below actually incremented
+        // mutedSessionCount for THIS call — see hardStopAndMute's and
+        // restoreVolume()'s doc comments (AurumAudioEngine.kt, near
+        // playQueueInternal's matching field for the full reasoning).
+        var didMute = false
         try {
             isLoadingNewSong = true
-            hardStopAndMute(mySession)
+            didMute = hardStopAndMute(mySession)
             if (mySession != playSessionId) return
 
             // FIX (loading-stuck, 10-20s no-feedback window): this is the
@@ -1306,7 +1522,17 @@ class AurumAudioEngine(
             // 600ms was the single most-hit artificial delay in the whole
             // engine — every home/search tap paid it.
             reapplySpeed()
-            restoreVolume()
+            // FIX ("blip/glitch at the start of every song") — same fix as
+            // playQueueInternal's matching call site; see that comment for
+            // the full reasoning. ensureFocusBeforePlay() runs first, while
+            // volume is still 0f, and handles the fresh-focus-grab fade
+            // itself; restoreVolume() still always runs (releasing this
+            // session's mutedSessionCount contribution) but is told not to
+            // also snap volume to 1f when a fade is already in flight.
+            val freshGrab = !hasAudioFocus
+            ensureFocusBeforePlay()
+            restoreVolume(releaseVolumeToOne = !freshGrab)
+            didMute = false
             player.play()
             scheduleSettlePushStates(mySession)
         } catch (e: Exception) {
@@ -1334,10 +1560,11 @@ class AurumAudioEngine(
             // symmetric else-branch playQueueInternal's finally already
             // has for exactly this reason.
             if (mySession == playSessionId) {
-                restoreVolume()
+                if (didMute) restoreVolume()
                 isLoadingNewSong = false
                 maybeAutoExtendQueue()
             } else {
+                if (didMute) restoreVolume()
                 isLoadingNewSong = false
             }
             pushState()
@@ -1896,7 +2123,16 @@ class AurumAudioEngine(
             setSingleMediaItemInternal(found.second, queueSongs[found.first])
             if (sessionAtFailure != playSessionId) return
             reapplySpeed()
-            restoreVolume()
+            // NOTE: no restoreVolume() here (deliberately removed) — this
+            // recovery path runs mid-stream, after a song that was already
+            // playing failed; player.volume was never muted for this flow
+            // in the first place (only playQueueInternal/playSongInternal
+            // ever call hardStopAndMute, and neither is on this call path),
+            // so there is nothing here to restore. Calling it anyway would
+            // incorrectly decrement mutedSessionCount for a mute this
+            // function never took out — see restoreVolume()'s doc comment
+            // for why that's unsafe: it could release a DIFFERENT,
+            // genuinely in-flight session's still-active mute early.
             player.play()
         } catch (e: Exception) {
             emitError("Could not play \"${deadSong.title}\" or the next song — ${e.message}", false)
@@ -1955,6 +2191,7 @@ class AurumAudioEngine(
                 currentIndex = queueIdx
             }
             maybeAutoExtendQueue()
+            ensureNextResolved(playSessionId)
             pushState()
             return
         }
@@ -1963,6 +2200,7 @@ class AurumAudioEngine(
             currentIndex = index
         }
         maybeAutoExtendQueue()
+        ensureNextResolved(playSessionId)
         pushState()
     }
 
@@ -2099,6 +2337,42 @@ class AurumAudioEngine(
         pushState()
     }
 
+    // FIX ("UI badal jata hai, purana gaana kuch sec chalta reh jaata hai"
+    // on mid-session skips): resolveQueueInBackground()'s priority window
+    // only runs once, from the index playback STARTED at. A skip later in
+    // the same session moves currentIndex well past that original window —
+    // the paced tail (one song every PACED_RESOLVE_DELAY_MS) may not have
+    // reached the new currentIndex+1 yet, so it isn't in liveMediaIds when
+    // the user taps Next, and skipToQueueItemAwaitable falls back to a
+    // full playQueueInternal() resolve — exactly the visible lag reported.
+    // Fix: every time currentIndex actually changes, opportunistically
+    // resolve just the ONE immediate-next song outside the paced walk, so
+    // "next" is essentially always pre-buffered regardless of where the
+    // paced tail currently is. Cheap and idempotent — no-ops instantly if
+    // that song is already in liveMediaIds, and reuses the same `scope` /
+    // queueMutex-guarded splice path as the main resolver, so it adds no
+    // new thread, wake-lock, or polling loop.
+    private fun ensureNextResolved(sessionId: Int) {
+        val nextIdx = currentIndex + 1
+        if (nextIdx >= queueSongs.size) return
+        val nextSong = queueSongs[nextIdx]
+        if (liveMediaIds.contains(nextSong.id)) return // already buffered, nothing to do
+        scope.launch {
+            if (sessionId != playSessionId) return@launch
+            try {
+                val url = resolveFast(nextSong, sessionId, maxAttempts = 1) ?: return@launch
+                if (sessionId != playSessionId) return@launch
+                queueMutex.withLock {
+                    if (sessionId != playSessionId) return@withLock
+                    if (liveMediaIds.contains(nextSong.id)) return@withLock // resolved elsewhere meanwhile
+                    player.addMediaItem(buildMediaItem(nextSong, url))
+                    liveMediaIds.add(nextSong.id)
+                    handleCurrentIndexChanged(player.currentMediaItemIndex)
+                }
+            } catch (e: Exception) { /* best-effort — normal paced walk still covers it */ }
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // Paced background queue resolution — I: performance target, not
     // correctness invariant, but preserved exactly (priority window +
@@ -2109,7 +2383,7 @@ class AurumAudioEngine(
             try {
                 for (i in startIndex + 1 until songs.size) {
                     if (sessionId != playSessionId) return@launch
-                    if (i - startIndex > PRIORITY_FORWARD_WINDOW) {
+                    if (i - startIndex > priorityForwardWindow) {
                         delay(PACED_RESOLVE_DELAY_MS)
                         if (sessionId != playSessionId) return@launch
                     }

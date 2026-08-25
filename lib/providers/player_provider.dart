@@ -333,7 +333,16 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // instead of one native call per intermediate tap.
   Timer? _skipDebounce;
   int? _skipDebounceTargetIndex; // resolved queue index once taps settle
-  static const Duration _skipDebounceWindow = Duration(milliseconds: 180);
+  // TUNED: 180ms -> 60ms. 180ms was chosen purely to coalesce genuine
+  // rapid-fire spam-taps (see comment above) — but it also sat directly in
+  // the critical path of a single, deliberate tap, adding a flat 180ms of
+  // pure waiting in front of the native skip call every time, on top of
+  // whatever the native side itself takes. 60ms is still comfortably wider
+  // than the gap between two taps in an actual spam burst (finger-repeat
+  // taps land well under that), so the coalescing behavior this exists for
+  // is unchanged — it just no longer adds a user-perceptible pause to an
+  // ordinary single tap.
+  static const Duration _skipDebounceWindow = Duration(milliseconds: 60);
 
   // Local mirror of the native queue. The native side only reports back
   // `queueIds` (List<String>) + `currentSongId` in its state stream, not
@@ -2401,6 +2410,28 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> stop() => _engine.stop();
 
   Future<void> stopAndClear() async {
+    // FIX (mini player X dismiss → song reappears, black/no audio): the
+    // suppression window below (_dismissedUntil) used to get set at the
+    // very END of this function, AFTER both native awaits completed. That
+    // left the entire duration of the stop()/clearQueue() round-trip
+    // completely unprotected — _onEngineState's guard checks
+    // `_dismissedUntil != null` first thing, so any stale state event
+    // that arrived WHILE those awaits were still in flight (the exact
+    // window they exist to cover) sailed straight through with no
+    // suppression at all. On a slow platform-channel round-trip — a
+    // loaded/low-end device is exactly where this shows up most — the
+    // native calls themselves can easily eat into or exceed the whole
+    // 700ms budget, so by the time the window finally opened there was
+    // often nothing left of it to actually cover the stale trailing
+    // event. Net effect: X appeared to work, then a beat later the
+    // dismissed song's title/artwork silently reappeared in the mini
+    // player with no audio actually playing (engine really had stopped —
+    // this was always a pure UI relapse, never real playback resuming).
+    // Fix: start the suppression window FIRST, before either native call
+    // fires, so it covers stop()+clearQueue() themselves plus the same
+    // trailing margin after — the window's whole purpose, not just an
+    // afterthought once the risky part was already over.
+    _dismissedUntil = DateTime.now().add(_dismissSuppressWindow);
     // FIX: a pending debounced skip (see _scheduleSkipFlush) firing AFTER
     // Stop would call _engine.skipToQueueItem() on a queue that's about to
     // be cleared — cancel it here so Stop always genuinely stops, with
@@ -2408,6 +2439,15 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _skipDebounce?.cancel();
     _skipDebounce = null;
     _skipDebounceTargetIndex = null;
+    // Clear the expectation gate up front too — same reasoning as
+    // _dismissedUntil above. Leaving _expectedSongId set to whatever the
+    // dismissed song was, for the duration of the native awaits, meant a
+    // stale event that happened to still match it could pass
+    // isConfirmedSwitch legitimately (not even needing the dismiss-window
+    // gap above) and repopulate _currentSong before this function ever
+    // reached its old end-of-function reset.
+    _expectedSongId = null;
+    _expectedSongIdSetAt = null;
     // FIX (X on mini player did nothing if the native stop/clearQueue call
     // ever threw — e.g. a platform-channel hiccup): these two awaits used
     // to run unguarded, so an exception here would abort stopAndClear()
@@ -2439,8 +2479,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     // per-song tracking state here means Stop always returns the provider
     // to a truly clean slate, with nothing left over to misfire against
     // whatever plays next.
-    _expectedSongId = null;
-    _expectedSongIdSetAt = null;
+    // (_expectedSongId/_expectedSongIdSetAt already cleared up front above.)
     _lastHandledIndex = null;
     _lastTrackedSong = null;
     _completionFired = false;
@@ -2450,6 +2489,11 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _duration = Duration.zero;
     _isLoading = false;
     _isPlaying = false;
+    // Refresh the window to run its full duration from HERE (native calls
+    // now done) rather than from the earlier pre-call timestamp — so the
+    // trailing margin after the awaits is the full, undiminished
+    // _dismissSuppressWindow regardless of how long stop()/clearQueue()
+    // themselves took.
     _dismissedUntil = DateTime.now().add(_dismissSuppressWindow);
     notifyListeners();
   }
