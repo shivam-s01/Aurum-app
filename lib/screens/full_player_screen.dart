@@ -2030,7 +2030,7 @@ class _TopBar extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                song.album.isNotEmpty ? song.album : 'Aurum Music', // brand name — not translated
+                song.album.isNotEmpty ? song.album : 'Astra Music', // brand name — not translated
                 style: TextStyle(
                   color: textPrimary,
                   fontSize: 12,

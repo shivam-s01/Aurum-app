@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/widgets/audio_output_sheet.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: In-app audio output device picker — speaker / wired
 //   headphones / Bluetooth / USB. One of the 3 "confirmed missing"
 //   features from the app review (Chromecast + playlist multi-select

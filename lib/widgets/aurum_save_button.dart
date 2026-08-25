@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/widgets/aurum_save_button.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Premium animated "Save" toggle button (bookmark icon), used on
 //   AlbumScreen (and reusable anywhere similar save/follow affordances are
 //   needed). Gives the tap a paid-app feel:

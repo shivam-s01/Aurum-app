@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/utils/artwork_palette_cache.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Small in-memory cache + fast extractor for artwork-derived
 //   palette colors, shared by the Full Player screen (and available to
 //   Album/Mix screens too).

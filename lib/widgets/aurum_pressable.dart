@@ -1,5 +1,5 @@
 // aurum_pressable.dart
-// Aurum Music — Shared Press-Scale Interaction Wrapper
+// Astra Music — Shared Press-Scale Interaction Wrapper
 //
 // Single source of truth for the "premium tap" feel used across the app:
 // a quick scale-down on press-down, spring back on release, plus a light

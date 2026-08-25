@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/providers/player_provider.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // VERSION: 3.0.0 — Native engine switch (NativeAudioEngine / Kotlin+Media3)
 //
 // WHAT CHANGED IN v3:

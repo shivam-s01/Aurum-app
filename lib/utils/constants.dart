@@ -1,6 +1,6 @@
 class AppConstants {
   // App Info
-  static const String appName = 'Aurum Music';
+  static const String appName = 'Astra Music';
   static const String appVersion = '1.0.0';
   static const String packageName = 'com.aurum.music';
 

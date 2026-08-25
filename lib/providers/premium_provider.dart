@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/providers/premium_provider.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Single source of truth for premium status.
 //
 //   HOW PREMIUM IS DETERMINED (priority order):

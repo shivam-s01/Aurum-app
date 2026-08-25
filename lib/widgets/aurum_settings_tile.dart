@@ -1,5 +1,5 @@
 // aurum_settings_tile.dart
-// Aurum Music — Shared Animated Settings Row
+// Astra Music — Shared Animated Settings Row
 //
 // WHY THIS EXISTS:
 // Every settings sub-screen (Privacy, Storage, Notifications, About, ...)

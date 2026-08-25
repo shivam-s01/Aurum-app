@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/providers/playlist_provider.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Spotify-style user playlists with Hive persistence.
 //   ✅ Create / rename / delete playlists (unlimited)
 //   ✅ Add / remove songs per playlist

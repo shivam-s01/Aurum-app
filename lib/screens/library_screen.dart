@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/screens/library_screen.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Library with full Spotify-style Playlists feature.
 //   ✅ Create / rename / delete playlists
 //   ✅ Add songs from player or search via "Add to Playlist" sheet

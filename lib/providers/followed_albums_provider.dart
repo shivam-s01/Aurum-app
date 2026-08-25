@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/providers/followed_albums_provider.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Persists which albums the user has "Saved" (Save button on
 //   AlbumScreen), Spotify-style. Stores id/name/artworkUrl only — enough to
 //   render a "Saved Albums" grid later without re-fetching.

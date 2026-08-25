@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/services/music_source.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 //
 // A Spotify-style provider abstraction over the app's two content sources
 // (JioSaavn, YouTube). Before this file existed, every caller that needed a

@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/providers/auth_provider.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Reactive wrapper around AuthService — exposes sign-in state
 //   to the widget tree via Provider. ProfileScreen and any gated UI watch
 //   this instead of touching Supabase/Google directly.

@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/providers/saved_mixes_provider.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Persists which curated "mixes" (the Trending Playlists row on
 //   Home — Trending Now, Party Anthems, 90s Bollywood, etc) the user has
 //   Saved via MixScreen's Save button, Spotify-style.

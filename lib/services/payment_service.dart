@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/services/payment_service.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Cashfree payment integration for Aurum Plus subscriptions.
 //
 //   PLANS:

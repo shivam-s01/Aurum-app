@@ -1,10 +1,10 @@
 // =============================================================================
 // FILE: lib/services/recommendation_engine.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // VERSION: 1.0.0 — Production
 //
 // PURPOSE:
-//   Central intelligence layer for Aurum Music. Handles:
+//   Central intelligence layer for Astra Music. Handles:
 //     - User behavior tracking (play, skip, favorite, replay)
 //     - Weighted recommendation scoring
 //     - Session context detection (mood/genre/language continuity)

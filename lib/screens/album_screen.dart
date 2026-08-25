@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/screens/album_screen.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Shows the song list inside an album / single — premium,
 //   streaming-app-grade layout: centered artwork card with soft shadow,
 //   artist avatar chips, meta row, and a floating play FAB over an

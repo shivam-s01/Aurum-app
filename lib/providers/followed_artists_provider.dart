@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/providers/followed_artists_provider.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Persists which artists the user has "Saved" (Follow button on
 //   ArtistScreen), Spotify-style. Stores id/name/imageUrl only — enough to
 //   render a "Followed Artists" row later without re-fetching.

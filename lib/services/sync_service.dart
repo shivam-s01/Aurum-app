@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/services/sync_service.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Two-way sync between local Hive boxes and Supabase, keyed by
 //   the signed-in user's id. Strategy: last-write-wins via `updatedAt`.
 //

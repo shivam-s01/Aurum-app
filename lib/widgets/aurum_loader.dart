@@ -1,5 +1,5 @@
 // aurum_loader.dart
-// Aurum Music — Loading System
+// Astra Music — Loading System
 // Material 3 Fluid Morphing Indeterminate Progress Bar
 // Use everywhere: AurumM3Loader() for inline, AurumM3Loader(height:6) for thick bars.
 // Mini player progress bar stays as LinearProgressIndicator — intentional.

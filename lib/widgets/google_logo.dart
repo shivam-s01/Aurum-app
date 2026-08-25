@@ -1,5 +1,5 @@
 // =============================================================================
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: The official Google "G" mark, drawn with CustomPainter using
 //   Google's published brand colors (#4285F4 blue, #34A853 green, #FBBC05
 //   yellow, #EA4335 red) and standard four-quadrant geometry — the same

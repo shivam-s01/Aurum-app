@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/widgets/premium_gate.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Reusable premium gate — cinematic bottom sheet that gates
 //   premium features. Shows Google sign-in first if user is not signed in,
 //   then navigates to PremiumScreen for payment.

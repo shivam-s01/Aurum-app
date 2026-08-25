@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/services/auth_service.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Google Sign-In via Supabase Auth (native OAuth flow, no
 //   browser redirect). Wraps Supabase client + google_sign_in package.
 //   ✅ Sign in with Google (idToken flow — fast, no webview)

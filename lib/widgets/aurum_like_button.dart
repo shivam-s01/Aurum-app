@@ -1,5 +1,5 @@
 // aurum_like_button.dart
-// Aurum Music — Premium Like/Heart Button
+// Astra Music — Premium Like/Heart Button
 //
 // Single source of truth for the "like a song" interaction across the app
 // (song rows, full player). Replaces the plain ScaleTransition icon-swap

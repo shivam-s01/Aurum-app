@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/utils/devanagari_transliterator.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 //
 // Lightweight, dependency-free Devanagari -> Roman script transliterator.
 // Purely a character/glyph mapping table (consonants, vowel signs (matras),

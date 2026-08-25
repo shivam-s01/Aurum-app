@@ -207,7 +207,7 @@ class _LockUI extends StatelessWidget {
             child: const Icon(Icons.lock_rounded, color: Colors.black, size: 32),
           ),
           const SizedBox(height: 20),
-          const Text('Aurum Music',
+          const Text('Astra Music',
               style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
           const SizedBox(height: 6),
           Text(l10n.alEnterPinToUnlock,

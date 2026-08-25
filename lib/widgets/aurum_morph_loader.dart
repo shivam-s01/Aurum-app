@@ -1,5 +1,5 @@
 // aurum_morph_loader.dart
-// Aurum Music — M3 Expressive "Shape-Morphing" Loading Indicator
+// Astra Music — M3 Expressive "Shape-Morphing" Loading Indicator
 // Thin wrapper around the real `expressive_loading_indicator` package
 // (an authentic Dart port of Android's Compose Material3 LoadingIndicator,
 // using true RoundedPolygon shapes + spring-physics morph animation).

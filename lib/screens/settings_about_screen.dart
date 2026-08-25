@@ -105,7 +105,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
                   _policySection('Last updated: June 2026'),
                   _policyHeading('1. Introduction'),
                   _policyText(
-                    'Aurum Music ("we", "our", or "us") is a personal music streaming application developed by Shivam Sharma. '
+                    'Astra Music ("we", "our", or "us") is a personal music streaming application developed by Shivam Sharma. '
                     'This Privacy Policy explains how we handle your information when you use our app. '
                     'We are committed to protecting your privacy and ensuring transparency about our practices.'
                   ),
@@ -124,7 +124,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
                   ),
                   _policyHeading('4. Music Streaming'),
                   _policyText(
-                    'Aurum Music streams audio content via a Cloudflare Worker proxy. '
+                    'Astra Music streams audio content via a Cloudflare Worker proxy. '
                     'Song metadata and audio streams are fetched in real time and are not permanently stored on our servers. '
                     'We do not own the content streamed through this app.'
                   ),
@@ -142,7 +142,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
                   ),
                   _policyHeading('7. Children\'s Privacy'),
                   _policyText(
-                    'Aurum Music is not directed at children under the age of 13. '
+                    'Astra Music is not directed at children under the age of 13. '
                     'We do not knowingly collect personal information from children.'
                   ),
                   _policyHeading('8. Changes to This Policy'),
@@ -168,16 +168,16 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
   void _shareApp() {
     final version = _version.isEmpty ? '1.0.0' : _version;
     Share.share(
-      '🎵 Check out Aurum Music — a premium music streaming app!\n\n'
+      '🎵 Check out Astra Music — a premium music streaming app!\n\n'
       '✨ Features:\n'
       '• Stream millions of songs for free\n'
       '• Stunning gold-themed UI\n'
       '• Equalizer, bass boost & gapless playback\n'
       '• Offline downloads & smart playlists\n\n'
-      '📲 Download Aurum Music v$version:\n'
+      '📲 Download Astra Music v$version:\n'
       '${AppConstants.github}/releases/latest\n\n'
       '#AurumMusic #MusicStreaming',
-      subject: 'Aurum Music — Premium Music Streaming',
+      subject: 'Astra Music — Premium Music Streaming',
     );
   }
 
@@ -212,7 +212,7 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
           ),
           const SizedBox(width: 16),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Aurum Music',
+            Text('Astra Music',
               style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
             Text(

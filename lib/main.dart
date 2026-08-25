@@ -496,7 +496,7 @@ class AurumApp extends StatelessWidget {
           return MaterialApp(
             navigatorKey: navigatorKey,
             scaffoldMessengerKey: scaffoldMessengerKey,
-            title: 'Aurum Music',
+            title: 'Astra Music',
             debugShowCheckedModeBanner: false,
             themeMode: themeProvider.themeMode,
             theme: lightTheme,

@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/screens/mix_screen.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Full-screen "album-style" page for the Home screen's curated
 //   playlists (Trending Now, Party Anthems, 90s Bollywood, etc), Spotify-
 //   style — big header art, Play + Save row, then the song list.

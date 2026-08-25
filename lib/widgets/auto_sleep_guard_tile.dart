@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/widgets/auto_sleep_guard_tile.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Settings → Player card for Auto Sleep Guard — a battery
 //   feature fully separate from the Sleep Timer. Available to every
 //   signed-in user (free or premium), gated on sign-in only.

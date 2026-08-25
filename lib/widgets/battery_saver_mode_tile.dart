@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/widgets/battery_saver_mode_tile.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Settings → Player card for Battery Saver Mode — a purely
 //   visual power-saving feature, fully separate from Auto Sleep Guard
 //   (which pauses playback after inactivity). Battery Saver Mode never

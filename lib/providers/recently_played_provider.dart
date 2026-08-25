@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/providers/recently_played_provider.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // VERSION: 2.0.0 — RecommendationEngine Integration
 //
 // WHAT'S NEW IN v2:

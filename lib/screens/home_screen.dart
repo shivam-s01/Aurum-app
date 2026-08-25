@@ -1033,7 +1033,7 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Aurum',
+              'Astra',
               style: TextStyle(
                 color: AurumTheme.gold,
                 fontSize: 26,

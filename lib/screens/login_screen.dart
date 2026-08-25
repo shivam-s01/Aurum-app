@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/screens/login_screen.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Spotify-style full-screen login gate.
 //   ✅ Animated entrance (fade + slide + gold glow pulse on logo)
 //   ✅ "Continue with Google" — the ONLY way in, shown explicitly
@@ -160,7 +160,7 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                           const SizedBox(height: 28),
                           Text(
-                            'Aurum',
+                            'Astra',
                             style: TextStyle(
                               color: AurumTheme.darkTextPrimary,
                               fontSize: 32,

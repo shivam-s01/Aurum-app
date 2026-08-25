@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/screens/artist_screen.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // DESCRIPTION: Artist page — profile header, Top Songs list, Albums/Singles grid.
 // =============================================================================
 

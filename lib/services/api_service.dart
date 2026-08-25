@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/services/api_service.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 // VERSION: 5.2.0 — Worker-only playback chain (see _ytStreamById), search
 // speed fixes, dead prewarm-endpoint fix.
 //

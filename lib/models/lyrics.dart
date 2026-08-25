@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/models/lyrics.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 //
 // Line-synced lyrics support (LRC format). A `LyricsResult` is what
 // ApiService.fetchSyncedLyrics() returns: either a list of timestamped

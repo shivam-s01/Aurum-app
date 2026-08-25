@@ -1,6 +1,6 @@
 // =============================================================================
 // FILE: lib/services/browse_service.dart
-// PROJECT: Aurum Music
+// PROJECT: Astra Music
 //
 // BROWSE — Powered by YouTube. Search tab owns Saavn; Browse is the
 // YouTube-catalogue side (channels, live versions, remixes, regional/indie
