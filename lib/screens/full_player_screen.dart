@@ -1580,6 +1580,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                       // reflects — and actually changes — the song's real
                       // liked status.
                       isFav: context.watch<FavoritesProvider>().isFavorite(song.id),
+                      onLyricsTap: _openImmersiveLyrics,
                       onFavTap: () {
                         PremiumGate.guard(
                           context,
@@ -1617,12 +1618,14 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                       child: _InlineLyricsStrip(
                         hPad: hPad,
                         bgLuma: _currentBg2.computeLuminance(),
-                        onTap: () => _openPanel(initialTab: 1),
+                        // FIX: this used to call _openPanel(initialTab: 1),
+                        // which pushed the old bottom-sheet Lyrics tab —
+                        // completely bypassing the full-screen immersive
+                        // glow overlay below. This strip's own tap opens
+                        // the same full-screen experience; there's no
+                        // sheet-based lyrics view left in the flow now.
+                        onTap: _openImmersiveLyrics,
                       ),
-                    ),
-                    _ImmersiveLyricsTriggerButton(
-                      bgLuma: _currentBg2.computeLuminance(),
-                      onTap: _openImmersiveLyrics,
                     ),
                     SizedBox(width: hPad * 0.5),
                   ],
@@ -2215,6 +2218,10 @@ class _SongInfo extends StatelessWidget {
   final bool isTablet, isFav;
   final VoidCallback onFavTap;
   final double bgLuma;
+  // New standalone lyrics trigger — sits below the cast/output pill in
+  // the same right-aligned icon column, its own dedicated spot rather
+  // than crowding into the heart or the cast pill.
+  final VoidCallback onLyricsTap;
 
   const _SongInfo({
     required this.song,
@@ -2223,6 +2230,7 @@ class _SongInfo extends StatelessWidget {
     required this.isFav,
     required this.onFavTap,
     required this.bgLuma,
+    required this.onLyricsTap,
   });
 
   @override
@@ -2327,6 +2335,16 @@ class _SongInfo extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(height: 8),
+              // Standalone lyrics trigger — own dedicated spot beneath
+              // the cast pill, same 34px circle sizing/style as the
+              // fav button above it so the whole right-side column
+              // reads as one consistent icon stack rather than a
+              // button bolted on somewhere unrelated.
+              _ImmersiveLyricsTriggerButton(
+                bgLuma: bgLuma,
+                onTap: onLyricsTap,
               ),
             ],
           ),
@@ -2459,50 +2477,31 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
         // of a constant-speed morph.
         final t = Curves.easeInOutCubic.transform(rawT);
 
-        // Directional wipe (left → right, matching Gemini's own
-        // full-screen wave-wipe variant — see the animation research
-        // this was built against): a soft-edged vertical band carrying
-        // the multi-color glow sweeps across the screen once. Everything
-        // BEHIND the band (to its left, once it has passed) is lyrics;
-        // everything AHEAD of the band (to its right, not yet reached)
-        // is still thumbnail. The band itself is where the glow is
-        // actually visible — thumbnail is "swept away" and lyrics are
-        // "revealed" by the same single moving edge, not two separate
-        // fades layered under a static wash.
-        //
-        // wipeX: 0 = band fully off-screen left (nothing swept yet),
-        // 1 = band fully off-screen right (entire screen swept, wipe
-        // complete). Runs across a wide middle portion of the timeline
-        // (8%→92%) so there's a brief settle at both ends before/after
-        // the sweep — avoids an abrupt start/stop.
-        final wipeX = ((t - 0.08) / 0.84).clamp(0.0, 1.0);
-
-        // Overall glow visibility: fades in just before the wipe starts
-        // moving, and fades out just after it finishes — so the glow
-        // band itself is the only thing on screen when the sweep isn't
-        // actively happening, and disappears cleanly once lyrics have
-        // fully taken over.
-        final glowVisibility = t < 0.08
-            ? (t / 0.08).clamp(0.0, 1.0)
-            : t > 0.92
-                ? (1.0 - ((t - 0.92) / 0.08)).clamp(0.0, 1.0)
+        // Edge-aura glow (matches the real Gemini full-screen treatment —
+        // a soft multi-color wash that lives around the screen's BORDER,
+        // pulsing/breathing while active, rather than a line/band that
+        // sweeps across the middle). glowVisibility now drives a
+        // build → hold → release pulse instead of a wipe position.
+        // Ramps in over the first 22%, holds (breathing) through the
+        // middle, releases over the last 20% as lyrics settle in.
+        final glowVisibility = t < 0.22
+            ? Curves.easeOut.transform((t / 0.22).clamp(0.0, 1.0))
+            : t > 0.80
+                ? Curves.easeIn.transform((1.0 - ((t - 0.80) / 0.20)).clamp(0.0, 1.0))
                 : 1.0;
 
-        // Thumbnail is revealed/hidden by the same wipeX line: fully
-        // visible ahead of the band, gone behind it. A soft feather
-        // (not a hard cut) right at the band keeps the edge from
-        // looking like a harsh clip.
-        final artOpacity = (1.0 - (wipeX / 0.55)).clamp(0.0, 1.0);
-        // Lyrics fade in as the band passes over roughly the screen's
-        // center, so by the time the band reaches the right edge the
-        // lyrics are already fully in place underneath.
-        final lyricsOpacity = ((wipeX - 0.35) / 0.45).clamp(0.0, 1.0);
+        // Thumbnail and lyrics simply cross-fade in place — no sweep
+        // line, no left/right reveal edge. Thumbnail dissolves out
+        // through the first ~55% (while the aura is building/holding),
+        // lyrics dissolve in through the back half (~35%→85%) so the
+        // swap is fully complete by the time the aura releases.
+        final artOpacity = (1.0 - (t / 0.55)).clamp(0.0, 1.0);
+        final lyricsOpacity = ((t - 0.35) / 0.50).clamp(0.0, 1.0);
 
-        // Subtle scale on the outgoing/incoming layers — thumbnail eases
-        // outward slightly as it's swept away, lyrics ease inward
-        // slightly as they're revealed. Kept small so it stays premium,
-        // not gimmicky.
-        final artScale = 1.0 + wipeX.clamp(0.0, 0.6) * 0.05;
+        // Subtle scale — thumbnail eases outward slightly as it
+        // dissolves, lyrics ease inward slightly as they settle in.
+        // Kept small so it stays premium, not gimmicky.
+        final artScale = 1.0 + (1 - artOpacity) * 0.05;
         final lyricsScale = 0.98 + lyricsOpacity * 0.02;
         final artBlur = glowVisibility * 4.0;
 
@@ -2520,7 +2519,12 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
         }
 
         return IgnorePointer(
-          ignoring: t < 0.98,
+          // Was "t < 0.98" — meant the overlay ate zero taps/scrolls for
+          // almost the entire 2.5s open animation, so scrolling lyrics or
+          // tapping to dismiss right after opening did nothing until the
+          // reveal had basically finished. Interactive as soon as it's
+          // meaningfully on screen instead.
+          ignoring: t < 0.05,
           child: Opacity(
             opacity: overlayOpacity,
             child: Transform.translate(
@@ -2561,18 +2565,19 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                         ),
                       ),
                     ),
-                    // Directional glow wipe — multi-color (Gemini's real
-                    // red/yellow/green/blue palette, see research above)
-                    // vertical band sweeping left → right, carrying the
-                    // thumbnail-to-lyrics reveal with it. Pure decoration,
-                    // ignores hits.
+                    // Edge aura glow — multi-color (Gemini's real
+                    // red/yellow/green/blue palette) soft wash living
+                    // around the screen's border, pulsing/breathing
+                    // while the thumbnail↔lyrics cross-fade happens
+                    // underneath. Pure decoration, ignores hits.
                     if (glowVisibility > 0.001)
-                      IgnorePointer(
-                        child: CustomPaint(
-                          painter: _GlowAuraPainter(
-                            wipeX: wipeX,
-                            visibility: glowVisibility,
-                            t: t,
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: _GlowAuraPainter(
+                              visibility: glowVisibility,
+                              t: t,
+                            ),
                           ),
                         ),
                       ),
@@ -2651,102 +2656,102 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
   }
 }
 
-/// Directional multi-color glow wipe — the actual Gemini treatment
-/// researched for this feature: a soft vertical band, tinted with
-/// Gemini's own red/yellow/green/blue palette (see the animation
-/// research this was built against — "colorful wave that extends... and
-/// disappears once it reaches the edges"), sweeping left → right across
-/// the screen once. The band is where thumbnail is swept away and
-/// lyrics are revealed — the same moving edge drives both, not two
-/// independent fades under a static wash. A single soft-edged linear
-/// gradient band (no stroke paths, no multiple layered shaders) so it
-/// stays cheap on low-end devices, matching the rest of this file's
-/// perf-conscious painters (see _WaveformPainter,
-/// _StaticTintVignettePainter above).
+/// Edge aura glow — the actual Gemini treatment: a soft multi-color wash
+/// (red/yellow/green/blue) that lives around the screen's BORDER and
+/// breathes/pulses in intensity while active, rather than a band that
+/// sweeps across the middle. Four soft radial blooms, one anchored past
+/// each edge/corner, each independently drifting in strength so the
+/// whole frame reads as one living aura rather than a static ring.
+/// Thumbnail↔lyrics is a separate plain cross-fade (see artOpacity/
+/// lyricsOpacity above) — this painter is pure ambient light, it does
+/// not drive the swap itself. Kept to soft radial gradients only (no
+/// stroke paths, no multi-layer shaders) so it stays cheap on low-end
+/// devices, matching this file's other perf-conscious painters (see
+/// _WaveformPainter, _StaticTintVignettePainter above).
 class _GlowAuraPainter extends CustomPainter {
-  final double wipeX; // 0..1 — band position, 0 = off-screen left, 1 = off-screen right
-  final double visibility; // 0..1 — overall glow opacity (fades in/out at the very ends)
-  final double t; // 0..1 — overall transition progress
+  final double visibility; // 0..1 — overall glow opacity (build → hold → release)
+  final double t; // 0..1 — overall transition progress, drives the breathing/hue cycle
   const _GlowAuraPainter({
-    required this.wipeX,
     required this.visibility,
     required this.t,
   });
 
-  // Gemini's own multi-color palette (red/yellow/green/blue), cycled
-  // along the band so the glow itself shifts hue as it travels rather
-  // than staying one flat color — matches the real Gemini full-screen
-  // aura this was built against.
+  // Gemini's own multi-color palette (red/yellow/green/blue) — one
+  // color anchored to each edge bloom below.
   static const List<Color> _palette = [
-    Color(0xFFEA4335), // red
-    Color(0xFFFBBC05), // yellow
-    Color(0xFF34A853), // green
-    Color(0xFF4285F4), // blue
+    Color(0xFFEA4335), // red — top
+    Color(0xFFFBBC05), // yellow — right
+    Color(0xFF34A853), // green — bottom
+    Color(0xFF4285F4), // blue — left
   ];
 
   @override
   void paint(Canvas canvas, Size size) {
     if (visibility <= 0.001) return;
 
-    // Band center in pixels — travels from just off the left edge to
-    // just off the right edge as wipeX goes 0 → 1.
-    final bandWidth = size.width * 0.42;
-    final centerX = -bandWidth * 0.5 + wipeX * (size.width + bandWidth);
+    final w = size.width;
+    final h = size.height;
+    // Bloom radius scales with the screen's larger dimension so the
+    // wash reads consistently across phone/tablet aspect ratios.
+    final radius = math.max(w, h) * 0.62;
 
-    // Hue cycles slowly across the sweep (driven by t, not wipeX, so it
-    // keeps shifting even during the brief settle at each end) — picks a
-    // rotating pair from the palette and blends between them.
-    final cyclePos = (t * (_palette.length - 1)).clamp(0.0, _palette.length - 1.0);
-    final idxA = cyclePos.floor().clamp(0, _palette.length - 1);
-    final idxB = (idxA + 1).clamp(0, _palette.length - 1);
-    final localT = cyclePos - idxA;
-    final bandColor = Color.lerp(_palette[idxA], _palette[idxB], localT)!;
+    // Each edge bloom's center sits just outside that edge, at the
+    // midpoint of the edge — glow falls off toward the screen center,
+    // so the strongest light hugs the border, exactly like the
+    // reference (glow concentrated at the frame, center left clear for
+    // content).
+    final blooms = <_EdgeBloom>[
+      _EdgeBloom(Offset(w * 0.5, -h * 0.12), _palette[0]), // top
+      _EdgeBloom(Offset(w * 1.12, h * 0.5), _palette[1]),  // right
+      _EdgeBloom(Offset(w * 0.5, h * 1.12), _palette[2]),  // bottom
+      _EdgeBloom(Offset(-w * 0.12, h * 0.5), _palette[3]), // left
+    ];
 
-    final alpha = (220 * visibility).round();
-    final paint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          bandColor.withAlpha(0),
-          bandColor.withAlpha(alpha),
-          bandColor.withAlpha(alpha),
-          bandColor.withAlpha(0),
-        ],
-        stops: const [0.0, 0.35, 0.65, 1.0],
-      ).createShader(
-        Rect.fromLTWH(centerX - bandWidth / 2, 0, bandWidth, size.height),
-      );
+    for (var i = 0; i < blooms.length; i++) {
+      // Gentle per-bloom breathing so the aura feels alive rather than
+      // a static fixed-intensity frame — each bloom is offset in phase
+      // so they don't all pulse in lockstep.
+      final phase = (t * 2 * math.pi * 1.4) + (i * math.pi / 2);
+      final breathe = 0.75 + 0.25 * (0.5 + 0.5 * math.sin(phase));
+      final alpha = (190 * visibility * breathe).round().clamp(0, 255);
+
+      final bloom = blooms[i];
+      final paint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            bloom.color.withAlpha(alpha),
+            bloom.color.withAlpha((alpha * 0.35).round()),
+            bloom.color.withAlpha(0),
+          ],
+          stops: const [0.0, 0.45, 1.0],
+        ).createShader(Rect.fromCircle(center: bloom.center, radius: radius));
+      canvas.drawCircle(bloom.center, radius, paint);
+    }
+
+    // A soft white inner rim right at the very edge of the screen, the
+    // "sharper inner line" the real Gemini aura layers under the wide
+    // soft wash — kept thin and heavily blurred so it reads as a glint,
+    // not a hard border.
+    final rimPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..color = Colors.white.withAlpha((90 * visibility).round())
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
     canvas.drawRect(
-      Rect.fromLTWH(centerX - bandWidth / 2, 0, bandWidth, size.height),
-      paint,
-    );
-
-    // A brighter, tighter core line right at the band's center — same
-    // "wide soft glow + sharper inner line" layering the real Gemini
-    // aura uses, just riding along the moving band instead of a static
-    // border.
-    final corePaint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          bandColor.withAlpha(0),
-          Colors.white.withAlpha((160 * visibility).round()),
-          bandColor.withAlpha(0),
-        ],
-        stops: const [0.0, 0.5, 1.0],
-      ).createShader(
-        Rect.fromLTWH(centerX - bandWidth * 0.12, 0, bandWidth * 0.24, size.height),
-      )
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-    canvas.drawRect(
-      Rect.fromLTWH(centerX - bandWidth * 0.12, 0, bandWidth * 0.24, size.height),
-      corePaint,
+      Rect.fromLTWH(1.5, 1.5, w - 3, h - 3),
+      rimPaint,
     );
   }
 
   @override
   bool shouldRepaint(covariant _GlowAuraPainter oldDelegate) =>
-      oldDelegate.wipeX != wipeX ||
-      oldDelegate.visibility != visibility ||
-      oldDelegate.t != t;
+      oldDelegate.visibility != visibility || oldDelegate.t != t;
+}
+
+class _EdgeBloom {
+  final Offset center;
+  final Color color;
+  const _EdgeBloom(this.center, this.color);
 }
 
 class _InlineLyricsStrip extends StatefulWidget {
