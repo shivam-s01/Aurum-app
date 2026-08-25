@@ -2761,15 +2761,15 @@ class _ImmersiveGlowLayer extends StatelessWidget {
         // instead of a quick flash. Release window kept proportionally
         // similar (last ~10%) so the exit still feels controlled, not
         // dragged out.
-        final glowVisibility = t < 0.14
-            ? Curves.easeOut.transform((t / 0.14).clamp(0.0, 1.0))
-            : t > 0.90
-                ? Curves.easeIn.transform((1.0 - ((t - 0.90) / 0.10)).clamp(0.0, 1.0))
+        final glowVisibility = rawT < 0.14
+            ? Curves.easeOut.transform((rawT / 0.14).clamp(0.0, 1.0))
+            : rawT > 0.90
+                ? Curves.easeIn.transform((1.0 - ((rawT - 0.90) / 0.10)).clamp(0.0, 1.0))
                 : 1.0;
         if (glowVisibility <= 0.001) return const SizedBox.shrink();
         return IgnorePointer(
           child: CustomPaint(
-            painter: _GlowAuraPainter(visibility: glowVisibility, t: t),
+            painter: _GlowAuraPainter(visibility: glowVisibility, t: rawT),
           ),
         );
       },
