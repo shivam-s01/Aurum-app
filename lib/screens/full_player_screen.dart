@@ -731,7 +731,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // (dismissal should feel snappy, not slow like the reveal).
   late final AnimationController _immersiveCtrl = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 3800),
+    duration: const Duration(milliseconds: 5200),
     reverseDuration: const Duration(milliseconds: 420),
   );
   double _immersiveDragY = 0.0;
@@ -2306,21 +2306,33 @@ class _ArtworkVisual extends StatelessWidget {
                     // Halved the alpha and blur/spread in light mode so
                     // it reads as a gentle elevation shadow instead of
                     // a dark outline.
+                    // FIX ("charo corner ka curve toda sa off/torn lagta
+                    // hai"): the first shadow used spreadRadius: 4 while
+                    // painting at the SAME corner radius as the artwork
+                    // beneath it — a BoxShadow's rounded corner doesn't
+                    // grow with its spread the way the artwork's actual
+                    // rounded-rect does, so the spread shadow's corner
+                    // reads visibly tighter/sharper than the image's own
+                    // corner right behind it — a jagged mismatch exactly
+                    // at each of the 4 corners. Dropping spreadRadius to 0
+                    // (the blur alone already gives plenty of soft lift)
+                    // keeps the shadow's rounded corner geometrically
+                    // identical to the artwork's, so the edge reads as one
+                    // continuous clean curve instead of two slightly
+                    // offset ones.
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withAlpha(bgIsLight
-                            ? (player.isPlaying ? 60 : 38)
-                            : (player.isPlaying ? 180 : 110)),
+                            ? (player.isPlaying ? 55 : 34)
+                            : (player.isPlaying ? 150 : 100)),
                         blurRadius: bgIsLight
-                            ? (player.isPlaying ? 36 : 22)
-                            : (player.isPlaying ? 64 : 40),
+                            ? (player.isPlaying ? 40 : 24)
+                            : (player.isPlaying ? 70 : 44),
                         offset: const Offset(0, 16),
-                        spreadRadius:
-                            (!bgIsLight && player.isPlaying) ? 4 : 0,
                       ),
                       BoxShadow(
-                        color: Colors.black.withAlpha(bgIsLight ? 28 : 90),
-                        blurRadius: bgIsLight ? 10 : 18,
+                        color: Colors.black.withAlpha(bgIsLight ? 24 : 70),
+                        blurRadius: bgIsLight ? 12 : 20,
                         offset: const Offset(0, 4),
                       ),
                     ],
@@ -2592,10 +2604,19 @@ class _ImmersiveGlowLayer extends StatelessWidget {
         // Same build → hold → release pulse timing as the content swap,
         // so the full-screen glow and the artwork-box cross-fade stay
         // in sync even though they're now two separate widgets.
-        final glowVisibility = t < 0.18
-            ? Curves.easeOut.transform((t / 0.18).clamp(0.0, 1.0))
-            : t > 0.85
-                ? Curves.easeIn.transform((1.0 - ((t - 0.85) / 0.15)).clamp(0.0, 1.0))
+        // FIX ("aura ka time thoda aur increase karo, top-class/
+        // professional lage"): ramp-in slightly slower (0.14 instead of
+        // 0.18) and the hold window widened to 0.14→0.90 (was 0.18→0.85)
+        // — with the controller's own total duration also increased, the
+        // aura now genuinely breathes on screen longer before it starts
+        // releasing, reading as a deliberate, unhurried premium reveal
+        // instead of a quick flash. Release window kept proportionally
+        // similar (last ~10%) so the exit still feels controlled, not
+        // dragged out.
+        final glowVisibility = t < 0.14
+            ? Curves.easeOut.transform((t / 0.14).clamp(0.0, 1.0))
+            : t > 0.90
+                ? Curves.easeIn.transform((1.0 - ((t - 0.90) / 0.10)).clamp(0.0, 1.0))
                 : 1.0;
         if (glowVisibility <= 0.001) return const SizedBox.shrink();
         return IgnorePointer(
@@ -2664,13 +2685,15 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
         // pulsing/breathing while active, rather than a line/band that
         // sweeps across the middle). glowVisibility now drives a
         // build → hold → release pulse instead of a wipe position.
-        // Ramps in over the first 18%, holds (breathing) through the
-        // middle, releases over the last 15% as lyrics settle in — kept
-        // in sync with _ImmersiveGlowLayer's own timing above.
-        final glowVisibility = t < 0.18
-            ? Curves.easeOut.transform((t / 0.18).clamp(0.0, 1.0))
-            : t > 0.85
-                ? Curves.easeIn.transform((1.0 - ((t - 0.85) / 0.15)).clamp(0.0, 1.0))
+        // Ramps in over the first 14%, holds (breathing) through the
+        // middle, releases over the last 10% as lyrics settle in — kept
+        // in sync with _ImmersiveGlowLayer's own timing above (both
+        // widened together so the aura stays present longer, per the
+        // "top class/professional" timing pass).
+        final glowVisibility = t < 0.14
+            ? Curves.easeOut.transform((t / 0.14).clamp(0.0, 1.0))
+            : t > 0.90
+                ? Curves.easeIn.transform((1.0 - ((t - 0.90) / 0.10)).clamp(0.0, 1.0))
                 : 1.0;
 
         // Thumbnail and lyrics cross-fade in place — no sweep line, no
@@ -2719,24 +2742,16 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
               offset: Offset(0, widget.isDragging ? widget.dragY : 0),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                // Tap anywhere closes — per spec (swipe + tap + back all
-                // close it). Lyrics content itself doesn't need its own
-                // taps here (scrolling only), so a full-surface tap
-                // target is safe.
-                onTap: widget.onClose,
-                onVerticalDragStart: (_) => widget.onDragStart(),
-                onVerticalDragUpdate: (d) {
-                  if (d.delta.dy > 0) {
-                    widget.onDragUpdate(
-                        (widget.dragY + d.delta.dy).clamp(0.0, 1000.0));
-                  }
-                },
-                onVerticalDragEnd: (d) {
-                  final fastFlick = d.primaryVelocity != null &&
-                      d.primaryVelocity! > 600;
-                  final pastThreshold = widget.dragY > _dismissDistance;
-                  widget.onDragEnd(fastFlick || pastThreshold);
-                },
+                // FIX ("swipe down pe hat jata hai, ye band karo — jab
+                // tak button dubara click na ho tab tak na hate"): tap-
+                // anywhere-closes and swipe-down-to-dismiss are both
+                // removed entirely (no vertical-drag handlers registered
+                // at all here anymore) — so the lyrics ScrollablePosition-
+                // edList underneath owns vertical drag/scroll cleanly on
+                // its own, with nothing above it racing for the gesture
+                // or misreading a scroll as a dismiss swipe. The ONLY way
+                // to close this overlay now is the same sparkle button
+                // that opened it (wired to onClose by the parent).
                 // Rounded to match the artwork's own corner radius so
                 // the gradient background and lyrics content read as
                 // occupying the exact same rounded box the artwork did
@@ -6373,7 +6388,21 @@ class _SyncedLyricsView extends StatelessWidget {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () => context.read<PlayerProvider>().seekTo(line.time),
-                child: AnimatedScale(
+                // FIX ("lyrics dead lagta hai, live/human feel chahiye —
+                // top grade, awkward nahi"): a tiny vertical settle
+                // (2px → 0) layered on top of the existing scale, so the
+                // active line reads as gently "rising into place" rather
+                // than a flat in-place scale-up — the same subtle motion
+                // Apple Music/Spotify lines have that makes them feel
+                // alive instead of a mechanical size toggle. Pure
+                // AnimatedSlide (implicit, same cost class as the
+                // AnimatedScale already here) — no new controller, no
+                // extra rebuild, safe on low-end devices.
+                child: AnimatedSlide(
+                  offset: isActive ? Offset.zero : const Offset(0, 0.03),
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedScale(
                   // Matches the 320ms scroll-to duration in
                   // _onPositionChanged so the line's own emphasis (scale +
                   // text style + glow) lands in the same beat as the
@@ -6385,26 +6414,50 @@ class _SyncedLyricsView extends StatelessWidget {
                   alignment: style.position == 'Left'
                       ? Alignment.centerLeft
                       : Alignment.center,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 320),
-                    curve: Curves.easeOutCubic,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      // FIX ("white line jaata hai next line pe, kuch sec
+                      // tak upar rehta hai phir awkward tarike se niche
+                      // jaata hai"): the glow used to live inside an
+                      // AnimatedContainer's `decoration` (color +
+                      // boxShadow), toggled null ↔ non-null per line.
+                      // Flutter's BoxDecoration tween can't interpolate a
+                      // null boxShadow, so instead of a smooth 320ms fade
+                      // it SNAPPED the glow fully on for the new active
+                      // line while the old line's glow was still
+                      // mid-fade-out on its own separate frame — reading
+                      // as a stray glow/line hanging in place for a beat
+                      // before jumping. The glow box now always exists in
+                      // the tree (same size, same position) and only its
+                      // OPACITY is animated, which Flutter tweens
+                      // perfectly smoothly frame-to-frame — no snap, no
+                      // stray leftover glow, both old and new line fade
+                      // in perfect lockstep.
+                      Positioned.fill(
+                        child: AnimatedOpacity(
+                          opacity: isActive ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 320),
+                          curve: Curves.easeOutCubic,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: glowColor.withAlpha(
+                                  (glowColor.alpha * 0.5).round()),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: glowColor,
+                                  blurRadius: 28,
+                                  spreadRadius: -6,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      Padding(
                     padding: const EdgeInsets.symmetric(
                         vertical: 11, horizontal: 14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      color: isActive
-                          ? glowColor.withAlpha((glowColor.alpha * 0.5).round())
-                          : Colors.transparent,
-                      boxShadow: isActive
-                          ? [
-                              BoxShadow(
-                                color: glowColor,
-                                blurRadius: 28,
-                                spreadRadius: -6,
-                              ),
-                            ]
-                          : null,
-                    ),
                     child: AnimatedDefaultTextStyle(
                       duration: const Duration(milliseconds: 320),
                       curve: Curves.easeOutCubic,
@@ -6434,7 +6487,10 @@ class _SyncedLyricsView extends StatelessWidget {
                             : TextAlign.center,
                       ),
                     ),
+                      ),
+                    ],
                   ),
+                ),
                 ),
               ),
             );
@@ -6850,12 +6906,17 @@ class _BgLayer extends StatelessWidget {
       // cheaply layered with a top/bottom LinearGradient in one
       // BoxDecoration, so this uses a tiny CustomPaint that draws both
       // in a single paint call, once, ever (shouldRepaint: false).
+      // FIX ("background me thoda glow badhao, ekdam clean/stable/
+      // professional lage"): same single static paint call as before
+      // (zero added cost — shouldRepaint stays false, no extra layer),
+      // just richer tint alphas so the palette glow reads more present
+      // behind the artwork instead of a faint wash.
       if (bgStyle != 'Gradient')
         RepaintBoundary(
           child: CustomPaint(
             painter: _StaticTintVignettePainter(
-              tint1: bg1.withAlpha(130),
-              tint2: bg2.withAlpha(90),
+              tint1: bg1.withAlpha(165),
+              tint2: bg2.withAlpha(120),
             ),
             size: Size.infinite,
           ),
