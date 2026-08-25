@@ -1666,26 +1666,37 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             ValueListenableBuilder<bool>(
               valueListenable: AudioPrefs.showLyricsOnPlayerNotifier,
               builder: (context, show, _) {
-                if (!show || _immersiveLyricsOpen) {
-                  return const SizedBox.shrink();
-                }
-                return Row(
-                  children: [
-                    Expanded(
-                      child: _InlineLyricsStrip(
-                        hPad: hPad,
-                        bgLuma: _currentBg2.computeLuminance(),
-                        // FIX: this used to call _openPanel(initialTab: 1),
-                        // which pushed the old bottom-sheet Lyrics tab —
-                        // completely bypassing the full-screen immersive
-                        // glow overlay below. This strip's own tap opens
-                        // the same full-screen experience; there's no
-                        // sheet-based lyrics view left in the flow now.
-                        onTap: _openImmersiveLyrics,
-                      ),
-                    ),
-                    SizedBox(width: hPad * 0.5),
-                  ],
+                return ValueListenableBuilder<LyricsViewMode>(
+                  valueListenable: AudioPrefs.lyricsViewModeNotifier,
+                  builder: (context, viewMode, __) {
+                    // Inline strip only exists in Inline mode — Full Screen
+                    // mode routes exclusively through the trigger button,
+                    // same as Spotify's two lyrics presentations never
+                    // showing at once.
+                    if (!show ||
+                        _immersiveLyricsOpen ||
+                        viewMode == LyricsViewMode.fullscreen) {
+                      return const SizedBox.shrink();
+                    }
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _InlineLyricsStrip(
+                            hPad: hPad,
+                            bgLuma: _currentBg2.computeLuminance(),
+                            // FIX: this used to call _openPanel(initialTab: 1),
+                            // which pushed the old bottom-sheet Lyrics tab —
+                            // completely bypassing the full-screen immersive
+                            // glow overlay below. This strip's own tap opens
+                            // the same full-screen experience; there's no
+                            // sheet-based lyrics view left in the flow now.
+                            onTap: _openImmersiveLyrics,
+                          ),
+                        ),
+                        SizedBox(width: hPad * 0.5),
+                      ],
+                    );
+                  },
                 );
               },
             ),

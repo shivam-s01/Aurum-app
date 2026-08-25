@@ -52,6 +52,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   double _lyricsTextSize = 16.0;
   double _lyricsLineSpacing = 1.5;
   bool _showLyricsOnPlayer = true;
+  LyricsViewMode _lyricsViewMode = LyricsViewMode.inline;
   // New
   String _fontStyle = 'Default';
   // Guards against a rapid second font tap starting a second transition
@@ -126,6 +127,8 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _lyricsTextSize = p.getDouble('lyrics_text_size') ?? 16.0;
       _lyricsLineSpacing = p.getDouble('lyrics_line_spacing') ?? 1.5;
       _showLyricsOnPlayer = p.getBool('show_lyrics_on_player') ?? true;
+      _lyricsViewMode = LyricsViewMode
+          .values[p.getInt('lyrics_view_mode') ?? LyricsViewMode.inline.index];
       _enableAnimations = p.getBool('enable_animations') ?? true;
       _backAnimations = p.getBool('back_animations') ?? true;
       _scrollAnimations = p.getBool('scroll_animations') ?? true;
@@ -364,6 +367,22 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             subtitle: l10n.saShowLyricsOnPlayerSubtitle,
             value: _showLyricsOnPlayer,
             onChanged: (v) { setState(() => _showLyricsOnPlayer = v); _save('show_lyrics_on_player', v); AudioPrefs.setShowLyricsOnPlayer(v); },
+          ),
+          _dropdownTile(context,
+            title: l10n.saLyricsViewMode,
+            subtitle: l10n.saLyricsViewModeSubtitle,
+            value: _lyricsViewMode == LyricsViewMode.inline
+                ? l10n.saLyricsViewModeInline
+                : l10n.saLyricsViewModeFullscreen,
+            options: [l10n.saLyricsViewModeInline, l10n.saLyricsViewModeFullscreen],
+            onChanged: (v) {
+              final mode = v == l10n.saLyricsViewModeInline
+                  ? LyricsViewMode.inline
+                  : LyricsViewMode.fullscreen;
+              setState(() => _lyricsViewMode = mode);
+              _save('lyrics_view_mode', mode.index);
+              AudioPrefs.setLyricsViewMode(mode);
+            },
           ),
           _dropdownTile(context,
             title: l10n.saLyricsTextPosition,

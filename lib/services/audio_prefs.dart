@@ -3,6 +3,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// How lyrics are presented on the full player — mirrors the Spotify-style
+/// "Lyrics view" choice: the two modes are mutually exclusive by design.
+enum LyricsViewMode {
+  /// Spotify-style single active line inline between title/artist and the
+  /// seek bar. Tapping it opens the full-screen immersive view.
+  inline,
+
+  /// Inline strip is hidden entirely; only the dedicated trigger button
+  /// opens the full-screen immersive lyrics view.
+  fullscreen,
+}
+
 /// Immutable bundle of lyrics text formatting settings.
 class LyricsStyle {
   final String position;   // 'Left' | 'Centre'
@@ -129,6 +141,11 @@ class AudioPrefs {
   /// Settings → Appearance → Lyrics.
   static final ValueNotifier<bool> showLyricsOnPlayerNotifier =
       ValueNotifier<bool>(true);
+
+  /// Inline vs full-screen lyrics presentation — mutually exclusive, set
+  /// from Settings → Appearance → Lyrics → Lyrics View.
+  static final ValueNotifier<LyricsViewMode> lyricsViewModeNotifier =
+      ValueNotifier<LyricsViewMode>(LyricsViewMode.inline);
 
   /// Controls when the Chromecast icon shows on the full player:
   ///  - 'auto'   (default) — icon only appears once a Cast device is
@@ -337,6 +354,7 @@ class AudioPrefs {
   static const _kLyricsSize    = 'lyrics_text_size';
   static const _kLyricsSpacing = 'lyrics_line_spacing';
   static const _kShowLyricsOnPlayer = 'show_lyrics_on_player';
+  static const _kLyricsViewMode = 'lyrics_view_mode';
   static const _kSwipeChange   = 'swipe_to_change';
   static const _kShakeToSkip   = 'shake_to_skip';
   static const _kStopOnSwipe   = 'stop_on_swipe';
@@ -380,6 +398,8 @@ class AudioPrefs {
     swipeToChangeNotifier.value = p.getBool(_kSwipeChange) ?? swipeToChangeNotifier.value;
     showLyricsOnPlayerNotifier.value =
         p.getBool(_kShowLyricsOnPlayer) ?? showLyricsOnPlayerNotifier.value;
+    lyricsViewModeNotifier.value = LyricsViewMode.values[
+        p.getInt(_kLyricsViewMode) ?? lyricsViewModeNotifier.value.index];
     shakeToSkipNotifier.value = p.getBool(_kShakeToSkip) ?? shakeToSkipNotifier.value;
     stopOnSwipeNotifier.value = p.getBool(_kStopOnSwipe) ?? stopOnSwipeNotifier.value;
     // PERF FIX (cold-start): this was `await`-ed here, inside a call chain
@@ -488,6 +508,12 @@ class AudioPrefs {
     showLyricsOnPlayerNotifier.value = v;
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kShowLyricsOnPlayer, v);
+  }
+
+  static Future<void> setLyricsViewMode(LyricsViewMode v) async {
+    lyricsViewModeNotifier.value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setInt(_kLyricsViewMode, v.index);
   }
 
   static Future<void> setCastIconVisibility(String v) async {
