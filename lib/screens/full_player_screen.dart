@@ -726,19 +726,28 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // with zero prop plumbing, exactly like _openPanel reuses them for the
   // Up Next/Lyrics/Info sheet above.
   bool _immersiveLyricsOpen = false;
-  // 2.5s open (glow builds → covers → releases lyrics, Gemini-paced),
-  // faster 420ms close (dismissal should feel snappy, not slow like the
-  // reveal).
+  // 3.8s open (glow builds → holds/breathes longer → releases lyrics,
+  // Gemini-paced — increased again from 3.2s so the aura has real
+  // presence instead of rushing through), faster 420ms close
+  // (dismissal should feel snappy, not slow like the reveal).
   late final AnimationController _immersiveCtrl = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 2500),
+    duration: const Duration(milliseconds: 3800),
     reverseDuration: const Duration(milliseconds: 420),
   );
   double _immersiveDragY = 0.0;
   bool _immersiveDragging = false;
 
   void _openImmersiveLyrics() {
-    if (_immersiveLyricsOpen) return;
+    // FIX: this used to hard-return if lyrics were already open, so the
+    // same trigger button did nothing on a second tap — closing only
+    // worked via the overlay's own tap-anywhere/swipe/back handlers.
+    // Now the trigger button itself toggles: tap again while open closes
+    // it, matching how a play/pause-style toggle button should behave.
+    if (_immersiveLyricsOpen) {
+      _closeImmersiveLyrics();
+      return;
+    }
     AurumHaptics.medium();
     setState(() => _immersiveLyricsOpen = true);
     _pauseAmbientAnims();
@@ -1473,41 +1482,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               child: _buildBody(context, player, song),
                             ),
                           ),
-                          // Immersive Lyrics overlay — sits above
-                          // everything else in this Stack (drawn last),
-                          // covering the full player entirely once open.
-                          // Kept mounted only while opening/open/closing
-                          // (IgnorePointer + opacity 0 the rest of the
-                          // time would still cost a build; an if-guard on
-                          // _immersiveLyricsOpen plus the controller
-                          // itself staying alive across toggles is
-                          // cheaper and matches how _openPanel's sheet is
-                          // only in the tree while shown).
+                          // Full-screen edge glow — the Gemini-style aura
+                          // covers the WHOLE player (top bar, title, seek
+                          // bar, controls included), while the actual
+                          // thumbnail↔lyrics swap stays confined to the
+                          // artwork box inside _buildBody/_Artwork above.
+                          // Kept mounted only while opening/open/closing,
+                          // same lifecycle reasoning as the content swap.
                           if (_immersiveLyricsOpen || _immersiveCtrl.value > 0)
                             Positioned.fill(
-                              child: _ImmersiveLyricsOverlay(
-                                controller: _immersiveCtrl,
-                                song: song,
-                                bg1: _currentBg1,
-                                bg2: _currentBg2,
-                                bg3: _currentBg3,
-                                bg4: _currentBg4,
-                                dragY: _immersiveDragY,
-                                isDragging: _immersiveDragging,
-                                onClose: _closeImmersiveLyrics,
-                                onDragStart: () =>
-                                    setState(() => _immersiveDragging = true),
-                                onDragUpdate: (dy) =>
-                                    setState(() => _immersiveDragY = dy),
-                                onDragEnd: (shouldClose) {
-                                  setState(() => _immersiveDragging = false);
-                                  if (shouldClose) {
-                                    _closeImmersiveLyrics();
-                                  } else {
-                                    setState(() => _immersiveDragY = 0.0);
-                                  }
-                                },
-                              ),
+                              child: _ImmersiveGlowLayer(controller: _immersiveCtrl),
                             ),
                         ],
                       ),
@@ -1545,6 +1529,27 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               w: w,
               bgLuma: _currentBg2.computeLuminance(),
               artworkAnim: _artworkAnim,
+              immersiveOpen: _immersiveLyricsOpen,
+              immersiveCtrl: _immersiveCtrl,
+              immersiveDragY: _immersiveDragY,
+              immersiveDragging: _immersiveDragging,
+              onCloseImmersive: _closeImmersiveLyrics,
+              onImmersiveDragStart: () =>
+                  setState(() => _immersiveDragging = true),
+              onImmersiveDragUpdate: (dy) =>
+                  setState(() => _immersiveDragY = dy),
+              onImmersiveDragEnd: (shouldClose) {
+                setState(() => _immersiveDragging = false);
+                if (shouldClose) {
+                  _closeImmersiveLyrics();
+                } else {
+                  setState(() => _immersiveDragY = 0.0);
+                }
+              },
+              bg1: _currentBg1,
+              bg2: _currentBg2,
+              bg3: _currentBg3,
+              bg4: _currentBg4,
             ),
             SizedBox(height: (vGapMd - 15).clamp(0.0, vGapMd)),
             // Song info — staggered fade+slide up (delay ~90ms)
@@ -1668,7 +1673,34 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             SizedBox(height: isCompact ? 8.0 : 12.0),
             SizedBox(
               height: 28,
-              child: Center(child: _QualityPills(song: song, hPad: hPad, bgLuma: _currentBg2.computeLuminance())),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Extra right padding here (on top of hPad) reserves
+                  // room for the lyrics trigger button positioned at
+                  // `right: hPad` below, so a song with multiple quality
+                  // pills (LOCAL + language + year) can't visually
+                  // collide with it on narrower screens.
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 34),
+                      child: _QualityPills(song: song, hPad: hPad, bgLuma: _currentBg2.computeLuminance()),
+                    ),
+                  ),
+                  // Lyrics trigger — relocated here from the right-side
+                  // icon column (was sitting oddly stacked under the
+                  // cast pill). This row (same one as the LOCAL/quality
+                  // pills) reads as a clean, deliberate spot: aligned
+                  // with the pill row, clear of every other control.
+                  Positioned(
+                    right: hPad,
+                    child: _ImmersiveLyricsTriggerButton(
+                      bgLuma: _currentBg2.computeLuminance(),
+                      onTap: _openImmersiveLyrics,
+                    ),
+                  ),
+                ],
+              ),
             ),
             const Spacer(),
             _BottomPill(hPad: hPad, bgLuma: _currentBg2.computeLuminance(), onTap: _openPanel),
@@ -1968,6 +2000,22 @@ class _Artwork extends StatefulWidget {
   final double hPad, h, w;
   final double bgLuma;
   final Animation<double> artworkAnim;
+  // Immersive lyrics wiring — the overlay now renders INSIDE this
+  // widget's own artwork box (see build() below) instead of covering
+  // the full player via Positioned.fill from the parent Stack. That
+  // was the root cause of "poori screen lyrics se bhar jaati hai" —
+  // the top bar, title, seek bar, and controls were all being
+  // physically covered by the overlay instead of staying visible
+  // with just the artwork swapping out in place.
+  final bool immersiveOpen;
+  final AnimationController immersiveCtrl;
+  final double immersiveDragY;
+  final bool immersiveDragging;
+  final VoidCallback onCloseImmersive;
+  final VoidCallback onImmersiveDragStart;
+  final ValueChanged<double> onImmersiveDragUpdate;
+  final ValueChanged<bool> onImmersiveDragEnd;
+  final Color bg1, bg2, bg3, bg4;
 
   const _Artwork({
     required this.song,
@@ -1977,6 +2025,18 @@ class _Artwork extends StatefulWidget {
     required this.w,
     required this.bgLuma,
     required this.artworkAnim,
+    required this.immersiveOpen,
+    required this.immersiveCtrl,
+    required this.immersiveDragY,
+    required this.immersiveDragging,
+    required this.onCloseImmersive,
+    required this.onImmersiveDragStart,
+    required this.onImmersiveDragUpdate,
+    required this.onImmersiveDragEnd,
+    required this.bg1,
+    required this.bg2,
+    required this.bg3,
+    required this.bg4,
   });
 
   @override
@@ -2103,102 +2163,42 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
               child: SizedBox(
                 width: maxArtSize,
                 height: maxArtSize,
-                // Artwork stays pinned in place — no vertical float.
-                // Only the horizontal swipe-drag offset and its scale
-                // feedback remain; the idle up/down "breathing" motion
-                // has been removed so the artwork reads as static/fixed,
-                // matching a premium/paid-app look.
-                child: Transform.translate(
-                  offset: Offset(_dragDx * 0.3, 0),
-                  child: Transform.scale(
-                    scale: _dragging
-                        ? (1.0 - (_dragDx.abs() / 800).clamp(0.0, 0.08))
-                        : 1.0,
-                    child: AnimatedBuilder(
-                  animation: widget.artworkAnim,
-                  builder: (_, child) => Transform.scale(
-                    scale: widget.artworkAnim.value,
-                    child: child,
-                  ),
-                  // SPEED FIX (Spotify-level lightweight): this Hero had no
-                  // matching Hero anywhere else in the app (mini_player.dart
-                  // and every other artwork call site use plain
-                  // AurumArtwork, no Hero tag) — confirmed via a full grep
-                  // for tag 'aurum_artwork'. An unmatched Hero never gets to
-                  // play a flight animation, so it was pure dead weight:
-                  // every build here still paid for Hero's own GlobalKey
-                  // registration/lookup machinery for zero visual benefit,
-                  // and it's a latent risk for an unexpected flight
-                  // animation to trigger later if any other screen ever
-                  // reuses this exact tag by accident. Removed entirely —
-                  // the child renders exactly the same without it.
-                  child: ValueListenableBuilder<String>(
-                    valueListenable: AudioPrefs.artworkShapeNotifier,
-                    builder: (context, shape, _) {
-                      final radius = shape == 'Circle'
-                          ? maxArtSize / 2
-                          : shape == 'Square'
-                              ? 4.0
-                              : 20.0;
-                      return RepaintBoundary(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 500),
-                          curve: Curves.easeOutCubic,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(radius),
-                            // FIX: this shadow used a flat Colors.black at
-                            // fairly high alpha regardless of theme. On the
-                            // dark theme that reads fine (matches the near-
-                            // black background), but on light theme it sat
-                            // on top of a pale surface as a hard, inky ring
-                            // around the artwork — not the soft, low-alpha
-                            // lift Spotify/Apple Music use on light
-                            // backgrounds. Halved the alpha and blur/spread
-                            // in light mode so it reads as a gentle elevation
-                            // shadow instead of a dark outline.
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withAlpha(
-                                    bgIsLight
-                                        ? (widget.player.isPlaying ? 60 : 38)
-                                        : (widget.player.isPlaying ? 180 : 110)),
-                                blurRadius: bgIsLight
-                                    ? (widget.player.isPlaying ? 36 : 22)
-                                    : (widget.player.isPlaying ? 64 : 40),
-                                  offset: const Offset(0, 16),
-                                  spreadRadius: (!bgIsLight && widget.player.isPlaying) ? 4 : 0,
-                                ),
-                                BoxShadow(
-                                  color: Colors.black.withAlpha(bgIsLight ? 28 : 90),
-                                  blurRadius: bgIsLight ? 10 : 18,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(radius),
-                              child: AurumArtwork(
-                                url: widget.song.artworkUrl,
-                                size: double.infinity,
-                                borderRadius: radius,
-                                // FIX (white flash on song tap / swipe-down
-                                // dismiss / collapse — root cause): see
-                                // suppressWhiteShimmer doc comment in
-                                // aurum_artwork.dart. This is the hero disc
-                                // artwork rendered at full screen size —
-                                // the white _ShimmerPulse loading state
-                                // that's harmless at tile size was covering
-                                // the entire player here while local/
-                                // content:// album art loaded.
-                                suppressWhiteShimmer: true,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
+                // Confined to exactly the artwork's own box — the
+                // immersive lyrics overlay lives INSIDE this SizedBox
+                // (same width/height as the artwork it replaces) so it
+                // can only ever occupy the artwork's footprint, never
+                // the rest of the player. Top bar, title/artist, seek
+                // bar, and transport controls all sit outside this
+                // SizedBox in the parent Column and are structurally
+                // untouched by the overlay.
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _ArtworkVisual(
+                      dragDx: _dragDx,
+                      dragging: _dragging,
+                      artworkAnim: widget.artworkAnim,
+                      song: widget.song,
+                      player: widget.player,
+                      bgIsLight: bgIsLight,
+                      maxArtSize: maxArtSize,
                     ),
-                  ),
-                  ),
+                    if (widget.immersiveOpen || widget.immersiveCtrl.value > 0)
+                      _ImmersiveLyricsOverlay(
+                        controller: widget.immersiveCtrl,
+                        song: widget.song,
+                        bg1: widget.bg1,
+                        bg2: widget.bg2,
+                        bg3: widget.bg3,
+                        bg4: widget.bg4,
+                        dragY: widget.immersiveDragY,
+                        isDragging: widget.immersiveDragging,
+                        onClose: widget.onCloseImmersive,
+                        onDragStart: widget.onImmersiveDragStart,
+                        onDragUpdate: widget.onImmersiveDragUpdate,
+                        onDragEnd: widget.onImmersiveDragEnd,
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -2208,6 +2208,130 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
     );
   }
 }
+
+// Original artwork's transform/decoration/shadow content, pulled out
+// unchanged from _Artwork.build so it can sit as one Stack layer
+// alongside the immersive overlay above, instead of being the entire
+// contents of the artwork box. No behavior/visual change from before —
+// straight extraction.
+class _ArtworkVisual extends StatelessWidget {
+  final double dragDx;
+  final bool dragging;
+  final Animation<double> artworkAnim;
+  final Song song;
+  final PlayerProvider player;
+  final bool bgIsLight;
+  final double maxArtSize;
+
+  const _ArtworkVisual({
+    required this.dragDx,
+    required this.dragging,
+    required this.artworkAnim,
+    required this.song,
+    required this.player,
+    required this.bgIsLight,
+    required this.maxArtSize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Artwork stays pinned in place — no vertical float. Only the
+    // horizontal swipe-drag offset and its scale feedback remain; the
+    // idle up/down "breathing" motion has been removed so the artwork
+    // reads as static/fixed, matching a premium/paid-app look.
+    return Transform.translate(
+      offset: Offset(dragDx * 0.3, 0),
+      child: Transform.scale(
+        scale: dragging ? (1.0 - (dragDx.abs() / 800).clamp(0.0, 0.08)) : 1.0,
+        child: AnimatedBuilder(
+          animation: artworkAnim,
+          builder: (_, child) => Transform.scale(
+            scale: artworkAnim.value,
+            child: child,
+          ),
+          // SPEED FIX (Spotify-level lightweight): this Hero had no
+          // matching Hero anywhere else in the app (mini_player.dart
+          // and every other artwork call site use plain AurumArtwork,
+          // no Hero tag) — confirmed via a full grep for tag
+          // 'aurum_artwork'. An unmatched Hero never gets to play a
+          // flight animation, so it was pure dead weight: every build
+          // here still paid for Hero's own GlobalKey registration/
+          // lookup machinery for zero visual benefit, and it's a
+          // latent risk for an unexpected flight animation to trigger
+          // later if any other screen ever reuses this exact tag by
+          // accident. Removed entirely — the child renders exactly the
+          // same without it.
+          child: ValueListenableBuilder<String>(
+            valueListenable: AudioPrefs.artworkShapeNotifier,
+            builder: (context, shape, _) {
+              final radius = shape == 'Circle'
+                  ? maxArtSize / 2
+                  : shape == 'Square'
+                      ? 4.0
+                      : 20.0;
+              return RepaintBoundary(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeOutCubic,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(radius),
+                    // FIX: this shadow used a flat Colors.black at
+                    // fairly high alpha regardless of theme. On the
+                    // dark theme that reads fine (matches the near-
+                    // black background), but on light theme it sat on
+                    // top of a pale surface as a hard, inky ring around
+                    // the artwork — not the soft, low-alpha lift
+                    // Spotify/Apple Music use on light backgrounds.
+                    // Halved the alpha and blur/spread in light mode so
+                    // it reads as a gentle elevation shadow instead of
+                    // a dark outline.
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(bgIsLight
+                            ? (player.isPlaying ? 60 : 38)
+                            : (player.isPlaying ? 180 : 110)),
+                        blurRadius: bgIsLight
+                            ? (player.isPlaying ? 36 : 22)
+                            : (player.isPlaying ? 64 : 40),
+                        offset: const Offset(0, 16),
+                        spreadRadius:
+                            (!bgIsLight && player.isPlaying) ? 4 : 0,
+                      ),
+                      BoxShadow(
+                        color: Colors.black.withAlpha(bgIsLight ? 28 : 90),
+                        blurRadius: bgIsLight ? 10 : 18,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(radius),
+                    child: AurumArtwork(
+                      url: song.artworkUrl,
+                      size: double.infinity,
+                      borderRadius: radius,
+                      // FIX (white flash on song tap / swipe-down
+                      // dismiss / collapse — root cause): see
+                      // suppressWhiteShimmer doc comment in
+                      // aurum_artwork.dart. This is the hero disc
+                      // artwork rendered at full screen size — the
+                      // white _ShimmerPulse loading state that's
+                      // harmless at tile size was covering the entire
+                      // player here while local/content:// album art
+                      // loaded.
+                      suppressWhiteShimmer: true,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Song Info
@@ -2338,14 +2462,7 @@ class _SongInfo extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               // Standalone lyrics trigger — own dedicated spot beneath
-              // the cast pill, same 34px circle sizing/style as the
-              // fav button above it so the whole right-side column
-              // reads as one consistent icon stack rather than a
-              // button bolted on somewhere unrelated.
-              _ImmersiveLyricsTriggerButton(
-                bgLuma: bgLuma,
-                onTap: onLyricsTap,
-              ),
+              const SizedBox(height: 8),
             ],
           ),
         ],
@@ -2410,18 +2527,62 @@ class _ImmersiveLyricsTriggerButton extends StatelessWidget {
         ? AurumTheme.lightTextPrimary.withAlpha(18)
         : Colors.white.withAlpha(22);
 
+    // Relocated to the LOCAL/quality-pill row (28px tall) — resized from
+    // 34px down to 26px so it fits that row cleanly instead of
+    // overflowing it, and re-iconed to a sparkle (Gemini's own mark for
+    // its AI features) instead of the generic expand-arrows glyph, so
+    // the button itself signals "AI-styled lyrics" rather than reading
+    // as a plain fullscreen toggle.
     return AurumPressable(
       onTap: onTap,
       scaleAmount: 0.90,
       child: Container(
-        width: 34,
-        height: 34,
+        width: 26,
+        height: 26,
         decoration: BoxDecoration(
           color: fillColor,
           shape: BoxShape.circle,
         ),
-        child: Icon(Icons.open_in_full_rounded, size: 15, color: iconColor),
+        child: Icon(Icons.auto_awesome_rounded, size: 13, color: iconColor),
       ),
+    );
+  }
+}
+
+/// Full-screen edge aura glow — separate from the thumbnail↔lyrics
+/// content swap (which lives confined to the artwork's own box inside
+/// _Artwork). This layer paints across the ENTIRE player screen — top
+/// bar, title, seek bar, controls all included — exactly like the real
+/// Gemini full-screen treatment, while the actual content swap stays
+/// confined to the artwork box beneath it. Purely decorative
+/// (IgnorePointer): taps/drags for opening/closing/scrolling lyrics are
+/// still owned by the content overlay inside the artwork box, not here.
+class _ImmersiveGlowLayer extends StatelessWidget {
+  final AnimationController controller;
+  const _ImmersiveGlowLayer({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final rawT = controller.value;
+        final t = Curves.easeInOutCubic.transform(rawT);
+        // Same build → hold → release pulse timing as the content swap,
+        // so the full-screen glow and the artwork-box cross-fade stay
+        // in sync even though they're now two separate widgets.
+        final glowVisibility = t < 0.18
+            ? Curves.easeOut.transform((t / 0.18).clamp(0.0, 1.0))
+            : t > 0.85
+                ? Curves.easeIn.transform((1.0 - ((t - 0.85) / 0.15)).clamp(0.0, 1.0))
+                : 1.0;
+        if (glowVisibility <= 0.001) return const SizedBox.shrink();
+        return IgnorePointer(
+          child: CustomPaint(
+            painter: _GlowAuraPainter(visibility: glowVisibility, t: t),
+          ),
+        );
+      },
     );
   }
 }
@@ -2482,12 +2643,13 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
         // pulsing/breathing while active, rather than a line/band that
         // sweeps across the middle). glowVisibility now drives a
         // build → hold → release pulse instead of a wipe position.
-        // Ramps in over the first 22%, holds (breathing) through the
-        // middle, releases over the last 20% as lyrics settle in.
-        final glowVisibility = t < 0.22
-            ? Curves.easeOut.transform((t / 0.22).clamp(0.0, 1.0))
-            : t > 0.80
-                ? Curves.easeIn.transform((1.0 - ((t - 0.80) / 0.20)).clamp(0.0, 1.0))
+        // Ramps in over the first 18%, holds (breathing) through the
+        // middle, releases over the last 15% as lyrics settle in — kept
+        // in sync with _ImmersiveGlowLayer's own timing above.
+        final glowVisibility = t < 0.18
+            ? Curves.easeOut.transform((t / 0.18).clamp(0.0, 1.0))
+            : t > 0.85
+                ? Curves.easeIn.transform((1.0 - ((t - 0.85) / 0.15)).clamp(0.0, 1.0))
                 : 1.0;
 
         // Thumbnail and lyrics simply cross-fade in place — no sweep
@@ -2552,35 +2714,14 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    // Theme-matched dynamic background — the exact same
-                    // 4-color gradient the player itself uses, so this
-                    // reads as a continuation of the player rather than a
-                    // different screen.
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [widget.bg1, widget.bg2, widget.bg3, widget.bg4],
-                        ),
-                      ),
-                    ),
-                    // Edge aura glow — multi-color (Gemini's real
-                    // red/yellow/green/blue palette) soft wash living
-                    // around the screen's border, pulsing/breathing
-                    // while the thumbnail↔lyrics cross-fade happens
-                    // underneath. Pure decoration, ignores hits.
-                    if (glowVisibility > 0.001)
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: CustomPaint(
-                            painter: _GlowAuraPainter(
-                              visibility: glowVisibility,
-                              t: t,
-                            ),
-                          ),
-                        ),
-                      ),
+                    // Edge aura glow now renders separately, full-screen,
+                    // from the parent Stack (see _ImmersiveGlowLayer) —
+                    // not here. This overlay only owns the thumbnail↔
+                    // lyrics content swap, confined to the artwork's own
+                    // box. No background fill either: this box sits
+                    // directly on top of the artwork it's replacing, so
+                    // leaving it transparent lets the swap read as an
+                    // in-place morph instead of a separate opaque panel.
                     // Outgoing thumbnail/artwork — eases outward and
                     // softly blurs as the glow-wash sweeps over it, so it
                     // reads as being "consumed" by the glow rather than
