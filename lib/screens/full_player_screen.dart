@@ -1755,13 +1755,33 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   // cast pill). This row (same one as the LOCAL/quality
                   // pills) reads as a clean, deliberate spot: aligned
                   // with the pill row, clear of every other control.
-                  Positioned(
-                    right: hPad,
-                    child: _ImmersiveLyricsTriggerButton(
-                      bgLuma: _currentBg2.computeLuminance(),
-                      isActive: _immersiveLyricsOpen,
-                      onTap: _openImmersiveLyrics,
-                    ),
+                  //
+                  // FIX ("Immersive Lyrics OFF pe ye button dikhna hi
+                  // nahi chahiye, ON pe hi aaye"): this button used to
+                  // render unconditionally regardless of the Settings →
+                  // Appearance → Immersive Lyrics switch — so turning
+                  // that setting off left a dead button on screen that
+                  // did nothing useful to tap (or worse, still opened
+                  // the overlay the setting was supposed to disable).
+                  // Now gated on the same lyricsViewModeNotifier the
+                  // inline strip already checks elsewhere on this
+                  // screen — only fullscreen mode shows it, matching the
+                  // setting exactly.
+                  ValueListenableBuilder<LyricsViewMode>(
+                    valueListenable: AudioPrefs.lyricsViewModeNotifier,
+                    builder: (context, viewMode, _) {
+                      if (viewMode != LyricsViewMode.fullscreen) {
+                        return const SizedBox.shrink();
+                      }
+                      return Positioned(
+                        right: hPad,
+                        child: _ImmersiveLyricsTriggerButton(
+                          bgLuma: _currentBg2.computeLuminance(),
+                          isActive: _immersiveLyricsOpen,
+                          onTap: _openImmersiveLyrics,
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -2659,11 +2679,35 @@ class _ImmersiveLyricsTriggerButton extends StatelessWidget {
           shape: BoxShape.circle,
           border: Border.all(color: borderColor, width: 1),
         ),
-        child: Icon(
-          Icons.auto_awesome_rounded,
-          size: 13,
-          color: iconColor,
-        ),
+        child: isActive
+            // FIX ("button attractive lage"): when active, the sparkle
+            // icon itself carries the same red/yellow/green/blue Gemini
+            // palette the full-screen glow uses — a plain single-color
+            // icon didn't read as tied to the colorful aura it triggers.
+            // ShaderMask is a one-time cheap paint (no animation, no
+            // per-frame cost) — this only differs from the inactive
+            // state's flat Icon, adding nothing to the glow layer's own
+            // ongoing per-frame cost discussed above.
+            ? ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [
+                    Color(0xFFEA4335),
+                    Color(0xFFFBBC05),
+                    Color(0xFF34A853),
+                    Color(0xFF4285F4),
+                  ],
+                ).createShader(bounds),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 13,
+                  color: Colors.white,
+                ),
+              )
+            : Icon(
+                Icons.auto_awesome_rounded,
+                size: 13,
+                color: iconColor,
+              ),
       ),
     );
   }
@@ -2686,8 +2730,25 @@ class _ImmersiveGlowLayer extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final rawT = controller.value;
-        final t = Curves.easeInOutCubic.transform(rawT);
+        // PERF FIX ("low-end device pe heating/battery ekdam 0% jaisa
+        // rahe, Google app jaisa optimize"): this painter runs 4
+        // RadialGradient shader rebuilds + a blurred stroke every
+        // single call — at a raw 60fps drive that's real, sustained
+        // GPU work for the whole open/hold/close duration, exactly the
+        // kind of sustained cost that heats up a weak device during a
+        // long breathing-glow hold. The visual motion here (a slow
+        // sinusoidal "breathe") has no fast detail — nothing about it
+        // needs 60 distinct paints per second to look smooth.
+        // Quantizing to 30 discrete steps/sec BEFORE constructing the
+        // painter means _GlowAuraPainter.shouldRepaint sees the exact
+        // same `t` on alternating vsync ticks and skips the actual
+        // raster for that frame — the painter's paint() genuinely only
+        // executes ~30 times/sec instead of ~60, roughly halving this
+        // layer's GPU cost, with zero perceptible difference in a slow
+        // ambient glow. The breathe math/timing itself (below) is
+        // completely untouched — this only throttles how often it gets
+        // repainted, not how it behaves.
+        final rawT = (controller.value * 30).round() / 30;
         // Same build → hold → release pulse timing as the content swap,
         // so the full-screen glow and the artwork-box cross-fade stay
         // in sync even though they're now two separate widgets.
@@ -3021,7 +3082,10 @@ class _GlowAuraPainter extends CustomPainter {
     final h = size.height;
     // Bloom radius scales with the screen's larger dimension so the
     // wash reads consistently across phone/tablet aspect ratios.
-    final radius = math.max(w, h) * 0.62;
+    // Increased from 0.62 → 0.72 (bigger spread) so the aura reads
+    // more clearly and attractively — the tighter radius before left
+    // it feeling too faint/thin.
+    final radius = math.max(w, h) * 0.72;
 
     // Each edge bloom's center sits just outside that edge, at the
     // midpoint of the edge — glow falls off toward the screen center,
@@ -3041,9 +3105,24 @@ class _GlowAuraPainter extends CustomPainter {
       // so they don't all pulse in lockstep.
       final phase = (t * 2 * math.pi * 1.4) + (i * math.pi / 2);
       final breathe = 0.75 + 0.25 * (0.5 + 0.5 * math.sin(phase));
-      final alpha = (190 * visibility * breathe).round().clamp(0, 255);
+      // Increased base intensity from 190 → 235 so the glow reads
+      // clearly instead of feeling subtle/washed out.
+      final alpha = (235 * visibility * breathe).round().clamp(0, 255);
 
+      // FIX ("aura ekdam attractive/top-level lage"): each bloom's
+      // center now gently drifts along its own edge (not just pulsing
+      // in place), the way the real Gemini aura's colors visibly
+      // wander rather than sitting fixed. Zero extra draw calls or
+      // shaders — same 4 RadialGradients as before, just re-centered
+      // each frame — so this adds no meaningful GPU cost on top of the
+      // 30fps throttle above.
+      final driftPhase = (t * 2 * math.pi * 0.8) + (i * math.pi / 2);
+      final drift = math.sin(driftPhase) * radius * 0.06;
       final bloom = blooms[i];
+      final driftedCenter = i.isEven
+          ? Offset(bloom.center.dx + drift, bloom.center.dy)
+          : Offset(bloom.center.dx, bloom.center.dy + drift);
+
       final paint = Paint()
         ..shader = RadialGradient(
           colors: [
@@ -3052,8 +3131,8 @@ class _GlowAuraPainter extends CustomPainter {
             bloom.color.withAlpha(0),
           ],
           stops: const [0.0, 0.45, 1.0],
-        ).createShader(Rect.fromCircle(center: bloom.center, radius: radius));
-      canvas.drawCircle(bloom.center, radius, paint);
+        ).createShader(Rect.fromCircle(center: driftedCenter, radius: radius));
+      canvas.drawCircle(driftedCenter, radius, paint);
     }
 
     // A soft white inner rim right at the very edge of the screen, the

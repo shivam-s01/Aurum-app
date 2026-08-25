@@ -366,20 +366,48 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             title: l10n.saShowLyricsOnPlayer,
             subtitle: l10n.saShowLyricsOnPlayerSubtitle,
             value: _showLyricsOnPlayer,
-            onChanged: (v) { setState(() => _showLyricsOnPlayer = v); _save('show_lyrics_on_player', v); AudioPrefs.setShowLyricsOnPlayer(v); },
+            onChanged: (v) {
+              setState(() {
+                _showLyricsOnPlayer = v;
+                // Mutually exclusive with Immersive below: turning the
+                // inline strip ON while Immersive is also on doesn't
+                // make sense (Immersive already opens full-screen from
+                // the same button) — so switching this on turns
+                // Immersive off, same as toggling Immersive on turns
+                // this off further down.
+                if (v && _lyricsViewMode == LyricsViewMode.fullscreen) {
+                  _lyricsViewMode = LyricsViewMode.inline;
+                  _save('lyrics_view_mode', LyricsViewMode.inline.index);
+                  AudioPrefs.setLyricsViewMode(LyricsViewMode.inline);
+                }
+              });
+              _save('show_lyrics_on_player', v);
+              AudioPrefs.setShowLyricsOnPlayer(v);
+            },
           ),
-          _dropdownTile(context,
+          // "Immersive Lyrics" — a plain switch styled exactly like
+          // every other _inlineSwitch on this screen (Show Lyrics on
+          // Player above, Blur toggles elsewhere). Deliberately NOT
+          // visually highlighted/badged as a "new" feature — it should
+          // read as an ordinary setting a user might casually toggle,
+          // not something calling extra attention to itself. Turning
+          // this ON automatically turns the inline strip above OFF, and
+          // vice versa — only one lyrics display mode can be active at
+          // a time.
+          _inlineSwitch(context,
             title: l10n.saLyricsViewMode,
             subtitle: l10n.saLyricsViewModeSubtitle,
-            value: _lyricsViewMode == LyricsViewMode.inline
-                ? l10n.saLyricsViewModeInline
-                : l10n.saLyricsViewModeFullscreen,
-            options: [l10n.saLyricsViewModeInline, l10n.saLyricsViewModeFullscreen],
+            value: _lyricsViewMode == LyricsViewMode.fullscreen,
             onChanged: (v) {
-              final mode = v == l10n.saLyricsViewModeInline
-                  ? LyricsViewMode.inline
-                  : LyricsViewMode.fullscreen;
-              setState(() => _lyricsViewMode = mode);
+              final mode = v ? LyricsViewMode.fullscreen : LyricsViewMode.inline;
+              setState(() {
+                _lyricsViewMode = mode;
+                if (v && _showLyricsOnPlayer) {
+                  _showLyricsOnPlayer = false;
+                  _save('show_lyrics_on_player', false);
+                  AudioPrefs.setShowLyricsOnPlayer(false);
+                }
+              });
               _save('lyrics_view_mode', mode.index);
               AudioPrefs.setLyricsViewMode(mode);
             },

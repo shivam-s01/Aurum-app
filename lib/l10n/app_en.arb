@@ -473,7 +473,7 @@
   "saShowLyricsOnPlayer": "Show Lyrics on Player",
   "saShowLyricsOnPlayerSubtitle": "Display the current line above the seek bar",
   "saLyricsViewMode": "Immersive Lyrics",
-  "saLyricsViewModeSubtitle": "How lyrics open from the player",
+  "saLyricsViewModeSubtitle": "Full-screen glow lyrics from the player",
   "saLyricsViewModeInline": "Inline",
   "saLyricsViewModeFullscreen": "Full Screen",
   "saEnableAnimations": "Enable Animations",
