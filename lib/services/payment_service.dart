@@ -1,7 +1,7 @@
 // =============================================================================
 // FILE: lib/services/payment_service.dart
 // PROJECT: Astra Music
-// DESCRIPTION: Cashfree payment integration for Aurum Plus subscriptions.
+// DESCRIPTION: Cashfree payment integration for Astra Plus subscriptions.
 //
 //   PLANS:
 //     Monthly   -> Rs.19   (1900 paise)
@@ -161,7 +161,7 @@ class PaymentService {
           'orderAmount': plan.amountRupees,
           'planId': plan.id,
           'customerEmail': userEmail ?? 'guest@aurum.app',
-          'customerName': userName ?? 'Aurum User',
+          'customerName': userName ?? 'Astra User',
           'accessToken': accessToken,
         }),
       );

@@ -214,7 +214,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
   // DropdownButton can't intercept a single item's tap to show a paywall
   // before committing the value. Tapping the locked row always opens
   // PremiumGate (payment only — this is the one feature in the app that
-  // still requires Aurum Plus, not just a Google account) and never
+  // still requires Astra Plus, not just a Google account) and never
   // silently selects it. The enforcement itself already lived in
   // AudioPrefs.qualityOrder() (free accounts capped at 160kbps); this tile
   // just makes that boundary visible and intentional in the UI instead of

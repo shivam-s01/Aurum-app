@@ -4,8 +4,6 @@ import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_transitions.dart';
 import '../providers/player_provider.dart';
-import '../providers/premium_provider.dart';
-import 'premium_screen.dart';
 import 'settings_player_screen.dart';
 import 'settings_appearance_screen.dart';
 import 'settings_storage_screen.dart';
@@ -57,9 +55,7 @@ class SettingsScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                // ── Premium Section ──
-                _PremiumSettingsTile(),
-                const SizedBox(height: 20),
+                // ── Premium Section removed (all features free) ──
                 _SettingsTile(
                   icon: Icons.equalizer_rounded,
                   title: l10n.settingsPlayerAudio,
@@ -215,6 +211,13 @@ class _SettingsTileState extends State<_SettingsTile>
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
                       color: AurumTheme.gold.withOpacity(0.25), width: 0.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AurumTheme.gold.withOpacity(0.10),
+                      blurRadius: 10,
+                      spreadRadius: -2,
+                    ),
+                  ],
                 ),
                 child: Icon(widget.icon, color: AurumTheme.gold, size: 22),
               ),
@@ -227,7 +230,8 @@ class _SettingsTileState extends State<_SettingsTile>
                         style: TextStyle(
                             color: AurumTheme.textPrimaryOf(context),
                             fontSize: 15,
-                            fontWeight: FontWeight.w600)),
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.2)),
                     const SizedBox(height: 2),
                     Text(widget.subtitle,
                         style: TextStyle(
@@ -247,209 +251,3 @@ class _SettingsTileState extends State<_SettingsTile>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Premium settings tile — shown at top of Settings screen
-// ─────────────────────────────────────────────────────────────────────────────
-class _PremiumSettingsTile extends StatelessWidget {
-  const _PremiumSettingsTile();
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final premiumFeatures = [
-      l10n.premiumFeature320kbps,
-      l10n.premiumFeatureUnlimitedSkips,
-      l10n.premiumFeatureLikeFollow,
-      l10n.premiumFeatureCreatePlaylists,
-      l10n.premiumFeatureCloudSync,
-      l10n.premiumFeatureExclusiveThemes,
-    ];
-    final isPremium = context.watch<PremiumProvider>().isPremium;
-
-    if (isPremium) {
-      // ── Active premium — compact gold badge ──────────────────────────────
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            colors: [
-              AurumTheme.goldDark.withOpacity(0.22),
-              AurumTheme.gold.withOpacity(0.08),
-            ],
-          ),
-          border: Border.all(color: AurumTheme.gold.withOpacity(0.35), width: 0.8),
-        ),
-        child: Row(children: [
-          Container(
-            width: 42, height: 42,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: AurumTheme.goldGradient,
-            ),
-            child: const Icon(Icons.workspace_premium_rounded,
-                color: Colors.black, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(l10n.premiumBrandName,
-                  style: TextStyle(
-                    color: AurumTheme.gold,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  )),
-              Text(l10n.premiumAllFeaturesUnlocked,
-                  style: TextStyle(
-                    color: AurumTheme.textMutedOf(context),
-                    fontSize: 12,
-                  )),
-            ],
-          )),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              color: AurumTheme.gold.withOpacity(0.15),
-              border: Border.all(color: AurumTheme.gold.withOpacity(0.4)),
-            ),
-            child: Text(l10n.premiumActive,
-                style: TextStyle(
-                  color: AurumTheme.gold,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                )),
-          ),
-        ]),
-      );
-    }
-
-    // ── Free user — upgrade upsell card ─────────────────────────────────────
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AurumTheme.goldDark.withOpacity(0.18),
-            AurumTheme.gold.withOpacity(0.06),
-          ],
-        ),
-        border: Border.all(color: AurumTheme.gold.withOpacity(0.28), width: 0.8),
-      ),
-      child: Column(children: [
-        // Header row
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-          child: Row(children: [
-            Container(
-              width: 44, height: 44,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: AurumTheme.goldGradient,
-                boxShadow: [
-                  BoxShadow(
-                    color: AurumTheme.gold.withOpacity(0.35),
-                    blurRadius: 14,
-                    spreadRadius: 1,
-                  ),
-                ],
-              ),
-              child: const Icon(Icons.workspace_premium_rounded,
-                  color: Colors.black, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(l10n.premiumUpgradeTitle,
-                    style: TextStyle(
-                      color: AurumTheme.textPrimaryOf(context),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                    )),
-                Text(l10n.premiumUnlockEverything,
-                    style: TextStyle(
-                      color: AurumTheme.textMutedOf(context),
-                      fontSize: 12,
-                    )),
-              ],
-            )),
-          ]),
-        ),
-
-        // Feature pills
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          child: Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: premiumFeatures.map((f) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: AurumTheme.gold.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                    color: AurumTheme.gold.withOpacity(0.25), width: 0.6),
-              ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.check_rounded, color: AurumTheme.gold, size: 11),
-                const SizedBox(width: 4),
-                Text(f,
-                    style: TextStyle(
-                      color: AurumTheme.textPrimaryOf(context),
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w500,
-                    )),
-              ]),
-            )).toList(),
-          ),
-        ),
-
-        // CTA button
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: SizedBox(
-            width: double.infinity,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: AurumTheme.goldGradient,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: AurumTheme.gold.withOpacity(0.3),
-                    blurRadius: 12,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: ElevatedButton(
-                onPressed: () {
-                  AurumHaptics.medium();
-                  AurumDepthRoute.to(context, const PremiumScreen());
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  shadowColor: Colors.transparent,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                child: Text(
-                  l10n.premiumGetButton,
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ]),
-    );
-  }
-}

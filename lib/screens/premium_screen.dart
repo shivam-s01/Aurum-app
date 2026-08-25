@@ -1,7 +1,7 @@
 // =============================================================================
 // FILE: lib/screens/premium_screen.dart
 // PROJECT: Astra Music
-// DESCRIPTION: Aurum Plus paywall — cinematic premium experience.
+// DESCRIPTION: Astra Plus paywall — cinematic premium experience.
 // =============================================================================
 
 import 'package:aurum_music/widgets/aurum_loader.dart';

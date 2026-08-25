@@ -796,30 +796,14 @@ class AudioPrefs {
   static List<String> qualityOrder() {
     if (dataSaver) {
       return _smartSaverOrder(
-        allow320: isPremium,
+        // 320kbps unlocked for everyone — no more premium gate.
+        allow320: true,
         // Exact original top-level dataSaver ladder — unchanged cold-start behaviour.
         unknownFallback: const ['160kbps', '96kbps', '48kbps', '12kbps'],
       );
     }
 
-    // Phase 5 — 320kbps is premium-only. Free users capped at 160kbps.
-    if (!isPremium) {
-      switch (streamQuality) {
-        case 'Low':
-          return const ['48kbps', '96kbps'];
-        case 'DataSaver':
-          return _smartSaverOrder(
-            allow320: false,
-            // Exact original free-tier DataSaver ladder.
-            unknownFallback: const ['48kbps', '96kbps', '160kbps'],
-          );
-        case 'Medium':
-        case 'High':
-        case 'Auto':
-        default:
-          return const ['160kbps', '96kbps', '48kbps', '12kbps'];
-      }
-    }
+    // 320kbps unlocked for everyone — premium gate removed.
 
     switch (streamQuality) {
       case 'Low':

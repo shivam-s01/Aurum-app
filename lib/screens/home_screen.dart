@@ -946,8 +946,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             children: [
                               // ── Playlists For You (real YT Music) ──
                               _YtPlaylistsForYouSection(refreshKey: _playlistRefreshKey),
-                              // ── Premium upsell banner (free users only) ──
-                              _HomePremiumBanner(isActive: widget.isActive),
+                              // ── Premium upsell banner removed (all features free now) ──
                               // ── Song sections, with the Artist Strip
                               // injected at the midpoint — YT Music and
                               // Spotify both surface a "Popular artists" /
@@ -1032,13 +1031,25 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'Astra',
-              style: TextStyle(
-                color: AurumTheme.gold,
-                fontSize: 26,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [
+                  AurumTheme.goldLight,
+                  AurumTheme.gold,
+                  AurumTheme.goldDark,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ).createShader(bounds),
+              child: const Text(
+                'Astra',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 27,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.8,
+                  height: 1.0,
+                ),
               ),
             ),
             const SizedBox(width: 8),
@@ -2012,38 +2023,49 @@ class _SongSectionRowState extends State<_SongSectionRow> {
                   ),
                 ),
               ),
-              GestureDetector(
-                onTap: () {
-                  AurumHaptics.selection();
-                  final art = section.songs
-                      .where((s) => s.artworkUrl.isNotEmpty)
-                      .map((s) => s.artworkUrl)
-                      .firstOrNull ?? '';
-                  // FIX ("navigation feels inconsistent"): this was the
-                  // one flat "See all" tap in the app still using a plain
-                  // MaterialPageRoute — default Android transition, not
-                  // Aurum's 350ms fade+slide every other direct
-                  // navigation (Library sections, other "See all" rows,
-                  // etc.) uses. Switched to AurumPageRoute.to so this
-                  // matches the rest of the app and respects the "Back
-                  // Animations" setting like everything else does.
-                  AurumDepthRoute.to(
-                    context,
-                    MixScreen(
-                      mixId: section.id,
-                      mixName: section.title,
-                      artworkUrl: art,
-                      emoji: '🎵',
-                      songs: section.songs,
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    AurumHaptics.selection();
+                    final art = section.songs
+                        .where((s) => s.artworkUrl.isNotEmpty)
+                        .map((s) => s.artworkUrl)
+                        .firstOrNull ?? '';
+                    // FIX ("navigation feels inconsistent"): this was the
+                    // one flat "See all" tap in the app still using a plain
+                    // MaterialPageRoute — default Android transition, not
+                    // Aurum's 350ms fade+slide every other direct
+                    // navigation (Library sections, other "See all" rows,
+                    // etc.) uses. Switched to AurumPageRoute.to so this
+                    // matches the rest of the app and respects the "Back
+                    // Animations" setting like everything else does.
+                    AurumDepthRoute.to(
+                      context,
+                      MixScreen(
+                        mixId: section.id,
+                        mixName: section.title,
+                        artworkUrl: art,
+                        emoji: '🎵',
+                        songs: section.songs,
+                      ),
+                    );
+                  },
+                  // Own padded hit area (not just the text glyph bounds) so
+                  // the tap target is consistently reachable and gives
+                  // immediate ripple feedback — a "See all" mis-tap/no-op
+                  // used to be the row's least reliable interaction.
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    child: Text(
+                      'See all',
+                      style: TextStyle(
+                        color: AurumTheme.gold,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  );
-                },
-                child: Text(
-                  'See all',
-                  style: TextStyle(
-                    color: AurumTheme.gold,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -2481,19 +2503,26 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
                   ),
                 ),
               ),
-              GestureDetector(
-                onTap: () => _openMix(context),
-                // FIX: hardcoded English on this new offline row — reuses
-                // the app's existing commonSeeAll key (already defined
-                // across all 16 locale .arb files) instead of introducing
-                // another un-translated string, matching how every
-                // localized label elsewhere in this file is sourced.
-                child: Text(
-                  AppLocalizations.of(context)!.commonSeeAll,
-                  style: TextStyle(
-                    color: AurumTheme.gold,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _openMix(context),
+                  // FIX: hardcoded English on this new offline row — reuses
+                  // the app's existing commonSeeAll key (already defined
+                  // across all 16 locale .arb files) instead of introducing
+                  // another un-translated string, matching how every
+                  // localized label elsewhere in this file is sourced.
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    child: Text(
+                      AppLocalizations.of(context)!.commonSeeAll,
+                      style: TextStyle(
+                        color: AurumTheme.gold,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -3759,7 +3788,7 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
                           ],
                         ).createShader(b),
                         child: const Text(
-                          'Unlock Aurum Plus ✦',
+                          'Unlock Astra Plus ✦',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 14.5,

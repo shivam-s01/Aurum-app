@@ -31,13 +31,13 @@ class PremiumGate {
     String? description,
     bool requiresLoginOnly = false,
   }) {
+    // Payment gate removed — every feature is free once signed in with
+    // Google. Always show the sign-in-only sheet.
     showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => requiresLoginOnly
-          ? _LoginGateSheet(feature: feature, description: description)
-          : _PremiumGateSheet(feature: feature, description: description),
+      builder: (_) => _LoginGateSheet(feature: feature, description: description),
     );
   }
 
@@ -48,22 +48,12 @@ class PremiumGate {
     required VoidCallback onAllowed,
     bool requiresLoginOnly = false,
   }) {
-    if (requiresLoginOnly) {
-      // Login-gated feature — no payment involved at all. Signed in is
-      // the only bar to clear.
-      final isSignedIn = context.read<AuthProvider>().isSignedIn;
-      if (isSignedIn) {
-        onAllowed();
-      } else {
-        show(context, feature: feature, description: description, requiresLoginOnly: true);
-      }
-      return;
-    }
-    final isPremium = context.read<PremiumProvider>().isPremium;
-    if (isPremium) {
+    // Payment gate removed — signed in is the only bar to clear now.
+    final isSignedIn = context.read<AuthProvider>().isSignedIn;
+    if (isSignedIn) {
       onAllowed();
     } else {
-      show(context, feature: feature, description: description);
+      show(context, feature: feature, description: description, requiresLoginOnly: true);
     }
   }
 }
@@ -239,7 +229,7 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                 const SizedBox(height: 6),
                 Text(
                   widget.description ??
-                      'Unlock studio-quality 320kbps streaming\nwith Aurum Plus.',
+                      'Unlock studio-quality 320kbps streaming\nwith Astra Plus.',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.45),
                     fontSize: 13,
@@ -430,7 +420,7 @@ class _PremiumGateSheetState extends State<_PremiumGateSheet>
                                   const SizedBox(width: 8),
                                   Text(
                                     isSignedIn
-                                        ? '✦  Get Aurum Plus'
+                                        ? '✦  Get Astra Plus'
                                         : 'Sign in & Get Plus',
                                     style: const TextStyle(
                                       color: Colors.black,
