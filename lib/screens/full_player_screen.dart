@@ -1377,17 +1377,21 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               child: _DragTransform(
                 dragYListenable: _dragYNotifier,
                 child: PopScope(
-                  // Back button, while the immersive lyrics overlay is
-                  // showing, closes the overlay instead of the whole
-                  // player — same "innermost thing closes first" pattern
-                  // as the Up Next/Lyrics/Info sheet, just via canPop
-                  // instead of a Navigator route since the overlay isn't
-                  // pushed as its own route (see _openImmersiveLyrics).
-                  canPop: !_immersiveLyricsOpen,
-                  onPopInvokedWithResult: (didPop, _) {
-                    if (didPop) return;
-                    _closeImmersiveLyrics();
-                  },
+                  // FIX ("back karne pe bhi hat jata hai — ye bhi band
+                  // karo, jab tak button dubara click na ho tab tak
+                  // hamesha khula rahe"): system/gesture back button used
+                  // to close the immersive lyrics overlay (same
+                  // "innermost thing closes first" pattern as the Up
+                  // Next/Lyrics/Info sheet). Per the updated spec, the
+                  // overlay must ONLY close via its own toggle button —
+                  // not swipe, not tap, and now not back either. canPop
+                  // stays true even while the overlay is open (so back
+                  // still closes the whole PLAYER as normal, one level
+                  // up), but back no longer touches the immersive overlay
+                  // itself — onPopInvokedWithResult here is now a no-op
+                  // for the overlay case.
+                  canPop: true,
+                  onPopInvokedWithResult: (didPop, _) {},
                   child: Scaffold(
                       // FIX (permanent removal of cold-start white/cream
                       // flash — confirmed reproducible in every theme
@@ -1708,6 +1712,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                     right: hPad,
                     child: _ImmersiveLyricsTriggerButton(
                       bgLuma: _currentBg2.computeLuminance(),
+                      isActive: _immersiveLyricsOpen,
                       onTap: _openImmersiveLyrics,
                     ),
                   ),
@@ -2213,6 +2218,7 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
                           bg4: widget.bg4,
                           dragY: widget.immersiveDragY,
                           isDragging: widget.immersiveDragging,
+                          maxArtSize: maxArtSize,
                           onClose: widget.onCloseImmersive,
                           onDragStart: widget.onImmersiveDragStart,
                           onDragUpdate: widget.onImmersiveDragUpdate,
@@ -2545,20 +2551,43 @@ class _SongInfo extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _ImmersiveLyricsTriggerButton extends StatelessWidget {
   final double bgLuma;
+  final bool isActive;
   final VoidCallback onTap;
   const _ImmersiveLyricsTriggerButton({
     required this.bgLuma,
+    required this.isActive,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final bgIsLight = bgLuma >= 0.5;
-    final iconColor =
-        bgIsLight ? AurumTheme.lightTextSecondary : Colors.white.withAlpha(180);
-    final fillColor = bgIsLight
-        ? AurumTheme.lightTextPrimary.withAlpha(18)
-        : Colors.white.withAlpha(22);
+    // FIX ("buttons ekdam clean/professional lage, paid app jaisa"):
+    // this toggle previously looked identical whether the lyrics
+    // overlay was open or closed — a proper toggle button needs to show
+    // its own ON state, not just fire onTap. Active state now gets the
+    // accent-tinted fill + a thin matching border (the same restrained
+    // "lit" treatment used on the active lyric line elsewhere in this
+    // file), so at a glance the button itself communicates "this is on"
+    // — exactly the kind of state feedback paid/production apps have
+    // and free-feeling ones skip.
+    final iconColor = isActive
+        ? (bgIsLight ? AurumTheme.lightTextPrimary : Colors.white)
+        : (bgIsLight
+            ? AurumTheme.lightTextSecondary
+            : Colors.white.withAlpha(180));
+    final fillColor = isActive
+        ? (bgIsLight
+            ? AurumTheme.lightTextPrimary.withAlpha(30)
+            : Colors.white.withAlpha(42))
+        : (bgIsLight
+            ? AurumTheme.lightTextPrimary.withAlpha(18)
+            : Colors.white.withAlpha(22));
+    final borderColor = isActive
+        ? (bgIsLight
+            ? AurumTheme.lightTextPrimary.withAlpha(60)
+            : Colors.white.withAlpha(90))
+        : Colors.transparent;
 
     // Relocated to the LOCAL/quality-pill row (28px tall) — resized from
     // 34px down to 26px so it fits that row cleanly instead of
@@ -2569,14 +2598,25 @@ class _ImmersiveLyricsTriggerButton extends StatelessWidget {
     return AurumPressable(
       onTap: onTap,
       scaleAmount: 0.90,
-      child: Container(
+      child: AnimatedContainer(
+        // Same 320ms/easeOutCubic beat as the rest of this screen's
+        // premium transitions (active lyric line, glow fades) — a
+        // consistent animation "voice" across every touch point reads
+        // as intentional design, not a grab-bag of different timings.
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
         width: 26,
         height: 26,
         decoration: BoxDecoration(
           color: fillColor,
           shape: BoxShape.circle,
+          border: Border.all(color: borderColor, width: 1),
         ),
-        child: Icon(Icons.auto_awesome_rounded, size: 13, color: iconColor),
+        child: Icon(
+          Icons.auto_awesome_rounded,
+          size: 13,
+          color: iconColor,
+        ),
       ),
     );
   }
@@ -2635,6 +2675,7 @@ class _ImmersiveLyricsOverlay extends StatefulWidget {
   final Color bg1, bg2, bg3, bg4;
   final double dragY;
   final bool isDragging;
+  final double maxArtSize;
   final VoidCallback onClose;
   final VoidCallback onDragStart;
   final ValueChanged<double> onDragUpdate;
@@ -2649,6 +2690,7 @@ class _ImmersiveLyricsOverlay extends StatefulWidget {
     required this.bg4,
     required this.dragY,
     required this.isDragging,
+    required this.maxArtSize,
     required this.onClose,
     required this.onDragStart,
     required this.onDragUpdate,
@@ -2668,6 +2710,32 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    // FIX ("kona ekdam thumbnail jaisa hona chahiye, space na chute" —
+    // corner-radius mismatch): this overlay used to hardcode
+    // BorderRadius.circular(20) regardless of the user's actual Settings
+    // → Appearance → Artwork Shape choice. The real artwork right behind
+    // it can be Circle (maxArtSize/2), Square (4.0), or Rounded (20.0) —
+    // so on Circle or Square, the overlay's corners never matched the
+    // artwork's own edge, reading as a visible seam/gap right at the
+    // corners once the cross-fade landed. Reading the same
+    // artworkShapeNotifier _ArtworkVisual already uses, with the exact
+    // same radius formula, guarantees the overlay's box is pixel-for-
+    // pixel the same shape as the artwork it's replacing, in all 4
+    // corners, for every shape setting.
+    return ValueListenableBuilder<String>(
+      valueListenable: AudioPrefs.artworkShapeNotifier,
+      builder: (context, shape, _) {
+        final radius = shape == 'Circle'
+            ? widget.maxArtSize / 2
+            : shape == 'Square'
+                ? 4.0
+                : 20.0;
+        return _buildOverlay(context, radius);
+      },
+    );
+  }
+
+  Widget _buildOverlay(BuildContext context, double radius) {
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, child) {
@@ -2758,7 +2826,7 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                 // — no square-corner mismatch peeking out from behind
                 // the artwork's rounded shape mid-transition.
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(radius),
                   child: Stack(
                     fit: StackFit.expand,
                   children: [
@@ -2778,7 +2846,7 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                       opacity: (1 - artOpacity).clamp(0.0, 1.0),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(radius),
                           gradient: LinearGradient(
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
