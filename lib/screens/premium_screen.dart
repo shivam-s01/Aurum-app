@@ -28,8 +28,8 @@ class _PremiumScreenState extends State<PremiumScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   // Entrance
   late final AnimationController _entranceCtrl;
-  late final Animation<double> _heroFade, _plansFade, _featuresFade, _ctaFade;
-  late final Animation<Offset> _heroSlide, _plansSlide, _featuresSlide, _ctaSlide;
+  late final Animation<double> _heroFade, _plansFade, _ctaFade;
+  late final Animation<Offset> _heroSlide, _plansSlide, _ctaSlide;
 
   // Glow breathing
   late final AnimationController _glowCtrl;
@@ -79,8 +79,6 @@ class _PremiumScreenState extends State<PremiumScreen>
     _heroSlide = slideFor(0.00, 0.45);
     _plansFade = fadeFor(0.20, 0.65);
     _plansSlide = slideFor(0.20, 0.65);
-    _featuresFade = fadeFor(0.38, 0.80);
-    _featuresSlide = slideFor(0.38, 0.80);
     _ctaFade = fadeFor(0.55, 1.00);
     _ctaSlide = slideFor(0.55, 1.00);
 
@@ -174,18 +172,6 @@ class _PremiumScreenState extends State<PremiumScreen>
     PaymentService.instance.dispose();
     super.dispose();
   }
-
-  static List<(IconData, String, String)> _features(AppLocalizations l10n) => [
-    (Icons.high_quality_rounded, l10n.psFeatHdAudioTitle, l10n.psFeatHdAudioSub),
-    (Icons.all_inclusive_rounded, l10n.psFeatSkipsTitle, l10n.psFeatSkipsSub),
-    (Icons.block_rounded, l10n.psFeatAdsTitle, l10n.psFeatAdsSub),
-    (Icons.auto_awesome_rounded, l10n.psFeatAiTitle, l10n.psFeatAiSub),
-    (Icons.offline_pin_rounded, l10n.psFeatOfflineTitle, l10n.psFeatOfflineSub),
-    (Icons.cloud_sync_rounded, l10n.psFeatSyncTitle, l10n.psFeatSyncSub),
-    (Icons.favorite_rounded, l10n.psFeatFollowTitle, l10n.psFeatFollowSub),
-    (Icons.queue_music_rounded, l10n.psFeatPlaylistsTitle, l10n.psFeatPlaylistsSub),
-    (Icons.palette_rounded, l10n.psFeatThemesTitle, l10n.psFeatThemesSub),
-  ];
 
   void _handlePaymentSuccess(AurumPlan plan, String paymentId) {
     if (!mounted) return;
@@ -322,14 +308,6 @@ class _PremiumScreenState extends State<PremiumScreen>
                         child: SlideTransition(
                           position: _plansSlide,
                           child: _buildPlanSelector(l10n),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      FadeTransition(
-                        opacity: _featuresFade,
-                        child: SlideTransition(
-                          position: _featuresSlide,
-                          child: _buildFeatures(l10n),
                         ),
                       ),
                       const SizedBox(height: 32),
@@ -530,95 +508,6 @@ class _PremiumScreenState extends State<PremiumScreen>
           subLabel: l10n.psSubPayOnce,
           isFullWidth: true,
           onTap: () => _selectPlan(AurumPlan.lifetime),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFeatures(AppLocalizations l10n) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 14, left: 2),
-          child: Text(
-            l10n.psEverythingIncluded,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.85),
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            color: Colors.white.withOpacity(0.04),
-            border: Border.all(
-              color: AurumTheme.gold.withOpacity(0.15),
-              width: 0.8,
-            ),
-          ),
-          child: Column(
-            children: _features(l10n).asMap().entries.map((entry) {
-              final i = entry.key;
-              final f = entry.value;
-              final isLast = i == _features(l10n).length - 1;
-              return Column(children: [
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                  child: Row(children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: AurumTheme.gold.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(f.$1, color: AurumTheme.gold, size: 18),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(f.$2,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w600,
-                              )),
-                          Text(f.$3,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
-                                fontSize: 11.5,
-                              )),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      width: 20,
-                      height: 20,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AurumTheme.gold.withOpacity(0.15),
-                      ),
-                      child: const Icon(Icons.check_rounded,
-                          color: AurumTheme.gold, size: 13),
-                    ),
-                  ]),
-                ),
-                if (!isLast)
-                  Divider(
-                    height: 1,
-                    color: Colors.white.withOpacity(0.05),
-                    indent: 16,
-                    endIndent: 16,
-                  ),
-              ]);
-            }).toList(),
-          ),
         ),
       ],
     );

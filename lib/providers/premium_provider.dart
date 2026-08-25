@@ -3,28 +3,20 @@
 // PROJECT: Astra Music
 // DESCRIPTION: Single source of truth for premium status.
 //
-//   HOW PREMIUM IS DETERMINED (priority order):
-//   1. Supabase app_metadata -> 'is_premium' = true
-//      (set server-side only: either by an admin directly, or by the
-//      Cloudflare Worker's /api/verify-cf-order handler right after
-//      Cashfree confirms a payment — see worker/src/index.js,
-//      grantPremiumServerSide(). The app itself never writes this field;
-//      doing so client-side used to let anyone forge the write and grant
-//      themselves premium for free. _refresh() below calls Supabase's
-//      getUser() — a real network round-trip, not the locally cached
-//      session — specifically so a grant made on ANOTHER device shows up
-//      here without the user needing to sign out and back in.)
-//   2. Local Cashfree payment grant (SharedPreferences), validated against
-//      its expiry window (30 days for monthly, 180 days for sixMonths) AND
-//      against which account actually paid (see PaymentService.hasValidLocalGrant)
-//   3. Default -> false (free user)
+//   MONETIZATION MODEL (Astra): all features below are free for any
+//   signed-in user. Google Sign-In alone unlocks them — no payment
+//   required. Cashfree/PaymentService and the Supabase admin flag are
+//   kept fully intact and still checked/persisted below (see
+//   _hasLegacyPaymentGrant), but they no longer feed into `isPremium`.
+//   They're reserved for a future "remove ads" purchase — a separate
+//   flag from this one. Do not delete PaymentService or its Cashfree
+//   integration; it will be reused for that later.
 //
-//   Google Sign-In is NO LONGER a path to premium. It is used purely for
-//   account identity / cloud sync. Premium is granted only via:
-//     - Supabase admin flag (is_premium = true in metadata), or
-//     - A successful Cashfree payment (validated locally by expiry date)
+//   HOW "PREMIUM" (i.e. feature-unlocked) IS DETERMINED NOW:
+//   1. Signed in with Google (Supabase currentUser != null) -> true
+//   2. Not signed in -> false
 //
-//   PREMIUM FEATURES GATED:
+//   FEATURES UNLOCKED FOR ANY SIGNED-IN USER:
 //   [x] High bitrate streaming (320kbps)
 //   [x] Unlimited skips (free = 6/hour)
 //   [x] Follow artist
@@ -180,6 +172,16 @@ class PremiumProvider extends ChangeNotifier {
       // call's result is stale and must not be applied.
       if (mySession != _refreshSession) return;
 
+      // Astra: feature-unlock is now purely "is someone signed in?" — a
+      // real, network-confirmed Supabase user (not just a cached local
+      // session), so a sign-out on another device is picked up correctly.
+      final isSignedIn = user != null;
+
+      // Legacy payment/admin grant — no longer used to unlock features,
+      // but still computed and persisted (activePlanId) so this data
+      // stays available for the future ad-removal purchase, and so
+      // PaymentService's own local-grant bookkeeping keeps working
+      // exactly as before.
       bool fromAdmin = false;
       if (user != null) {
         final meta = user.userMetadata ?? {};
@@ -197,16 +199,12 @@ class PremiumProvider extends ChangeNotifier {
       // signs out shouldn't lose premium they already paid for — but a
       // *different* user signing in on the same device must not inherit
       // it either; that check now lives in hasValidLocalGrant() itself).
-      //
-      // FIX: this used to return early with premium=false the moment
-      // `user == null`, before ever calling hasValidLocalGrant() — so any
-      // signed-out user with a valid, unexpired local payment grant was
-      // wrongly shown as free. Now both sources are always checked and
-      // combined, matching the priority order documented above the class.
       final hasValidPayment = await PaymentService.hasValidLocalGrant();
       if (mySession != _refreshSession) return;
 
-      final isPremiumNow = fromAdmin || hasValidPayment;
+      // Kept for future ad-removal gating; not used for feature unlock.
+      // ignore: unused_local_variable
+      final hasLegacyPaymentGrant = fromAdmin || hasValidPayment;
 
       String? planId;
       if (hasValidPayment) {
@@ -217,7 +215,7 @@ class PremiumProvider extends ChangeNotifier {
       }
       _activePlanId = planId;
 
-      _setPremium(isPremiumNow);
+      _setPremium(isSignedIn);
     } catch (e) {
       if (kDebugMode) debugPrint('[PremiumProvider] _refresh error: $e');
       // Keep cached value on network error - don't downgrade silently
