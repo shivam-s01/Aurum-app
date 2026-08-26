@@ -3613,6 +3613,7 @@ class ApiService {
   /// reconstructing an artist page from a channel's raw uploads list.
   static Future<Map<String, dynamic>?> _ytmBrowseRaw(
     String browseId, {
+    String? params,
     Duration timeout = const Duration(seconds: 8),
   }) async {
     try {
@@ -3637,6 +3638,7 @@ class ApiService {
             },
           },
           'browseId': browseId,
+          if (params != null) 'params': params,
         }),
       ).timeout(timeout);
       if (resp.statusCode != 200) return null;
@@ -6200,7 +6202,60 @@ class ApiService {
       // own doc comment). Tried first because it's both richer and, being
       // one browse call instead of N paginated uploads calls, faster.
       final browseArtist = await _fetchArtistFromYtMusicBrowse(channelId, songCount: songCount);
-      if (browseArtist != null && browseArtist.topSongs.isNotEmpty) return browseArtist;
+      if (browseArtist != null && browseArtist.topSongs.isNotEmpty) {
+        // FIX ("artist page pe sirf 5-8 songs aate hain, Spotify jaisa pura
+        // catalog nahi" — YOUTUBE-ONLY, no Saavn): a non-empty YT Top Songs
+        // shelf isn't necessarily a FULL one — many Bollywood playback
+        // artists (e.g. Udit Narayan, Alka Yagnik) have only a small,
+        // sparsely-curated YT Music shelf (5-10 tracks) even though the
+        // channel's real upload history runs into the hundreds. Below a
+        // threshold, top up with the channel's own uploads via
+        // _fetchArtistFromYoutube — the same YT-only reconstruction path
+        // used below when browse finds no shelf at all — instead of
+        // reaching for a second, non-YouTube source. topAlbums/singles are
+        // intentionally left as browse's own (uploads scraping can't
+        // produce those — see _fetchArtistFromYoutube's doc comment), so
+        // the merge only ever extends topSongs.
+        const thinShelfThreshold = 15;
+        if (browseArtist.topSongs.length >= thinShelfThreshold) return browseArtist;
+
+        try {
+          final uploadsArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount)
+              .timeout(const Duration(seconds: 12), onTimeout: () => null);
+          if (uploadsArtist == null || uploadsArtist.topSongs.isEmpty) return browseArtist;
+
+          final seenIds = <String>{};
+          final seenTitles = <String>{};
+          final seenRawTitles = <String>[];
+          final mergedSongs = <Song>[];
+          for (final s in [...browseArtist.topSongs, ...uploadsArtist.topSongs]) {
+            if (mergedSongs.length >= songCount) break;
+            if (!seenIds.add(s.id)) continue;
+            final tk = _normTitle(s.title);
+            if (!seenTitles.add(tk)) continue;
+            if (_isDupOfAny(s.title, seenRawTitles)) continue;
+            seenRawTitles.add(s.title);
+            mergedSongs.add(s);
+          }
+
+          return Artist(
+            id: browseArtist.id,
+            name: browseArtist.name,
+            imageUrl: browseArtist.imageUrl,
+            followerCount: browseArtist.followerCount,
+            isVerified: browseArtist.isVerified,
+            bio: browseArtist.bio,
+            topSongs: mergedSongs,
+            topAlbums: browseArtist.topAlbums,
+            singles: browseArtist.singles,
+            source: browseArtist.source,
+            bannerUrl: browseArtist.bannerUrl,
+          );
+        } catch (e) {
+          _log('[fetchArtist] YT uploads top-up failed for "${browseArtist.name}": $e');
+          return browseArtist;
+        }
+      }
 
       // FALLBACK: some channelIds (label/VEVO uploader channels that
       // don't have their own YT Music artist page, or a transient browse
@@ -6213,6 +6268,10 @@ class ApiService {
       // page can still render something instead of a hard failure.
       return browseArtist;
     }
+    // Saavn-id path: kept only as the last-resort route for artists that
+    // have no YouTube channel at all (see resolveArtistId — this branch is
+    // only ever reached when YT channel resolution itself found nothing),
+    // so the page still renders something instead of a hard failure.
     final saavnId = artistId.startsWith('saavn_') ? artistId.substring(6) : artistId;
     return _fetchArtistFromSaavn(saavnId, songCount: songCount, albumCount: albumCount);
   }
@@ -6299,6 +6358,24 @@ class ApiService {
           .trim();
       if (name.isEmpty) return null; // No usable header at all — treat as not-found.
 
+      // PRODUCTION FIX (verified against Musify's youtube_music_explode_dart
+      // reference implementation): channelId isn't always the artist's own
+      // channel — a label or VEVO uploader channel answers with a partial
+      // page of the same artist, but its header's subscribe button still
+      // points at the CANONICAL artist channelId. Reading that and using it
+      // for the returned Artist.id means a caller that resolved via an
+      // uploader channel still lands on the artist's real page (and any
+      // save/follow keys off the correct id) instead of the uploader's.
+      final canonicalChannelId = ((headerRenderer is Map)
+              ? (headerRenderer['subscriptionButton']
+                      ?['subscribeButtonRenderer']?['channelId'])
+                  ?.toString()
+              : null) ??
+          '';
+      final resolvedChannelId = canonicalChannelId.startsWith('UC')
+          ? canonicalChannelId
+          : channelId;
+
       // ── Top Songs: musicResponsiveListItemRenderer rows under whichever
       // shelf carries the videoId-bearing playlistItemData; anywhere in
       // the tree, any shelf title/order. ──
@@ -6360,7 +6437,7 @@ class ApiService {
           duration: duration,
           source: SongSource.youtube,
           viewCount: 1000000, // Top Songs shelf is already popularity-ranked by YT Music itself.
-          artistChannelId: channelId,
+          artistChannelId: resolvedChannelId,
         );
         if (RecommendationEngine.isNonMusicContent(song)) continue;
         topSongs.add(song);
@@ -6371,12 +6448,27 @@ class ApiService {
       // Shelf headers are read from musicCarouselShelfRenderer so an
       // album card and a singles card (same renderer type) don't get
       // merged into one bucket. ──
-      final topAlbums = <ArtistAlbum>[];
-      final singles = <ArtistAlbum>[];
+      //
+      // PRODUCTION FIX (verified against Musify's youtube_music_explode_dart
+      // _collectDiscography/_collectMoreReleaseBrowses): the artist page's
+      // inline Albums/Singles carousels are only a short PREVIEW (YT Music
+      // caps each shelf's inline row at a handful of cards) — the full list
+      // lives behind that shelf's own "More" button, a separate browse call
+      // (browseId prefixed 'MPAD') that returns the complete grid. Every
+      // shelf's More-browseId is collected first, then all of them are
+      // fetched in parallel with the inline carousels' cards still kept as
+      // a fallback for any shelf that has no More button (artists with a
+      // small enough catalog that YT Music never paginates it) — this is
+      // exactly why "Albums" used to cap out around 6-8 even though the
+      // artist has many more: the inline preview was the only thing ever
+      // read.
+      final moreReleaseBrowses = <(String, bool, String?)>[]; // (browseId, isSingles, params)
       for (final carousel in _findRenderers(decoded, 'musicCarouselShelfRenderer')) {
-        final headerTitleRuns = (carousel['header']?['musicCarouselShelfBasicHeaderRenderer']
-                    ?['title']?['runs'] as List?) ??
-            const [];
+        final headerRendererForCarousel =
+            (carousel['header']?['musicCarouselShelfBasicHeaderRenderer'] as Map?)
+                ?.cast<String, dynamic>();
+        final headerTitleRuns =
+            (headerRendererForCarousel?['title']?['runs'] as List?) ?? const [];
         final headerTitle = headerTitleRuns
             .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
             .join()
@@ -6385,7 +6477,41 @@ class ApiService {
         final isAlbums = headerTitle.contains('album');
         if (!isSingles && !isAlbums) continue;
 
-        for (final card in _findRenderers(carousel['contents'], 'musicTwoRowItemRenderer')) {
+        final moreEndpoint = (headerRendererForCarousel?['moreContentButton']
+                ?['buttonRenderer']?['navigationEndpoint']?['browseEndpoint']
+            as Map?)
+            ?.cast<String, dynamic>();
+        final moreBrowseId = (moreEndpoint?['browseId'] ?? '').toString();
+        if (moreBrowseId.startsWith('MPAD')) {
+          moreReleaseBrowses.add(
+              (moreBrowseId, isSingles, moreEndpoint?['params']?.toString()));
+        }
+      }
+
+      final moreGrids = await Future.wait(moreReleaseBrowses.map((entry) async {
+        try {
+          // FIX (verified against Musify's _collectDiscography, which
+          // calls _browse(more.$1, params: more.$2)): the More button's
+          // own `params` value is REQUIRED alongside its browseId — it's
+          // how InnerTube knows this is a "show all releases of this
+          // type" grid request rather than a bare/ambiguous browse. Was
+          // previously dropped entirely (only browseId was forwarded),
+          // which could return a thin, wrong, or empty grid instead of
+          // the full discography.
+          final grid = await _ytmBrowseRaw(entry.$1,
+              params: entry.$3, timeout: const Duration(seconds: 8));
+          return (grid, entry.$2);
+        } catch (_) {
+          return (null, entry.$2);
+        }
+      }));
+
+      final topAlbums = <ArtistAlbum>[];
+      final singles = <ArtistAlbum>[];
+      final seenAlbumBrowseIds = <String>{};
+
+      void collectReleaseCards(dynamic node, bool isSinglesShelf) {
+        for (final card in _findRenderers(node, 'musicTwoRowItemRenderer')) {
           // FIX (verified against ytmusicapi's parse_album/parse_single):
           // an album/single card's browseId is NOT on the card's own
           // top-level navigationEndpoint — it's nested inside the title
@@ -6407,7 +6533,7 @@ class ApiService {
                   as Map?)
               ?.cast<String, dynamic>();
           final browseId = (titleNav?['browseEndpoint']?['browseId'] ?? '').toString();
-          if (browseId.isEmpty) continue;
+          if (browseId.isEmpty || !seenAlbumBrowseIds.add(browseId)) continue;
           final cardThumbs = (card['thumbnailRenderer']?['musicThumbnailRenderer']
                       ?['thumbnail']?['thumbnails'] as List?) ??
               const [];
@@ -6433,9 +6559,9 @@ class ApiService {
             name: _cleanText(cardTitle),
             artworkUrl: cardArt,
             year: year,
-            type: isSingles ? 'single' : 'album',
+            type: isSinglesShelf ? 'single' : 'album',
           );
-          if (isSingles) {
+          if (isSinglesShelf) {
             singles.add(album);
           } else {
             topAlbums.add(album);
@@ -6443,8 +6569,34 @@ class ApiService {
         }
       }
 
+      // Grids first (the full "More" list): they carry the release type
+      // unambiguously (this specific shelf's grid) and are only fetched
+      // when a More button exists, so they're the authoritative, complete
+      // source whenever available. Inline carousel cards are collected
+      // after, purely to fill in the small-catalog case where no More
+      // button/grid exists at all — seenAlbumBrowseIds already dedupes so
+      // an inline card also present in its own grid is never doubled.
+      for (final (grid, isSinglesShelf) in moreGrids) {
+        if (grid != null) collectReleaseCards(grid, isSinglesShelf);
+      }
+      for (final carousel in _findRenderers(decoded, 'musicCarouselShelfRenderer')) {
+        final headerRendererForCarousel =
+            (carousel['header']?['musicCarouselShelfBasicHeaderRenderer'] as Map?)
+                ?.cast<String, dynamic>();
+        final headerTitleRuns =
+            (headerRendererForCarousel?['title']?['runs'] as List?) ?? const [];
+        final headerTitle = headerTitleRuns
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .join()
+            .toLowerCase();
+        final isSingles = headerTitle.contains('single');
+        final isAlbums = headerTitle.contains('album');
+        if (!isSingles && !isAlbums) continue;
+        collectReleaseCards(carousel['contents'], isSingles);
+      }
+
       return Artist(
-        id: 'yt_$channelId',
+        id: 'yt_$resolvedChannelId',
         name: name,
         imageUrl: imageUrl,
         followerCount: followerCount,
