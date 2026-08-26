@@ -66,15 +66,9 @@ class SyncService {
   bool _isSyncing = false;
   bool get isSyncing => _isSyncing;
 
-  // Set by whoever owns premium-gating (see wiring in main.dart / the
-  // premium provider) so SyncService can decide, on its own, whether an
-  // incremental push is actually allowed — cloud sync is premium-only,
-  // same as the existing full syncAll() already enforces at the call
-  // site. Defaults to false so a push can never silently succeed for a
-  // free user before this is wired up.
-  bool Function() isPremium = () => false;
-
-  bool get _canSync => _uid != null && isPremium();
+  // Cloud sync is sign-in-gated only (every signed-in user gets it —
+  // payment/isPremium is ads-only and has nothing to do with sync).
+  bool get _canSync => _uid != null;
 
   // ── Incremental single-item pushes ──────────────────────────────────────
   //

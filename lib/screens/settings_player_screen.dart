@@ -8,8 +8,6 @@ import '../theme/aurum_theme.dart';
 import '../services/native_engine_bridge.dart';
 import '../services/audio_prefs.dart';
 import '../providers/recently_played_provider.dart';
-import '../providers/premium_provider.dart';
-import '../widgets/premium_gate.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/auto_sleep_guard_tile.dart';
 import '../widgets/battery_saver_mode_tile.dart';
@@ -170,13 +168,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
     final savedQuality = p.getString('stream_quality') ?? 'Auto';
     if (!mounted) return;
     setState(() {
-      // Defensive: if this was saved as 'High' before the payment gate
-      // existed (or the account's premium lapsed), don't show a locked
-      // option as the selected one — this matches what
-      // AudioPrefs.qualityOrder() actually does at runtime regardless.
-      _streamQuality       = (savedQuality == 'High' && !AudioPrefs.isPremium)
-          ? 'Auto'
-          : savedQuality;
+      // 320kbps ('High') is fully free now — no defensive downgrade needed.
+      _streamQuality       = savedQuality;
       _dataSaver           = p.getBool('data_saver') ?? false;
       _gapless             = p.getBool('gapless') ?? true;
       _castIconVisibility  = p.getString('cast_icon_visibility') ?? 'auto';
@@ -209,16 +202,8 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
   // ── Stream Quality ──────────────────────────────────────────────────────
   //
-  // Dedicated tile (not a generic dropdown) so "High Bitrate (320kbps)" can
-  // be a clearly-locked, individually-tappable row — a plain
-  // DropdownButton can't intercept a single item's tap to show a paywall
-  // before committing the value. Tapping the locked row always opens
-  // PremiumGate (payment only — this is the one feature in the app that
-  // still requires Astra Plus, not just a Google account) and never
-  // silently selects it. The enforcement itself already lived in
-  // AudioPrefs.qualityOrder() (free accounts capped at 160kbps); this tile
-  // just makes that boundary visible and intentional in the UI instead of
-  // free users picking "High" and silently getting capped audio.
+  // 320kbps ('High') is fully free now — no sign-in, no payment required.
+  // Every tier is directly selectable; nothing here is locked anymore.
   // Internal values MUST stay these exact English strings — they're persisted
   // to SharedPreferences and matched literally by AudioPrefs.qualityOrder()
   // and the native Kotlin side. Only the on-screen label is localized.
@@ -228,12 +213,11 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
     ('Low',    l10n.spQualityLow,    l10n.spQualityLowDesc,    false),
     ('DataSaver', l10n.spQualityDataSaver, l10n.spQualityDataSaverDesc, false),
     ('Medium', l10n.spQualityMedium, l10n.spQualityMediumDesc, false),
-    ('High',   l10n.spQualityHigh,   l10n.spQualityHighDesc,   true), // locked = premium-only
+    ('High',   l10n.spQualityHigh,   l10n.spQualityHighDesc,   false),
   ];
 
   Widget _streamQualityTile(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final isPremium = context.watch<PremiumProvider>().isPremium;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -271,25 +255,12 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
           ),
           const SizedBox(height: 4),
           ..._qualityOptions(l10n).map((opt) {
-            final (key, label, subtitle, locked) = opt;
-            final isLocked = locked && !isPremium;
+            final (key, label, subtitle, _) = opt;
             final selected = _streamQuality == key;
             return AurumPressable(
               scaleAmount: 0.985,
               haptic: false,
               onTap: () {
-                if (isLocked) {
-                  AurumHaptics.medium();
-                  // Strictly payment-gated — no requiresLoginOnly here.
-                  // This is the one feature in the app a Google account
-                  // alone does not unlock.
-                  PremiumGate.show(
-                    context,
-                    feature: l10n.spPremiumHighBitrateFeature,
-                    description: l10n.spPremiumHighBitrateDesc,
-                  );
-                  return;
-                }
                 AurumHaptics.selection();
                 setState(() => _streamQuality = key);
                 _save('stream_quality', key);
@@ -313,39 +284,15 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(children: [
-                          Text(label,
-                              style: TextStyle(
-                                color: isLocked
-                                    ? AurumTheme.textMutedOf(context)
-                                    : AurumTheme.textPrimaryOf(context),
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w600,
-                              )),
-                          if (isLocked) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                              decoration: BoxDecoration(
-                                gradient: AurumTheme.goldGradient,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                const Icon(Icons.lock_rounded, color: Colors.black, size: 9),
-                                const SizedBox(width: 2),
-                                Text(l10n.spPlusBadge,
-                                    style: const TextStyle(
-                                        color: Colors.black,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 0.2)),
-                              ]),
-                            ),
-                          ],
-                        ]),
+                        Text(label,
+                            style: TextStyle(
+                              color: AurumTheme.textPrimaryOf(context),
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            )),
                         Text(subtitle,
                             style: TextStyle(
-                              color: AurumTheme.textMutedOf(context).withOpacity(isLocked ? 0.7 : 1),
+                              color: AurumTheme.textMutedOf(context),
                               fontSize: 11.5,
                             )),
                         // "Smart Saver" (DataSaver) is the one tier whose

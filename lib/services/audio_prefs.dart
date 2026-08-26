@@ -794,16 +794,18 @@ class AudioPrefs {
   /// A user who picks a specific tier now reliably gets a bitrate from
   /// that tier's advertised range, not a silent surprise a level below it.
   static List<String> qualityOrder() {
+    // 320kbps is fully free now — no sign-in, no payment required.
+    // isPremium (paid) is ads-only; isSignedIn gates other features
+    // (sync, playlists, follow, likes etc.) — neither gates bitrate.
+    const allow320 = true;
+
     if (dataSaver) {
       return _smartSaverOrder(
-        // 320kbps unlocked for everyone — no more premium gate.
-        allow320: true,
+        allow320: allow320,
         // Exact original top-level dataSaver ladder — unchanged cold-start behaviour.
         unknownFallback: const ['160kbps', '96kbps', '48kbps', '12kbps'],
       );
     }
-
-    // 320kbps unlocked for everyone — premium gate removed.
 
     switch (streamQuality) {
       case 'Low':
@@ -815,18 +817,23 @@ class AudioPrefs {
       // bandwidth-aware: see [_smartSaverOrder].
       case 'DataSaver':
         return _smartSaverOrder(
-          allow320: true,
+          allow320: allow320,
           // Exact original premium DataSaver ladder.
-          unknownFallback: const ['48kbps', '96kbps', '160kbps', '320kbps'],
+          unknownFallback: allow320
+              ? const ['48kbps', '96kbps', '160kbps', '320kbps']
+              : const ['48kbps', '96kbps', '160kbps'],
         );
       case 'Medium':
         return const ['160kbps', '96kbps'];
       case 'High':
       case 'Auto':
       default:
-        // Data Saver is off — always reach for the highest bitrate first,
-        // regardless of the manual Stream Quality dropdown.
-        return const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps'];
+        // Data Saver is off — reach for the highest bitrate the user is
+        // entitled to first. Free/non-premium (incl. signed-in-only
+        // users) never gets offered 320kbps here.
+        return allow320
+            ? const ['320kbps', '160kbps', '96kbps', '48kbps', '12kbps']
+            : const ['160kbps', '96kbps', '48kbps', '12kbps'];
     }
   }
 }

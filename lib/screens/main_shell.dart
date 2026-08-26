@@ -403,9 +403,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   Future<void> _handleForegroundSync() async {
     if (!mounted) return;
     final auth = context.read<AuthProvider>();
+    // Cloud sync is sign-in-gated now, not payment-gated — every signed-in
+    // user gets it, same as every other feature. isPremium is ads-only.
     if (!auth.isSignedIn) return;
-    final premium = context.read<PremiumProvider>();
-    if (!premium.isPremium) return;
     try {
       await SyncService.instance.syncAll(
         playlists: context.read<PlaylistProvider>(),

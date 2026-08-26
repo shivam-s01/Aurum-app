@@ -1,30 +1,20 @@
 // =============================================================================
 // FILE: lib/providers/premium_provider.dart
-// PROJECT: Astra Music
+// PROJECT: Aurum Music
 // DESCRIPTION: Single source of truth for premium status.
 //
-//   MONETIZATION MODEL (Astra): all features below are free for any
-//   signed-in user. Google Sign-In alone unlocks them — no payment
-//   required. Cashfree/PaymentService and the Supabase admin flag are
-//   kept fully intact and still checked/persisted below (see
-//   _hasLegacyPaymentGrant), but they no longer feed into `isPremium`.
-//   They're reserved for a future "remove ads" purchase — a separate
-//   flag from this one. Do not delete PaymentService or its Cashfree
-//   integration; it will be reused for that later.
+//   MONETIZATION MODEL: Google Sign-In unlocks sign-in-required features
+//   (cloud sync, follow artist, playlists, likes, unlimited skips, extra
+//   accents, Now Playing card styles etc. — gated separately via
+//   AuthProvider.isSignedIn / PremiumGate, not this provider). PREMIUM
+//   itself (HD 320kbps audio etc., gated via PremiumProvider.isPremium)
+//   requires an actual Cashfree payment OR a Supabase admin grant.
+//   Signing in with Google alone must NOT set isPremium = true.
 //
-//   HOW "PREMIUM" (i.e. feature-unlocked) IS DETERMINED NOW:
-//   1. Signed in with Google (Supabase currentUser != null) -> true
-//   2. Not signed in -> false
-//
-//   FEATURES UNLOCKED FOR ANY SIGNED-IN USER:
-//   [x] High bitrate streaming (320kbps)
-//   [x] Unlimited skips (free = 6/hour)
-//   [x] Follow artist
-//   [x] Create playlist
-//   [x] Like/Favorite songs
-//   [x] Cloud sync (sign-in required)
-//   [x] Extra accent colors (beyond default gold)
-//   [x] Now Playing Card style: "Card" and "Immersive"
+//   HOW "isPremium" IS DETERMINED:
+//   1. Valid local Cashfree payment grant (PaymentService) -> true
+//   2. Supabase admin flag (user/app metadata is_premium) -> true
+//   3. Otherwise -> false, regardless of sign-in state
 // =============================================================================
 
 import 'dart:async';
@@ -172,16 +162,11 @@ class PremiumProvider extends ChangeNotifier {
       // call's result is stale and must not be applied.
       if (mySession != _refreshSession) return;
 
-      // Astra: feature-unlock is now purely "is someone signed in?" — a
-      // real, network-confirmed Supabase user (not just a cached local
-      // session), so a sign-out on another device is picked up correctly.
-      final isSignedIn = user != null;
+      // NOTE: general feature-unlock (follow artist, playlists, likes,
+      // unlimited skips, cloud sync etc.) is gated on sign-in elsewhere
+      // (AuthProvider.isSignedIn / PremiumGate.guard) — that's unchanged.
+      // This provider is ONLY about the paid "premium" flag below.
 
-      // Legacy payment/admin grant — no longer used to unlock features,
-      // but still computed and persisted (activePlanId) so this data
-      // stays available for the future ad-removal purchase, and so
-      // PaymentService's own local-grant bookkeeping keeps working
-      // exactly as before.
       bool fromAdmin = false;
       if (user != null) {
         final meta = user.userMetadata ?? {};
@@ -202,8 +187,9 @@ class PremiumProvider extends ChangeNotifier {
       final hasValidPayment = await PaymentService.hasValidLocalGrant();
       if (mySession != _refreshSession) return;
 
-      // Kept for future ad-removal gating; not used for feature unlock.
-      // ignore: unused_local_variable
+      // PREMIUM = actual payment or admin grant. Google sign-in alone
+      // no longer sets this — isSignedIn is still used elsewhere (auth
+      // gating, cloud sync, etc.) but must not feed into premium.
       final hasLegacyPaymentGrant = fromAdmin || hasValidPayment;
 
       String? planId;
@@ -215,7 +201,7 @@ class PremiumProvider extends ChangeNotifier {
       }
       _activePlanId = planId;
 
-      _setPremium(isSignedIn);
+      _setPremium(hasLegacyPaymentGrant);
     } catch (e) {
       if (kDebugMode) debugPrint('[PremiumProvider] _refresh error: $e');
       // Keep cached value on network error - don't downgrade silently

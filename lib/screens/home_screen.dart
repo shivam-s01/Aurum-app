@@ -1000,7 +1000,7 @@ class _HomeScreenState extends State<HomeScreen> {
       floating: true,
       snap: true,
       elevation: 0,
-      titleSpacing: 20,
+      titleSpacing: 12,
       systemOverlayStyle: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
@@ -1031,26 +1031,45 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ShaderMask(
-              shaderCallback: (bounds) => const LinearGradient(
-                colors: [
-                  AurumTheme.goldLight,
-                  AurumTheme.gold,
-                  AurumTheme.goldDark,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ).createShader(bounds),
-              child: const Text(
-                'Astra',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 27,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.8,
-                  height: 1.0,
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                // Subtle depth layer — barely-there, not a glow.
+                Text(
+                  'Astra',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                    height: 1.0,
+                    foreground: Paint()
+                      ..color = AurumTheme.gold.withOpacity(0.22)
+                      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+                  ),
                 ),
-              ),
+                ShaderMask(
+                  shaderCallback: (bounds) => const LinearGradient(
+                    colors: [
+                      AurumTheme.goldLight,
+                      AurumTheme.gold,
+                      AurumTheme.goldDark,
+                    ],
+                    stops: [0.0, 0.5, 1.0],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ).createShader(bounds),
+                  child: const Text(
+                    'Astra',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
+                      height: 1.0,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(width: 8),
             Container(
@@ -1372,7 +1391,10 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     // was loaded — pure wasted GPU/CPU work sitting on the home screen.
     final isPlayingNow =
         context.select<PlayerProvider, bool>((p) => p.isPlaying);
-    final shouldBreathe = isPlayingNow && _appInForeground && widget.isActive;
+    final shouldBreathe = isPlayingNow &&
+        _appInForeground &&
+        widget.isActive &&
+        AudioPrefs.enableAnimationsNotifier.value;
     if (shouldBreathe && !_breatheCtrl.isAnimating) {
       _breatheCtrl.repeat(reverse: true);
     } else if (!shouldBreathe && _breatheCtrl.isAnimating) {
@@ -1424,7 +1446,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     // better than a full-width empty bar.
     return Padding(
       key: const ValueKey('hero_empty'),
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 22),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 22),
       child: Container(
         height: 64,
         padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -1464,7 +1486,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   Widget _buildPlayingCard(BuildContext context, Song song, bool isLight) {
     return Padding(
       key: const ValueKey('hero_playing'),
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 22),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 22),
       child: AurumPressable(
         scaleAmount: 0.99,
         onTap: _openFullPlayer,
@@ -1755,7 +1777,7 @@ class _TopAmbientGlowState extends State<_TopAmbientGlow>
         ? _currentColor
         : (isDark
             ? AurumTheme.gold.withOpacity(0.16)
-            : AurumTheme.gold.withOpacity(0.14));
+            : AurumTheme.gold.withOpacity(0.10));
 
     return RepaintBoundary(
       child: AnimatedBuilder(
@@ -1765,7 +1787,7 @@ class _TopAmbientGlowState extends State<_TopAmbientGlow>
           return Opacity(
             opacity: opacity,
             child: SizedBox(
-              height: isDark ? 220 : 300,
+              height: isDark ? 220 : 240,
               width: double.infinity,
               child: _GlowPainter(color: effectiveColor, isDark: isDark),
             ),
@@ -1805,9 +1827,9 @@ class _GlowBlobPainter extends CustomPainter {
         radius: 1.1,
         colors: isDark
             ? [color.withOpacity(0.30), color.withOpacity(0.10), Colors.transparent]
-            : [color.withOpacity(0.55), color.withOpacity(0.22), Colors.transparent],
-        stops: const [0.0, 0.45, 1.0],
-      ).createShader(Rect.fromLTWH(0, -size.height * 0.3, size.width, size.height * 1.3));
+            : [color.withOpacity(0.22), color.withOpacity(0.08), Colors.transparent],
+        stops: const [0.0, 0.4, 1.0],
+      ).createShader(Rect.fromLTWH(0, -size.height * 0.3, size.width, size.height * 0.9));
 
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
   }
@@ -1881,7 +1903,7 @@ class _OnlineContent extends StatelessWidget {
       baseColor: AurumTheme.bgCardOf(context),
       highlightColor: AurumTheme.bgElevatedOf(context),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: List.generate(3, (_) => Padding(
@@ -2004,7 +2026,7 @@ class _SongSectionRowState extends State<_SongSectionRow> {
   Widget build(BuildContext context) {
     final section = widget.section;
     return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 20, right: 20),
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2086,7 +2108,7 @@ class _SongSectionRowState extends State<_SongSectionRow> {
               // per-card right:12 margin was consumed by the last item
               // there wasn't a matching gap to the edge like the left side
               // has. Bumping this to 16 mirrors the left inset exactly.
-              padding: const EdgeInsets.only(right: 20),
+              padding: const EdgeInsets.only(right: 12),
               itemCount: section.songs.length.clamp(0, 12),
               itemBuilder: (_, i) {
                 // CRASH FIX: section.songs can be replaced mid-scroll
@@ -2394,7 +2416,7 @@ class _OfflineContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+          padding: const EdgeInsets.fromLTRB(12, 20, 12, 0),
           child: Row(children: [
             Icon(Icons.download_done_rounded, color: AurumTheme.gold, size: 16),
             const SizedBox(width: 6),
@@ -2484,7 +2506,7 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
   Widget build(BuildContext context) {
     final section = widget.section;
     return Padding(
-      padding: const EdgeInsets.only(top: 24, left: 20, right: 20),
+      padding: const EdgeInsets.only(top: 24, left: 12, right: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2537,7 +2559,7 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               cacheExtent: 600,
-              padding: const EdgeInsets.only(right: 20),
+              padding: const EdgeInsets.only(right: 12),
               itemCount: section.songs.length.clamp(0, 12),
               itemBuilder: (_, i) {
                 if (i >= section.songs.length) return const SizedBox.shrink();
@@ -2605,7 +2627,7 @@ class _ProfileAvatarButton extends StatelessWidget {
     final avatarUrl = context.watch<AuthProvider>().avatarUrl;
 
     return Padding(
-      padding: const EdgeInsets.only(right: 20, left: 4),
+      padding: const EdgeInsets.only(right: 12, left: 4),
       child: AurumPressable(
         scaleAmount: 0.90,
         onTap: () => _openProfile(context),
@@ -2750,7 +2772,7 @@ class _SourceSheet extends StatelessWidget {
             child: SafeArea(
               top: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                padding: const EdgeInsets.fromLTRB(12, 14, 12, 20),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2903,7 +2925,7 @@ class _RecentlyPlayedSection extends StatelessWidget {
     if (songs.isEmpty) return const SizedBox.shrink();
     final player = context.read<PlayerProvider>();
     return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 20, right: 20),
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2923,7 +2945,7 @@ class _RecentlyPlayedSection extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               cacheExtent: 600,
-              padding: const EdgeInsets.only(right: 20),
+              padding: const EdgeInsets.only(right: 12),
               itemBuilder: (_, i) => AurumPressable(
                 scaleAmount: 0.96,
                 onTap: () {
@@ -3021,7 +3043,7 @@ class _ArtistStripState extends State<_ArtistStrip> {
     // Kept at top:28 to match every other section's rhythm (Trending
     // Playlists, each SongSection) — see the file-wide note on this.
     return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 20, right: 20),
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3322,7 +3344,7 @@ class _YtPlaylistsForYouSectionState
     final cards = _cards;
 
     return Padding(
-      padding: const EdgeInsets.only(top: 28, left: 20, right: 20),
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3354,7 +3376,7 @@ class _YtPlaylistsForYouSectionState
                     scrollDirection: Axis.horizontal,
                     physics: const BouncingScrollPhysics(),
                     cacheExtent: 600,
-                    padding: const EdgeInsets.only(right: 20),
+                    padding: const EdgeInsets.only(right: 12),
                     itemCount: cards.length,
                     itemBuilder: (_, i) => _YtHomePlaylistCardWidget(
                       key: ValueKey(
@@ -3392,7 +3414,7 @@ class _MoodChipRow extends StatelessWidget {
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.only(right: 20),
+        padding: const EdgeInsets.only(right: 12),
         // PERF: mood chips are cheap (AnimatedContainer + Text, no
         // network image), but caching a little extra off-screen width
         // still avoids a build/layout hitch on the very first frame a
@@ -3454,7 +3476,7 @@ class _YtPlaylistsForYouSkeleton extends StatelessWidget {
       controller: scrollController,
       scrollDirection: Axis.horizontal,
       physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(right: 20),
+      padding: const EdgeInsets.only(right: 12),
       itemCount: 4,
       itemBuilder: (_, __) => Container(
         width: 130,
@@ -3718,7 +3740,7 @@ class _HomePremiumBannerState extends State<_HomePremiumBanner>
     if (isPremium) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+      padding: const EdgeInsets.fromLTRB(12, 20, 12, 0),
       child: AurumPressable(
         scaleAmount: 0.97,
         // Same AurumDepthRoute switch as Settings/Profile above, so
