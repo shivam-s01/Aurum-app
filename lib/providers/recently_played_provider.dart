@@ -31,6 +31,7 @@ import '../utils/constants.dart';
 import '../services/api_service.dart';
 import '../services/recommendation_engine.dart';
 import '../services/audio_prefs.dart';
+import '../services/sync_service.dart';
 
 class RecentlyPlayedProvider extends ChangeNotifier {
   static const _boxName         = AppConstants.boxRecentlyPlayed;
@@ -64,6 +65,11 @@ class RecentlyPlayedProvider extends ChangeNotifier {
   /// Used by search's "you've played this before" ranking boost, where
   /// checking against a List for every search result would be O(n*m).
   Set<String> get playedIdSet => _playedAtById.keys.toSet();
+
+  /// The timestamp (ms since epoch) a given song was last played, or null
+  /// if it's not in history. Used by SyncService to push history entries
+  /// with their real played-at time instead of "now".
+  int? playedAtFor(String songId) => _playedAtById[songId];
 
   // ---------------------------------------------------------------------------
   // INIT
@@ -174,7 +180,8 @@ class RecentlyPlayedProvider extends ChangeNotifier {
           );
 
     _history.insert(0, entry);
-    _playedAtById[entry.id] = DateTime.now().millisecondsSinceEpoch;
+    final playedAt = DateTime.now().millisecondsSinceEpoch;
+    _playedAtById[entry.id] = playedAt;
 
     // Settings → Player & Audio → "History Duration": slider 0–100 maps
     // to 10–200 songs. Default 50 = 100 songs.
@@ -186,6 +193,15 @@ class RecentlyPlayedProvider extends ChangeNotifier {
     }
 
     await _persistHistory();
+
+    // Cloud sync — same free-with-sign-in gate as favorites/playlists
+    // (SyncService._canSync no-ops instantly if nobody's signed in).
+    // Local-file plays are skipped: the file (and its localPath) won't
+    // exist on another device, so pushing it would just create a dead
+    // history row that can never be "opened" anywhere else.
+    if (entry.source != SongSource.local) {
+      unawaited(SyncService.instance.pushHistoryEntry(entry, playedAt));
+    }
 
     // ── NEW v2: Signal RecommendationEngine ──────────────────────────────────
     // Fire-and-forget — never blocks UI or playback
@@ -311,6 +327,60 @@ class RecentlyPlayedProvider extends ChangeNotifier {
     _playedAtById.clear();
     final box = _box ?? await _boxReady.future;
     await box.clear();
+    notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
+  // upsertFromRemote — merges a single history entry pulled from Supabase
+  // into local state, keyed by song id + its own playedAt timestamp (same
+  // shape SyncService already uses for playlists' updatedAt merge).
+  //
+  // Used for cloud sync so history survives sign-out/reinstall/new device
+  // instead of living only in local Hive. Runs through the same
+  // _writeQueue as addPlay()/clearHistory() so a sync pass can never
+  // interleave with a song starting to play mid-merge and lose an entry.
+  //
+  // Merge rule: if this song isn't in local history yet, insert it. If it
+  // is, keep whichever copy has the newer playedAt (mirrors playlists'
+  // "remote newer or missing locally -> apply" rule) rather than always
+  // trusting remote or always trusting local — a song played on two
+  // devices should end up ordered by whichever play actually happened
+  // last, not by which device happened to sync first.
+  // ---------------------------------------------------------------------------
+  Future<void> upsertFromRemote(Song song, int playedAtMs) {
+    final result = _writeQueue.then((_) => _upsertFromRemote(song, playedAtMs));
+    _writeQueue = result.catchError((_) {});
+    return result;
+  }
+
+  Future<void> _upsertFromRemote(Song song, int playedAtMs) async {
+    final existingPlayedAt = _playedAtById[song.id];
+    if (existingPlayedAt != null && existingPlayedAt >= playedAtMs) {
+      // Local copy is same age or newer — nothing to do.
+      return;
+    }
+
+    _history.removeWhere((s) => s.id == song.id);
+    _history.insert(0, song);
+    _playedAtById[song.id] = playedAtMs;
+    _history.sort((a, b) =>
+        (_playedAtById[b.id] ?? 0).compareTo(_playedAtById[a.id] ?? 0));
+
+    // Respect the same history-length cap addPlay() enforces, so a pull
+    // can't grow history past what the user's "History Duration" setting
+    // allows.
+    final p2 = await SharedPreferences.getInstance();
+    final sliderVal = (p2.getInt('history_duration') ?? 50).clamp(0, 100);
+    final maxHistory = (10 + (sliderVal / 100.0 * 190).round()).clamp(10, 200);
+    if (_history.length > maxHistory) {
+      final dropped = _history.sublist(maxHistory);
+      _history = _history.sublist(0, maxHistory);
+      for (final d in dropped) {
+        _playedAtById.remove(d.id);
+      }
+    }
+
+    await _persistHistory();
     notifyListeners();
   }
 

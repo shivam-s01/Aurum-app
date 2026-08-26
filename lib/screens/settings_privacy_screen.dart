@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../services/audio_prefs.dart';
 import '../services/recommendation_engine.dart';
+import '../services/sync_service.dart';
 import '../providers/recently_played_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../widgets/aurum_focus_field.dart';
@@ -239,6 +241,10 @@ class _SettingsPrivacyScreenState extends State<SettingsPrivacyScreen> {
         subtitle: l10n.sprClearHistorySubtitle,
         onTap: () { AurumHaptics.medium(); _confirmClear(context, l10n, l10n.sprHistoryTitle, () async {
           await context.read<RecentlyPlayedProvider>().clearHistory();
+          // Also wipe the cloud copy — otherwise the next sign-in (this
+          // device or another) pulls the "cleared" history right back
+          // down from Supabase, undoing what the user just asked for.
+          unawaited(SyncService.instance.clearRemoteHistory());
         }); },
       ),
       AurumSettingsTile.danger(context,

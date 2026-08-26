@@ -20,6 +20,7 @@ import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/recently_played_provider.dart';
 import '../services/sync_service.dart';
 import '../utils/aurum_haptics.dart';
 
@@ -78,6 +79,7 @@ class _LoginScreenState extends State<LoginScreen>
           followedArtists: context.read<FollowedArtistsProvider>(),
           followedAlbums: context.read<FollowedAlbumsProvider>(),
           favorites: context.read<FavoritesProvider>(),
+          history: context.read<RecentlyPlayedProvider>(),
         );
       } catch (_) {}
       if (!mounted) return;

@@ -25,6 +25,7 @@
 // =============================================================================
 
 import 'dart:math' as math;
+import 'dart:async';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -41,6 +42,7 @@ import '../providers/playlist_provider.dart';
 import '../services/api_service.dart' show YtPlaylistImportException, YtPlaylistImportError;
 import '../providers/premium_provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/sync_service.dart';
 import '../models/download_item.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
@@ -2663,6 +2665,12 @@ class _HistoryScreenState extends State<_HistoryScreen>
                               await context
                                   .read<RecentlyPlayedProvider>()
                                   .clearHistory();
+                              // Also wipe cloud-side, same reasoning as
+                              // settings_privacy_screen's Clear History —
+                              // otherwise a future sync silently restores
+                              // what was just cleared.
+                              unawaited(
+                                  SyncService.instance.clearRemoteHistory());
                             }
                           },
                           child: Container(

@@ -284,7 +284,6 @@ class _PremiumCard extends StatelessWidget {
 
   static List<(IconData, String, String)> _benefits(AppLocalizations l10n) => [
     (Icons.sync_rounded,           l10n.prBenefitSyncTitle,     l10n.prBenefitSyncSub),
-    (Icons.all_inclusive_rounded,  l10n.prBenefitLifetimeTitle, l10n.prBenefitLifetimeSub),
     (Icons.block_rounded,          l10n.prBenefitAdFreeTitle,   l10n.prBenefitAdFreeSub),
     (Icons.high_quality_rounded,   l10n.prBenefitQualityTitle,  l10n.prBenefitQualitySub),
     (Icons.download_done_rounded,  l10n.prBenefitOfflineTitle,  l10n.prBenefitOfflineSub),
@@ -294,7 +293,12 @@ class _PremiumCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final isPremium = context.watch<PremiumProvider>().isPremium;
+    // Payment gate removed for now — every benefit below is free with a
+    // Google account. Left PremiumProvider/isPremium wiring untouched
+    // elsewhere so it's trivial to decide later which of these (if any)
+    // move back behind a real paywall; this screen just always renders
+    // the "unlocked" visual state in the meantime.
+    const isPremium = true;
 
     return Container(
       width: double.infinity,
@@ -460,39 +464,32 @@ class _AccountCardState extends State<_AccountCard> {
     final ok = await auth.signInWithGoogle();
     if (!mounted) return;
     if (ok) {
-      // Refresh premium status after sign-in
-      await context.read<PremiumProvider>().refresh();
-      if (!mounted) return;
-      final isPremium = context.read<PremiumProvider>().isPremium;
-
-      if (isPremium) {
-        // Phase 3 — Cloud sync is premium-only
-        setState(() => _syncing = true);
-        try {
-          await SyncService.instance.syncAll(
-            playlists: context.read<PlaylistProvider>(),
-            followedArtists: context.read<FollowedArtistsProvider>(),
-            followedAlbums: context.read<FollowedAlbumsProvider>(),
-            favorites: context.read<FavoritesProvider>(),
-          );
-        } finally {
-          if (mounted) setState(() => _syncing = false);
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(l10n.prSignedInSynced),
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 2),
-          ));
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(l10n.prSignedInUpgradePrompt),
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 3),
-          ));
-        }
+      // Cloud sync is sign-in-gated only, not payment-gated (see
+      // SyncService._canSync / main_shell.dart's foreground sync) — this
+      // used to skip syncAll() entirely for non-premium users ("Phase 3
+      // — Cloud sync is premium-only"), which is why library data only
+      // ever showed up after 2-3 sign-out/sign-in cycles: the login path
+      // itself never synced anything for a free account, and data only
+      // arrived later by accident, via the next app-resume foreground
+      // sync. Every signed-in user gets a real sync right here now.
+      setState(() => _syncing = true);
+      try {
+        await SyncService.instance.syncAll(
+          playlists: context.read<PlaylistProvider>(),
+          followedArtists: context.read<FollowedArtistsProvider>(),
+          followedAlbums: context.read<FollowedAlbumsProvider>(),
+          favorites: context.read<FavoritesProvider>(),
+          history: context.read<RecentlyPlayedProvider>(),
+        );
+      } finally {
+        if (mounted) setState(() => _syncing = false);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(l10n.prSignedInSynced),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ));
       }
     } else if (auth.lastError != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(

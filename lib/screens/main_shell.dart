@@ -31,6 +31,7 @@ import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/recently_played_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 
@@ -412,6 +413,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         followedArtists: context.read<FollowedArtistsProvider>(),
         followedAlbums: context.read<FollowedAlbumsProvider>(),
         favorites: context.read<FavoritesProvider>(),
+        history: context.read<RecentlyPlayedProvider>(),
       );
     } catch (_) {
       // Best-effort — a failed foreground sync just means we try again
