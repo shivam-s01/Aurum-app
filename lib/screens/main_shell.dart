@@ -739,7 +739,20 @@ class AurumBottomNavBar extends StatelessWidget {
                           ),
                         ),
                       ),
-                      navBarContent,
+                      // FIX (CI build error "Widget? can't be assigned to
+                      // list type Widget"): ValueListenableBuilder's
+                      // `child` callback param is typed Widget? by the
+                      // Flutter SDK (it's nullable there because `child`
+                      // itself is an optional constructor parameter on
+                      // ValueListenableBuilder in general) — but THIS
+                      // builder is always constructed with a non-null
+                      // `child: LayoutBuilder(...)` a few lines below, so
+                      // navBarContent is never actually null at runtime.
+                      // The analyzer can't see that guarantee across the
+                      // builder boundary, so it flags the direct
+                      // Widget?-into-List<Widget> assignment here. `!` is
+                      // safe and correct given that guarantee.
+                      navBarContent!,
                     ],
                   ),
                 );
