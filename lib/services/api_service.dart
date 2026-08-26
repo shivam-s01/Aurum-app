@@ -3453,6 +3453,200 @@ class ApiService {
   // clean results.
   static const String _ytmApiKey = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
   static const String _ytmClientVersion = '1.20240101.01.00';
+
+  // ═══════════════════════════════════════════════════════════════════
+  // GENERIC RECURSIVE RENDERER FINDER ("production-grade" artist parsing)
+  //
+  // Every hand-rolled YT Music parser in this file used to hardcode the
+  // exact shelf path a renderer would appear under — tabs →
+  // sectionListRenderer → musicShelfRenderer.contents, or separately
+  // musicCardShelfRenderer, or a flat sectionListRenderer with no tabs
+  // wrapper at all. YT Music actually mixes all of these shapes depending
+  // on the query, the account region, and which experiment bucket the
+  // request lands in — a single artist-only query can come back as a
+  // "Top result" card (musicCardShelfRenderer), a normal shelf
+  // (musicShelfRenderer), or occasionally a musicShelfRenderer nested one
+  // level deeper inside a musicCarouselShelfRenderer. Hardcoding one path
+  // means any of the others silently returns zero artists — which is
+  // exactly the "search mein artist nahi aate" bug this fixes.
+  //
+  // _findRenderers walks the ENTIRE decoded JSON tree — maps, lists,
+  // any depth — and yields every object found under the given key,
+  // regardless of what shelf/card/carousel wrapper it's nested inside.
+  // This makes every parser below immune to YouTube reshuffling its
+  // response layout, which happens often and without notice since it's
+  // an undocumented internal API. Modeled directly on the same pattern
+  // Musify's youtube_music_explode_dart package uses for this exact
+  // problem.
+  // ═══════════════════════════════════════════════════════════════════
+  static Iterable<Map<String, dynamic>> _findRenderers(
+      dynamic node, String rendererKey) sync* {
+    if (node is Map) {
+      final match = node[rendererKey];
+      if (match is Map) yield Map<String, dynamic>.from(match);
+      for (final value in node.values) {
+        yield* _findRenderers(value, rendererKey);
+      }
+    } else if (node is List) {
+      for (final value in node) {
+        yield* _findRenderers(value, rendererKey);
+      }
+    }
+  }
+
+  /// Pulls the browseId + MUSIC_PAGE_TYPE_ARTIST tag off a
+  /// navigationEndpoint (however it's nested) — shared by every artist
+  /// renderer path below (list item, card shelf, flex-column run).
+  static ({String browseId, bool isArtist})? _artistEndpointOf(
+      Map<String, dynamic>? navigationEndpoint) {
+    final browseEndpoint = navigationEndpoint?['browseEndpoint'];
+    if (browseEndpoint is! Map) return null;
+    final browseId = (browseEndpoint['browseId'] ?? '').toString();
+    if (!browseId.startsWith('UC')) return null;
+    final pageType = browseEndpoint['browseEndpointContextSupportedConfigs']
+        ?['browseEndpointContextMusicConfig']?['pageType'];
+    return (browseId: browseId, isArtist: pageType == 'MUSIC_PAGE_TYPE_ARTIST');
+  }
+
+  /// Best-quality thumbnail URL out of a standard YT Music
+  /// musicThumbnailRenderer.thumbnail.thumbnails list (largest is last).
+  static String _ytmThumbnailUrl(Map<String, dynamic>? renderer) {
+    final thumbs = renderer?['thumbnail']?['musicThumbnailRenderer']
+            ?['thumbnail']?['thumbnails'] as List? ??
+        const [];
+    if (thumbs.isEmpty) return '';
+    final best = thumbs.last;
+    final rawUrl = (best is Map ? (best['url'] ?? '') : '').toString();
+    if (rawUrl.isEmpty) return '';
+    // Request a larger crop than YT Music's default (~60-120px chip size)
+    // so artist avatars/artwork stay sharp on larger UI (artist header,
+    // full player, etc.) instead of visibly upscaled thumbnails.
+    return rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500-p');
+  }
+
+  static String _flexColumnText(Map<String, dynamic> item, int index) {
+    final flexColumns = (item['flexColumns'] as List?) ?? const [];
+    if (index >= flexColumns.length) return '';
+    final runs = flexColumns[index]
+            ?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs']
+        as List? ??
+        const [];
+    return runs
+        .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+        .join()
+        .trim();
+  }
+
+  /// Extracts every MUSIC_PAGE_TYPE_ARTIST-tagged run out of a song row's
+  /// second flex column (the "Song • Artist • Album" subtitle line),
+  /// returning (channelId, name) pairs. Used to recover the *credited
+  /// artist's real channelId* directly from a song search result, which
+  /// is far more reliable than resolving a name string back to a channel
+  /// in a second network round trip.
+  static List<({String channelId, String name})> _artistRunsInSubtitle(
+      Map<String, dynamic> item) {
+    final flexColumns = (item['flexColumns'] as List?) ?? const [];
+    if (flexColumns.length < 2) return const [];
+    final runs = flexColumns[1]
+            ?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs']
+        as List? ??
+        const [];
+    final out = <({String channelId, String name})>[];
+    for (final run in runs) {
+      if (run is! Map) continue;
+      final endpoint = _artistEndpointOf(
+          (run['navigationEndpoint'] as Map?)?.cast<String, dynamic>());
+      if (endpoint == null || !endpoint.isArtist) continue;
+      final name = (run['text'] ?? '').toString().trim();
+      if (name.isEmpty) continue;
+      out.add((channelId: endpoint.browseId, name: name));
+    }
+    return out;
+  }
+
+  /// One POST to YT Music's InnerTube `search` endpoint with the given
+  /// query/params, decoded to a Map — or null on any failure. Centralizes
+  /// the request shape every direct YTM call below was duplicating.
+  static Future<Map<String, dynamic>?> _ytmSearchRaw(
+    String query, {
+    String? params,
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    try {
+      final uri = Uri.parse(
+        'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
+      );
+      final resp = await _client.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Origin': 'https://music.youtube.com',
+          'Referer': 'https://music.youtube.com/',
+        },
+        body: jsonEncode({
+          'context': {
+            'client': {
+              'clientName': 'WEB_REMIX',
+              'clientVersion': _ytmClientVersion,
+              'hl': 'en',
+              'gl': 'IN',
+            },
+          },
+          'query': query,
+          if (params != null) 'params': params,
+        }),
+      ).timeout(timeout);
+      if (resp.statusCode != 200) return null;
+      final decoded = jsonDecode(resp.body);
+      return decoded is Map ? decoded.cast<String, dynamic>() : null;
+    } catch (e) {
+      _log('[_ytmSearchRaw] error for "$query": $e');
+      return null;
+    }
+  }
+
+  /// One POST to YT Music's InnerTube `browse` endpoint — used for
+  /// fetching a full artist page (header, top songs, albums, singles)
+  /// directly by channelId, the same call music.youtube.com itself makes
+  /// when you open an artist's page. Far richer and more reliable than
+  /// reconstructing an artist page from a channel's raw uploads list.
+  static Future<Map<String, dynamic>?> _ytmBrowseRaw(
+    String browseId, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    try {
+      final uri = Uri.parse(
+        'https://music.youtube.com/youtubei/v1/browse?key=$_ytmApiKey&prettyPrint=false',
+      );
+      final resp = await _client.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Origin': 'https://music.youtube.com',
+          'Referer': 'https://music.youtube.com/',
+        },
+        body: jsonEncode({
+          'context': {
+            'client': {
+              'clientName': 'WEB_REMIX',
+              'clientVersion': _ytmClientVersion,
+              'hl': 'en',
+              'gl': 'IN',
+            },
+          },
+          'browseId': browseId,
+        }),
+      ).timeout(timeout);
+      if (resp.statusCode != 200) return null;
+      final decoded = jsonDecode(resp.body);
+      return decoded is Map ? decoded.cast<String, dynamic>() : null;
+    } catch (e) {
+      _log('[_ytmBrowseRaw] error for "$browseId": $e');
+      return null;
+    }
+  }
   // "Songs" search-filter param — restricts results to the Songs shelf
   // only (same as tapping the "Songs" chip on music.youtube.com), so
   // every result is a real song row with proper artist/album metadata,
@@ -4342,130 +4536,36 @@ class ApiService {
     ];
 
     try {
-      final responses = await Future.wait(seeds.map((q) async {
-        try {
-          final uri = Uri.parse(
-            'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
-          );
-          final resp = await _client.post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              'Origin': 'https://music.youtube.com',
-              'Referer': 'https://music.youtube.com/',
-            },
-            body: jsonEncode({
-              'context': {
-                'client': {
-                  'clientName': 'WEB_REMIX',
-                  'clientVersion': '1.20240101.01.00',
-                  'hl': 'en',
-                  'gl': 'IN',
-                },
-              },
-              'query': q,
-              // FIX ("home pe artist kabhi khaali na dikhe"): pin this to
-              // the Songs-shelf filter, same param _searchYtMusicDirect
-              // already uses — an unfiltered query can come back as a
-              // "Top result" card / mixed shelf layout whose structure
-              // doesn't match the musicShelfRenderer parse below at all,
-              // so a seed could silently yield zero artist runs even
-              // though YT Music has the data. Songs-shelf results are
-              // consistently shaped and consistently carry a tagged
-              // MUSIC_PAGE_TYPE_ARTIST run per song.
-              'params': _ytmSongsFilterParam,
-            }),
-          ).timeout(const Duration(seconds: 4));
-          if (resp.statusCode != 200) return null;
-          return jsonDecode(resp.body) as Map<String, dynamic>;
-        } catch (_) {
-          return null;
-        }
-      }));
+      // REWRITTEN on _findRenderers + _artistRunsInSubtitle (production-
+      // grade, shape-agnostic): the old version hand-walked one specific
+      // path (tabbedSearchResultsRenderer → sectionListRenderer →
+      // musicShelfRenderer) with a flat sectionListRenderer as its only
+      // fallback — any other shape (a card, a nested carousel) silently
+      // produced zero artists for that seed. This now finds every song
+      // row anywhere in the response regardless of wrapper, and pulls the
+      // MUSIC_PAGE_TYPE_ARTIST-tagged run out of each row's subtitle —
+      // exactly the same extraction _artistRunsInSubtitle already does
+      // for real search results, so there's one implementation of "how do
+      // we get an artist out of a song row" instead of two drifting apart.
+      final responses = await Future.wait(seeds.map(
+        (q) => _ytmSearchRaw(q, params: _ytmSongsFilterParam,
+            timeout: const Duration(seconds: 4)),
+      ));
 
       final seen = <String>{};
       final out = <YtHomeArtist>[];
 
       for (final json in responses) {
         if (json == null) continue;
-        try {
-          final tabs = (json['contents']?['tabbedSearchResultsRenderer']?['tabs']
-                  as List?) ??
-              const [];
-          final sections = <dynamic>[];
-          for (final tab in tabs) {
-            sections.addAll((tab['tabRenderer']?['content']
-                    ?['sectionListRenderer']?['contents'] as List?) ??
-                const []);
+        for (final item in _findRenderers(json, 'musicResponsiveListItemRenderer')) {
+          for (final run in _artistRunsInSubtitle(item)) {
+            if (!seen.add(run.channelId)) continue;
+            final image = _ytmThumbnailUrl(item);
+            if (image.isEmpty) continue;
+            out.add(YtHomeArtist(
+                channelId: run.channelId, name: _cleanText(run.name), imageUrl: image));
+            if (out.length >= limit) return out;
           }
-          // FIX: a Songs-filtered query can come back without the tabbed
-          // wrapper at all — flat sectionListRenderer.contents straight
-          // off the response root, same shape _parseYtMusicDirectSearch
-          // already handles for the equivalent song-search call. Without
-          // this fallback a seed in this shape silently produced zero
-          // artist runs even though the data was present.
-          if (sections.isEmpty) {
-            sections.addAll(
-                (json['contents']?['sectionListRenderer']?['contents']
-                        as List?) ??
-                    const []);
-          }
-          {
-            for (final section in sections) {
-              final shelf = section['musicShelfRenderer'];
-              if (shelf == null) continue;
-              final items = (shelf['contents'] as List?) ?? const [];
-              for (final item in items) {
-                final r = item['musicResponsiveListItemRenderer'];
-                if (r == null) continue;
-                final flexColumns = (r['flexColumns'] as List?) ?? const [];
-                if (flexColumns.length < 2) continue;
-                final subRuns = (flexColumns[1]['musicResponsiveListItemFlexColumnRenderer']
-                            ?['text']?['runs'] as List?) ??
-                    const [];
-                Map<String, dynamic>? artistRun;
-                for (final run in subRuns) {
-                  final pageType = run['navigationEndpoint']?['browseEndpoint']
-                          ?['browseEndpointContextSupportedConfigs']
-                      ?['browseEndpointContextMusicConfig']?['pageType'];
-                  if (pageType == 'MUSIC_PAGE_TYPE_ARTIST') {
-                    artistRun = run as Map<String, dynamic>;
-                    break;
-                  }
-                }
-                if (artistRun == null) continue;
-                final channelId = (artistRun['navigationEndpoint']
-                            ?['browseEndpoint']?['browseId'] ??
-                        '')
-                    .toString();
-                final name = _cleanText((artistRun['text'] ?? '').toString());
-                if (channelId.isEmpty || name.isEmpty) continue;
-                if (!channelId.startsWith('UC')) continue;
-                if (!seen.add(channelId)) continue;
-
-                final thumbs = (r['thumbnail']?['musicThumbnailRenderer']
-                        ?['thumbnail']?['thumbnails'] as List?) ??
-                    const [];
-                String image = '';
-                if (thumbs.isNotEmpty) {
-                  final best = thumbs.last;
-                  final rawUrl = (best['url'] ?? '').toString();
-                  image = rawUrl.isNotEmpty
-                      ? rawUrl.replaceAll(
-                          RegExp(r'=w\d+-h\d+.*$'), '=w300-h300')
-                      : '';
-                }
-                if (image.isEmpty) continue;
-
-                out.add(YtHomeArtist(
-                    channelId: channelId, name: name, imageUrl: image));
-                if (out.length >= limit) return out;
-              }
-            }
-          }
-        } catch (_) {
-          continue;
         }
       }
       return out;
@@ -5906,58 +6006,23 @@ class ApiService {
   /// same-named song/album never gets picked instead of the channel.
   static Future<String?> _resolveYtChannelId(String name) async {
     if (name.trim().isEmpty) return null;
-    try {
-      final uri = Uri.parse(
-        'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
-      );
-      final resp = await _client.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Origin': 'https://music.youtube.com',
-          'Referer': 'https://music.youtube.com/',
-        },
-        body: jsonEncode({
-          'context': {
-            'client': {
-              'clientName': 'WEB_REMIX',
-              'clientVersion': _ytmClientVersion,
-              'hl': 'en',
-              'gl': 'IN',
-            },
-          },
-          'query': name,
-          // "Artists" filter param (WEB_REMIX search chip) — restricts the
-          // shelf to artist/channel cards only, same family as
-          // _ytmSongsFilterParam above but for the Artists chip.
-          'params': 'Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D',
-        }),
-      ).timeout(const Duration(seconds: 6));
-      if (resp.statusCode != 200) return null;
-      final decoded = jsonDecode(resp.body);
-      if (decoded is! Map) return null;
-
-      final tabs = decoded['contents']?['tabbedSearchResultsRenderer']?['tabs'] as List? ?? const [];
-      for (final tab in tabs) {
-        final sections = tab?['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List? ?? const [];
-        for (final section in sections) {
-          final shelf = section?['musicShelfRenderer'] ?? section?['musicCardShelfRenderer'];
-          final items = (shelf?['contents'] as List?) ?? const [];
-          for (final item in items) {
-            final r = item?['musicResponsiveListItemRenderer'];
-            final browseId = r?['navigationEndpoint']?['browseEndpoint']?['browseId'] ??
-                shelf?['title']?['runs']?[0]?['navigationEndpoint']?['browseEndpoint']?['browseId'];
-            if (browseId != null && browseId.toString().startsWith('UC')) {
-              return browseId.toString();
-            }
-          }
-        }
-      }
-    } catch (e) {
-      _log('[_resolveYtChannelId] error: $e');
+    // Delegates to searchArtists' own shape-agnostic parser (row cards,
+    // grid cards, and the single "Top result" card are all handled there)
+    // instead of maintaining a second, narrower hand-rolled walk that can
+    // drift out of sync and miss shapes the other one already covers.
+    final matches = await _searchArtistsAttempt(name, 1,
+        useArtistFilter: true, timeout: const Duration(seconds: 6));
+    if (matches.isNotEmpty) {
+      return matches.first.id.startsWith('yt_')
+          ? matches.first.id.substring(3)
+          : matches.first.id;
     }
-    return null;
+    final fallback = await _searchArtistsAttempt(name, 1,
+        useArtistFilter: false, timeout: const Duration(seconds: 6));
+    if (fallback.isEmpty) return null;
+    return fallback.first.id.startsWith('yt_')
+        ? fallback.first.id.substring(3)
+        : fallback.first.id;
   }
 
   /// NEW ("search mein artist bhi aaye" — dedicated Artists row): searches
@@ -5978,94 +6043,103 @@ class ApiService {
   /// results when the top hit is an artist, so this catches cases where
   /// the dedicated Artists filter itself misfires without ever falling
   /// back to a slower or lower-quality source.
+  static const String _ytmArtistsFilterParam =
+      'Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D';
+
+  /// PRODUCTION-GRADE ARTIST SEARCH ("search mein artist ekdam aaye").
+  ///
+  /// Rewritten on top of _findRenderers (see its doc comment above) so it
+  /// no longer cares whether YT Music wraps its results in
+  /// musicShelfRenderer, musicCardShelfRenderer, a nested carousel, or any
+  /// future shape — every musicResponsiveListItemRenderer AND every
+  /// musicTwoRowItemRenderer (the card/grid shape artist results also use)
+  /// anywhere in the response tree is found and read. Two attempts:
+  /// Artists-filtered first (clean, artist-only results), then a fast
+  /// unfiltered retry as a safety net if the filter itself returns nothing
+  /// (rare, but seen when YT Music has no dedicated Artists shelf for a
+  /// very niche query) — same fallback strategy as before, just backed by
+  /// a parser that can't silently miss a shape.
   static Future<List<ArtistSimple>> searchArtists(String query, {int limit = 12}) async {
     if (query.trim().isEmpty) return const [];
 
     final primary = await _searchArtistsAttempt(query, limit,
-        useArtistFilter: true, timeout: const Duration(seconds: 3));
+        useArtistFilter: true, timeout: const Duration(seconds: 5));
     if (primary.isNotEmpty) return primary;
 
-    // Fast single retry, unfiltered — catches transient/shape-mismatch
-    // failures on the filtered call without adding real latency (still
-    // capped tight, and only runs when the first attempt truly found
-    // nothing).
     return _searchArtistsAttempt(query, limit,
-        useArtistFilter: false, timeout: const Duration(seconds: 3));
+        useArtistFilter: false, timeout: const Duration(seconds: 5));
   }
 
   static Future<List<ArtistSimple>> _searchArtistsAttempt(
       String query, int limit,
       {required bool useArtistFilter, required Duration timeout}) async {
-    try {
-      final uri = Uri.parse(
-        'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
-      );
-      final body = <String, dynamic>{
-        'context': {
-          'client': {
-            'clientName': 'WEB_REMIX',
-            'clientVersion': _ytmClientVersion,
-            'hl': 'en',
-            'gl': 'IN',
-          },
-        },
-        'query': query,
-      };
-      if (useArtistFilter) {
-        body['params'] = 'Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D'; // Artists filter
-      }
-      final resp = await _client.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Origin': 'https://music.youtube.com',
-          'Referer': 'https://music.youtube.com/',
-        },
-        body: jsonEncode(body),
-      ).timeout(timeout);
-      if (resp.statusCode != 200) return const [];
-      final decoded = jsonDecode(resp.body);
-      if (decoded is! Map) return const [];
+    final decoded = await _ytmSearchRaw(
+      query,
+      params: useArtistFilter ? _ytmArtistsFilterParam : null,
+      timeout: timeout,
+    );
+    if (decoded == null) return const [];
 
-      final out = <ArtistSimple>[];
-      final seen = <String>{};
-      final tabs = decoded['contents']?['tabbedSearchResultsRenderer']?['tabs'] as List? ?? const [];
-      for (final tab in tabs) {
-        final sections = tab?['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List? ?? const [];
-        for (final section in sections) {
-          final shelf = section?['musicShelfRenderer'];
-          final items = (shelf?['contents'] as List?) ?? const [];
-          for (final item in items) {
-            final r = item?['musicResponsiveListItemRenderer'];
-            if (r == null) continue;
+    final out = <ArtistSimple>[];
+    final seen = <String>{};
 
-            // In unfiltered mode a shelf can mix songs/albums/artists —
-            // only accept an item whose own browseId (or first flex-run
-            // navigation) is tagged MUSIC_PAGE_TYPE_ARTIST, so a
-            // same-named song never gets mistaken for the artist card.
-            final navEndpoint = r['navigationEndpoint']?['browseEndpoint'];
-            final pageType = navEndpoint?['browseEndpointContextSupportedConfigs']
-                ?['browseEndpointContextMusicConfig']?['pageType'];
-            if (!useArtistFilter && pageType != 'MUSIC_PAGE_TYPE_ARTIST') continue;
-
-            final browseId = (navEndpoint?['browseId'] ?? '').toString();
-            if (!browseId.startsWith('UC') || !seen.add(browseId)) continue;
-            final name = (r['flexColumns']?[0]?['musicResponsiveListItemFlexColumnRenderer']
-                    ?['text']?['runs']?[0]?['text'] ?? '').toString();
-            if (name.isEmpty) continue;
-            final thumbs = r['thumbnail']?['musicThumbnailRenderer']?['thumbnail']?['thumbnails'] as List? ?? const [];
-            final image = thumbs.isNotEmpty ? (thumbs.last['url'] ?? '').toString() : '';
-            out.add(ArtistSimple(id: 'yt_$browseId', name: _cleanText(name), imageUrl: image));
-            if (out.length >= limit) return out;
-          }
-        }
-      }
-      return out;
-    } catch (e) {
-      _log('[_searchArtistsAttempt] error: $e');
-      return const [];
+    void addCandidate(String browseId, String name, String image) {
+      if (name.isEmpty || !browseId.startsWith('UC') || !seen.add(browseId)) return;
+      out.add(ArtistSimple(id: 'yt_$browseId', name: _cleanText(name), imageUrl: image));
     }
+
+    // Row-shaped results (musicResponsiveListItemRenderer) — the common
+    // shape for both the Artists-filtered shelf and mixed unfiltered
+    // shelves. Title lives in flex column 0.
+    for (final item in _findRenderers(decoded, 'musicResponsiveListItemRenderer')) {
+      if (out.length >= limit) return out;
+      final endpoint = _artistEndpointOf(
+          (item['navigationEndpoint'] as Map?)?.cast<String, dynamic>());
+      if (endpoint == null) continue;
+      if (!useArtistFilter && !endpoint.isArtist) continue;
+      final name = _flexColumnText(item, 0);
+      addCandidate(endpoint.browseId, name, _ytmThumbnailUrl(item));
+    }
+
+    // Card/grid-shaped results (musicTwoRowItemRenderer) — the shape
+    // "Top result" artist cards and grid-style artist chips use; title
+    // lives directly under title.runs rather than a flexColumn.
+    if (out.length < limit) {
+      for (final item in _findRenderers(decoded, 'musicTwoRowItemRenderer')) {
+        if (out.length >= limit) return out;
+        final endpoint = _artistEndpointOf(
+            (item['navigationEndpoint'] as Map?)?.cast<String, dynamic>());
+        if (endpoint == null) continue;
+        if (!useArtistFilter && !endpoint.isArtist) continue;
+        final name = ((item['title']?['runs'] as List?) ?? const [])
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .join()
+            .trim();
+        addCandidate(endpoint.browseId, name, _ytmThumbnailUrl(item));
+      }
+    }
+
+    // Single "Top result" card (musicCardShelfRenderer) — its own title
+    // run carries the browseId directly rather than via a child item.
+    if (out.length < limit) {
+      for (final card in _findRenderers(decoded, 'musicCardShelfRenderer')) {
+        if (out.length >= limit) return out;
+        final titleRuns = (card['title']?['runs'] as List?) ?? const [];
+        if (titleRuns.isEmpty) continue;
+        final firstRun = (titleRuns.first as Map).cast<String, dynamic>();
+        final endpoint = _artistEndpointOf(
+            (firstRun['navigationEndpoint'] as Map?)?.cast<String, dynamic>());
+        if (endpoint == null) continue;
+        if (!useArtistFilter && !endpoint.isArtist) continue;
+        final name = titleRuns
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .join()
+            .trim();
+        addCandidate(endpoint.browseId, name, _ytmThumbnailUrl(card));
+      }
+    }
+
+    return out;
   }
 
   /// Public resolver used by ArtistScreen: tries a real YouTube channel
@@ -6117,14 +6191,309 @@ class ApiService {
     if (artistId.isEmpty) return null;
     if (artistId.startsWith('yt_')) {
       final channelId = artistId.substring(3);
+      // PRIMARY: YT Music's own artist `browse` page — the exact call
+      // music.youtube.com itself makes when you open an artist. Its Top
+      // Songs shelf is YT Music's own popularity-curated list (not a
+      // reconstruction from raw channel uploads), and it also carries
+      // Albums/Singles shelves the uploads-scraping path can't produce at
+      // all (that path always returns topAlbums/singles empty — see its
+      // own doc comment). Tried first because it's both richer and, being
+      // one browse call instead of N paginated uploads calls, faster.
+      final browseArtist = await _fetchArtistFromYtMusicBrowse(channelId, songCount: songCount);
+      if (browseArtist != null && browseArtist.topSongs.isNotEmpty) return browseArtist;
+
+      // FALLBACK: some channelIds (label/VEVO uploader channels that
+      // don't have their own YT Music artist page, or a transient browse
+      // failure) don't resolve via browse — reconstruct from the
+      // channel's own uploads instead, same as before.
       final ytArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount);
       if (ytArtist != null) return ytArtist;
-      // YT channel fetch failed (deleted channel, network hiccup, etc.) —
-      // last-resort Saavn-by-name fallback so the page doesn't just die.
-      return null;
+      // Last resort: return whatever the browse call got (header + bio
+      // even with an empty song list) rather than nothing at all, so the
+      // page can still render something instead of a hard failure.
+      return browseArtist;
     }
     final saavnId = artistId.startsWith('saavn_') ? artistId.substring(6) : artistId;
     return _fetchArtistFromSaavn(saavnId, songCount: songCount, albumCount: albumCount);
+  }
+
+  /// PRODUCTION-GRADE ARTIST PAGE — fetched via YT Music's real `browse`
+  /// InnerTube endpoint (browseId = channelId), the same call the actual
+  /// YT Music web app makes when opening an artist's page. Parsed entirely
+  /// through _findRenderers so it doesn't care exactly which shelf order
+  /// or carousel nesting YT Music uses (this varies per artist depending
+  /// on which shelves they have — Top Songs, Albums, Singles, Featured On,
+  /// Fans Might Also Like, etc. — and reordering/adding shelves has never
+  /// been a stable contract on this undocumented API).
+  static Future<Artist?> _fetchArtistFromYtMusicBrowse(String channelId,
+      {int songCount = 100}) async {
+    try {
+      final decoded = await _ytmBrowseRaw(channelId, timeout: const Duration(seconds: 8));
+      if (decoded == null) return null;
+
+      // ── Header: name, avatar, banner, subscriber/listener count, bio ──
+      final header = decoded['header'];
+      final headerRenderer = header is Map
+          ? (header['musicImmersiveHeaderRenderer'] ??
+              header['musicVisualHeaderRenderer'] ??
+              header['musicHeaderRenderer'])
+          : null;
+      String name = '';
+      String bio = '';
+      String imageUrl = '';
+      String? bannerUrl;
+      int followerCount = 0;
+      if (headerRenderer is Map) {
+        name = ((headerRenderer['title']?['runs'] as List?) ?? const [])
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .join()
+            .trim();
+        final descRuns = (headerRenderer['description']?['runs'] as List?) ?? const [];
+        bio = descRuns
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .join()
+            .trim();
+        final thumbs = (headerRenderer['thumbnail']?['musicThumbnailRenderer']
+                    ?['thumbnail']?['thumbnails'] as List?) ??
+            (headerRenderer['foregroundThumbnail']?['musicThumbnailRenderer']
+                    ?['thumbnail']?['thumbnails'] as List?) ??
+            const [];
+        if (thumbs.isNotEmpty) {
+          final rawUrl = (thumbs.last['url'] ?? '').toString();
+          imageUrl = rawUrl.isNotEmpty
+              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500-p')
+              : '';
+        }
+        final bannerThumbs = (headerRenderer['background']?['musicThumbnailRenderer']
+                    ?['thumbnail']?['thumbnails'] as List?) ??
+            const [];
+        if (bannerThumbs.isNotEmpty) {
+          bannerUrl = (bannerThumbs.last['url'] ?? '').toString();
+          if (bannerUrl.isEmpty) bannerUrl = null;
+        }
+        // REAL FIELD NAMES verified against ytmusicapi's mixins/browsing.py
+        // get_artist() implementation (the reference library for this
+        // exact undocumented endpoint): subscriber count lives at
+        // subscriptionButton.subscribeButtonRenderer.subscriberCountText,
+        // and — separately — YT Music artist pages show "monthly
+        // listeners" as their primary, more meaningful metric at
+        // header.monthlyListenerCount.runs[0].text (e.g. "29.1M monthly
+        // listeners"), which subscriber count alone was missing entirely.
+        // Monthly listeners preferred when present since that's what
+        // artist pages actually lead with.
+        final monthlyListenersText = ((headerRenderer['monthlyListenerCount']?['runs'] as List?) ?? const [])
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .join();
+        final subscriberRuns = (headerRenderer['subscriptionButton']
+                    ?['subscribeButtonRenderer']?['subscriberCountText']
+                    ?['runs'] as List?) ??
+            const [];
+        final subscriberText = subscriberRuns
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .join();
+        followerCount = _parseCompactCount(
+            monthlyListenersText.isNotEmpty ? monthlyListenersText : subscriberText);
+      }
+      name = _cleanText(name)
+          .replaceAll(RegExp(r'\s*-\s*Topic\s*$', caseSensitive: false), '')
+          .trim();
+      if (name.isEmpty) return null; // No usable header at all — treat as not-found.
+
+      // ── Top Songs: musicResponsiveListItemRenderer rows under whichever
+      // shelf carries the videoId-bearing playlistItemData; anywhere in
+      // the tree, any shelf title/order. ──
+      final topSongs = <Song>[];
+      final seenVideoIds = <String>{};
+      for (final item in _findRenderers(decoded, 'musicResponsiveListItemRenderer')) {
+        if (topSongs.length >= songCount) break;
+        final videoId = (item['playlistItemData']?['videoId'] ??
+                (item['overlay']?['musicItemThumbnailOverlayRenderer']?['content']
+                        ?['musicPlayButtonRenderer']?['playNavigationEndpoint']
+                    ?['watchEndpoint']?['videoId']))
+            ?.toString();
+        if (videoId == null || videoId.isEmpty || !seenVideoIds.add(videoId)) continue;
+
+        final title = _flexColumnText(item, 0);
+        if (title.isEmpty) continue;
+
+        // Subtitle is typically "Song • Artist • Album • Duration" —
+        // prefer an explicit artist run if tagged, else fall back to this
+        // artist's own cleaned channel name (always correct for a Top
+        // Songs shelf, which is scoped to this one artist).
+        final artistRuns = _artistRunsInSubtitle(item);
+        final artistName = artistRuns.isNotEmpty ? artistRuns.first.name : name;
+
+        final thumbs = (item['thumbnail']?['musicThumbnailRenderer']
+                    ?['thumbnail']?['thumbnails'] as List?) ??
+            const [];
+        String artworkUrl = '';
+        if (thumbs.isNotEmpty) {
+          final rawUrl = (thumbs.last['url'] ?? '').toString();
+          artworkUrl = rawUrl.isNotEmpty
+              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500')
+              : '';
+        }
+
+        // Fixed-length duration column ("3:42") lives in the last flex
+        // column on song rows; parse mm:ss / h:mm:ss tolerant of either.
+        final flexColumns = (item['flexColumns'] as List?) ?? const [];
+        int? duration;
+        if (flexColumns.isNotEmpty) {
+          final lastColRuns = (flexColumns.last
+                      ?['musicResponsiveListItemFlexColumnRenderer']?['text']
+                  ?['runs'] as List?) ??
+              const [];
+          final lastColText = lastColRuns
+              .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+              .join()
+              .trim();
+          duration = _parseDurationText(lastColText);
+        }
+
+        final song = Song(
+          id: videoId,
+          title: _cleanText(title),
+          artist: _cleanText(artistName, collapseJukeboxTitle: false),
+          album: '',
+          artworkUrl: artworkUrl,
+          streamUrl: null,
+          duration: duration,
+          source: SongSource.youtube,
+          viewCount: 1000000, // Top Songs shelf is already popularity-ranked by YT Music itself.
+          artistChannelId: channelId,
+        );
+        if (RecommendationEngine.isNonMusicContent(song)) continue;
+        topSongs.add(song);
+      }
+
+      // ── Albums / Singles: musicTwoRowItemRenderer cards, split by
+      // whichever shelf header they sit under ("Albums" vs "Singles").
+      // Shelf headers are read from musicCarouselShelfRenderer so an
+      // album card and a singles card (same renderer type) don't get
+      // merged into one bucket. ──
+      final topAlbums = <ArtistAlbum>[];
+      final singles = <ArtistAlbum>[];
+      for (final carousel in _findRenderers(decoded, 'musicCarouselShelfRenderer')) {
+        final headerTitleRuns = (carousel['header']?['musicCarouselShelfBasicHeaderRenderer']
+                    ?['title']?['runs'] as List?) ??
+            const [];
+        final headerTitle = headerTitleRuns
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .join()
+            .toLowerCase();
+        final isSingles = headerTitle.contains('single');
+        final isAlbums = headerTitle.contains('album');
+        if (!isSingles && !isAlbums) continue;
+
+        for (final card in _findRenderers(carousel['contents'], 'musicTwoRowItemRenderer')) {
+          // FIX (verified against ytmusicapi's parse_album/parse_single):
+          // an album/single card's browseId is NOT on the card's own
+          // top-level navigationEndpoint — it's nested inside the title
+          // run itself (title.runs[0].navigationEndpoint.browseEndpoint),
+          // same as every other title-as-link renderer in this API. The
+          // card-level navigationEndpoint (when present at all) points
+          // to a different, less specific endpoint and was silently
+          // producing empty browseIds — this would have made every
+          // album/single card fail its `browseId.isEmpty` guard and get
+          // dropped, leaving Albums/Singles empty despite the fix
+          // otherwise working.
+          final cardTitleRuns = (card['title']?['runs'] as List?) ?? const [];
+          final cardTitle = cardTitleRuns
+              .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+              .join()
+              .trim();
+          if (cardTitle.isEmpty || cardTitleRuns.isEmpty) continue;
+          final titleNav = ((cardTitleRuns.first as Map)['navigationEndpoint']
+                  as Map?)
+              ?.cast<String, dynamic>();
+          final browseId = (titleNav?['browseEndpoint']?['browseId'] ?? '').toString();
+          if (browseId.isEmpty) continue;
+          final cardThumbs = (card['thumbnailRenderer']?['musicThumbnailRenderer']
+                      ?['thumbnail']?['thumbnails'] as List?) ??
+              const [];
+          String cardArt = '';
+          if (cardThumbs.isNotEmpty) {
+            final rawUrl = (cardThumbs.last['url'] ?? '').toString();
+            cardArt = rawUrl.isNotEmpty
+                ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500')
+                : '';
+          }
+          final subtitleRuns = ((card['subtitle']?['runs'] as List?) ?? const []);
+          String? year;
+          for (final r in subtitleRuns) {
+            final text = (r is Map ? (r['text'] ?? '') : '').toString();
+            final yearMatch = RegExp(r'^(19|20)\d{2}$').firstMatch(text.trim());
+            if (yearMatch != null) {
+              year = yearMatch.group(0);
+              break;
+            }
+          }
+          final album = ArtistAlbum(
+            id: browseId,
+            name: _cleanText(cardTitle),
+            artworkUrl: cardArt,
+            year: year,
+            type: isSingles ? 'single' : 'album',
+          );
+          if (isSingles) {
+            singles.add(album);
+          } else {
+            topAlbums.add(album);
+          }
+        }
+      }
+
+      return Artist(
+        id: 'yt_$channelId',
+        name: name,
+        imageUrl: imageUrl,
+        followerCount: followerCount,
+        isVerified: false,
+        bio: _cleanText(bio),
+        topSongs: topSongs,
+        topAlbums: topAlbums,
+        singles: singles,
+        source: ArtistSource.youtube,
+        bannerUrl: bannerUrl,
+      );
+    } catch (e) {
+      _log('[_fetchArtistFromYtMusicBrowse] failed for channelId=$channelId: $e');
+      return null;
+    }
+  }
+
+  /// Parses a compact count string ("1.2M subscribers", "800K monthly
+  /// listeners", "12,345 subscribers") into a plain int. Returns 0 if no
+  /// number can be found rather than throwing — follower counts are
+  /// decorative on the artist header, never worth failing the page over.
+  static int _parseCompactCount(String text) {
+    final match = RegExp(r'([\d.,]+)\s*([KMB]?)', caseSensitive: false).firstMatch(text.trim());
+    if (match == null) return 0;
+    final numPart = match.group(1)?.replaceAll(',', '') ?? '';
+    final suffix = (match.group(2) ?? '').toUpperCase();
+    final base = double.tryParse(numPart);
+    if (base == null) return 0;
+    final multiplier = switch (suffix) {
+      'K' => 1000,
+      'M' => 1000000,
+      'B' => 1000000000,
+      _ => 1,
+    };
+    return (base * multiplier).round();
+  }
+
+  /// Parses a "3:42" / "1:03:42" style duration string into seconds.
+  /// Returns null for anything that isn't cleanly a duration (e.g. a
+  /// play-count string that ended up in the same column position).
+  static int? _parseDurationText(String text) {
+    if (!RegExp(r'^\d{1,2}(:\d{2}){1,2}$').hasMatch(text.trim())) return null;
+    final parts = text.trim().split(':').map(int.tryParse).toList();
+    if (parts.any((p) => p == null)) return null;
+    var seconds = 0;
+    for (final p in parts) {
+      seconds = seconds * 60 + p!;
+    }
+    return seconds;
   }
 
   /// YouTube-primary artist page: channel avatar/banner/subscriber count
@@ -6203,19 +6572,24 @@ class ApiService {
       if (firstPage != null) {
         try {
           var page = firstPage;
-          // NO LIMIT ("koi limit na rahe, artist ke sab songs beyond
-          // aaye"): removed both the fixed songCount ceiling and the
-          // maxPages cap — this now walks every page of the channel's
-          // uploads until YouTube itself says there are no more
-          // (page.nextPage() returns null), so a channel with hundreds of
-          // uploads gets its full catalog, not a truncated slice. The only
-          // guard left is a per-page network timeout (unchanged from
-          // before) so a single stalled request can't hang the whole
-          // fetch forever — that's a crash/hang guard, not a song-count
-          // limit. songCount is now just a soft target used by the
-          // Saavn-side query param below; it no longer caps YouTube's
-          // walk.
+          // FIX ("neeche kuch bhi nahi aata / songs load nahi ho rahe"):
+          // the previous "no limit" walk kept calling page.nextPage()
+          // until YouTube itself ran out of pages, with only a per-page
+          // timeout as a guard. For any channel with a large uploads
+          // catalog that's dozens of sequential network round-trips before
+          // the artist screen can render anything — on a slow/mobile
+          // connection this routinely blew past the screen's own loading
+          // state, and if any single page's nextPage() call hit its 7s
+          // timeout mid-walk the loop still pressed on into more waiting
+          // rather than surfacing what it already had. Cap both the page
+          // count and the total songs collected so the artist screen
+          // always resolves promptly — a big channel's full catalog is a
+          // "browse more" problem, not something the initial screen load
+          // should block on.
+          const maxPages = 6;
+          var pageCount = 0;
           while (true) {
+            pageCount++;
             for (final v in page) {
               final base = _songFromYtVideo(v);
               final song = Song(
@@ -6234,6 +6608,7 @@ class ApiService {
               if (song.duration != null && (song.duration! < 60 || song.duration! > 1200)) continue;
               topSongs.add(song);
             }
+            if (topSongs.length >= songCount || pageCount >= maxPages) break;
             final next = await page.nextPage().timeout(const Duration(seconds: 7), onTimeout: () => null);
             if (next == null) break;
             page = next;
