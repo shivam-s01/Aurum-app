@@ -67,6 +67,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../models/artist.dart';
 import '../models/lyrics.dart';
+import 'browse_service.dart' show BrowseAlbum;
 import '../utils/constants.dart';
 import 'audio_prefs.dart';
 import 'recommendation_engine.dart';
@@ -6144,6 +6145,126 @@ class ApiService {
     return out;
   }
 
+  // FILTER PARAM DERIVATION ("albums search production-grade"): computed
+  // by taking the app's own already-proven-working _ytmSongsFilterParam
+  // (verified live in production) and swapping only its type-ordinal
+  // protobuf byte from 1 (songs) to 3 (albums) — the ordinal mapping
+  // itself (songs=1, videos=2, albums=3, artists=4, playlists=5) is
+  // cross-checked against ytmusicapi's own get_search_params()/
+  // _get_param2() filter table, and the byte-swap technique was verified
+  // to round-trip back to the exact original songs param before being
+  // applied here. Safer than hand-guessing a whole new base64 blob from
+  // scratch, since every other byte is one this app has already confirmed
+  // YT Music accepts.
+  static const String _ytmAlbumsFilterParam = 'EgWKAQIIA2oKEAMQBBAJEAoQBQ%3D%3D';
+
+  /// PRODUCTION-GRADE ALBUM SEARCH ("albums aaye search karne pr, ekdam
+  /// Spotify jaisa"). Same _findRenderers-based, shape-agnostic approach
+  /// as searchArtists — reads both row-shaped (musicResponsiveListItemRenderer)
+  /// and card-shaped (musicTwoRowItemRenderer) album results, tagged by a
+  /// browseId starting with "MPRE" (YT Music's real album browseId
+  /// prefix — verified against ytmusicapi's own get_album() guard clause,
+  /// which rejects any browseId not starting "MPRE"). Two-attempt
+  /// fallback identical to searchArtists: Albums-filtered first, then a
+  /// fast unfiltered retry if that comes back empty.
+  static Future<List<BrowseAlbum>> searchAlbums(String query, {int limit = 12}) async {
+    if (query.trim().isEmpty) return const [];
+
+    final primary = await _searchAlbumsAttempt(query, limit,
+        useAlbumFilter: true, timeout: const Duration(seconds: 5));
+    if (primary.isNotEmpty) return primary;
+
+    return _searchAlbumsAttempt(query, limit,
+        useAlbumFilter: false, timeout: const Duration(seconds: 5));
+  }
+
+  static Future<List<BrowseAlbum>> _searchAlbumsAttempt(
+      String query, int limit,
+      {required bool useAlbumFilter, required Duration timeout}) async {
+    final decoded = await _ytmSearchRaw(
+      query,
+      params: useAlbumFilter ? _ytmAlbumsFilterParam : null,
+      timeout: timeout,
+    );
+    if (decoded == null) return const [];
+
+    final out = <BrowseAlbum>[];
+    final seen = <String>{};
+
+    void addCandidate(String browseId, String name, String artist, String image, String? year) {
+      if (name.isEmpty || !browseId.startsWith('MPRE') || !seen.add(browseId)) return;
+      out.add(BrowseAlbum(
+        collectionId: browseId,
+        name: _cleanText(name),
+        artist: _cleanText(artist.isEmpty ? 'Various Artists' : artist),
+        artworkUrl: image,
+        releaseYear: year,
+        isFromYoutube: true,
+      ));
+    }
+
+    // Card/grid-shaped results — the shape album search results actually
+    // render as (a grid of album covers), same renderer YT Music's own
+    // Albums search tab uses.
+    for (final card in _findRenderers(decoded, 'musicTwoRowItemRenderer')) {
+      if (out.length >= limit) return out;
+      final endpoint = _artistEndpointOf(
+          (card['navigationEndpoint'] as Map?)?.cast<String, dynamic>());
+      // Album cards use the same browseEndpoint shape as artist cards but
+      // with an MPRE-prefixed id instead of UC — _artistEndpointOf only
+      // gates on browseId presence for our purposes here, so read the
+      // pageType separately to make sure we're not about to swallow an
+      // artist/playlist card that also happens to be musicTwoRowItemRenderer.
+      final browseEndpoint = (card['navigationEndpoint'] as Map?)?['browseEndpoint'];
+      final pageType = browseEndpoint?['browseEndpointContextSupportedConfigs']
+          ?['browseEndpointContextMusicConfig']?['pageType'];
+      if (!useAlbumFilter && pageType != 'MUSIC_PAGE_TYPE_ALBUM') continue;
+      final browseId = (endpoint?.browseId.isNotEmpty == true
+              ? endpoint!.browseId
+              : (browseEndpoint?['browseId'] ?? '').toString());
+      final title = ((card['title']?['runs'] as List?) ?? const [])
+          .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+          .join()
+          .trim();
+      // Subtitle is typically "Album • Artist • Year" — pull the artist
+      // run specifically (rather than joining everything) so "Album" and
+      // the bullet separators don't end up glued onto the artist name.
+      final subtitleRuns = ((card['subtitle']?['runs'] as List?) ?? const []);
+      String artistName = '';
+      String? year;
+      for (final r in subtitleRuns) {
+        final text = (r is Map ? (r['text'] ?? '') : '').toString().trim();
+        if (text.isEmpty || text == '•') continue;
+        if (RegExp(r'^(19|20)\d{2}$').hasMatch(text)) {
+          year = text;
+        } else if (!RegExp(r'^(Album|Single|EP)$', caseSensitive: false).hasMatch(text)) {
+          if (artistName.isEmpty) artistName = text;
+        }
+      }
+      addCandidate(browseId, title, artistName, _ytmThumbnailUrl(card), year);
+    }
+
+    // Row-shaped results — less common for album search specifically but
+    // some accounts/regions render the Albums shelf as rows instead of
+    // cards, so handle it the same way searchArtists covers both shapes.
+    if (out.length < limit) {
+      for (final item in _findRenderers(decoded, 'musicResponsiveListItemRenderer')) {
+        if (out.length >= limit) return out;
+        final navEndpoint = (item['navigationEndpoint'] as Map?)?['browseEndpoint'];
+        final pageType = navEndpoint?['browseEndpointContextSupportedConfigs']
+            ?['browseEndpointContextMusicConfig']?['pageType'];
+        if (!useAlbumFilter && pageType != 'MUSIC_PAGE_TYPE_ALBUM') continue;
+        final browseId = (navEndpoint?['browseId'] ?? '').toString();
+        final title = _flexColumnText(item, 0);
+        final artistRuns = _artistRunsInSubtitle(item);
+        addCandidate(browseId, title, artistRuns.isNotEmpty ? artistRuns.first.name : '',
+            _ytmThumbnailUrl(item), null);
+      }
+    }
+
+    return out;
+  }
+
   /// Public resolver used by ArtistScreen: tries a real YouTube channel
   /// first, Saavn only as a fallback when no YT channel exists for that
   /// name. Returned id is prefixed so fetchArtist() knows which source to
@@ -6973,9 +7094,23 @@ class ApiService {
     return null;
   }
 
-  /// Fetch the songs inside an album or single, by its Saavn ID.
+  /// Fetch the songs inside an album or single. Branches on the album's
+  /// own ID format: `MPRE...` is a real YT Music album browseId (produced
+  /// by searchAlbums/the artist page's Albums shelf), anything else is
+  /// treated as a Saavn album ID (the pre-existing behavior, unchanged).
+  ///
+  /// FIX ("YouTube se albums bhi aaye, click karne pr songs dikhein"):
+  /// previously this function ONLY ever hit the Saavn endpoint — tapping
+  /// a YT-origin album (exactly the kind searchAlbums/the artist page's
+  /// Albums shelf now surface) silently returned an empty song list here,
+  /// since Saavn has no record of a YT MPRE id. Both branches converge on
+  /// the same List<Song> shape AlbumScreen already expects, so no caller
+  /// changes are needed beyond this function.
   static Future<List<Song>> fetchAlbumSongs(String albumId) async {
     if (albumId.isEmpty) return [];
+    if (albumId.startsWith('MPRE')) {
+      return _fetchYtAlbumSongs(albumId);
+    }
 
     final path = '/api/albums?id=$albumId';
     for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
@@ -6993,6 +7128,111 @@ class ApiService {
     }
     _log('[artist] fetchAlbumSongs: all hosts failed for id=$albumId');
     return [];
+  }
+
+  /// Real YT Music album fetch via the `browse` endpoint, verified against
+  /// ytmusicapi's get_album(): the header exposes an `audioPlaylistId`
+  /// (format "OLAK5uy_..." — a genuine YouTube playlist id representing
+  /// this album's full tracklist in correct track order), so rather than
+  /// hand-parsing the album's own secondaryContents shelf, this reuses
+  /// fetchYtPlaylistSongs on that playlist id — same reliable path the
+  /// artist page's full Top Songs fetch already relies on. Falls back to
+  /// scanning the browse response's own song rows directly (via
+  /// _findRenderers, shape-agnostic as always) only if no playable button
+  /// with that id was present, so a header-shape quirk still degrades
+  /// gracefully instead of returning nothing.
+  static Future<List<Song>> _fetchYtAlbumSongs(String albumBrowseId) async {
+    try {
+      final decoded = await _ytmBrowseRaw(albumBrowseId, timeout: const Duration(seconds: 8));
+      if (decoded == null) return [];
+
+      final albumTitle = ((decoded['header']?['musicResponsiveHeaderRenderer']?['title']
+                      ?['runs'] as List?) ??
+                  (decoded['header']?['musicDetailHeaderRenderer']?['title']?['runs']
+                      as List?) ??
+                  const [])
+          .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+          .join()
+          .trim();
+
+      // audioPlaylistId lives on the header's own play button — walk every
+      // musicPlayButtonRenderer in the header subtree (not the whole
+      // response, which would also match individual track play buttons)
+      // and take the first playlistId found.
+      String? audioPlaylistId;
+      final header = decoded['header'];
+      for (final btn in _findRenderers(header, 'musicPlayButtonRenderer')) {
+        final playlistId = (btn['playNavigationEndpoint']?['watchPlaylistEndpoint']?['playlistId'] ??
+                btn['playNavigationEndpoint']?['watchEndpoint']?['playlistId'])
+            ?.toString();
+        if (playlistId != null && playlistId.isNotEmpty) {
+          audioPlaylistId = playlistId;
+          break;
+        }
+      }
+
+      if (audioPlaylistId != null) {
+        try {
+          final songs = await fetchYtPlaylistSongs(audioPlaylistId, limit: 200)
+              .timeout(const Duration(seconds: 12));
+          if (songs.isNotEmpty) {
+            if (albumTitle.isEmpty) return songs;
+            // Stamp the real album title onto every track — playlist rows
+            // don't reliably carry it themselves (import path leaves
+            // `album` blank for a bare playlist fetch).
+            return songs
+                .map((s) => Song(
+                      id: s.id,
+                      title: s.title,
+                      artist: s.artist,
+                      album: _cleanText(albumTitle),
+                      artworkUrl: s.artworkUrl,
+                      streamUrl: s.streamUrl,
+                      duration: s.duration,
+                      source: s.source,
+                      viewCount: s.viewCount,
+                      artistChannelId: s.artistChannelId,
+                    ))
+                .toList();
+          }
+        } catch (e) {
+          _log('[_fetchYtAlbumSongs] playlist fetch failed for $audioPlaylistId: $e');
+          // fall through to the direct-scan fallback below
+        }
+      }
+
+      // FALLBACK: no audioPlaylistId found (header-shape variant) or the
+      // playlist fetch failed — scan the browse response's own song rows
+      // directly instead of returning nothing.
+      final songs = <Song>[];
+      final seenIds = <String>{};
+      for (final item in _findRenderers(decoded, 'musicResponsiveListItemRenderer')) {
+        final videoId = (item['playlistItemData']?['videoId'] ??
+                item['overlay']?['musicItemThumbnailOverlayRenderer']?['content']
+                    ?['musicPlayButtonRenderer']?['playNavigationEndpoint']
+                ?['watchEndpoint']?['videoId'])
+            ?.toString();
+        if (videoId == null || videoId.isEmpty || !seenIds.add(videoId)) continue;
+        final title = _flexColumnText(item, 0);
+        if (title.isEmpty) continue;
+        final artistRuns = _artistRunsInSubtitle(item);
+        songs.add(Song(
+          id: videoId,
+          title: _cleanText(title),
+          artist: _cleanText(
+              artistRuns.isNotEmpty ? artistRuns.first.name : '', collapseJukeboxTitle: false),
+          album: _cleanText(albumTitle),
+          artworkUrl: _ytmThumbnailUrl(item),
+          streamUrl: null,
+          source: SongSource.youtube,
+          artistChannelId: artistRuns.isNotEmpty ? artistRuns.first.channelId : null,
+        ));
+      }
+      return songs;
+    } catch (e) {
+      _log('[_fetchYtAlbumSongs] failed for $albumBrowseId: $e');
+      return [];
+    }
   }
 
   static ArtistAlbum _artistAlbumFromJson(Map<String, dynamic> j, {required String type}) {

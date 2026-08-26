@@ -23,6 +23,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_transitions.dart';
 import 'artist_screen.dart';
+import 'album_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Staggered list item — fade + slide up, same system as home_screen.dart's
@@ -192,6 +193,13 @@ class _SearchScreenState extends State<SearchScreen>
   // (up to searchArtists' own limit of 12) inline instead of navigating to
   // a separate screen. Reset alongside _artistResults on every new search.
   bool _artistsExpanded = false;
+  // NEW ("albums bhi search mein aaye, Spotify jaisa"): same pattern as
+  // _artistResults/_artistsExpanded — separate list, own fetch (searchAlbums),
+  // never merged into _results, shown as its own labeled section with a
+  // horizontal scroll of artwork cards (Spotify's own Albums search-result
+  // shape) rather than the Artists row's vertical list-tile layout.
+  List<BrowseAlbum> _albumResults = [];
+  bool _albumsExpanded = false;
   // Vibe/related expansion, kept separate from _results so the UI shows it
   // as its own labeled "You might also like" section — never silently
   // merged into the direct matches (that mixing was why unrelated songs
@@ -606,6 +614,8 @@ class _SearchScreenState extends State<SearchScreen>
       _results = [];
       _artistResults = [];
       _artistsExpanded = false;
+      _albumResults = [];
+      _albumsExpanded = false;
       _suggestions = [];
       _resultQueues = [];
       _relatedQueues = [];
@@ -616,6 +626,12 @@ class _SearchScreenState extends State<SearchScreen>
     ApiService.searchArtists(query).then((artists) {
       if (!mounted || _controller.text.trim() != query) return;
       setState(() { _artistResults = artists; });
+    });
+    // Fire the Albums-row lookup the same way — own independent fetch,
+    // never blocks song results, updates in place whenever it resolves.
+    ApiService.searchAlbums(query).then((albums) {
+      if (!mounted || _controller.text.trim() != query) return;
+      setState(() { _albumResults = albums; });
     });
     // YT-STABILITY FIX ("YT results aate hain phir gayab ho ke sirf Saavn
     // bachta hai"): if the live pass already found real YT songs, freeze
@@ -716,6 +732,8 @@ class _SearchScreenState extends State<SearchScreen>
       _results = []; _relatedResults = []; _liveResults = []; _suggestions = [];
       _artistResults = [];
       _artistsExpanded = false;
+      _albumResults = [];
+      _albumsExpanded = false;
       _liveLoading = false; _showLiveLoader = false; _loading = false;
       _showHistory = _history.isNotEmpty;
       _resultQueues = []; _relatedQueues = [];
@@ -1375,6 +1393,7 @@ class _SearchScreenState extends State<SearchScreen>
       child: Column(
         children: [
           _buildArtistSection(context),
+          _buildAlbumSection(context),
           Expanded(child: content),
         ],
       ),
@@ -1465,6 +1484,7 @@ class _SearchScreenState extends State<SearchScreen>
             // a vertical list of full-width rows, shown above the Songs
             // section — see _buildArtistSection.
             _buildArtistSection(context),
+            _buildAlbumSection(context),
             // SMOOTH FIX ("results scroll karte time stuck jaisa feel"):
             // this list had no RepaintBoundary anywhere above it — header,
             // search bar and tab bar sat in the same paint layer as the
@@ -1707,6 +1727,119 @@ class _SearchScreenState extends State<SearchScreen>
             ),
             Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 22),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ── Albums section ("Spotify jaisa ekdam", horizontal artwork-card row)
+
+  static const int _maxVisibleAlbums = 10;
+
+  Widget _buildAlbumSection(BuildContext context) {
+    if (_albumResults.isEmpty) return const SizedBox.shrink();
+    // SPOTIFY-STYLE ALBUMS ROW: unlike the Artists section (vertical list
+    // of full-width rows), Spotify's own Albums search-result section is
+    // a horizontally-scrolling row of square artwork cards with title +
+    // artist underneath — this mirrors that exactly using the shape
+    // _AlbumCard already established for the Browse tab, just fed
+    // real search-result albums instead of curated browse categories.
+    // "See all" here expands into a wrapped grid inline (same one-way,
+    // no-collapse behavior as the Artists section) rather than opening a
+    // new screen, keeping the search screen self-contained.
+    final hasMore = _albumResults.length > _maxVisibleAlbums;
+    final visible = (hasMore && !_albumsExpanded)
+        ? _albumResults.sublist(0, _maxVisibleAlbums)
+        : _albumResults;
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+          child: Row(
+            children: [
+              Icon(Icons.album_rounded, color: AurumTheme.gold, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Albums',
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (hasMore && !_albumsExpanded)
+                GestureDetector(
+                  onTap: () {
+                    AurumHaptics.light();
+                    setState(() => _albumsExpanded = true);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                    child: Text(
+                      l10n.commonSeeAll,
+                      style: TextStyle(
+                        color: AurumTheme.textSecondaryOf(context),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (!_albumsExpanded)
+          SizedBox(
+            height: 190,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              itemCount: visible.length,
+              itemBuilder: (context, i) => _AlbumCard(
+                album: visible[i],
+                onTap: () => _openAlbumFromSearch(context, visible[i]),
+              ),
+            ),
+          )
+        else
+          // Expanded state: same cards, wrapped into a wider grid instead
+          // of a single scrolling row, so "See all" actually reveals more
+          // at once rather than just a longer horizontal strip.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 16,
+              children: [
+                for (final album in visible)
+                  SizedBox(
+                    width: 130,
+                    child: _AlbumCard(
+                      album: album,
+                      onTap: () => _openAlbumFromSearch(context, album),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _openAlbumFromSearch(BuildContext context, BrowseAlbum album) {
+    AurumHaptics.light();
+    Navigator.push(
+      context,
+      AurumDepthRoute(
+        builder: (_) => AlbumScreen(
+          albumId: album.collectionId,
+          albumName: album.name,
+          artworkUrl: album.artworkUrl,
         ),
       ),
     );

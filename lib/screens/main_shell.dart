@@ -709,7 +709,41 @@ class AurumBottomNavBar extends StatelessWidget {
               // underneath the icons/labels with nothing separating them.
               // Only the non-docked "Floating" style still gets a real
               // Container fill (glass pill) below.
-              if (docked) return SizedBox(height: _barHeight, child: navBarContent);
+              if (docked) {
+                return SizedBox(
+                  height: _barHeight,
+                  child: Stack(
+                    children: [
+                      // FIX (user wanted the SimpMusic look restored after
+                      // the per-tab selection capsule was removed): this is
+                      // NOT that capsule coming back — it's a shared, static
+                      // gradient behind the entire bar (not per-tab, not
+                      // tied to selection state), purely so icons/labels
+                      // stay readable over busy scrolling album art. Fades
+                      // from transparent at the top edge to a soft dark
+                      // tint at the very bottom, matching the scrim visible
+                      // behind SimpMusic's own bottom nav.
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.black.withValues(alpha: 0.0),
+                                  Colors.black.withValues(alpha: isDark ? 0.28 : 0.10),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      navBarContent,
+                    ],
+                  ),
+                );
+              }
               final bar = Container(
                 height: _barHeight,
                 decoration: BoxDecoration(
