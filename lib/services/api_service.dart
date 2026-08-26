@@ -3452,7 +3452,7 @@ class ApiService {
   // worker.js so the direct-Dart path returns identically-shaped, equally
   // clean results.
   static const String _ytmApiKey = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
-  static const String _ytmClientVersion = '1.20240101.01.00';
+  static const String _ytmClientVersion = '1.20250310.01.00';
 
   // ═══════════════════════════════════════════════════════════════════
   // GENERIC RECURSIVE RENDERER FINDER ("production-grade" artist parsing)

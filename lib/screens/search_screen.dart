@@ -187,6 +187,11 @@ class _SearchScreenState extends State<SearchScreen>
   // list, own fetch, never merged into _results so song-result logic
   // (dedup, queues, staggered animation) stays untouched.
   List<ArtistSimple> _artistResults = [];
+  // "See all" expansion for the Artists row (Spotify-style): starts capped
+  // at _maxVisibleArtists, tapping "See all" reveals every match fetched
+  // (up to searchArtists' own limit of 12) inline instead of navigating to
+  // a separate screen. Reset alongside _artistResults on every new search.
+  bool _artistsExpanded = false;
   // Vibe/related expansion, kept separate from _results so the UI shows it
   // as its own labeled "You might also like" section — never silently
   // merged into the direct matches (that mixing was why unrelated songs
@@ -600,6 +605,7 @@ class _SearchScreenState extends State<SearchScreen>
       _showHistory = false;
       _results = [];
       _artistResults = [];
+      _artistsExpanded = false;
       _suggestions = [];
       _resultQueues = [];
       _relatedQueues = [];
@@ -709,6 +715,7 @@ class _SearchScreenState extends State<SearchScreen>
     setState(() {
       _results = []; _relatedResults = []; _liveResults = []; _suggestions = [];
       _artistResults = [];
+      _artistsExpanded = false;
       _liveLoading = false; _showLiveLoader = false; _loading = false;
       _showHistory = _history.isNotEmpty;
       _resultQueues = []; _relatedQueues = [];
@@ -1535,7 +1542,11 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildArtistSection(BuildContext context) {
     if (_artistResults.isEmpty) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
-    final visible = _artistResults.length > _maxVisibleArtists
+    // SPOTIFY-STYLE "See all": stays capped at _maxVisibleArtists until the
+    // user taps See all, then reveals every artist searchArtists() fetched
+    // (its own limit is 12) inline — no extra API call, no new screen.
+    final hasMore = _artistResults.length > _maxVisibleArtists;
+    final visible = (hasMore && !_artistsExpanded)
         ? _artistResults.sublist(0, _maxVisibleArtists)
         : _artistResults;
     return Column(
@@ -1548,14 +1559,37 @@ class _SearchScreenState extends State<SearchScreen>
             children: [
               Icon(Icons.person_rounded, color: AurumTheme.gold, size: 18),
               const SizedBox(width: 8),
-              Text(
-                l10n.libraryArtists,
-                style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  l10n.libraryArtists,
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
+              // Spotify itself never offers a "collapse back" toggle here —
+              // See all is one-directional, so the action simply disappears
+              // once tapped rather than turning into a "Show less" control.
+              if (hasMore && !_artistsExpanded)
+                GestureDetector(
+                  onTap: () {
+                    AurumHaptics.light();
+                    setState(() => _artistsExpanded = true);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                    child: Text(
+                      l10n.commonSeeAll,
+                      style: TextStyle(
+                        color: AurumTheme.textSecondaryOf(context),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
