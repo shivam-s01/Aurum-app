@@ -734,40 +734,14 @@ class AurumBottomNavBar extends StatelessWidget {
             },
             child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final tabWidth = constraints.maxWidth / items.length;
                   return Stack(
                     alignment: Alignment.center,
                     children: [
-                // ── Active tab capsule ──────────────────────────────
-                // Solid filled rounded-rect behind the selected tab's
-                // icon+label column, matching Echo's flat filled pill
-                // (no border, no shadow, no glass) — just tinted with
-                // Aurum's gold/bronze accent instead of Echo's lavender.
-                // Defensive guard only — AurumBottomNavBar is now only
-                // ever built here in MainShell with a real, always-valid
-                // tab index (pushed content screens no longer render a
-                // nav bar at all, see MiniPlayerSlot). Kept so a negative
-                // index can never clip the capsule into a stray sliver
-                // at the screen edge instead of just hiding it.
-                if (currentIndex >= 0)
-                  AnimatedPositioned(
-                    duration: const Duration(milliseconds: 380),
-                    curve: Curves.easeOutCubic,
-                    left: tabWidth * currentIndex,
-                    top: 6,
-                    bottom: 6,
-                    width: tabWidth,
-                    child: Center(
-                      child: Container(
-                        width: tabWidth - 24,
-                        height: _barHeight - 12,
-                        decoration: BoxDecoration(
-                          color: accent.withOpacity(0.20),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                    ),
-                  ),
+                // Active tab capsule intentionally removed — SimpMusic
+                // style has no highlight box behind the selected tab at
+                // all. Selection is shown purely by the icon switching to
+                // its filled variant + the icon/label tinting to accent
+                // color below; nothing paints a background here anymore.
                 // ── Tap targets ──────────────────────────────────────
                 Row(
                   children: List.generate(items.length, (i) {

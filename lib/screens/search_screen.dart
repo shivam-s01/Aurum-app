@@ -857,6 +857,27 @@ class _SearchScreenState extends State<SearchScreen>
         // background itself — only the stray solid pill behind the
         // floating bar/mini player is gone.
         backgroundColor: Colors.transparent,
+        // FIX ("pill abhi bhi gaya nahi, sirf nav bar/mini player ke
+        // peeche hi rehta hai, Home/Library clean hain" — the actual
+        // missing piece, confirmed by direct comparison with
+        // library_screen.dart's own Scaffold): setting backgroundColor
+        // to transparent alone wasn't enough. Library's Scaffold — which
+        // never shows this pill — has BOTH backgroundColor AND
+        // `extendBody: true`. This Scaffold only had the former. Without
+        // extendBody: true, Scaffold reserves/consumes bottom
+        // MediaQuery padding for its OWN body before SafeArea below ever
+        // sees it — that reserved strip is exactly the size and position
+        // of MainShell's floating nav bar + mini player, and even with a
+        // transparent backgroundColor, Scaffold's internal layout still
+        // treats that reserved strip as part of its own solid canvas
+        // rather than genuinely passing it through as see-through space
+        // the way Home (no Scaffold at all) and Library (extendBody:
+        // true) both do. Adding extendBody: true here — the exact same
+        // property Library already relies on for this — tells this
+        // Scaffold its body may extend all the way to the bottom edge
+        // instead of stopping short to reserve that strip, closing the
+        // one structural gap between Search and its two sibling tabs.
+        extendBody: true,
         // BUGFIX (duplicate mini player on Search — two players stacked
         // on screen at once): SearchScreen is a ROOT TAB inside MainShell's
         // IndexedStack (exactly like HomeScreen), not a screen pushed via
@@ -875,12 +896,24 @@ class _SearchScreenState extends State<SearchScreen>
         // reserve/show the mini player in its place. Search never leaves
         // the tab host, so MainShell's outer MiniPlayer was already
         // correctly on screen the whole time — this inner one was purely
-        // extra. Matches HomeScreen exactly: no extendBody, no
-        // bottomNavigationBar, no MiniPlayerSlot. The original "layered/
-        // translucent" glitch this used to work around should be revisited
-        // separately if it resurfaces — stacking a second real player is
-        // not an acceptable fix for it.
+        // extra. Re-adding ONLY extendBody: true here (unlike that old
+        // fix) does NOT bring back the duplicate-mini-player bug — no
+        // bottomNavigationBar or MiniPlayerSlot is added on this Scaffold,
+        // so there's still exactly one MiniPlayer in the whole screen,
+        // MainShell's own.
         body: SafeArea(
+          // FIX (pairs with extendBody: true above): bottom: false here
+          // stops SafeArea from ALSO reserving its own bottom inset on
+          // top of what extendBody already lets the body extend into.
+          // With extendBody: true, this Scaffold's body is meant to run
+          // all the way to the screen's bottom edge (transparent,
+          // nothing painted there) exactly like Home/Library — a
+          // default SafeArea(bottom: true) here would carve out a second,
+          // redundant reserved strip at the same spot, undoing part of
+          // what extendBody was just turned on to fix. Top inset (status
+          // bar, notch) is still respected as before — only the bottom
+          // reservation is turned off.
+          bottom: false,
           child: Padding(
             padding: EdgeInsets.only(
               bottom: MediaQuery.of(context).viewInsets.bottom,
