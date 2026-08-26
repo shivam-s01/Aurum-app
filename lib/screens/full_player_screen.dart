@@ -3109,19 +3109,14 @@ class _GlowAuraPainter extends CustomPainter {
       // clearly instead of feeling subtle/washed out.
       final alpha = (235 * visibility * breathe).round().clamp(0, 255);
 
-      // FIX ("aura ekdam attractive/top-level lage"): each bloom's
-      // center now gently drifts along its own edge (not just pulsing
-      // in place), the way the real Gemini aura's colors visibly
-      // wander rather than sitting fixed. Zero extra draw calls or
-      // shaders — same 4 RadialGradients as before, just re-centered
-      // each frame — so this adds no meaningful GPU cost on top of the
-      // 30fps throttle above.
-      final driftPhase = (t * 2 * math.pi * 0.8) + (i * math.pi / 2);
-      final drift = math.sin(driftPhase) * radius * 0.06;
+      // REVERTED ("tappa laga raha hai, phle jaisa foggy/smooth nahi
+      // hai"): the position-drift added here (bloom centers sliding
+      // back and forth along their edge) read as a mechanical,
+      // directional "bump" instead of the soft ambient fog it had
+      // before. Back to each bloom staying fixed in place and only its
+      // brightness breathing — that's what gave the original smooth,
+      // foggy feel with no visible movement direction.
       final bloom = blooms[i];
-      final driftedCenter = i.isEven
-          ? Offset(bloom.center.dx + drift, bloom.center.dy)
-          : Offset(bloom.center.dx, bloom.center.dy + drift);
 
       final paint = Paint()
         ..shader = RadialGradient(
@@ -3131,8 +3126,8 @@ class _GlowAuraPainter extends CustomPainter {
             bloom.color.withAlpha(0),
           ],
           stops: const [0.0, 0.45, 1.0],
-        ).createShader(Rect.fromCircle(center: driftedCenter, radius: radius));
-      canvas.drawCircle(driftedCenter, radius, paint);
+        ).createShader(Rect.fromCircle(center: bloom.center, radius: radius));
+      canvas.drawCircle(bloom.center, radius, paint);
     }
 
     // A soft white inner rim right at the very edge of the screen, the
