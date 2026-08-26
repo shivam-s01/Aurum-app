@@ -879,9 +879,21 @@ class _SearchScreenState extends State<SearchScreen>
                   physics: const NeverScrollableScrollPhysics(),
                   children: [
                     // Tab 0: existing search
-                    ColoredBox(
-                      color: AurumTheme.bgOf(context),
-                      child: AnimatedSwitcher(
+                    // FIX (nav bar showed solid/opaque on Search but
+                    // transparent on Home): this used to be
+                    // `ColoredBox(color: AurumTheme.bgOf(context))`
+                    // wrapping the whole tab. Because this tab sits inside
+                    // an Expanded that fills all available height under
+                    // MainShell's extendBody:true Scaffold, that ColoredBox
+                    // painted a full opaque rectangle all the way down
+                    // behind the floating nav bar too — blocking the same
+                    // transparency Home gets for free (Home has no single
+                    // full-area ColoredBox, so nothing ever paints behind
+                    // the bar there). The Scaffold's own backgroundColor
+                    // (set once above, not part of this animated subtree)
+                    // already shows through anywhere content doesn't reach,
+                    // so no replacement fill is needed here.
+                    AnimatedSwitcher(
                       // SPEED FIX ("1 letter type karte hi turant live
                       // results/suggestions aane chahiye, 'Search
                       // everywhere' empty-state text der tak na dikhe"):
@@ -905,13 +917,11 @@ class _SearchScreenState extends State<SearchScreen>
                           begin: const Offset(0, 0.05),
                           end: Offset.zero,
                         ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
-                        final scale = Tween<double>(begin: 0.97, end: 1.0)
-                            .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
                         return FadeTransition(
                           opacity: animation,
                           child: SlideTransition(
                             position: slide,
-                            child: ScaleTransition(scale: scale, child: child),
+                            child: child,
                           ),
                         );
                       },
@@ -920,7 +930,6 @@ class _SearchScreenState extends State<SearchScreen>
                         child: _buildBody(context),
                       ),
                     ),
-                    ),  // ColoredBox
                     // Tab 1: Browse
                     
                     _BrowseTab(

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../theme/aurum_theme.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FadedHorizontalList — wraps any horizontally-scrolling row (song cards,
@@ -138,50 +137,14 @@ class _FadedHorizontalListState extends State<FadedHorizontalList> {
 
   @override
   Widget build(BuildContext context) {
-    final bg = AurumTheme.bgOf(context);
-    return SizedBox(
-      height: widget.height,
-      child: Stack(
-        children: [
-          Positioned.fill(child: widget.child),
-          if (_showLeft)
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: widget.fadeWidth,
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                      colors: [bg, bg.withOpacity(0.0)],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          if (_showRight)
-            Positioned(
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: widget.fadeWidth,
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.centerRight,
-                      end: Alignment.centerLeft,
-                      colors: [bg, bg.withOpacity(0.0)],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
+    // FIX ("foggy"/hazy edges on every horizontal carousel — user wants a
+    // flat, clean look like JioSaavn/SimpMusic instead): the scroll-aware
+    // logic above was working as designed, but the fade cue itself reads
+    // as an unwanted haze rather than a helpful "more to scroll" hint.
+    // Short-circuit here to just render the child untouched — no Stack,
+    // no gradient overlay, on either edge, ever. Left the state-tracking
+    // above intact (harmless — it just no longer affects what's drawn)
+    // so this is a one-line revert if a fade is ever wanted again later.
+    return SizedBox(height: widget.height, child: widget.child);
   }
 }
