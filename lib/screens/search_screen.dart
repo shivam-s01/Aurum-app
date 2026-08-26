@@ -836,7 +836,27 @@ class _SearchScreenState extends State<SearchScreen>
         // with the scrollable content given explicit bottom padding for
         // the keyboard height instead, keeps one consistent layout.
         resizeToAvoidBottomInset: false,
-        backgroundColor: AurumTheme.bgOf(context),
+        // FIX ("search screen ka transparent nav bar ke peeche pill/ghost
+        // background aa raha hai, mini player aur nav bar dono par"):
+        // this Scaffold's backgroundColor used to be AurumTheme.bgOf(context)
+        // — a real opaque color. Same root cause as the "ghost pill" fix
+        // already applied to MainShell's OWN Scaffold (see main_shell.dart):
+        // Scaffold always paints its backgroundColor as a solid fill across
+        // its ENTIRE bounds via its internal Material, full screen height,
+        // regardless of extendBody. Since SearchScreen sits inside
+        // MainShell's IndexedStack at full screen size — directly behind
+        // where MainShell's floating nav bar + mini player render on
+        // top — that solid fill was showing through as an opaque pill
+        // right behind them, exactly matching Home's transparent look
+        // everywhere else but not there. HomeScreen has no Scaffold of its
+        // own at all, which is why only Search showed this.
+        // Setting this to transparent removes that extra fill; the actual
+        // page background color is still painted correctly by MainShell's
+        // outer Scaffold (AurumTheme.bgOf(context), see main_shell.dart)
+        // underneath everything, so there's no visual change to the
+        // background itself — only the stray solid pill behind the
+        // floating bar/mini player is gone.
+        backgroundColor: Colors.transparent,
         // BUGFIX (duplicate mini player on Search — two players stacked
         // on screen at once): SearchScreen is a ROOT TAB inside MainShell's
         // IndexedStack (exactly like HomeScreen), not a screen pushed via

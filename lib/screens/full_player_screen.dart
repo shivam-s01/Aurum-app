@@ -598,17 +598,54 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           final c2 = cached.dominant;
           final c3 = cached.darkMuted;
           final c4 = cached.lightVibrant;
+          // FIX ("light mode mein artist name kitna awkward/washed-out lag
+          // raha hai, especially white/cream cover arts pe" — root cause):
+          // this seed path (runs first, on initial mount, straight from
+          // ArtworkPaletteCache) used its OWN older light-mode formula —
+          // lerp toward Colors.white by a small amount (0.10-0.20) — which
+          // is a completely different design from the "REWORK" formula a
+          // few dozen lines below (used once the async PaletteGenerator
+          // recompute lands) that deliberately keeps light mode's
+          // background dark-leaning (same dark-mode-tuned values, only a
+          // small uniform 0.16 white lift at the very end). For light/
+          // pale album art (dominant swatch already close to white), the
+          // old small-lift formula left _currentBg2 sufficiently LIGHT
+          // (luma >= 0.5) that the title/artist block above (which reads
+          // bgLuma directly off _currentBg2 to decide text color) treated
+          // the background as light and drew the artist line in
+          // lightTextSecondary — a muted grey — instead of white. Against
+          // this seed path's actually-light background that grey read as
+          // barely legible. The REWORK formula's background is
+          // deliberately kept dark regardless of app theme, so it always
+          // resolves bgIsLight to false and draws white artist text
+          // instead — the two formulas disagreeing is what made the seed
+          // frame (and any song whose PaletteGenerator recompute is slow/
+          // cached-miss) look different from the steady state.
+          // Matching the REWORK formula exactly here — dark-mode-tuned
+          // values first, then the same small 0.16 lift toward white in
+          // light theme — means the seeded background always agrees with
+          // the recomputed one, so bgIsLight (and therefore artist-text
+          // color) is consistent from the very first frame.
+          const lightLift = 0.16;
           final seeded1 = isLight
-              ? ensureContrastSafe(Color.lerp(c1, Colors.white, 0.16)!, isLight: true)
+              ? ensureContrastSafe(Color.lerp(
+                  ensureContrastSafe(Color.lerp(c1, Colors.black, 0.22)!, isLight: false),
+                  Colors.white, lightLift)!, isLight: true)
               : ensureContrastSafe(Color.lerp(c1, Colors.black, 0.22)!, isLight: false);
           final seeded2 = isLight
-              ? ensureContrastSafe(Color.lerp(c2, Colors.white, 0.10)!, isLight: true)
+              ? ensureContrastSafe(Color.lerp(
+                  ensureContrastSafe(Color.lerp(c2, Colors.black, 0.48)!, isLight: false),
+                  Colors.white, lightLift)!, isLight: true)
               : ensureContrastSafe(Color.lerp(c2, Colors.black, 0.48)!, isLight: false);
           final seeded3 = isLight
-              ? ensureContrastSafe(Color.lerp(c3, Colors.white, 0.04)!, isLight: true)
+              ? ensureContrastSafe(Color.lerp(
+                  ensureContrastSafe(Color.lerp(c3, Colors.black, 0.70)!, isLight: false),
+                  Colors.white, lightLift)!, isLight: true)
               : ensureContrastSafe(Color.lerp(c3, Colors.black, 0.70)!, isLight: false);
           final seeded4 = isLight
-              ? ensureContrastSafe(Color.lerp(c4, Colors.white, 0.20)!, isLight: true)
+              ? ensureContrastSafe(Color.lerp(
+                  ensureContrastSafe(Color.lerp(c4, Colors.black, 0.30)!, isLight: false),
+                  Colors.white, lightLift)!, isLight: true)
               : ensureContrastSafe(Color.lerp(c4, Colors.black, 0.30)!, isLight: false);
           // Seed BOTH current and target to the same value — this is what
           // skips the morph entirely for the opening frame, since
@@ -1888,9 +1925,27 @@ class _DragTransform extends StatelessWidget {
         final dragScale =
             (1.0 - (dragY / 2200).clamp(0.0, 0.06)).clamp(0.0, 1.0);
         final ty = dragY.clamp(0.0, screenH);
+        // FIX ("swipe down/up karte waqt right side pe gap ban jaata hai,
+        // dheere dheere zyada hota jaata hai" — root cause): Matrix4's
+        // ..scale(dragScale, dragScale) here scales around the ORIGIN
+        // (0,0) — the screen's top-left corner — not around its center.
+        // Since dragScale shrinks a little below 1.0 during the swipe
+        // (the "card getting smaller" feedback), scaling from the
+        // top-left means the left and top edges stay pinned exactly in
+        // place while the right and bottom edges pull inward toward that
+        // corner — visible as a growing gap specifically on the right
+        // (and, to a smaller degree, the bottom), never the left/top,
+        // exactly matching the reported asymmetric gap. A uniform "shrink
+        // toward the middle" effect needs the scale to happen around the
+        // screen's center instead: translating by minus half the
+        // screen's size, scaling, then translating back undoes the
+        // origin bias so every edge moves inward by the same amount.
+        final screenW = MediaQuery.of(context).size.width;
         final matrix = Matrix4.identity()
           ..translate(0.0, ty)
-          ..scale(dragScale, dragScale);
+          ..translate(screenW / 2, screenH / 2)
+          ..scale(dragScale, dragScale)
+          ..translate(-screenW / 2, -screenH / 2);
         return Stack(
           children: [
             // FIX ("swipe down mein light mode mein background screen
