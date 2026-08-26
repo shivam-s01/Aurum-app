@@ -11,7 +11,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/mini_player.dart';
@@ -625,10 +624,17 @@ class AurumBottomNavBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
 
+  // SimpMusic uses plain Material Symbols for its bottom nav (Home /
+  // Search / Library) — swapped from Phosphor to Flutter's built-in
+  // Icons here to match that exact look. `uses-material-design: true`
+  // is already set in pubspec.yaml, so no new package/asset needed.
+  // Material has no filled "library_music" variant, so outline is
+  // reused there for both states — same as SimpMusic's own bar, where
+  // the library icon doesn't swap shape on selection either.
   static List<({dynamic outline, dynamic filled, String label})> _items(AppLocalizations l10n) => [
-    (outline: PhosphorIconsRegular.houseSimple, filled: PhosphorIconsFill.houseSimple, label: l10n.navHome),
-    (outline: PhosphorIconsRegular.magnifyingGlass, filled: PhosphorIconsFill.magnifyingGlass, label: l10n.navSearch),
-    (outline: PhosphorIconsRegular.vinylRecord, filled: PhosphorIconsFill.vinylRecord, label: l10n.navLibrary),
+    (outline: Icons.home_outlined, filled: Icons.home, label: l10n.navHome),
+    (outline: Icons.search, filled: Icons.search, label: l10n.navSearch),
+    (outline: Icons.library_music_outlined, filled: Icons.library_music_outlined, label: l10n.navLibrary),
   ];
 
   static const double _barHeight = 64.0;
@@ -697,37 +703,30 @@ class AurumBottomNavBar extends StatelessWidget {
               // translucent "glass without the blur" look — so nothing
               // behind it shows through at all. Only the blurred variant
               // keeps the semi-transparent tint that lets BackdropFilter's
-              // blur actually be visible underneath. Docked mode always
-              // reads as fully solid/opaque too, regardless of blur sigma —
-              // Spotify's docked bar has no glass look, it's a flat opaque
-              // bar sitting on the screen edge.
+              // blur actually be visible underneath. Docked mode is now
+              // SimpMusic-style instead: fully transparent, no fill, no
+              // border/divider, no blur — page content scrolls straight
+              // underneath the icons/labels with nothing separating them.
+              // Only the non-docked "Floating" style still gets a real
+              // Container fill (glass pill) below.
+              if (docked) return SizedBox(height: _barHeight, child: navBarContent);
               final bar = Container(
                 height: _barHeight,
                 decoration: BoxDecoration(
-                  color: (docked || blurSigma <= 0)
+                  color: blurSigma <= 0
                       ? AurumTheme.bgCardOf(context)
                       : (isDark ? Colors.black : Colors.white)
                           .withValues(alpha: isDark ? 0.45 : 0.65),
-                  borderRadius: docked
-                      ? BorderRadius.zero
-                      : BorderRadius.circular(28),
-                  border: docked
-                      ? Border(
-                          top: BorderSide(
-                            color: (isDark ? Colors.white : Colors.black)
-                                .withValues(alpha: 0.08),
-                            width: 1,
-                          ),
-                        )
-                      : Border.all(
-                          color: (isDark ? Colors.white : Colors.black)
-                              .withValues(alpha: 0.08),
-                          width: 1,
-                        ),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: (isDark ? Colors.white : Colors.black)
+                        .withValues(alpha: 0.08),
+                    width: 1,
+                  ),
                 ),
                 child: navBarContent,
               );
-              if (docked || blurSigma <= 0) return bar;
+              if (blurSigma <= 0) return bar;
               return BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
                 child: bar,
