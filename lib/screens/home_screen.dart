@@ -504,6 +504,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<ArtistSimple> _homeArtists = [];
   bool _artistsLoading = true;
+  // Scopes the cache-shrink-flash guard in _loadArtists() to only the
+  // FIRST streaming callback per load — see that guard's doc comment.
+  bool _isFirstArtistUpdate = true;
 
   final ScrollController _scrollCtrl = ScrollController();
 
@@ -657,15 +660,51 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadArtists() async {
+    // Reset per-load so a pull-to-refresh (this function is also called
+    // from the pull-to-refresh handler below) gets its own fresh
+    // "first update" window instead of inheriting the previous load's
+    // already-flipped-false flag, which would silently disable the
+    // cache-shrink-flash guard on every load after the very first one.
+    _isFirstArtistUpdate = true;
     try {
-      // Combined YT Music (real shelf, stable channelId) + Saavn artist
-      // list — see fetchHomeArtistsCombined()'s doc comment in
-      // api_service_v2.dart for the merge/dedupe/unique-id logic.
-      final artists = await ApiService.fetchHomeArtistsCombined();
-      if (mounted) setState(() { _homeArtists = artists; _artistsLoading = false; });
-      // Cache for next cold start (see home_feed_cache.dart) — fire-and-forget,
-      // failure here just means next launch falls back to a normal load.
-      unawaited(HomeFeedCache.saveArtists(artists));
+      // SPEED FIX ("artist home page pe nahi/late aa rahe"): switched from
+      // the old blocking fetchHomeArtistsCombined() (waited on a slow
+      // 20-artist Saavn batch before showing anything) to the streaming
+      // version — paints the fast YT leg the moment it resolves, then
+      // silently tops up with the slower Saavn pool once that finishes.
+      // See fetchHomeArtistsStreaming's doc comment in api_service.dart.
+      await ApiService.fetchHomeArtistsStreaming((artists) {
+        if (!mounted) return;
+        // REGRESSION FIX ("cache se pehle se acchi list thi, phir chhoti
+        // list aa ke usse replace kar deti thi"): fetchHomeArtistsStreaming
+        // calls this twice — once with just the fast YT leg, once more
+        // with YT+Saavn merged. If _hydrateFromCache() already populated a
+        // fuller list from last session's cache before this first (smaller)
+        // YT-only snapshot lands, blindly overwriting _homeArtists here
+        // would visibly SHRINK the strip for a moment — exactly the kind
+        // of jarring, "something broke" flicker this whole fix was meant
+        // to remove.
+        //
+        // FIX (own bug caught on recheck): the guard below used to be a
+        // blanket "only apply if length grew or tied", which could also
+        // silently swallow the SECOND, more complete streaming update if
+        // its deduped count happened to land lower than the cached
+        // snapshot — that update is always the authoritative, freshest
+        // one and must never be dropped, or the cache itself would also
+        // stop refreshing (saveArtists never runs). _isFirstUpdate scopes
+        // the length guard to ONLY the first (YT-only) callback, where the
+        // flash risk actually exists; the second callback always applies.
+        if (_isFirstArtistUpdate && artists.length < _homeArtists.length) {
+          _isFirstArtistUpdate = false;
+          return;
+        }
+        _isFirstArtistUpdate = false;
+        setState(() { _homeArtists = artists; _artistsLoading = false; });
+        // Cache the latest snapshot for next cold start (see
+        // home_feed_cache.dart) — fire-and-forget, called on every update
+        // so the cache always reflects the fullest list this session saw.
+        unawaited(HomeFeedCache.saveArtists(artists));
+      });
     } catch (_) {
       if (mounted) setState(() => _artistsLoading = false);
     }

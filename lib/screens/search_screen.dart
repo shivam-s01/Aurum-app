@@ -409,12 +409,22 @@ class _SearchScreenState extends State<SearchScreen>
     final query = q.trim();
 
     if (query.isEmpty) {
+      // Also invalidate any in-flight live searchArtists/searchAlbums call
+      // (see the generation-counter fetch added above) and clear their
+      // results — otherwise clearing the text field while those two are
+      // still resolving could repopulate the Artists/Albums sections on an
+      // now-empty search bar once they land.
+      _searchGeneration++;
       setState(() {
         _suggestions  = [];
         _liveResults  = [];
         _liveLoading  = false;
         _showLiveLoader = false;
         _showHistory  = _history.isNotEmpty && _focusNode.hasFocus;
+        _artistResults = [];
+        _albumResults = [];
+        _artistsExpanded = false;
+        _albumsExpanded = false;
       });
       return;
     }
@@ -484,6 +494,26 @@ class _SearchScreenState extends State<SearchScreen>
       ApiService.suggest(query).then((suggestions) {
         if (!mounted || _controller.text.trim() != query) return;
         setState(() => _suggestions = suggestions);
+      }).catchError((_) {});
+
+      // FEATURE ("Udit Narayan ya artist ka naam likho to turant artist
+      // card aa jaye" — Musify/SimpMusic-style instant artist match):
+      // searchArtists()/searchAlbums() used to ONLY fire from _search(),
+      // i.e. only after the user submitted (hit search/enter). Typing
+      // alone — the normal, fastest way anyone actually searches — never
+      // touched them at all, so an artist name typed and left to the live
+      // panel never showed an artist card until you explicitly submitted.
+      // Fired here too, same generation-counter guard _search() already
+      // uses (see _searchGeneration's doc comment) so a fast-typed stale
+      // query's response can't clobber a newer one's results.
+      final myLiveGeneration = ++_searchGeneration;
+      ApiService.searchArtists(query).then((artists) {
+        if (!mounted || myLiveGeneration != _searchGeneration) return;
+        setState(() { _artistResults = artists; });
+      }).catchError((_) {});
+      ApiService.searchAlbums(query).then((albums) {
+        if (!mounted || myLiveGeneration != _searchGeneration) return;
+        setState(() { _albumResults = albums; });
       }).catchError((_) {});
 
       // STABILITY FIX ("production level pe crash na ho"): this callback
@@ -1208,33 +1238,55 @@ class _SearchScreenState extends State<SearchScreen>
     return AurumPressable(
       onTap: () => _openAlbumFromSearch(context, album),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(
-              album.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AurumTheme.textPrimaryOf(context),
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
+            // FIX ("albums bhi thumbnail nahi aa rahe hai"): this row used
+            // to be text-only (name + "Album • Artist • Year"), with no
+            // artwork at all — every other album surface in the app
+            // (Browse tab's _AlbumCard, the horizontal Albums row in the
+            // 'All' filter's _buildAlbumSection) already shows real
+            // artwork via AurumArtwork, so the dedicated Albums filter
+            // list was the one place missing it. Same widget, same
+            // rounded-square treatment, sized for a list row instead of a
+            // grid card.
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: AurumArtwork(url: album.artworkUrl, size: 52),
             ),
-            const SizedBox(height: 3),
-            Text(
-              [
-                'Album',
-                if (album.artist.isNotEmpty) album.artist,
-                if (album.releaseYear != null) album.releaseYear!,
-              ].join(' • '),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AurumTheme.textSecondaryOf(context),
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    album.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    [
+                      'Album',
+                      if (album.artist.isNotEmpty) album.artist,
+                      if (album.releaseYear != null) album.releaseYear!,
+                    ].join(' • '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AurumTheme.textSecondaryOf(context),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1489,11 +1541,13 @@ class _SearchScreenState extends State<SearchScreen>
       // frame. The suggestions/divider/progress-bar header is folded into
       // a single flattened index space so it still scrolls as part of the
       // same list.
+      final showArtistAlbumHeaderLive = _artistResults.isNotEmpty || _albumResults.isNotEmpty;
+      final artistAlbumHeaderCount = showArtistAlbumHeaderLive ? 1 : 0;
       final headerCount = (_liveLoading ? 1 : 0)
           + (hasSuggestions ? _suggestions.length + (hasLive ? 1 : 0) : 0)
           + (hasLive ? 1 : 0); // the "Songs" section label itself
       final tailCount = query.isNotEmpty ? 1 : 0;
-      final totalCount = headerCount + (hasLive ? _liveResults.length : 0) + tailCount;
+      final totalCount = artistAlbumHeaderCount + headerCount + (hasLive ? _liveResults.length : 0) + tailCount;
 
       // SMOOTH FIX: same RepaintBoundary isolation as the submit-search
       // results list below — this live-typing list scrolls independently
@@ -1504,7 +1558,29 @@ class _SearchScreenState extends State<SearchScreen>
         // PERF: bounds how much off-screen content gets pre-built while
         // scrolling — same tuning as the submit-search results list below.
         cacheExtent: 600,
-        itemBuilder: (context, i) {
+        itemBuilder: (context, rawI) {
+          var i = rawI;
+          // SCROLL/FREEZE FIX ("scroll bhi nahi ho raha... See all pe
+          // stuck"): Artists/Albums used to be siblings of Expanded(content)
+          // in a non-scrolling Column below — an unbounded Artists list or
+          // an expanded Albums Wrap would overflow that fixed Column
+          // instead of scrolling. Folding them in as this list's own first
+          // item means the whole live panel (artists + albums + songs)
+          // scrolls together, and "See all" just makes this one item
+          // taller instead of breaking the layout.
+          if (showArtistAlbumHeaderLive) {
+            if (i == 0) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildArtistSection(context),
+                  _buildAlbumSection(context),
+                ],
+              );
+            }
+            i--;
+          }
           var idx = i;
           if (_liveLoading) {
             if (idx == 0) return _buildLiveProgressBar(context);
@@ -1578,26 +1654,11 @@ class _SearchScreenState extends State<SearchScreen>
     return KeyedSubtree(
       key: const ValueKey('live'),
       // BUGFIX ("search mein artist bhi aaye" — nahi aata tha, real mein):
-      // the Musify-style Artists section (see _buildArtistSection) was
-      // only ever wired into _buildResults(), which _buildBody() only
-      // reaches once _results (the SUBMITTED search's song list) is
-      // non-empty. Most of what a user actually sees while typing — and
-      // often even right after hitting search, until the debounced full
-      // search resolves — is THIS panel, _buildLivePanel, which had no
-      // artist rendering at all. _artistResults itself was already being
-      // fetched correctly on every _search() call (see
-      // ApiService.searchArtists in _search() above); it just never had
-      // anywhere to render on this screen. Prepending the same section
-      // here (identical to _buildResults()'s own placement) means artists
-      // now show up as soon as they resolve, on whichever panel is
-      // actually on screen at the time — not only after a full submit.
-      child: Column(
-        children: [
-          _buildArtistSection(context),
-          _buildAlbumSection(context),
-          Expanded(child: content),
-        ],
-      ),
+      // the Musify-style Artists section (see _buildArtistSection) is now
+      // folded directly into the scrollable `content` ListView above (see
+      // the showArtistAlbumHeaderLive branch) instead of sitting outside
+      // it in a fixed Column — see that branch's doc comment for why.
+      child: content,
     );
   }
 
@@ -1689,37 +1750,44 @@ class _SearchScreenState extends State<SearchScreen>
         + (showRelatedHeader ? 1 : 0)
         + _relatedResults.length;
 
+    // SCROLL/FREEZE FIX ("scroll bhi nahi ho raha... See all pe stuck ho ja
+    // raha hai"): _buildArtistSection and _buildAlbumSection used to be
+    // siblings of Expanded(ListView) inside a plain, non-scrolling Column.
+    // Both are UNBOUNDED-height widgets once expanded — the Artists section
+    // is a vertical list of full-width rows with no cap, and Albums' "See
+    // all" swaps its bounded 190px horizontal strip for an unbounded Wrap
+    // grid. With more artists/albums now available (Saavn fallback), that
+    // Column simply overflowed its fixed space instead of scrolling —
+    // which is exactly what read as "stuck"/frozen and "can't scroll".
+    // Fix: fold both sections INTO the scrollable ListView as its own
+    // leading item, so the whole page (artists + albums + songs) scrolls
+    // together as one unit and an expanded Wrap just makes that first item
+    // taller instead of overflowing anything.
+    final showArtistAlbumHeader = _activeFilter == SearchResultFilter.all &&
+        (_artistResults.isNotEmpty || _albumResults.isNotEmpty);
+    final headerItemCount = showArtistAlbumHeader ? 1 : 0;
+
     return Stack(
       children: [
-        Column(
-          children: [
-            // MUSIFY-STYLE ("search mein artist bhi aaye", matched to the
-            // Musify reference screenshot): labeled "Artists" section with
-            // a vertical list of full-width rows, shown above the Songs
-            // section — see _buildArtistSection.
-            // FILTER BRANCH cont'd: only show these on 'all' — the
-            // 'songs' chip means "just songs", so the Artists/Albums rows
-            // above them would defeat the point of that filter.
-            if (_activeFilter == SearchResultFilter.all) _buildArtistSection(context),
-            if (_activeFilter == SearchResultFilter.all) _buildAlbumSection(context),
-            // SMOOTH FIX ("results scroll karte time stuck jaisa feel"):
-            // this list had no RepaintBoundary anywhere above it — header,
-            // search bar and tab bar sat in the same paint layer as the
-            // ListView, so every scroll frame's repaint pass touched that
-            // whole static tree too instead of just the moving list.
-            // RepaintBoundary gives the list its own compositor layer so
-            // scrolling only repaints what's actually moving.
-            Expanded(
-              child: RepaintBoundary(
-              child: ListView.builder(
-                key: const ValueKey('results'),
-                physics: const BouncingScrollPhysics(),
-                // PERF: same pop-in fix as history list above — search results
-                // often get scrolled through quickly.
-                cacheExtent: 800,
-                itemCount: itemCount,
-                padding: const EdgeInsets.only(bottom: 80),
-                itemBuilder: (_, i) {
+        RepaintBoundary(
+          child: ListView.builder(
+            key: const ValueKey('results'),
+            physics: const BouncingScrollPhysics(),
+            cacheExtent: 800,
+            itemCount: headerItemCount + itemCount,
+            padding: const EdgeInsets.only(bottom: 80),
+            itemBuilder: (_, rawIndex) {
+              if (showArtistAlbumHeader && rawIndex == 0) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildArtistSection(context),
+                    _buildAlbumSection(context),
+                  ],
+                );
+              }
+              final i = rawIndex - headerItemCount;
             // CRASH FIX: _results/itemCount mismatch during scroll+update
             // race. itemCount was computed from _results.length at build()
             // time, but setState() can update _results mid-scroll — i can
@@ -1797,10 +1865,7 @@ class _SearchScreenState extends State<SearchScreen>
               ),
             );
           },
-              ),
-              ),
-            ),
-          ],
+          ),
         ),
         // Thin top progress line while a new submit-search is refreshing
         // these same results — this is the "premium" refresh cue: the

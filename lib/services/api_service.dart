@@ -67,7 +67,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import '../models/artist.dart';
 import '../models/lyrics.dart';
-import 'browse_service.dart' show BrowseAlbum;
+import 'browse_service.dart' show BrowseAlbum, BrowseArtist;
 import '../utils/constants.dart';
 import 'audio_prefs.dart';
 import 'recommendation_engine.dart';
@@ -5947,55 +5947,92 @@ class ApiService {
   // the YT entry — real shelf art tends to be fresher/higher-res than the
   // Saavn search-result or YouTube-thumbnail-scrape fallback.
   static Future<List<ArtistSimple>> fetchHomeArtistsCombined() async {
-    // RAISED (2026-08-15 — "yt se artist jyada se jyada aaye"): was
-    // limit: 20 on the YT side. Bumped to 40 — the Worker route is a
-    // single request with its own 10s hard timeout either way, so a
-    // higher limit only means more entries in the SAME response, not
-    // more round trips or slower load. Saavn side left at its existing
-    // limit since this ask was specifically "YT artists zyada".
-    final results = await Future.wait([
-      fetchYtMusicHomeArtists(limit: 40),
-      fetchHomeArtists(),
-    ]);
-    final ytArtists = results[0] as List<YtHomeArtist>;
-    final saavnArtists = results[1] as List<ArtistSimple>;
+    // SPEED FIX ("artist home page pe nahi aa rahe / bahut late aate hai"):
+    // this used to `await Future.wait([fetchYtMusicHomeArtists(...),
+    // fetchHomeArtists()])` — i.e. block on BOTH legs before returning
+    // anything. fetchYtMusicHomeArtists is one fast Worker call (~4s hard
+    // cap). fetchHomeArtists is a completely different shape of slow: it
+    // fires 20 SEPARATE per-artist lookups concurrently, and EACH one can
+    // itself cascade through Node hosts -> Flask hosts -> a YouTube page
+    // scrape fallback, each leg with its own 6s timeout — so a handful of
+    // unlucky/cold-tier hosts among those 20 can keep the whole combined
+    // call blocked for 10-15+ seconds even though the YT leg alone was
+    // ready in under 4. That's the actual "artists late/missing on home"
+    // bug: Musify/SimpMusic-level home screens never wait on a batch of
+    // 20 individual network calls before showing a single artist chip.
+    //
+    // Fix: return as soon as the fast YT leg resolves. The slow Saavn pool
+    // is still kicked off here (fire-and-forget, not awaited) purely to
+    // warm/refresh its own on-disk cache for next launch — the actual
+    // progressive top-up path home_screen.dart now uses instead of this
+    // blocking function is fetchHomeArtistsStreaming() below.
+    unawaited(fetchHomeArtists().catchError((_) => <ArtistSimple>[]));
 
+    final ytArtists = await fetchYtMusicHomeArtists(limit: 40);
     final seenNames = <String>{};
     final merged = <ArtistSimple>[];
-
     for (final a in ytArtists) {
       final key = a.name.trim().toLowerCase();
       if (key.isEmpty || !seenNames.add(key)) continue;
-      merged.add(ArtistSimple(
-        id: 'yt_${a.channelId}',
-        name: a.name,
-        imageUrl: a.imageUrl,
-      ));
+      merged.add(ArtistSimple(id: 'yt_${a.channelId}', name: a.name, imageUrl: a.imageUrl));
     }
-    for (final a in saavnArtists) {
-      final key = a.name.trim().toLowerCase();
-      if (key.isEmpty || !seenNames.add(key)) continue;
-      merged.add(a);
-    }
+    return merged;
+  }
 
-    // FINAL SAFETY NET: guarantee every id in the merged list is unique,
-    // independent of what each source promised. YT entries are already
-    // unique via their real channelId; only Saavn's possible '' ids (or
-    // any unexpected upstream duplicate id) can still collide at this
-    // point — give any duplicate/empty id a synthetic-but-stable
-    // fallback derived from its position, so home_screen.dart's
-    // ValueKey-per-chip logic never sees two identical ids in one list.
-    final seenIds = <String>{};
-    for (var i = 0; i < merged.length; i++) {
-      final a = merged[i];
-      if (a.id.isEmpty || !seenIds.add(a.id)) {
-        final fallbackId = 'artist_$i';
-        seenIds.add(fallbackId);
-        merged[i] = ArtistSimple(id: fallbackId, name: a.name, imageUrl: a.imageUrl);
+  /// STREAMING VERSION ("Musify/SimpMusic jaisa fast") — used by
+  /// home_screen.dart instead of the blocking fetchHomeArtistsCombined()
+  /// above. Calls `onUpdate` twice: once as soon as the fast YT leg
+  /// resolves (near-instant, single Worker call), and again once the slow
+  /// 20-artist Saavn pool finishes merging in — so the artist strip can
+  /// paint real content almost immediately instead of staying empty for
+  /// however long the slowest of 20 individual searches takes.
+  static Future<void> fetchHomeArtistsStreaming(
+    void Function(List<ArtistSimple> artists) onUpdate,
+  ) async {
+    final seenNames = <String>{};
+    final merged = <ArtistSimple>[];
+    void addAll(Iterable<ArtistSimple> items) {
+      for (final a in items) {
+        final key = a.name.trim().toLowerCase();
+        if (key.isEmpty || !seenNames.add(key)) continue;
+        merged.add(a);
       }
     }
 
-    return merged;
+    List<YtHomeArtist> ytArtists = const [];
+    try {
+      ytArtists = await fetchYtMusicHomeArtists(limit: 40);
+    } catch (_) {}
+    addAll(ytArtists.map((a) => ArtistSimple(id: 'yt_${a.channelId}', name: a.name, imageUrl: a.imageUrl)));
+    onUpdate(_uniqueIds(merged));
+
+    List<ArtistSimple> saavnArtists = const [];
+    try {
+      saavnArtists = await fetchHomeArtists();
+    } catch (_) {}
+    addAll(saavnArtists);
+    onUpdate(_uniqueIds(merged));
+  }
+
+  // FINAL SAFETY NET: guarantee every id in the merged list is unique,
+  // independent of what each source promised. YT entries are already
+  // unique via their real channelId; only Saavn's possible '' ids (or
+  // any unexpected upstream duplicate id) can still collide at this
+  // point — give any duplicate/empty id a synthetic-but-stable
+  // fallback derived from its position, so home_screen.dart's
+  // ValueKey-per-chip logic never sees two identical ids in one list.
+  static List<ArtistSimple> _uniqueIds(List<ArtistSimple> list) {
+    final seenIds = <String>{};
+    final out = List<ArtistSimple>.from(list);
+    for (var i = 0; i < out.length; i++) {
+      final a = out[i];
+      if (a.id.isEmpty || !seenIds.add(a.id)) {
+        final fallbackId = 'artist_$i';
+        seenIds.add(fallbackId);
+        out[i] = ArtistSimple(id: fallbackId, name: a.name, imageUrl: a.imageUrl);
+      }
+    }
+    return out;
   }
 
   // ===========================================================================
@@ -6107,12 +6144,80 @@ class ApiService {
   static Future<List<ArtistSimple>> searchArtists(String query, {int limit = 12}) async {
     if (query.trim().isEmpty) return const [];
 
-    final primary = await _searchArtistsAttempt(query, limit,
-        useArtistFilter: true, timeout: const Duration(seconds: 5));
-    if (primary.isNotEmpty) return primary;
+    // SPEED FIX ("ekdam live result ke sath aana chahiye, koi lag na ho"):
+    // this used to run filtered -> unfiltered -> Saavn strictly one after
+    // another, each with its own up-to-5s timeout — a genuinely thin/
+    // wrong-coverage query (exactly the Bollywood-artist case the Saavn
+    // fallback exists for) could take 10+ seconds to resolve, which is
+    // fine for a one-off submit but reads as completely broken now that
+    // this also powers live-as-you-type search.
+    //
+    // Fix: race all three concurrently and resolve as soon as ANY of them
+    // returns something usable, instead of waiting for every leg to
+    // finish (even a plain Future.wait still pays for the slowest
+    // failing leg). _firstNonEmpty below completes the instant a
+    // non-empty result lands, preferring source-priority order (filtered
+    // YT > unfiltered YT > Saavn) only when two land in the same tick;
+    // it only falls through to whichever answers last if every leg comes
+    // back empty.
+    return _firstNonEmptyArtists([
+      _searchArtistsAttempt(query, limit,
+          useArtistFilter: true, timeout: const Duration(seconds: 4)),
+      _searchArtistsAttempt(query, limit,
+          useArtistFilter: false, timeout: const Duration(seconds: 4)),
+      _searchArtistsSaavn(query, limit),
+    ]);
+  }
 
-    return _searchArtistsAttempt(query, limit,
-        useArtistFilter: false, timeout: const Duration(seconds: 5));
+  /// Races several artist-search futures and completes with the FIRST one
+  /// that resolves to a non-empty list — never waits for the slowest leg
+  /// once a usable answer already exists. Falls back to whichever
+  /// resolves last (even if empty) only if every leg comes back empty, so
+  /// a genuine "no results anywhere" still resolves cleanly instead of
+  /// hanging.
+  static Future<List<ArtistSimple>> _firstNonEmptyArtists(
+      List<Future<List<ArtistSimple>>> futures) async {
+    final completer = Completer<List<ArtistSimple>>();
+    var remaining = futures.length;
+    List<ArtistSimple> lastResult = const [];
+    for (final f in futures) {
+      f.then((result) {
+        if (completer.isCompleted) return;
+        if (result.isNotEmpty) {
+          completer.complete(result);
+          return;
+        }
+        lastResult = result;
+        remaining--;
+        if (remaining == 0) completer.complete(lastResult);
+      }).catchError((_) {
+        if (completer.isCompleted) return;
+        remaining--;
+        if (remaining == 0) completer.complete(lastResult);
+      });
+    }
+    return completer.future;
+  }
+
+  static Future<List<ArtistSimple>> _searchArtistsSaavn(String query, int limit) async {
+    final path = '/api/search/artists?query=${Uri.encodeQueryComponent(query)}&limit=$limit';
+    for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
+      final body = await _getFromHosts(hosts, path,
+          isValid: (b) => b['data']?['results'] is List &&
+              (b['data']['results'] as List).isNotEmpty);
+      if (body == null) continue;
+      final results = (body['data']['results'] as List);
+      final out = <ArtistSimple>[];
+      for (final r in results) {
+        if (out.length >= limit) break;
+        if (r is! Map) continue;
+        final ba = BrowseArtist.fromSaavn(r.cast<String, dynamic>());
+        if (ba.artistId.isEmpty || ba.name.isEmpty) continue;
+        out.add(ArtistSimple(id: 'saavn_${ba.artistId}', name: ba.name, imageUrl: ba.imageUrl));
+      }
+      if (out.isNotEmpty) return out;
+    }
+    return const [];
   }
 
   static Future<List<ArtistSimple>> _searchArtistsAttempt(
@@ -6223,12 +6328,66 @@ class ApiService {
   static Future<List<BrowseAlbum>> searchAlbums(String query, {int limit = 12}) async {
     if (query.trim().isEmpty) return const [];
 
-    final primary = await _searchAlbumsAttempt(query, limit,
-        useAlbumFilter: true, timeout: const Duration(seconds: 5));
-    if (primary.isNotEmpty) return primary;
+    // SPEED FIX — same reasoning and fix shape as searchArtists' race
+    // above: sequential filtered -> unfiltered -> Saavn could take 10+
+    // seconds worst case, which is unacceptable now that this also powers
+    // live-as-you-type search. Race all three concurrently, resolve the
+    // instant any one comes back with a usable (non-empty) result.
+    return _firstNonEmptyAlbums([
+      _searchAlbumsAttempt(query, limit,
+          useAlbumFilter: true, timeout: const Duration(seconds: 4)),
+      _searchAlbumsAttempt(query, limit,
+          useAlbumFilter: false, timeout: const Duration(seconds: 4)),
+      _searchAlbumsSaavn(query, limit),
+    ]);
+  }
 
-    return _searchAlbumsAttempt(query, limit,
-        useAlbumFilter: false, timeout: const Duration(seconds: 5));
+  /// Races several album-search futures and completes with the FIRST one
+  /// that resolves to a non-empty list — same "don't wait on the slowest
+  /// failing leg" behavior as _firstNonEmptyArtists above.
+  static Future<List<BrowseAlbum>> _firstNonEmptyAlbums(
+      List<Future<List<BrowseAlbum>>> futures) async {
+    final completer = Completer<List<BrowseAlbum>>();
+    var remaining = futures.length;
+    List<BrowseAlbum> lastResult = const [];
+    for (final f in futures) {
+      f.then((result) {
+        if (completer.isCompleted) return;
+        if (result.isNotEmpty) {
+          completer.complete(result);
+          return;
+        }
+        lastResult = result;
+        remaining--;
+        if (remaining == 0) completer.complete(lastResult);
+      }).catchError((_) {
+        if (completer.isCompleted) return;
+        remaining--;
+        if (remaining == 0) completer.complete(lastResult);
+      });
+    }
+    return completer.future;
+  }
+
+  static Future<List<BrowseAlbum>> _searchAlbumsSaavn(String query, int limit) async {
+    final path = '/api/search/albums?query=${Uri.encodeQueryComponent(query)}&limit=$limit';
+    for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
+      final body = await _getFromHosts(hosts, path,
+          isValid: (b) => b['data']?['results'] is List &&
+              (b['data']['results'] as List).isNotEmpty);
+      if (body == null) continue;
+      final results = (body['data']['results'] as List);
+      final out = <BrowseAlbum>[];
+      for (final r in results) {
+        if (out.length >= limit) break;
+        if (r is! Map) continue;
+        final album = BrowseAlbum.fromSaavn(r.cast<String, dynamic>());
+        if (album.collectionId.isEmpty || album.name.isEmpty) continue;
+        out.add(album);
+      }
+      if (out.isNotEmpty) return out;
+    }
+    return const [];
   }
 
   static Future<List<BrowseAlbum>> _searchAlbumsAttempt(
@@ -6419,12 +6578,27 @@ class ApiService {
         // intentionally left as browse's own (uploads scraping can't
         // produce those — see _fetchArtistFromYoutube's doc comment), so
         // the merge only ever extends topSongs.
-        const thinShelfThreshold = 15;
+        // FIX ("artist tap karne pe bahut kam songs aa rahe hai"): this
+        // threshold used to be 15 — meaning any shelf with 15+ songs (a
+        // very common size for YT Music's own curated Top Songs list,
+        // often sitting right around 10-15) skipped the uploads top-up
+        // entirely and returned exactly that shelf, even though the real
+        // channel usually has far more. Lowered to 30 so a "medium-sized
+        // but still nowhere near the full catalog" shelf also gets topped
+        // up from the channel's own uploads, matching the "as many songs
+        // as possible" bar Musify/SimpMusic-style apps hold to.
+        const thinShelfThreshold = 30;
         if (browseArtist.topSongs.length >= thinShelfThreshold) return browseArtist;
 
         try {
+          // FIX: outer timeout raised 12s -> 18s to actually fit the
+          // uploads walk's own internal budget (up to ~8s for
+          // channel/about/first-page in parallel, then up to 14s more for
+          // the walk's own deadline below) — at 12s this was cutting the
+          // walk off mid-stride almost every time, wasting the very
+          // budget the walk's internal deadline was designed to use.
           final uploadsArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount)
-              .timeout(const Duration(seconds: 12), onTimeout: () => null);
+              .timeout(const Duration(seconds: 18), onTimeout: () => null);
           if (uploadsArtist == null || uploadsArtist.topSongs.isEmpty) return browseArtist;
 
           final seenIds = <String>{};
@@ -6439,6 +6613,36 @@ class ApiService {
             if (_isDupOfAny(s.title, seenRawTitles)) continue;
             seenRawTitles.add(s.title);
             mergedSongs.add(s);
+          }
+
+          // FINAL FLOOR ("kam se kam 100 songs aaye, production grade"):
+          // browse shelf + channel uploads still occasionally lands short
+          // of songCount for artists whose real catalog is thin on both
+          // those sources (heavy non-music/duration filtering, or a
+          // channel with genuinely few uploads). Rather than ship
+          // whatever count that happened to produce, do one more direct
+          // YT Music search on the artist's own name — the same fallback
+          // path _fetchArtistFromYoutube already uses when uploads come
+          // back completely empty — and top up the same merged/deduped
+          // list with it. Only fires when actually short, so it costs
+          // nothing for the common case that already reaches songCount.
+          if (mergedSongs.length < songCount && browseArtist.name.isNotEmpty) {
+            try {
+              final extra = await _searchYtMusicDirect(browseArtist.name, songCount * 2)
+                  .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
+              for (final s in extra) {
+                if (mergedSongs.length >= songCount) break;
+                if (!seenIds.add(s.id)) continue;
+                final tk = _normTitle(s.title);
+                if (!seenTitles.add(tk)) continue;
+                if (_isDupOfAny(s.title, seenRawTitles)) continue;
+                if (RecommendationEngine.isNonMusicContent(s)) continue;
+                seenRawTitles.add(s.title);
+                mergedSongs.add(s);
+              }
+            } catch (e) {
+              _log('[fetchArtist] final 100-floor top-up failed for "${browseArtist.name}": $e');
+            }
           }
 
           return Artist(
@@ -6941,7 +7145,28 @@ class ApiService {
           // always resolves promptly — a big channel's full catalog is a
           // "browse more" problem, not something the initial screen load
           // should block on.
-          const maxPages = 6;
+          // FIX ("artist ke songs sirf 5-18 aa rahe hain" even after the
+          // browse-shelf top-up kicks in): maxPages=10 was routinely not
+          // enough to reach songCount once isNonMusicContent + the
+          // 60-1200s duration filter above throw away a chunk of every
+          // page — a channel needing 15+ real pages to fill 100 slots
+          // just stopped at page 10 with whatever survived, often barely
+          // more than the thin browse shelf it was supposed to top up.
+          // Raised so the walk actually has room to reach songCount for
+          // channels with heavier filtering loss.
+          // FIX ("ekdam fast, stuck na ho" — the previous maxPages=25 +
+          // retry-per-page combo could chain up to 25 × 14s ≈ 6 minutes
+          // of sequential waiting on a slow connection, exactly the
+          // "stuck" feeling this needs to avoid): page COUNT alone is the
+          // wrong guard — it says nothing about how long the walk has
+          // actually taken. Wall-clock deadline is what actually bounds
+          // worst-case latency, so the walk now stops the moment either
+          // songCount is hit OR this much total time has passed,
+          // whichever comes first — same 100-song ceiling on a fast
+          // connection, but a hard, predictable cap on a slow one instead
+          // of a multi-minute stall.
+          const maxPages = 25;
+          final walkDeadline = DateTime.now().add(const Duration(seconds: 14));
           var pageCount = 0;
           while (true) {
             pageCount++;
@@ -6964,7 +7189,14 @@ class ApiService {
               topSongs.add(song);
             }
             if (topSongs.length >= songCount || pageCount >= maxPages) break;
-            final next = await page.nextPage().timeout(const Duration(seconds: 7), onTimeout: () => null);
+            if (DateTime.now().isAfter(walkDeadline)) break;
+            // FIX: dropped the earlier retry-on-timeout here — doubling
+            // every slow page's wait (7s → 14s) was the single biggest
+            // contributor to worst-case stall time for exactly the
+            // channels that most needed this walk to finish fast. A
+            // single timeout now just ends the walk with whatever's
+            // already collected, same as running out of pages for real.
+            final next = await page.nextPage().timeout(const Duration(seconds: 5), onTimeout: () => null);
             if (next == null) break;
             page = next;
           }
@@ -6988,27 +7220,47 @@ class ApiService {
       // results whose artistChannelId actually matches this artist (or,
       // failing that, whose artist name matches), so an unrelated
       // same-named channel's songs can't leak onto this page.
-      if (topSongs.isEmpty && cleanName.isNotEmpty) {
+      // FIX ("kam se kam 100 songs aaye, production grade" — same 100-floor
+      // fix as the browse-shelf path above): this used to only fire when
+      // topSongs was COMPLETELY empty. A channel whose uploads walk found
+      // some real songs (say 20-40) but never reached songCount — heavy
+      // non-music/duration filtering, or a genuinely small uploads
+      // catalog — used to just ship that partial count with no top-up at
+      // all. Now runs whenever short of songCount, additively (keeps what
+      // uploads already found, only fills the gap) instead of only ever
+      // being a last-resort replacement for a totally empty list.
+      if (topSongs.length < songCount && cleanName.isNotEmpty) {
         try {
           final fallbackResults = await _searchYtMusicDirect(cleanName, songCount * 2);
           final matched = fallbackResults.where((s) {
             if (s.artistChannelId != null) return s.artistChannelId == channelId;
             return s.artist.trim().toLowerCase() == cleanName.toLowerCase();
-          }).take(songCount).toList();
+          }).toList();
           if (matched.isNotEmpty) {
+            final seenIds = topSongs.map((s) => s.id).toSet();
+            final seenTitles = topSongs.map((s) => _normTitle(s.title)).toSet();
+            final seenRawTitles = topSongs.map((s) => s.title).toList();
             // Same non-music filter every other Top Songs source in this
             // function applies — this fallback previously skipped it, so
             // a stray non-song result reaching this specific path (empty
             // topSongs from every earlier source) could still slip
             // through un-filtered.
-            topSongs.addAll(matched
-                .map((s) => Song(
-                      id: s.id, title: s.title, artist: s.artist, album: s.album,
-                      artworkUrl: s.artworkUrl, streamUrl: null, duration: s.duration,
-                      source: SongSource.youtube, viewCount: s.viewCount ?? 1000000,
-                      artistChannelId: channelId,
-                    ))
-                .where((song) => !RecommendationEngine.isNonMusicContent(song)));
+            for (final s in matched) {
+              if (topSongs.length >= songCount) break;
+              if (!seenIds.add(s.id)) continue;
+              final tk = _normTitle(s.title);
+              if (!seenTitles.add(tk)) continue;
+              if (_isDupOfAny(s.title, seenRawTitles)) continue;
+              final song = Song(
+                id: s.id, title: s.title, artist: s.artist, album: s.album,
+                artworkUrl: s.artworkUrl, streamUrl: null, duration: s.duration,
+                source: SongSource.youtube, viewCount: s.viewCount ?? 1000000,
+                artistChannelId: channelId,
+              );
+              if (RecommendationEngine.isNonMusicContent(song)) continue;
+              seenRawTitles.add(s.title);
+              topSongs.add(song);
+            }
           }
         } catch (e) {
           _log('[_fetchArtistFromYoutube] search fallback failed: $e');
