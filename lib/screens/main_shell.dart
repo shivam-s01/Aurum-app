@@ -858,33 +858,24 @@ class AurumBottomNavBar extends StatelessWidget {
                   // decorative (IgnorePointer) so it never steals taps from
                   // the GestureDetectors in the Row below.
                   final slotWidth = constraints.maxWidth / items.length;
-                  const capsuleMargin = 6.0;
+                  // SimpMusic-style: solid filled pill hugs just the icon,
+                  // not the label. Label stays plain, no box around it.
+                  const capsuleSize = 40.0;
                   return Stack(
                     alignment: Alignment.center,
                     children: [
                 AnimatedPositioned(
                   duration: const Duration(milliseconds: 280),
                   curve: Curves.easeOutCubic,
-                  left: slotWidth * currentIndex + capsuleMargin,
+                  left: slotWidth * currentIndex + (slotWidth - capsuleSize) / 2,
                   top: 8,
-                  bottom: 8,
-                  width: slotWidth - capsuleMargin * 2,
+                  width: capsuleSize,
+                  height: capsuleSize,
                   child: IgnorePointer(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: (isDark ? Colors.white : Colors.black)
-                                .withValues(alpha: isDark ? 0.10 : 0.06),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: accent.withValues(alpha: 0.22),
-                              width: 1,
-                            ),
-                          ),
-                        ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: accent,
+                        borderRadius: BorderRadius.circular(capsuleSize / 2),
                       ),
                     ),
                   ),
@@ -924,8 +915,11 @@ class AurumBottomNavBar extends StatelessWidget {
                                   // makes every icon's identity unique.
                                   key: ValueKey('$i-$selected'),
                                   size: 24,
+                                  // Capsule fill is solid `accent`, so the
+                                  // selected icon needs a fixed white for
+                                  // contrast against it in both themes.
                                   color: selected
-                                      ? accent
+                                      ? Colors.white
                                       : AurumTheme.textMutedOf(context),
                                 ),
                               ),
@@ -952,6 +946,11 @@ class AurumBottomNavBar extends StatelessWidget {
                                   fontWeight: selected
                                       ? FontWeight.w600
                                       : FontWeight.w500,
+                                  // Capsule fill is solid `accent`, so the
+                                  // selected label needs to stay legible —
+                                  // but the label itself sits OUTSIDE the
+                                  // capsule (icon-only pill), so use accent
+                                  // as plain text color, not white.
                                   color: selected
                                       ? accent
                                       : AurumTheme.textMutedOf(context),
