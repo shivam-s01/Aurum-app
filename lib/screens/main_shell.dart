@@ -670,12 +670,10 @@ class _NavTabTapPumpState extends State<_NavTabTapPump>
       onTapUp: _up,
       onTapCancel: _cancel,
       onTap: widget.onTap,
-      child: SizedBox.expand(
-        child: AnimatedBuilder(
-          animation: _scale,
-          builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
-          child: widget.child,
-        ),
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+        child: widget.child,
       ),
     );
   }
@@ -713,8 +711,6 @@ class AurumBottomNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final items = _items(l10n);
-    final accent = context.select<ThemeProvider, Color>((tp) => tp.accentColor);
-
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Floating frosted-glass capsule (default): side margins so it doesn't
@@ -846,126 +842,112 @@ class AurumBottomNavBar extends StatelessWidget {
             },
             child: LayoutBuilder(
                 builder: (context, constraints) {
-                  // Glass sliding indicator — SimpMusic-style capsule that
-                  // sits behind the currently-selected tab's icon+label and
-                  // animates (slide + fade) to the new tab whenever
-                  // currentIndex changes. Each tab gets an equal-width slot
-                  // (Row of Expanded below), so the capsule's width/left
-                  // offset is just constraints.maxWidth split evenly by
-                  // items.length — no GlobalKeys or per-tab measuring
-                  // needed. Frosted look (blur + low-opacity fill) matches
-                  // the rest of this bar's glass theme; it's purely
-                  // decorative (IgnorePointer) so it never steals taps from
-                  // the GestureDetectors in the Row below.
+                  // SimpMusic-exact indicator: the selected tab's icon and
+                  // label sit side-by-side in a Row, wrapped in a soft grey
+                  // pill sized to that content (not a fixed guessed size) —
+                  // so the pill always hugs exactly what's inside it.
+                  // Unselected tabs stay icon-over-label with no pill at
+                  // all, matching the reference screenshots exactly. Each
+                  // tab gets an equal-width slot so tap targets stay large
+                  // and consistent regardless of which tab is selected.
                   final slotWidth = constraints.maxWidth / items.length;
-                  // SimpMusic-style: solid filled pill hugs just the icon,
-                  // not the label. Label stays plain, no box around it.
-                  const capsuleSize = 40.0;
-                  return Stack(
-                    alignment: Alignment.center,
-                    children: [
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 280),
-                  curve: Curves.easeOutCubic,
-                  left: slotWidth * currentIndex + (slotWidth - capsuleSize) / 2,
-                  top: 8,
-                  width: capsuleSize,
-                  height: capsuleSize,
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: accent,
-                        borderRadius: BorderRadius.circular(capsuleSize / 2),
-                      ),
-                    ),
-                  ),
-                ),
-                // ── Tap targets ──────────────────────────────────────
-                Row(
-                  children: List.generate(items.length, (i) {
-                    final item = items[i];
-                    final selected = i == currentIndex;
-                    return Expanded(
-                      child: _NavTabTapPump(
-                        onTap: () {
-                          if (!selected) AurumHaptics.selection();
-                          onTap(i);
-                        },
-                        child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 180),
-                                switchInCurve: Curves.easeOutCubic,
-                                switchOutCurve: Curves.easeOutCubic,
-                                transitionBuilder: (child, anim) => FadeTransition(
-                                  opacity: anim,
-                                  child: child,
-                                ),
-                                child: Icon(
-                                  selected ? item.filled : item.outline,
-                                  // FIX: was ValueKey(selected) — every tab's
-                                  // icon shares just two possible keys
-                                  // (true/false), so switching from one
-                                  // selected tab to a different tab could
-                                  // reuse the previous tab's Element instead
-                                  // of treating it as a genuinely new icon,
-                                  // which skipped or glitched the fade
-                                  // transition. Keying on the tab index too
-                                  // makes every icon's identity unique.
-                                  key: ValueKey('$i-$selected'),
-                                  size: 24,
-                                  // Capsule fill is solid `accent`, so the
-                                  // selected icon needs a fixed white for
-                                  // contrast against it in both themes.
-                                  color: selected
-                                      ? Colors.white
-                                      : AurumTheme.textMutedOf(context),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              AnimatedDefaultTextStyle(
-                                duration: const Duration(milliseconds: 180),
-                                style: TextStyle(
-                                  // FIX ("nav bar font doesn't change with
-                                  // the Appearance → Font Style setting"):
-                                  // this TextStyle was built from scratch
-                                  // with no fontFamily, so it always fell
-                                  // back to Flutter's plain default glyphs
-                                  // no matter what font the user picked —
-                                  // resolvedTextTheme() only reaches text
-                                  // that inherits from Theme.of(context)
-                                  // .textTheme, and a bare TextStyle here
-                                  // doesn't. Pulling the family off the
-                                  // already-resolved theme keeps this
-                                  // label in sync with every other font
-                                  // change across the app.
-                                  fontFamily: Theme.of(context).textTheme.bodySmall?.fontFamily,
-                                  fontSize: 11,
-                                  height: 1.0,
-                                  fontWeight: selected
-                                      ? FontWeight.w600
-                                      : FontWeight.w500,
-                                  // Capsule fill is solid `accent`, so the
-                                  // selected label needs to stay legible —
-                                  // but the label itself sits OUTSIDE the
-                                  // capsule (icon-only pill), so use accent
-                                  // as plain text color, not white.
-                                  color: selected
-                                      ? accent
-                                      : AurumTheme.textMutedOf(context),
-                                ),
-                                child: Text(item.label),
-                              ),
-                            ],
+                  return Row(
+                    children: List.generate(items.length, (i) {
+                      final item = items[i];
+                      final selected = i == currentIndex;
+                      return SizedBox(
+                        width: slotWidth,
+                        height: _barHeight,
+                        child: _NavTabTapPump(
+                          onTap: () {
+                            if (!selected) AurumHaptics.selection();
+                            onTap(i);
+                          },
+                          // SimpMusic-exact: the selected tab's own
+                          // icon+label pair (laid out as a Row, side by
+                          // side) sits directly inside a soft grey pill
+                          // that hugs that content — width/height come
+                          // from the content itself (icon + gap + text),
+                          // not a guessed fixed size, so it can never
+                          // look too tight or too loose around either
+                          // icon-only or icon+label layouts. Unselected
+                          // tabs stay icon-over-label with no box at all,
+                          // matching the reference exactly. The whole
+                          // slot (SizedBox above) stays the tap target so
+                          // unselected tabs are just as easy to hit as
+                          // selected ones, even though only the pill's
+                          // own content is visually boxed.
+                          child: Center(
+                            child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 280),
+                            curve: Curves.easeOutCubic,
+                            padding: selected
+                                ? const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 8)
+                                : const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? (isDark ? Colors.white : Colors.black)
+                                      .withValues(alpha: isDark ? 0.14 : 0.08)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: selected
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        item.filled,
+                                        size: 22,
+                                        color: AurumTheme.textPrimaryOf(context),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        item.label,
+                                        style: TextStyle(
+                                          fontFamily: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.fontFamily,
+                                          fontSize: 13,
+                                          height: 1.0,
+                                          fontWeight: FontWeight.w600,
+                                          color: AurumTheme.textPrimaryOf(context),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        item.outline,
+                                        size: 24,
+                                        color: AurumTheme.textMutedOf(context),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        item.label,
+                                        style: TextStyle(
+                                          fontFamily: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.fontFamily,
+                                          fontSize: 11,
+                                          height: 1.0,
+                                          fontWeight: FontWeight.w500,
+                                          color: AurumTheme.textMutedOf(context),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                            ),
+                          ),
                         ),
-                      ),
-                    );
-                  }),
-                ),
-              ],
-            );
-          },
+                      );
+                    }),
+                  );
+                },
             ),
           ),
         ),
