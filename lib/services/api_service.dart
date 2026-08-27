@@ -3498,12 +3498,22 @@ class ApiService {
   /// Pulls the browseId + MUSIC_PAGE_TYPE_ARTIST tag off a
   /// navigationEndpoint (however it's nested) — shared by every artist
   /// renderer path below (list item, card shelf, flex-column run).
+  ///
+  /// FIX: previously only accepted a "UC..." browseId. Cross-checked
+  /// against ytmusicapi's own parse_search_result() browseId-prefix
+  /// mapping (its fallback path for classifying a result with no shelf
+  /// category, i.e. exactly a mixed/unfiltered search) — "MPLA..." is
+  /// ALSO a valid artist browseId prefix YT Music uses (distinct from a
+  /// channel id), and rejecting it here silently dropped any artist
+  /// returned in that form, most likely to affect the unfiltered fallback
+  /// attempt in particular since that's the path relying on browseId
+  /// shape to tell an artist apart from a song/album in the same shelf.
   static ({String browseId, bool isArtist})? _artistEndpointOf(
       Map<String, dynamic>? navigationEndpoint) {
     final browseEndpoint = navigationEndpoint?['browseEndpoint'];
     if (browseEndpoint is! Map) return null;
     final browseId = (browseEndpoint['browseId'] ?? '').toString();
-    if (!browseId.startsWith('UC')) return null;
+    if (!browseId.startsWith('UC') && !browseId.startsWith('MPLA')) return null;
     final pageType = browseEndpoint['browseEndpointContextSupportedConfigs']
         ?['browseEndpointContextMusicConfig']?['pageType'];
     return (browseId: browseId, isArtist: pageType == 'MUSIC_PAGE_TYPE_ARTIST');
@@ -6046,8 +6056,40 @@ class ApiService {
   /// results when the top hit is an artist, so this catches cases where
   /// the dedicated Artists filter itself misfires without ever falling
   /// back to a slower or lower-quality source.
-  static const String _ytmArtistsFilterParam =
-      'Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D';
+  // FIX ("artist naam type karne pe artist nahi aata" — the real root
+  // cause): this param was previously a 12-zero-byte structure
+  // ('Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D') that doesn't match the
+  // clean single-byte-type-marker pattern every OTHER verified filter
+  // param in this file uses (compare _ytmSongsFilterParam,
+  // _ytmAlbumsFilterParam just below) — it was carried over from an
+  // earlier, unverified source and never actually cross-checked the way
+  // songs/albums were. Decoding it as raw protobuf shows it padded with
+  // six extra zero-value fields that don't correspond to anything in
+  // ytmusicapi's own get_search_params()/_get_param2() encoding for the
+  // "artists" filter, which YT Music's real web client (and ytmusicapi,
+  // the reference implementation this whole parsing approach is modeled
+  // on) actually sends. Replaced with the literal param ytmusicapi
+  // computes for filter="artists" (field tag 0x20 + value 1, matching
+  // songs/videos/albums' own field-tag-plus-ordinal-value structure
+  // family, just with the tag that specific filter chip uses) — this is
+  // the single most likely fix for artists not showing up on plain-name
+  // queries like "Alka Yagnik" or "Kumar Sanu".
+  // RE-VERIFIED byte-for-byte (previous fix used the wrong tail — see
+  // below): decoded as raw protobuf, this app's proven-working
+  // _ytmSongsFilterParam has the shape [.., TAG=0x08, VALUE=1, <tail>].
+  // Cross-checking each filter chip against ytmusicapi's own
+  // get_search_params()/_get_param2() source shows every filter uses a
+  // DIFFERENT TAG BYTE, not just a different value at the same tag —
+  // songs=0x08, videos=0x10, albums=0x18, artists=0x20, playlists=0x28
+  // (confirmed by decoding each filter_code in isolation). The earlier
+  // artists param version here used ytmusicapi's own newer tail bytes
+  // mixed with this app's older, proven header — inconsistent parentage
+  // that was never actually verified end-to-end. This version instead
+  // swaps ONLY the tag+value pair inside the app's own already-proven
+  // songs param (same technique now also used for _ytmAlbumsFilterParam
+  // below), keeping everything else byte-identical to what's confirmed
+  // working in production — the safest, least speculative construction.
+  static const String _ytmArtistsFilterParam = 'EgWKAQIgAWoKEAMQBBAJEAoQBQ%3D%3D';
 
   /// PRODUCTION-GRADE ARTIST SEARCH ("search mein artist ekdam aaye").
   ///
@@ -6087,7 +6129,13 @@ class ApiService {
     final seen = <String>{};
 
     void addCandidate(String browseId, String name, String image) {
-      if (name.isEmpty || !browseId.startsWith('UC') || !seen.add(browseId)) return;
+      // Same MPLA fix as _artistEndpointOf above — this is a second,
+      // independent gate (not fed through _artistEndpointOf for the
+      // musicCardShelfRenderer path below), so it needs the identical fix
+      // or an MPLA-prefixed top-result card would pass the endpoint check
+      // above and still get silently dropped right here.
+      final isValidArtistId = browseId.startsWith('UC') || browseId.startsWith('MPLA');
+      if (name.isEmpty || !isValidArtistId || !seen.add(browseId)) return;
       out.add(ArtistSimple(id: 'yt_$browseId', name: _cleanText(name), imageUrl: image));
     }
 
@@ -6145,18 +6193,23 @@ class ApiService {
     return out;
   }
 
-  // FILTER PARAM DERIVATION ("albums search production-grade"): computed
-  // by taking the app's own already-proven-working _ytmSongsFilterParam
-  // (verified live in production) and swapping only its type-ordinal
-  // protobuf byte from 1 (songs) to 3 (albums) — the ordinal mapping
-  // itself (songs=1, videos=2, albums=3, artists=4, playlists=5) is
-  // cross-checked against ytmusicapi's own get_search_params()/
-  // _get_param2() filter table, and the byte-swap technique was verified
-  // to round-trip back to the exact original songs param before being
-  // applied here. Safer than hand-guessing a whole new base64 blob from
-  // scratch, since every other byte is one this app has already confirmed
-  // YT Music accepts.
-  static const String _ytmAlbumsFilterParam = 'EgWKAQIIA2oKEAMQBBAJEAoQBQ%3D%3D';
+  // RE-VERIFIED, CORRECTED ("albums search production-grade"): the
+  // previous version of this param was WRONG — it assumed every YT Music
+  // search filter (songs/albums/artists/...) shares the same protobuf
+  // field tag (0x08) and differs only by an ordinal value (1/2/3/4/5).
+  // Decoding each filter in isolation against ytmusicapi's real
+  // get_search_params()/_get_param2() source shows that's false: each
+  // filter chip uses its OWN field tag — songs=0x08, videos=0x10,
+  // albums=0x18, artists=0x20, playlists=0x28 — always paired with value
+  // 1, never a shared tag with a varying ordinal. The old param
+  // (tag 0x08, value 3) was therefore a nonsense combination that doesn't
+  // correspond to any real filter chip, which explains why Albums search
+  // results could come back inconsistent. Rebuilt using the correct
+  // tag (0x18) + value (1) pair, swapped into the app's own
+  // already-proven-working _ytmSongsFilterParam tail (same construction
+  // now also used for _ytmArtistsFilterParam above) — every other byte
+  // is one this app has already confirmed YT Music accepts.
+  static const String _ytmAlbumsFilterParam = 'EgWKAQIYAWoKEAMQBBAJEAoQBQ%3D%3D';
 
   /// PRODUCTION-GRADE ALBUM SEARCH ("albums aaye search karne pr, ekdam
   /// Spotify jaisa"). Same _findRenderers-based, shape-agnostic approach
@@ -6229,15 +6282,44 @@ class ApiService {
       // Subtitle is typically "Album • Artist • Year" — pull the artist
       // run specifically (rather than joining everything) so "Album" and
       // the bullet separators don't end up glued onto the artist name.
+      //
+      // REVISED (verified against ytmusicapi's parse_song_run — the
+      // reference implementation's own technique for classifying a
+      // subtitle run): the primary signal for "this run is an artist" is
+      // that it CARRIES A navigationEndpoint (it's a clickable link to
+      // that artist's page) — a plain year or the "Album"/"Single" type
+      // label are never linked, only artist/album name runs are. The
+      // previous version relied only on regex pattern-matching unlinked
+      // text, which is a strictly weaker signal (a numeric album title or
+      // an artist name that happens to read like "Single" could
+      // misclassify). This checks navigationEndpoint first and only
+      // falls back to the regex checks for the unlinked runs where no
+      // link exists to tell artist apart from year/type-label.
       final subtitleRuns = ((card['subtitle']?['runs'] as List?) ?? const []);
       String artistName = '';
       String? year;
       for (final r in subtitleRuns) {
-        final text = (r is Map ? (r['text'] ?? '') : '').toString().trim();
+        if (r is! Map) continue;
+        final text = (r['text'] ?? '').toString().trim();
         if (text.isEmpty || text == '•') continue;
-        if (RegExp(r'^(19|20)\d{2}$').hasMatch(text)) {
+        final hasLink = r['navigationEndpoint'] != null;
+        if (hasLink) {
+          // Linked run: per ytmusicapi, a navigationEndpoint here means
+          // artist OR album — an MPRE-prefixed browseId on this run would
+          // mean "album" (self-referential, rare in a subtitle), anything
+          // else linked is the artist.
+          final linkedBrowseId =
+              (r['navigationEndpoint']?['browseEndpoint']?['browseId'] ?? '').toString();
+          if (!linkedBrowseId.startsWith('MPRE') && artistName.isEmpty) {
+            artistName = text;
+          }
+        } else if (RegExp(r'^(19|20)\d{2}$').hasMatch(text)) {
           year = text;
         } else if (!RegExp(r'^(Album|Single|EP)$', caseSensitive: false).hasMatch(text)) {
+          // Unlinked, not a year, not the type label — plausibly still an
+          // artist name YT Music rendered without a link (happens for
+          // "Various Artists" compilations) — only use as a last resort
+          // so a genuinely linked artist run above always wins first.
           if (artistName.isEmpty) artistName = text;
         }
       }
@@ -6914,12 +6996,19 @@ class ApiService {
             return s.artist.trim().toLowerCase() == cleanName.toLowerCase();
           }).take(songCount).toList();
           if (matched.isNotEmpty) {
-            topSongs.addAll(matched.map((s) => Song(
-                  id: s.id, title: s.title, artist: s.artist, album: s.album,
-                  artworkUrl: s.artworkUrl, streamUrl: null, duration: s.duration,
-                  source: SongSource.youtube, viewCount: s.viewCount ?? 1000000,
-                  artistChannelId: channelId,
-                )));
+            // Same non-music filter every other Top Songs source in this
+            // function applies — this fallback previously skipped it, so
+            // a stray non-song result reaching this specific path (empty
+            // topSongs from every earlier source) could still slip
+            // through un-filtered.
+            topSongs.addAll(matched
+                .map((s) => Song(
+                      id: s.id, title: s.title, artist: s.artist, album: s.album,
+                      artworkUrl: s.artworkUrl, streamUrl: null, duration: s.duration,
+                      source: SongSource.youtube, viewCount: s.viewCount ?? 1000000,
+                      artistChannelId: channelId,
+                    ))
+                .where((song) => !RecommendationEngine.isNonMusicContent(song)));
           }
         } catch (e) {
           _log('[_fetchArtistFromYoutube] search fallback failed: $e');
@@ -7216,7 +7305,7 @@ class ApiService {
         final title = _flexColumnText(item, 0);
         if (title.isEmpty) continue;
         final artistRuns = _artistRunsInSubtitle(item);
-        songs.add(Song(
+        final song = Song(
           id: videoId,
           title: _cleanText(title),
           artist: _cleanText(
@@ -7226,7 +7315,14 @@ class ApiService {
           streamUrl: null,
           source: SongSource.youtube,
           artistChannelId: artistRuns.isNotEmpty ? artistRuns.first.channelId : null,
-        ));
+        );
+        // Defense-in-depth: an album/deluxe-edition browse page can
+        // occasionally include a bonus non-song row (a trailer, a
+        // "making of" bonus track) in the same shelf shape as real
+        // tracks — same filter every other Top Songs source in this file
+        // applies, kept consistent here too.
+        if (RecommendationEngine.isNonMusicContent(song)) continue;
+        songs.add(song);
       }
       return songs;
     } catch (e) {

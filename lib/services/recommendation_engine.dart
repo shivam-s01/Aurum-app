@@ -1515,7 +1515,25 @@ class RecommendationEngine {
     r'\b(vs\.?\b|explained|exposed|breaking|debate|interview|podcast|'
     r'documentary|analysis|review|reaction|vlog|news|update|crisis|'
     r'scandal|controversy|drowning|flood|election|protest|war\b|'
-    r'government|politics|political)\b',
+    r'government|politics|political|'
+    // FIX ("artist ke Top Songs mein idhar udhar ke videos aa jaate hai"):
+    // an artist's own YouTube channel legitimately uploads more than just
+    // songs — live performances, studio/making-of footage, movie
+    // trailers/teasers, award-show clips, and short-form Reels/Shorts all
+    // sit on the same channel the uploads-scraping fallback
+    // (_fetchArtistFromYoutube) reads from, and none of the patterns
+    // above catch them since they're not "commentary" content, just
+    // non-song content. These are exactly the category of result that
+    // looked like noise mixed into an artist's Top Songs.
+    //
+    // "live" alone is deliberately NOT included here — plenty of real
+    // song titles legitimately contain that word ("Live Your Life"), so
+    // it's only flagged in combination with a genuinely unambiguous
+    // performance-context word right next to it.
+    r'trailer|teaser|live (performance|concert|session|show)|concert\b|'
+    r'behind the scenes|making of|studio session|awards? (show|night|'
+    r'ceremony)|red carpet|press conference|first look|motion poster|'
+    r'glimpse|promo\b|shorts?\b)\b',
     caseSensitive: false,
   );
 

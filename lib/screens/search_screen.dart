@@ -165,6 +165,12 @@ class _StaggeredItemState extends State<_StaggeredItem>
 // exact same edge-fade treatment instead of each screen keeping its own
 // private copy.
 
+// SimpMusic-style search-result filter chips (All/Songs/Albums/Artists).
+// Public (not private to the state class) since it's referenced by the
+// chip-row widget below, which is a small standalone StatelessWidget for
+// clarity rather than an inline builder method.
+enum SearchResultFilter { all, songs, albums, artists }
+
 class SearchScreen extends StatefulWidget {
   final bool isActive;
   const SearchScreen({super.key, this.isActive = true});
@@ -183,6 +189,22 @@ class _SearchScreenState extends State<SearchScreen>
 
   // Search tab state
   List<Song>   _results        = [];
+  // FIX ("artist late aata hai / kabhi aata hi nahi" — a real race, not
+  // just a display delay): the artist/album lookups used to guard their
+  // async response with `_controller.text.trim() != query`, a fragile
+  // exact-string comparison. On a slow connection (the screenshots this
+  // was reported from show 2-60 KB/s) it's entirely possible for the
+  // person to submit query A, then correct/resubmit as query B before
+  // A's searchArtists() call resolves — the stale A response arriving
+  // late would still pass a string check if the text field happens to
+  // read back the same trimmed value, or silently vanish in ways that
+  // looked like "artist sometimes just doesn't show up". A monotonically
+  // increasing generation counter is the standard, unambiguous fix:
+  // every _search() call stamps its own async work with the CURRENT
+  // generation, and each callback checks it's still the latest generation
+  // before touching state — no string comparison, no ambiguity, works
+  // correctly even if two searches for the identical query text race.
+  int _searchGeneration = 0;
   // NEW ("search mein artist bhi aaye"): artist matches for the current
   // query, shown as a horizontal row above the song results — separate
   // list, own fetch, never merged into _results so song-result logic
@@ -200,6 +222,19 @@ class _SearchScreenState extends State<SearchScreen>
   // shape) rather than the Artists row's vertical list-tile layout.
   List<BrowseAlbum> _albumResults = [];
   bool _albumsExpanded = false;
+  // NEW ("SimpMusic jaisa filter chips — All/Songs/Albums/Artists"):
+  // which result-type view is currently showing. 'all' is the existing
+  // mixed layout (Artists row + Albums row + Songs list) — unchanged.
+  // Picking any other chip switches to a dedicated, full-width list for
+  // just that type, matching the reference screenshots exactly: albums
+  // show as name / "Album • Artist" / year with NO artwork thumbnail
+  // crowding the row (the visual complaint in the screenshots was
+  // specifically that small square art per row felt cluttered next to
+  // mixed song/artist rows — a plain text-forward list reads cleaner at
+  // this density). Reset to 'all' on every new search so switching
+  // queries doesn't leave you stuck on a filter that happens to have zero
+  // results for the new query.
+  SearchResultFilter _activeFilter = SearchResultFilter.all;
   // Vibe/related expansion, kept separate from _results so the UI shows it
   // as its own labeled "You might also like" section — never silently
   // merged into the direct matches (that mixing was why unrelated songs
@@ -616,21 +651,26 @@ class _SearchScreenState extends State<SearchScreen>
       _artistsExpanded = false;
       _albumResults = [];
       _albumsExpanded = false;
+      _activeFilter = SearchResultFilter.all;
       _suggestions = [];
       _resultQueues = [];
       _relatedQueues = [];
     });
+    // Stamp this search as the new "latest" generation — see the field's
+    // doc comment above for why this replaces the old string-comparison
+    // guard.
+    final myGeneration = ++_searchGeneration;
     _saveToHistory(query);
     // Fire the Artists-row lookup independently — never blocks or delays
     // song results, updates in place whenever it resolves.
     ApiService.searchArtists(query).then((artists) {
-      if (!mounted || _controller.text.trim() != query) return;
+      if (!mounted || myGeneration != _searchGeneration) return;
       setState(() { _artistResults = artists; });
     });
     // Fire the Albums-row lookup the same way — own independent fetch,
     // never blocks song results, updates in place whenever it resolves.
     ApiService.searchAlbums(query).then((albums) {
-      if (!mounted || _controller.text.trim() != query) return;
+      if (!mounted || myGeneration != _searchGeneration) return;
       setState(() { _albumResults = albums; });
     });
     // YT-STABILITY FIX ("YT results aate hain phir gayab ho ke sirf Saavn
@@ -726,6 +766,11 @@ class _SearchScreenState extends State<SearchScreen>
     _debounce?.cancel();
     _liveLoaderGraceTimer?.cancel();
     _controller.clear();
+    // Invalidate any in-flight searchArtists/searchAlbums call from before
+    // the clear — same generation-counter guard as _search() above, so a
+    // slow response that lands after clearing can't silently repopulate
+    // the Artists/Albums sections on an now-empty search screen.
+    _searchGeneration++;
     // STRICT: do NOT requestFocus here — user cleared the text but that
     // doesn't mean they want the keyboard back. They can tap the bar again.
     setState(() {
@@ -734,6 +779,7 @@ class _SearchScreenState extends State<SearchScreen>
       _artistsExpanded = false;
       _albumResults = [];
       _albumsExpanded = false;
+      _activeFilter = SearchResultFilter.all;
       _liveLoading = false; _showLiveLoader = false; _loading = false;
       _showHistory = _history.isNotEmpty;
       _resultQueues = []; _relatedQueues = [];
@@ -942,6 +988,7 @@ class _SearchScreenState extends State<SearchScreen>
               _buildSearchBar(context),
               // tab bar
               _buildTabBar(context),
+              _buildFilterChips(context),
               Expanded(
                 child: TabBarView(
                   controller: _tabController,
@@ -1063,6 +1110,160 @@ class _SearchScreenState extends State<SearchScreen>
               _fetchBrowse(_controller.text.trim());
             }
           },
+        ),
+      ),
+    );
+  }
+
+  // ── Filter chips (SimpMusic-style: All / Songs / Albums / Artists) ──
+  //
+  // Only makes sense once there's an actual query with results, and only
+  // on the Search tab (tab 0) — Browse has its own category system
+  // already, this row would be a redundant second filter mechanism there.
+  Widget _buildFilterChips(BuildContext context) {
+    final hasQuery = _controller.text.trim().isNotEmpty;
+    final hasAnyResults = _results.isNotEmpty || _artistResults.isNotEmpty || _albumResults.isNotEmpty;
+    if (_tabController.index != 0 || !hasQuery || !hasAnyResults) {
+      return const SizedBox.shrink();
+    }
+    final chips = <(SearchResultFilter, String)>[
+      (SearchResultFilter.all, 'All'),
+      (SearchResultFilter.songs, 'Songs'),
+      (SearchResultFilter.albums, 'Albums'),
+      (SearchResultFilter.artists, 'Artists'),
+    ];
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        itemCount: chips.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final (filter, label) = chips[i];
+          final selected = _activeFilter == filter;
+          return GestureDetector(
+            onTap: () {
+              if (selected) return;
+              AurumHaptics.selection();
+              setState(() => _activeFilter = filter);
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                gradient: selected ? AurumTheme.goldGradient : null,
+                color: selected ? null : AurumTheme.bgCardOf(context),
+                borderRadius: BorderRadius.circular(20),
+                border: selected
+                    ? null
+                    : Border.all(color: AurumTheme.dividerOf(context), width: 0.6),
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          color: AurumTheme.gold.withOpacity(0.35),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? Colors.black : AurumTheme.textSecondaryOf(context),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Dedicated Albums view (SimpMusic-style: no artwork thumbnail, just
+  // name / "Album • Artist" / year — matches the reference screenshot's
+  // clean, text-forward density) ──
+  Widget _buildAlbumsFilterView(BuildContext context) {
+    if (_albumResults.isEmpty) {
+      return _buildEmptyFilterState(context, 'No albums found');
+    }
+    return ListView.builder(
+      key: const ValueKey('albums_filter'),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 80),
+      itemCount: _albumResults.length,
+      itemBuilder: (context, i) {
+        final album = _albumResults[i];
+        return _buildAlbumFilterRow(context, album);
+      },
+    );
+  }
+
+  Widget _buildAlbumFilterRow(BuildContext context, BrowseAlbum album) {
+    return AurumPressable(
+      onTap: () => _openAlbumFromSearch(context, album),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              album.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              [
+                'Album',
+                if (album.artist.isNotEmpty) album.artist,
+                if (album.releaseYear != null) album.releaseYear!,
+              ].join(' • '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AurumTheme.textSecondaryOf(context),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Dedicated Artists view (same text-forward density as Albums above)
+  Widget _buildArtistsFilterView(BuildContext context) {
+    if (_artistResults.isEmpty) {
+      return _buildEmptyFilterState(context, 'No artists found');
+    }
+    return ListView.builder(
+      key: const ValueKey('artists_filter'),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 80),
+      itemCount: _artistResults.length,
+      itemBuilder: (context, i) => _buildArtistListTile(context, _artistResults[i]),
+    );
+  }
+
+  Widget _buildEmptyFilterState(BuildContext context, String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.only(top: 60),
+        child: Text(
+          message,
+          style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
         ),
       ),
     );
@@ -1464,6 +1665,19 @@ class _SearchScreenState extends State<SearchScreen>
 
   Widget _buildResults() {
     final l10n = AppLocalizations.of(context)!;
+    // FILTER BRANCH ("SimpMusic jaisa — albums/artists apna clean section,
+    // mixed list mein nahi"): a non-'all' chip swaps the ENTIRE results
+    // area for a dedicated, single-type list instead of the mixed
+    // Artists-row + Albums-row + Songs-list layout below. Songs reuses
+    // the existing mixed-list machinery (it's already just a song list),
+    // Albums/Artists get their own clean, text-forward views built for
+    // this — see _buildAlbumsFilterView/_buildArtistsFilterView above.
+    if (_activeFilter == SearchResultFilter.albums) {
+      return _buildAlbumsFilterView(context);
+    }
+    if (_activeFilter == SearchResultFilter.artists) {
+      return _buildArtistsFilterView(context);
+    }
     // Two clearly separated sections instead of one flat list — direct
     // matches for the query first, then a labeled "You might also like"
     // section for the mood/genre-related expansion. This is the fix for
@@ -1483,8 +1697,11 @@ class _SearchScreenState extends State<SearchScreen>
             // Musify reference screenshot): labeled "Artists" section with
             // a vertical list of full-width rows, shown above the Songs
             // section — see _buildArtistSection.
-            _buildArtistSection(context),
-            _buildAlbumSection(context),
+            // FILTER BRANCH cont'd: only show these on 'all' — the
+            // 'songs' chip means "just songs", so the Artists/Albums rows
+            // above them would defeat the point of that filter.
+            if (_activeFilter == SearchResultFilter.all) _buildArtistSection(context),
+            if (_activeFilter == SearchResultFilter.all) _buildAlbumSection(context),
             // SMOOTH FIX ("results scroll karte time stuck jaisa feel"):
             // this list had no RepaintBoundary anywhere above it — header,
             // search bar and tab bar sat in the same paint layer as the
