@@ -616,6 +616,71 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 // signature (currentIndex, onTap) is unchanged, so MainShell's build()
 // above needs no edits.
 // ══════════════════════════════════════════════════════════════════
+// ── Tap "pump" scale for nav tabs (Play Store / SimpMusic style) ──────────
+// Wraps a tab's icon+label column so tapping it plays a quick scale-down-
+// then-spring-back-up bounce, instead of just being a flat, instant tab
+// switch. GestureDetector (not InkWell) so no ripple/splash competes with
+// the scale — the bounce itself IS the tap feedback here, same as Play
+// Store's bottom nav. onTapDown starts the shrink immediately (feels
+// instant, no wait for onTap/pointer-up) and onTapUp/onTapCancel spring it
+// back with an overshoot curve for that "pump" feel rather than a plain
+// linear return.
+class _NavTabTapPump extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  const _NavTabTapPump({required this.child, required this.onTap});
+
+  @override
+  State<_NavTabTapPump> createState() => _NavTabTapPumpState();
+}
+
+class _NavTabTapPumpState extends State<_NavTabTapPump>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 100),
+    reverseDuration: const Duration(milliseconds: 260),
+  );
+  late final Animation<double> _scale = Tween(begin: 1.0, end: 0.86).animate(
+    CurvedAnimation(
+      parent: _ctrl,
+      curve: Curves.easeOut,
+      // Overshoot curve on the way back up is what gives the "pump" feel
+      // (icon springs slightly past 1.0 before settling) instead of a flat
+      // ease-back — same spring character Play Store's own nav bounce has.
+      reverseCurve: Curves.elasticOut,
+    ),
+  );
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _down(TapDownDetails _) => _ctrl.forward();
+  void _up(TapUpDetails _) => _ctrl.reverse();
+  void _cancel() => _ctrl.reverse();
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: _down,
+      onTapUp: _up,
+      onTapCancel: _cancel,
+      onTap: widget.onTap,
+      child: SizedBox.expand(
+        child: AnimatedBuilder(
+          animation: _scale,
+          builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
 class AurumBottomNavBar extends StatelessWidget {
   const AurumBottomNavBar({
     required this.currentIndex,
@@ -781,28 +846,61 @@ class AurumBottomNavBar extends StatelessWidget {
             },
             child: LayoutBuilder(
                 builder: (context, constraints) {
+                  // Glass sliding indicator — SimpMusic-style capsule that
+                  // sits behind the currently-selected tab's icon+label and
+                  // animates (slide + fade) to the new tab whenever
+                  // currentIndex changes. Each tab gets an equal-width slot
+                  // (Row of Expanded below), so the capsule's width/left
+                  // offset is just constraints.maxWidth split evenly by
+                  // items.length — no GlobalKeys or per-tab measuring
+                  // needed. Frosted look (blur + low-opacity fill) matches
+                  // the rest of this bar's glass theme; it's purely
+                  // decorative (IgnorePointer) so it never steals taps from
+                  // the GestureDetectors in the Row below.
+                  final slotWidth = constraints.maxWidth / items.length;
+                  const capsuleMargin = 6.0;
                   return Stack(
                     alignment: Alignment.center,
                     children: [
-                // Active tab capsule intentionally removed — SimpMusic
-                // style has no highlight box behind the selected tab at
-                // all. Selection is shown purely by the icon switching to
-                // its filled variant + the icon/label tinting to accent
-                // color below; nothing paints a background here anymore.
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 280),
+                  curve: Curves.easeOutCubic,
+                  left: slotWidth * currentIndex + capsuleMargin,
+                  top: 8,
+                  bottom: 8,
+                  width: slotWidth - capsuleMargin * 2,
+                  child: IgnorePointer(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: (isDark ? Colors.white : Colors.black)
+                                .withValues(alpha: isDark ? 0.10 : 0.06),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: accent.withValues(alpha: 0.22),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                 // ── Tap targets ──────────────────────────────────────
                 Row(
                   children: List.generate(items.length, (i) {
                     final item = items[i];
                     final selected = i == currentIndex;
                     return Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
+                      child: _NavTabTapPump(
                         onTap: () {
                           if (!selected) AurumHaptics.selection();
                           onTap(i);
                         },
-                        child: SizedBox.expand(
-                          child: Column(
+                        child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               AnimatedSwitcher(
@@ -861,7 +959,6 @@ class AurumBottomNavBar extends StatelessWidget {
                                 child: Text(item.label),
                               ),
                             ],
-                          ),
                         ),
                       ),
                     );
