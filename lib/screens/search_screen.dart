@@ -210,18 +210,12 @@ class _SearchScreenState extends State<SearchScreen>
   // list, own fetch, never merged into _results so song-result logic
   // (dedup, queues, staggered animation) stays untouched.
   List<ArtistSimple> _artistResults = [];
-  // "See all" expansion for the Artists row (Spotify-style): starts capped
-  // at _maxVisibleArtists, tapping "See all" reveals every match fetched
-  // (up to searchArtists' own limit of 12) inline instead of navigating to
-  // a separate screen. Reset alongside _artistResults on every new search.
-  bool _artistsExpanded = false;
   // NEW ("albums bhi search mein aaye, Spotify jaisa"): same pattern as
-  // _artistResults/_artistsExpanded — separate list, own fetch (searchAlbums),
+  // _artistResults — separate list, own fetch (searchAlbums),
   // never merged into _results, shown as its own labeled section with a
   // horizontal scroll of artwork cards (Spotify's own Albums search-result
   // shape) rather than the Artists row's vertical list-tile layout.
   List<BrowseAlbum> _albumResults = [];
-  bool _albumsExpanded = false;
   // NEW ("SimpMusic jaisa filter chips — All/Songs/Albums/Artists"):
   // which result-type view is currently showing. 'all' is the existing
   // mixed layout (Artists row + Albums row + Songs list) — unchanged.
@@ -233,7 +227,11 @@ class _SearchScreenState extends State<SearchScreen>
   // mixed song/artist rows — a plain text-forward list reads cleaner at
   // this density). Reset to 'all' on every new search so switching
   // queries doesn't leave you stuck on a filter that happens to have zero
-  // results for the new query.
+  // results for the new query. Also reachable directly from the Artists/
+  // Albums section's own "See all" button in the 'all' view — tapping it
+  // sets this straight to the matching filter instead of expanding those
+  // sections inline, so it's a one-tap shortcut into the same dedicated
+  // view the chip row offers.
   SearchResultFilter _activeFilter = SearchResultFilter.all;
   // Vibe/related expansion, kept separate from _results so the UI shows it
   // as its own labeled "You might also like" section — never silently
@@ -423,8 +421,6 @@ class _SearchScreenState extends State<SearchScreen>
         _showHistory  = _history.isNotEmpty && _focusNode.hasFocus;
         _artistResults = [];
         _albumResults = [];
-        _artistsExpanded = false;
-        _albumsExpanded = false;
       });
       return;
     }
@@ -678,9 +674,7 @@ class _SearchScreenState extends State<SearchScreen>
       _showHistory = false;
       _results = [];
       _artistResults = [];
-      _artistsExpanded = false;
       _albumResults = [];
-      _albumsExpanded = false;
       _activeFilter = SearchResultFilter.all;
       _suggestions = [];
       _resultQueues = [];
@@ -806,9 +800,7 @@ class _SearchScreenState extends State<SearchScreen>
     setState(() {
       _results = []; _relatedResults = []; _liveResults = []; _suggestions = [];
       _artistResults = [];
-      _artistsExpanded = false;
       _albumResults = [];
-      _albumsExpanded = false;
       _activeFilter = SearchResultFilter.all;
       _liveLoading = false; _showLiveLoader = false; _loading = false;
       _showHistory = _history.isNotEmpty;
@@ -1356,6 +1348,29 @@ class _SearchScreenState extends State<SearchScreen>
     if (_loading && !_hasVisibleContent) {
       return const Center(key: ValueKey('loading'), child: AurumMorphLoader(size: 56));
     }
+    // FILTER FIX ("Songs/Albums/Artists chip select karo to bhi wahi All
+    // wala mixed view dikhta hai — chip kaam hi nahi kar raha"): the chips
+    // only ever drove _buildResults(), which is exclusively reached via
+    // the `_results.isNotEmpty` branch below — i.e. only AFTER a submitted
+    // search. The far more common path — live/typeahead results, which is
+    // everything the user sees while just typing and never hitting
+    // enter — went through _buildLivePanel() instead, a completely
+    // separate widget tree that never looked at _activeFilter at all. So
+    // picking "Songs" while still typing (the normal, fast way anyone
+    // searches) visibly did nothing: you'd still see the full mixed
+    // Artists+Albums+Songs stack underneath the chip row. Checking the
+    // active filter FIRST, before deciding which underlying data source
+    // (_results vs live _liveResults/_artistResults/_albumResults) to
+    // read from, makes every chip apply immediately regardless of whether
+    // a search has been submitted yet — exactly like Spotify/YouTube
+    // Music, where the filter applies the instant you tap it, live typing
+    // included.
+    if (_activeFilter == SearchResultFilter.albums) {
+      return _buildAlbumsFilterView(context);
+    }
+    if (_activeFilter == SearchResultFilter.artists) {
+      return _buildArtistsFilterView(context);
+    }
     if (_results.isNotEmpty) return _buildResults();
     if (_controller.text.trim().isNotEmpty) return _buildLivePanel(context);
     if (_showHistory && _history.isNotEmpty) return _buildHistory(context);
@@ -1378,19 +1393,49 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildSearchBar(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final focused = _focusNode.hasFocus;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // GLASS LOOK ("glass but ekdam lightweight, low end device"): a real
+    // frosted-glass effect needs BackdropFilter(ImageFilter.blur), which
+    // makes Skia re-blur everything BEHIND this widget on every single
+    // frame it's visible — on a low-end Android GPU that's a guaranteed
+    // jank source, worse the moment this bar scrolls or the keyboard
+    // animates in/out underneath it. This gets the same "frosted glass"
+    // read — soft translucent tint, a hairline light border catching an
+    // edge like glass would, no hard flat fill — using only a static
+    // gradient + border, which costs nothing beyond what a plain colored
+    // Container already cost. No blur, no shader, no extra repaint layer.
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOut,
         decoration: BoxDecoration(
-          color: AurumTheme.bgCardOf(context),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: isDark
+                ? [Colors.white.withOpacity(0.10), Colors.white.withOpacity(0.04)]
+                // LIGHT-MODE FIX ("awkward na lage"): light theme's bg
+                // (#F5F3ED, a soft cream) sits very close to white already —
+                // a white-tinted gradient at 0.55→0.28 opacity barely reads
+                // as glass there, it just looks like a flat washed-out
+                // card with almost no depth against a near-white page.
+                // Using the app's own dark card tone (bgCard, #0D0D14) at
+                // low opacity instead gives the frosted panel actual
+                // contrast against the cream background — visibly "glassy"
+                // rather than nearly invisible — while staying just as
+                // cheap (still a static gradient, no blur).
+                : [
+                    AurumTheme.darkBgCard.withOpacity(0.06),
+                    AurumTheme.darkBgCard.withOpacity(0.03),
+                  ],
+          ),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: focused
                 ? AurumTheme.gold.withOpacity(0.6)
-                : AurumTheme.dividerOf(context),
-            width: focused ? 1.3 : 0.5,
+                : (isDark ? Colors.white.withOpacity(0.14) : Colors.black.withOpacity(0.08)),
+            width: focused ? 1.3 : 0.7,
           ),
           boxShadow: focused
               ? [
@@ -1541,7 +1586,15 @@ class _SearchScreenState extends State<SearchScreen>
       // frame. The suggestions/divider/progress-bar header is folded into
       // a single flattened index space so it still scrolls as part of the
       // same list.
-      final showArtistAlbumHeaderLive = _artistResults.isNotEmpty || _albumResults.isNotEmpty;
+      // FILTER FIX: same "Songs chip still shows Artists/Albums" bug as
+      // _buildBody above — this header must only appear on the 'all'
+      // chip. When the Songs chip is active (the only other filter that
+      // reaches this live panel; Albums/Artists chips are intercepted
+      // earlier in _buildBody and never reach here at all), this must be
+      // a clean songs-only list, exactly like the submitted-search
+      // _buildResults() branch already does via showArtistAlbumHeader.
+      final showArtistAlbumHeaderLive = _activeFilter == SearchResultFilter.all &&
+          (_artistResults.isNotEmpty || _albumResults.isNotEmpty);
       final artistAlbumHeaderCount = showArtistAlbumHeaderLive ? 1 : 0;
       final headerCount = (_liveLoading ? 1 : 0)
           + (hasSuggestions ? _suggestions.length + (hasLive ? 1 : 0) : 0)
@@ -1906,11 +1959,13 @@ class _SearchScreenState extends State<SearchScreen>
   Widget _buildArtistSection(BuildContext context) {
     if (_artistResults.isEmpty) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
-    // SPOTIFY-STYLE "See all": stays capped at _maxVisibleArtists until the
-    // user taps See all, then reveals every artist searchArtists() fetched
-    // (its own limit is 12) inline — no extra API call, no new screen.
+    // SPOTIFY-STYLE cap: this section only ever shows the first
+    // _maxVisibleArtists rows — "See all" (below) no longer expands this
+    // same list inline, it jumps straight to the dedicated Artists chip
+    // view instead (see the button's own comment), so there's no
+    // "expanded" state left to track here anymore.
     final hasMore = _artistResults.length > _maxVisibleArtists;
-    final visible = (hasMore && !_artistsExpanded)
+    final visible = hasMore
         ? _artistResults.sublist(0, _maxVisibleArtists)
         : _artistResults;
     return Column(
@@ -1933,14 +1988,26 @@ class _SearchScreenState extends State<SearchScreen>
                   ),
                 ),
               ),
-              // Spotify itself never offers a "collapse back" toggle here —
-              // See all is one-directional, so the action simply disappears
-              // once tapped rather than turning into a "Show less" control.
-              if (hasMore && !_artistsExpanded)
+              // NAV FIX ("See all pe click kro to seedha Artists tab pe le
+              // jaye, cool animation ke sath" — this used to just expand
+              // more rows inline on the SAME mixed page. That's fine for a
+              // "show a few more" action, but the user wants See all to
+              // behave as a real shortcut into the dedicated Artists chip
+              // view (_buildArtistsFilterView) — same clean, full list
+              // that chip already shows, just reached in one tap from
+              // here instead of having to go find the chip row above.
+              // AurumHaptics.selection() (not .light()) matches the exact
+              // feedback the chip itself fires on tap — same physical
+              // "switching a mode" feel — and setState (not a Navigator
+              // push) means it rides the SAME AnimatedSwitcher/chip
+              // AnimatedContainer transitions already wired for chip taps,
+              // so no separate animation needed: the existing cross-fade
+              // + chip color/gradient swap IS the "cool" transition.
+              if (hasMore)
                 GestureDetector(
                   onTap: () {
-                    AurumHaptics.light();
-                    setState(() => _artistsExpanded = true);
+                    AurumHaptics.selection();
+                    setState(() => _activeFilter = SearchResultFilter.artists);
                   },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
@@ -2030,7 +2097,7 @@ class _SearchScreenState extends State<SearchScreen>
     // no-collapse behavior as the Artists section) rather than opening a
     // new screen, keeping the search screen self-contained.
     final hasMore = _albumResults.length > _maxVisibleAlbums;
-    final visible = (hasMore && !_albumsExpanded)
+    final visible = hasMore
         ? _albumResults.sublist(0, _maxVisibleAlbums)
         : _albumResults;
     final l10n = AppLocalizations.of(context)!;
@@ -2054,11 +2121,14 @@ class _SearchScreenState extends State<SearchScreen>
                   ),
                 ),
               ),
-              if (hasMore && !_albumsExpanded)
+              // NAV FIX: same pattern as Artists' See all above — jumps
+              // straight into the dedicated Albums chip view instead of
+              // just expanding more cards inline on this mixed page.
+              if (hasMore)
                 GestureDetector(
                   onTap: () {
-                    AurumHaptics.light();
-                    setState(() => _albumsExpanded = true);
+                    AurumHaptics.selection();
+                    setState(() => _activeFilter = SearchResultFilter.albums);
                   },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
@@ -2075,40 +2145,22 @@ class _SearchScreenState extends State<SearchScreen>
             ],
           ),
         ),
-        if (!_albumsExpanded)
-          SizedBox(
-            height: 190,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: visible.length,
-              itemBuilder: (context, i) => _AlbumCard(
-                album: visible[i],
-                onTap: () => _openAlbumFromSearch(context, visible[i]),
-              ),
-            ),
-          )
-        else
-          // Expanded state: same cards, wrapped into a wider grid instead
-          // of a single scrolling row, so "See all" actually reveals more
-          // at once rather than just a longer horizontal strip.
-          Padding(
+        // ALWAYS the horizontal scroll row now — "See all" jumps straight
+        // to the dedicated Albums chip view (see button above) instead of
+        // expanding into a wider grid inline, so this section never needs
+        // to render as anything other than the compact horizontal strip.
+        SizedBox(
+          height: 190,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 16,
-              children: [
-                for (final album in visible)
-                  SizedBox(
-                    width: 130,
-                    child: _AlbumCard(
-                      album: album,
-                      onTap: () => _openAlbumFromSearch(context, album),
-                    ),
-                  ),
-              ],
+            itemCount: visible.length,
+            itemBuilder: (context, i) => _AlbumCard(
+              album: visible[i],
+              onTap: () => _openAlbumFromSearch(context, visible[i]),
             ),
           ),
+        ),
       ],
     );
   }
