@@ -3685,7 +3685,7 @@ class _FollowedAlbumTile extends StatelessWidget {
               mixId: id,
               mixName: name,
               artworkUrl: artworkUrl,
-              emoji: '🎵',
+              emoji: '', // no-emoji requirement — MixScreen renders an Icon fallback now
               songs: songs,
             ),
           );

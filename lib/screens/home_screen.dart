@@ -2064,6 +2064,40 @@ class _SongSectionRowState extends State<_SongSectionRow> {
   @override
   Widget build(BuildContext context) {
     final section = widget.section;
+
+    // Shared "open this section as a full playlist" action — used by both
+    // the title (tap the whole row header, like tapping a playlist name)
+    // and the explicit "See all" button. Every home section (including
+    // YouTube-only "Fan Favorites" and every other pool/genre/language
+    // section) already gets the SAME real, tappable playlist screen this
+    // way — full artwork header, complete song list (up to 100), play-all
+    // — nothing extra needed to make any specific section "a real
+    // playlist"; this IS the app's real playlist-detail view for a
+    // curated/generated collection, no different from how a Saavn/YT
+    // imported playlist opens.
+    void openAsPlaylist() {
+      AurumHaptics.selection();
+      final art = section.songs
+          .where((s) => s.artworkUrl.isNotEmpty)
+          .map((s) => s.artworkUrl)
+          .firstOrNull ?? '';
+      AurumDepthRoute.to(
+        context,
+        MixScreen(
+          mixId: section.id,
+          mixName: section.title,
+          artworkUrl: art,
+          // No-emoji requirement: MixScreen only ever shows this glyph as
+          // a fallback when artworkUrl is empty (real YouTube thumbnails
+          // almost always exist, so this branch rarely renders) — a
+          // plain music-note glyph from the icon font, not an emoji
+          // character, so it can never violate "no emoji anywhere."
+          emoji: '',
+          songs: section.songs,
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
       child: Column(
@@ -2073,14 +2107,24 @@ class _SongSectionRowState extends State<_SongSectionRow> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Expanded(
-                child: Text(
-                  section.title,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: openAsPlaylist,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Text(
+                        section.title,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -2088,31 +2132,7 @@ class _SongSectionRowState extends State<_SongSectionRow> {
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(8),
-                  onTap: () {
-                    AurumHaptics.selection();
-                    final art = section.songs
-                        .where((s) => s.artworkUrl.isNotEmpty)
-                        .map((s) => s.artworkUrl)
-                        .firstOrNull ?? '';
-                    // FIX ("navigation feels inconsistent"): this was the
-                    // one flat "See all" tap in the app still using a plain
-                    // MaterialPageRoute — default Android transition, not
-                    // Aurum's 350ms fade+slide every other direct
-                    // navigation (Library sections, other "See all" rows,
-                    // etc.) uses. Switched to AurumPageRoute.to so this
-                    // matches the rest of the app and respects the "Back
-                    // Animations" setting like everything else does.
-                    AurumDepthRoute.to(
-                      context,
-                      MixScreen(
-                        mixId: section.id,
-                        mixName: section.title,
-                        artworkUrl: art,
-                        emoji: '🎵',
-                        songs: section.songs,
-                      ),
-                    );
-                  },
+                  onTap: openAsPlaylist,
                   // Own padded hit area (not just the text glyph bounds) so
                   // the tap target is consistently reachable and gives
                   // immediate ripple feedback — a "See all" mis-tap/no-op
@@ -2535,7 +2555,7 @@ class _OfflineSectionRowState extends State<_OfflineSectionRow> {
         mixId: section.id,
         mixName: section.title,
         artworkUrl: art,
-        emoji: '📁',
+        emoji: '', // no-emoji requirement — MixScreen renders an Icon fallback now
         songs: section.songs,
       ),
     );
@@ -3608,7 +3628,7 @@ class _YtHomePlaylistCardWidgetState
         mixId: widget.card.id,
         mixName: widget.card.title,
         artworkUrl: widget.card.artworkUrl,
-        emoji: '🎵',
+        emoji: '', // no-emoji requirement — MixScreen renders an Icon fallback now
         songs: widget.card.songs,
         // Only this call site (the "Playlists For You" card tap) turns
         // pull-to-refresh on — the other 2 MixScreen pushes in this

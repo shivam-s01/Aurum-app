@@ -231,8 +231,16 @@ class _MixScreenState extends State<MixScreen> {
                     Container(
                       color: AurumTheme.bgCardOf(context),
                       child: Center(
-                        child: Text(widget.emoji,
-                            style: const TextStyle(fontSize: 64)),
+                        // No-emoji requirement: uses Flutter's icon font
+                        // (a vector glyph, not a Unicode emoji character)
+                        // instead of rendering widget.emoji as text — this
+                        // fallback can never show an emoji regardless of
+                        // what any caller passes in.
+                        child: Icon(
+                          Icons.music_note_rounded,
+                          size: 64,
+                          color: AurumTheme.textMutedOf(context),
+                        ),
                       ),
                     ),
 
