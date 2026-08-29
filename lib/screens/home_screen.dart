@@ -961,68 +961,83 @@ class _HomeScreenState extends State<HomeScreen> {
               slivers: [
                 _buildAppBar(context, src),
                 SliverToBoxAdapter(child: _HeroNowPlaying(isActive: widget.isActive)),
-                SliverToBoxAdapter(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 380),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    transitionBuilder: (child, anim) => FadeTransition(
-                      opacity: anim,
-                      child: SlideTransition(
-                        position: Tween<Offset>(
-                          begin: isOnline
-                              ? const Offset(-0.06, 0)
-                              : const Offset(0.06, 0),
-                          end: Offset.zero,
-                        ).animate(anim),
-                        child: child,
-                      ),
-                    ),
-                    child: isOnline
-                        ? Column(
-                            key: const ValueKey('online'),
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // ── Playlists For You (real YT Music) ──
-                              _YtPlaylistsForYouSection(refreshKey: _playlistRefreshKey),
-                              // ── Premium upsell banner removed (all features free now) ──
-                              // ── Song sections, with the Artist Strip
-                              // injected at the midpoint — YT Music and
-                              // Spotify both surface a "Popular artists" /
-                              // "Your favorite artists" row roughly halfway
-                              // down the home feed, never buried after
-                              // every other section. _OnlineContent now
-                              // computes that midpoint itself from
-                              // whatever sections actually streamed in
-                              // (varies per session), so the strip's
-                              // position stays "middle of the feed" no
-                              // matter how many sections load.
-                              // PERF FIX: isolated in its own
-                              // ValueListenableBuilder so each streamed-in
-                              // section (up to ~15-19 per cold start) only
-                              // rebuilds this subtree — not the curated
-                              // playlists row or premium banner above it.
-                              // See _onlineSectionsNotifier's doc comment.
-                              ValueListenableBuilder<List<SongSection>>(
-                                valueListenable: _onlineSectionsNotifier,
-                                builder: (context, sections, _) {
-                                  return _OnlineContent(
-                                    sections: sections,
-                                    loading: _onlineLoading,
-                                    error: _onlineError,
-                                    onRetry: _loadOnline,
-                                    artistStrip: _ArtistStrip(
-                                      artists: _homeArtists,
-                                      loading: _artistsLoading,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          )
-                        : const _OfflineContent(key: ValueKey('offline')),
+                if (!isOnline)
+                  const SliverToBoxAdapter(child: _OfflineContent(key: ValueKey('offline')))
+                else ...[
+                  // ── Playlists For You (real YT Music) ──
+                  SliverToBoxAdapter(
+                    child: _YtPlaylistsForYouSection(refreshKey: _playlistRefreshKey),
                   ),
-                ),
+                  // ── Song sections, with the Artist Strip injected at the
+                  // midpoint — YT Music and Spotify both surface a "Popular
+                  // artists" row roughly halfway down the home feed, never
+                  // buried after every other section.
+                  // PERF FIX (home-load lag on real devices): this used to
+                  // be a single SliverToBoxAdapter wrapping a plain Column
+                  // of every section (_OnlineContent). A Column has no
+                  // on-demand building — Flutter must build+layout ALL
+                  // ~15-19 shelves (each up to 12 song cards, each with a
+                  // network image) the instant they're in the tree, even
+                  // the ones nowhere near the viewport. Every streamed-in
+                  // section then also forced Flutter to re-walk/re-layout
+                  // that entire already-built Column again. Switching to a
+                  // real SliverList means only the sections actually
+                  // visible (plus cacheExtent) ever build — off-screen
+                  // shelves, and their network image requests, simply
+                  // don't exist yet.
+                  ValueListenableBuilder<List<SongSection>>(
+                    valueListenable: _onlineSectionsNotifier,
+                    builder: (context, sections, _) {
+                      if (_onlineLoading) {
+                        return SliverToBoxAdapter(child: _buildOnlineShimmer(context));
+                      }
+                      if (sections.isEmpty) {
+                        return SliverToBoxAdapter(
+                          child: _buildOnlineError(
+                            context,
+                            message: _onlineError ?? AppLocalizations.of(context)!.homeCouldntLoadSongsRetry,
+                            onRetry: _loadOnline,
+                          ),
+                        );
+                      }
+                      final midpoint =
+                          (sections.length / 2).floor().clamp(1, sections.length);
+                      return SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            // Two logical items per section: the section
+                            // row itself, and (only right after the
+                            // midpoint section) the artist strip.
+                            final sectionIndex = index ~/ 2;
+                            final isArtistStripSlot = index.isOdd;
+                            if (isArtistStripSlot) {
+                              // Only actually render the strip once, right
+                              // after the midpoint section — every other
+                              // odd slot is empty so the strip's position
+                              // stays "middle of the feed" regardless of
+                              // section count.
+                              if (sectionIndex + 1 != midpoint) {
+                                return const SizedBox.shrink();
+                              }
+                              return _ArtistStrip(
+                                artists: _homeArtists,
+                                loading: _artistsLoading,
+                              );
+                            }
+                            if (sectionIndex >= sections.length) return null;
+                            final section = sections[sectionIndex];
+                            return _StaggeredSection(
+                              key: ValueKey(section.id),
+                              sectionId: section.id,
+                              child: _SongSectionRow(section: section),
+                            );
+                          },
+                          childCount: sections.length * 2,
+                        ),
+                      );
+                    },
+                  ),
+                ],
                 const SliverToBoxAdapter(child: SizedBox(height: 110)),
               ],
             ),
@@ -1881,64 +1896,20 @@ class _GlowBlobPainter extends CustomPainter {
 // Online Content
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _OnlineContent extends StatelessWidget {
-  final List<SongSection> sections;
-  final bool loading;
-  final String? error;
-  final VoidCallback onRetry;
-  // Injected mid-feed instead of stacked after everything — see call site
-  // comment for why (YT Music / Spotify both surface an artist row roughly
-  // halfway down the home feed, never as a trailing afterthought section).
-  final Widget artistStrip;
-
-  const _OnlineContent({
-    required this.sections,
-    required this.loading,
-    required this.error,
-    required this.onRetry,
-    required this.artistStrip,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (loading) return _buildShimmer(context);
-    if (sections.isEmpty) {
-      return _buildError(
-        context,
-        message: error ?? AppLocalizations.of(context)!.homeCouldntLoadSongsRetry,
-      );
-    }
-    // MIDDLE INSERTION: floor(n/2) puts the strip after roughly the first
-    // half of sections regardless of how many streamed in this session (YT
-    // Music's home-shelf count varies run to run) — e.g. 6 sections → after
-    // section 3, 5 sections → after section 2. Always leaves at least one
-    // section on each side so it never collapses to "first" or "last".
-    final midpoint = (sections.length / 2).floor().clamp(1, sections.length);
-    return Column(
-      children: [
-        for (int i = 0; i < sections.length; i++) ...[
-          _StaggeredSection(
-            // PERF FIX (cold-start "lag until refresh finishes"): keyed by
-            // the section's own stable id, not its list position, so
-            // Flutter's element diffing can match old/new widgets by
-            // identity instead of rebuilding the whole Column subtree on
-            // every single onSection setState in _loadOnline() (up to
-            // ~20 back-to-back rebuilds while cached content is already
-            // on screen). Each streamed-in section now only touches its
-            // own subtree.
-            // CRASH FIX: sections list can update mid-scroll
-            key: ValueKey(i < sections.length ? sections[i].id : 'empty_$i'),
-            sectionId: i < sections.length ? sections[i].id : '',
-            child: i < sections.length ? _buildSection(context, sections[i]) : const SizedBox.shrink(),
-          ),
-          if (i + 1 == midpoint) artistStrip,
-        ],
-      ],
-    );
-  }
-
-  Widget _buildShimmer(BuildContext context) {
-    return Shimmer.fromColors(
+// PERF NOTE: this used to be a StatelessWidget (_OnlineContent) whose
+// build() returned a single plain Column containing every streamed-in
+// section. That Column was then wrapped in one SliverToBoxAdapter at the
+// call site — which meant NONE of it was lazy: Flutter had to build and
+// lay out all ~15-19 shelves (each up to 12 song cards with a network
+// image) the instant they existed, whether or not they were anywhere near
+// the viewport, and re-walk that whole subtree again on every new section
+// arrival. The call site (_HomeScreenState's CustomScrollView) now builds
+// a real SliverList directly instead, so only on-screen (+ cacheExtent)
+// sections ever build. Only the shimmer/error placeholders are still
+// needed as plain widgets here, each still wrapped in their own
+// SliverToBoxAdapter at the call site.
+Widget _buildOnlineShimmer(BuildContext context) {
+  return Shimmer.fromColors(
       baseColor: AurumTheme.bgCardOf(context),
       highlightColor: AurumTheme.bgElevatedOf(context),
       child: Padding(
@@ -1994,38 +1965,29 @@ class _OnlineContent extends StatelessWidget {
     );
   }
 
-  Widget _buildError(BuildContext context, {String? message}) {
-    return SizedBox(
-      height: 300,
-      child: Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(Icons.wifi_off_rounded, size: 48,
-              color: AurumTheme.textMutedOf(context)),
-          const SizedBox(height: 12),
-          Text(
-            message ?? error ?? AppLocalizations.of(context)!.homeFailedToLoad,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AurumTheme.textMutedOf(context)),
-          ),
-          const SizedBox(height: 16),
-          TextButton(
-            onPressed: onRetry,
-            child: Text(AppLocalizations.of(context)!.commonRetry, style: TextStyle(color: AurumTheme.gold)),
-          ),
-        ]),
-      ),
-    );
-  }
-
-  // Each dynamic home section (Made for You / mood / genre mixes from
-  // fetchHome) renders as a horizontal row of square per-song cards
-  // (_SongGridCard) — Spotify's "Popular radio" / "Featured Charts" shelf
-  // style. Title + artist sit BELOW the artwork, never overlaid on top of
-  // it. A "See all" link opens the full mix in MixScreen; tapping any
-  // individual card plays that song with the rest of the section as queue.
-  Widget _buildSection(BuildContext context, SongSection section) {
-    return _SongSectionRow(section: section);
-  }
+// `onRetry` is passed in explicitly now since this is a bare function, not
+// a widget with access to a constructor field.
+Widget _buildOnlineError(BuildContext context, {String? message, required VoidCallback onRetry}) {
+  return SizedBox(
+    height: 300,
+    child: Center(
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(Icons.wifi_off_rounded, size: 48,
+            color: AurumTheme.textMutedOf(context)),
+        const SizedBox(height: 12),
+        Text(
+          message ?? AppLocalizations.of(context)!.homeFailedToLoad,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AurumTheme.textMutedOf(context)),
+        ),
+        const SizedBox(height: 16),
+        TextButton(
+          onPressed: onRetry,
+          child: Text(AppLocalizations.of(context)!.commonRetry, style: TextStyle(color: AurumTheme.gold)),
+        ),
+      ]),
+    ),
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
