@@ -26,6 +26,7 @@
 
 import 'dart:math' as math;
 import 'dart:async';
+import 'dart:ui';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -47,6 +48,7 @@ import '../models/download_item.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_stacked_artwork.dart';
+import '../widgets/aurum_cover_color.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_empty_state.dart';
 import '../widgets/mini_player_slot.dart';
@@ -1196,102 +1198,165 @@ class _PlaylistHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: AurumTheme.bgOf(context),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
+    final hasArt = playlist.coverArt != null && playlist.coverArt!.isEmpty == false;
+
+    return GestureDetector(
+      onTap: () => _changeCover(context),
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          // ── Cover Art ───────────────────────────────────────────────────
-          GestureDetector(
-            onTap: () => _changeCover(context),
-            child: Container(
-              width: 180,
-              height: 180,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: AurumTheme.gold.withOpacity(0.2),
-                    blurRadius: 30,
-                    spreadRadius: 2,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: playlist.coverArt == null ||
-                            playlist.coverArt!.isEmpty
-                        ? Container(
-                            color: Colors.purpleAccent.withOpacity(0.15),
-                            child: const Icon(Icons.queue_music_rounded,
-                                color: Colors.purpleAccent, size: 72),
-                          )
-                        : AurumArtwork(
-                            url: playlist.coverArt!,
-                            size: 180,
-                            borderRadius: 16),
-                  ),
-                  // Edit badge — bottom-right, always visible, signals the
-                  // whole cover is tappable without needing a hint/tooltip.
-                  Positioned(
-                    right: 8,
-                    bottom: 8,
-                    child: Container(
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.55),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: Colors.white.withOpacity(0.15), width: 1),
+          // ── Layer 1 — full-bleed background, edge to edge ────────────────
+          // SimpMusic/YT Music-style: the artwork (or, with no cover set,
+          // the automatic artwork-derived gradient) fills the ENTIRE
+          // header, not a small floating square centered on flat black.
+          // Real photos are scaled up and blurred slightly so they still
+          // read as a rich backdrop rather than a sharp, cropped close-up.
+          hasArt
+              ? Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Transform.scale(
+                      scale: 1.15,
+                      child: ImageFiltered(
+                        imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                        child: AurumArtwork(
+                          url: playlist.coverArt!,
+                          size: double.infinity,
+                          borderRadius: 0,
+                          fadeIn: false,
+                        ),
                       ),
-                      child: const Icon(Icons.edit_rounded,
-                          color: Colors.white, size: 16),
                     ),
+                    // Sharp, centered focal copy on top of the blurred fill
+                    // — same layered look Full Player uses: soft color
+                    // everywhere at the edges, a crisp image where the eye
+                    // actually lands.
+                    Center(
+                      child: Container(
+                        width: 190,
+                        height: 190,
+                        margin: const EdgeInsets.only(top: 8),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.45),
+                              blurRadius: 26,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: AurumArtwork(
+                            url: playlist.coverArt!,
+                            size: 190,
+                            borderRadius: 18,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : PlaylistColorCover(
+                  artworkUrl:
+                      playlist.songs.isNotEmpty ? playlist.songs.first.artworkUrl : '',
+                  size: double.infinity,
+                  borderRadius: 0,
+                  iconSize: 72,
+                ),
+
+          // ── Layer 2 — bottom gradient scrim so title/chrome stay
+          // readable over any artwork, same handoff MixScreen's header
+          // uses (near-opaque black just before the seam so light mode's
+          // warm-cream body color never creates a visible jump).
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withOpacity(0.05),
+                  Colors.black.withOpacity(0.15),
+                  Colors.black.withOpacity(0.55),
+                  Colors.black.withOpacity(0.90),
+                  AurumTheme.bgOf(context),
+                ],
+                stops: const [0.0, 0.30, 0.68, 0.90, 1.0],
+              ),
+            ),
+          ),
+
+          // ── Edit affordance — small pill, bottom-right, signals the
+          // whole header is tappable without needing a hint/tooltip.
+          Positioned(
+            right: 16,
+            bottom: 76,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.55),
+                shape: BoxShape.circle,
+                border:
+                    Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+              ),
+              child: const Icon(Icons.edit_rounded, color: Colors.white, size: 16),
+            ),
+          ),
+
+          // ── Title + description + summary, stacked at the bottom over
+          // the artwork's lower half — matches MixScreen's header exactly.
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: 18,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  playlist.name,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    height: 1.15,
+                    shadows: [Shadow(color: Colors.black54, blurRadius: 10)],
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (playlist.description.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    playlist.description,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.85),
+                      fontSize: 13,
+                      shadows: const [
+                        Shadow(color: Colors.black45, blurRadius: 6),
+                      ],
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
-              ),
+                const SizedBox(height: 6),
+                Text(
+                  '${playlist.songCount} song${playlist.songCount == 1 ? '' : 's'}'
+                  '${playlist.totalDurationString.isNotEmpty ? ' • ${playlist.totalDurationString}' : ''}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.75),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    shadows: const [Shadow(color: Colors.black45, blurRadius: 6)],
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 20),
-          // ── Title ────────────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Text(
-              playlist.name,
-              style: TextStyle(
-                  color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (playlist.description.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                playlist.description,
-                style: TextStyle(
-                    color: AurumTheme.textMutedOf(context), fontSize: 13),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-          const SizedBox(height: 8),
-          Text(
-            '${playlist.songCount} song${playlist.songCount == 1 ? '' : 's'}'
-            '${playlist.totalDurationString.isNotEmpty ? ' • ${playlist.totalDurationString}' : ''}',
-            style: TextStyle(
-                color: AurumTheme.textMutedOf(context), fontSize: 12),
-          ),
-          const SizedBox(height: 16),
         ],
       ),
     );
@@ -1661,10 +1726,12 @@ class _PlaylistCard extends StatelessWidget {
                 width: 56,
                 height: 56,
                 child: playlist.coverArt == null || playlist.coverArt!.isEmpty
-                    ? Container(
-                        color: Colors.purpleAccent.withOpacity(0.15),
-                        child: const Icon(Icons.queue_music_rounded,
-                            color: Colors.purpleAccent, size: 28),
+                    ? PlaylistColorCover(
+                        artworkUrl: playlist.songs.isNotEmpty
+                            ? playlist.songs.first.artworkUrl
+                            : '',
+                        size: 56,
+                        borderRadius: 10,
                       )
                     : AurumArtwork(
                         url: playlist.coverArt!,
@@ -2314,13 +2381,13 @@ Future<void> showAddToPlaylistSheet(BuildContext context, Song song) async {
                                   width: 44,
                                   height: 44,
                                   child: pl.coverArt == null || pl.coverArt!.isEmpty
-                                      ? Container(
-                                          color: Colors.purpleAccent
-                                              .withOpacity(0.15),
-                                          child: const Icon(
-                                              Icons.queue_music_rounded,
-                                              color: Colors.purpleAccent,
-                                              size: 20))
+                                      ? PlaylistColorCover(
+                                          artworkUrl: pl.songs.isNotEmpty
+                                              ? pl.songs.first.artworkUrl
+                                              : '',
+                                          size: 44,
+                                          borderRadius: 8,
+                                        )
                                       : AurumArtwork(
                                           url: pl.coverArt!,
                                           size: 44,
