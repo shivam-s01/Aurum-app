@@ -33,21 +33,18 @@ import 'api_service.dart';
 /// launch) or unreadable, behavior falls back to exactly what it was
 /// before this fix — a normal loading state until the fetch resolves.
 ///
-/// FRESHNESS GUARANTEE ("premium, never stale" requirement): this cache
-/// exists purely to cover the few seconds between app open and the network
-/// fetch landing — it is NOT a substitute for real data and must never be
-/// mistaken for one. [loadSections]/[loadArtists] enforce [maxFreshAge]
-/// (15 minutes) internally: a cache older than that is treated exactly
-/// like no cache at all and simply isn't returned, so a stale/day-old
-/// playlist can never silently pass itself off as "today's" home feed —
-/// callers don't need to remember to check staleness themselves, it's
-/// impossible to accidentally read stale data through this API. The 25s
-/// network fetch timeout guarantees a genuinely fresh batch always lands
-/// well within that 15-minute window on any working connection, so in
-/// practice this ceiling only ever matters for the "app was force-closed
-/// mid-load" or "genuinely offline for a while" edge cases — the common
-/// path (open app, see cache, fresh data silently arrives 1-3s later) is
-/// unaffected by this ceiling.
+/// FRESHNESS GUARANTEE ("100 songs, category-wise, top-grade, instant
+/// open, auto-refresh every 10 hours — not on every single app open"):
+/// cold start reads this cache and paints it instantly (near-0ms,
+/// SharedPreferences, no network) instead of showing shimmer while a
+/// fresh fetch runs. [loadSections]/[loadArtists] enforce [maxFreshAge]
+/// (10 hours) internally: once a cache is older than that, it's treated
+/// exactly like no cache exists and a real background fetch runs instead
+/// — callers don't need to remember to check staleness themselves. A
+/// manual pull-to-refresh bypasses this entirely (home_screen.dart's
+/// RefreshIndicator calls _loadOnline() directly, which never reads this
+/// cache), so the user can always force a real refresh on demand
+/// regardless of how fresh the last cache still is.
 /// Runs on a background isolate via compute() — see loadSections() below
 /// for why this was pulled out of the main isolate for LARGE payloads.
 /// Must be a top-level function (not a closure/instance method) for
@@ -116,13 +113,15 @@ class HomeFeedCache {
 
   // A cache older than this is indistinguishable from no cache at all —
   // enforced inside loadSections/loadArtists themselves, not left to
-  // callers to remember to check. 15 minutes comfortably covers "user
-  // force-closed the app mid-fetch and reopened a bit later" while still
-  // guaranteeing nothing that could read as "yesterday's playlist" or
-  // stale/off-brand content ever reaches the screen — the premium-app bar
-  // here is that a returning user never has reason to suspect what they're
-  // seeing isn't current.
-  static const Duration maxFreshAge = Duration(minutes: 15);
+  // callers to remember to check. 10 hours per explicit product
+  // requirement: the home feed should show the SAME 100-per-category
+  // songs, instantly, for the whole day between opens — it should not
+  // silently reshuffle/refetch just because the user closed and reopened
+  // the app a few minutes later. A real background refresh only kicks in
+  // once this window has genuinely elapsed; a manual pull-to-refresh
+  // (see RefreshIndicator in home_screen.dart) always bypasses this cache
+  // entirely and forces a real fetch regardless of age.
+  static const Duration maxFreshAge = Duration(hours: 10);
 
   static Future<void> saveSections(List<SongSection> sections) async {
     if (sections.isEmpty) return; // never overwrite a good cache with nothing

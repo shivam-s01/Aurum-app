@@ -851,7 +851,7 @@ class ApiService {
     _PoolEntry('top charts bollywood songs',                     'Top Charts'),
     _PoolEntry('hidden gems bollywood underrated songs',         'Discovery'),
     _PoolEntry('top bollywood albums 2025 2026',                 'Top Albums'),
-    _PoolEntry('best bollywood playlists hits',                  'Top Playlists'),
+    _PoolEntry('best bollywood playlists hits',                  'Fan Favorites'),
     // ── Eras ──────────────────────────────────────────────────────────────
     _PoolEntry('90s bollywood superhits original',              '90s Bollywood'),
     _PoolEntry('2000s bollywood original songs',                '2000s Bollywood'),
@@ -1096,68 +1096,69 @@ class ApiService {
     return merged;
   }
 
-  static Future<SongSection?> _saavnSectionV4(String query, String label) async {
-    // EQUAL WEIGHT: Saavn and YouTube are fetched in PARALLEL (not
-    // sequentially, so this adds zero latency vs the old gap-fill design)
-    // and interleaved round-robin so a section is a genuine 50/50 mix
-    // instead of "Saavn primary, YT only fills leftover gaps."
-    // FIX (sections landing under 80): raw pool bumped up on both sides.
-    // Saavn's own variant/junk filters were already trimming a chunk of
-    // any batch, and _searchYt's limit only became meaningfully honorable
-    // once _searchYtPaged (see below) started walking multiple result
-    // pages instead of being silently capped at one ~20-video page — so
-    // asking for more here now actually pays off downstream instead of
-    // being a no-op.
-    // FIX (excess data usage / MB on cold start): each call here was
-    // asking for `limit=120` PER PAGE × 3 pages = up to 360 raw Saavn
-    // songs' worth of JSON for a SINGLE section, then throwing away
-    // everything past the first 80 survivors (see tryAdd()'s `merged.length
-    // >= 80` cap in _saavnSectionV4). With ~15-19 sections built on every
-    // cold start/refresh, that's a large amount of downloaded JSON that
-    // never even reaches the screen — pure wasted bandwidth, not something
-    // that improved section quality (the earlier "sections landing under
-    // 80" bump was solving a real problem, but it overshot: filtering
-    // headroom this generous just means more discarded data, not a fuller
-    // section). Capped back down to a limit that still comfortably clears
-    // 80 post-filter (3 pages here + YouTube's own pool below already
-    // provide real headroom over variant/dedup loss) without hauling in 3-4x
-    // more raw data than any section can ever actually use.
-    final results = await Future.wait([
-      _searchSaavnDeep(query, limit: 60),
-      _searchYt(query, limit: 45),
-    ]);
-    final rawSaavn = results[0];
-    final rawYt    = results[1];
-    if (rawSaavn.isEmpty && rawYt.isEmpty) return null;
+  // Per-section song target for the YouTube-only home feed. Every home
+  // section (time-mood, "Made for You" artist, genre mix, language,
+  // pool pick) now goes through this single path — Saavn is kept in the
+  // codebase (SaavnSource/_searchSaavnDeep/etc. all still work exactly as
+  // before) but is no longer called from anywhere in the home-feed
+  // pipeline, so it's a clean re-enable (flip the call sites back) rather
+  // than a rewrite if it's ever needed again.
+  static const int _kHomeSectionTarget = 100;
 
-    final seed = query.hashCode ^ DateTime.now().millisecondsSinceEpoch ^ math.Random().nextInt(1000000);
-    final saavnShuffled = List<Song>.from(rawSaavn)..shuffle(math.Random(seed));
-    // rawYt is already official-channel-sorted by _searchYt — shuffling
-    // would throw that priority away, so only lightly shuffle within same-
-    // priority runs is skipped; keep official-first order intact.
+  static Future<SongSection?> _saavnSectionV4(String query, String label) async {
+    // YOUTUBE-ONLY HOME FEED: this used to be a 50/50 Saavn+YouTube merge.
+    // Saavn is now fully backed out of the home-feed pipeline (kept intact
+    // elsewhere in the app — search, playlists, charts endpoints are all
+    // untouched) so every home section is pure YouTube, sourced the same
+    // way _ytSectionV1's English rows already prove out: several query
+    // variants fired in parallel (widens the raw pool well past what one
+    // query alone returns) PLUS a deep multi-page explode search for extra
+    // volume, then merged/deduped/quality-filtered down to a genuine
+    // 100-song shelf. Name kept as _saavnSectionV4 so every existing call
+    // site (queryList.map, fetchHome, fetchHomeStreaming) needs zero
+    // changes elsewhere.
+    final variants = <String>{
+      query,
+      '$query audio',
+      '$query official',
+      '$query hd',
+      '$query hits',
+    };
+    final variantResults = await Future.wait(
+      variants.map((q) => _searchYt(q, limit: 60)),
+    );
+    // Deep multi-page pass (youtube_explode_dart, walks up to 6 pages) on
+    // the bare query for extra raw volume beyond what the worker/direct
+    // single-page search above returns — this is what makes a genuine
+    // 100-song post-filter shelf realistic instead of hoping 5 queries'
+    // worth of ~60-limit calls happen to clear the bar.
+    final deepVideos = await _searchYtPaged(query, 100).catchError((_) => <Video>[]);
+    final deepSongs = deepVideos.map(_songFromYtVideo).toList();
+
+    final rawYt = <Song>[];
+    final seenRawIds = <String>{};
+    for (final list in [...variantResults, deepSongs]) {
+      for (final s in list) {
+        if (s.id.isNotEmpty && seenRawIds.add(s.id)) rawYt.add(s);
+      }
+    }
+    if (rawYt.isEmpty) return null;
 
     final seenIds    = <String>{};
     final seenTitles = <String>{};
-    // FIX (home sections landing short of 80, same root cause as the Up
-    // Next/search dedup fix): the old exact-string `seenTitles` check only
-    // catches reuploads that normalize to byte-identical strings. Two
-    // different reuploads of the SAME song ("8K...", "With LYRICS...")
-    // both slip through as if they were different songs, each consuming
-    // one of the 80 slots — so a section could hit "80 songs" while really
-    // only containing 50-60 distinct ones, or fail to reach 80 at all once
-    // that unnecessary duplication is later cleaned up elsewhere. Smart
-    // title-head comparison against every raw title already accepted
-    // closes it here too, same fix as RecommendationEngine.rankAndFilter
-    // and ApiService.search.
+    // Same smart-dedup pass _ytSectionV1/RecommendationEngine already use
+    // elsewhere — catches reuploads ("8K...", "With LYRICS...") that a
+    // plain exact-title check would let through as if they were different
+    // songs, so the 100-slot cap isn't quietly wasted on duplicates.
     final seenRawTitles = <String>[];
-    final merged     = <Song>[];
+    final merged = <Song>[];
 
-    bool tryAdd(Song s, {required bool isYt}) {
-      if (merged.length >= 80) return false;
+    bool tryAdd(Song s) {
+      if (merged.length >= _kHomeSectionTarget) return false;
       if (!seenIds.add(s.id)) return false;
       if (RecommendationEngine.isInherentVariant(s.title)) return false;
       if (RecommendationEngine.isLowQualityUpload(s.title)) return false;
-      if (isYt && !RecommendationEngine.isPremiumQuality(s)) return false;
+      if (!RecommendationEngine.isPremiumQuality(s)) return false;
       final tk = _normTitle(s.title);
       if (!seenTitles.add(tk)) return false;
       for (final seenRaw in seenRawTitles) {
@@ -1168,24 +1169,13 @@ class ApiService {
       return true;
     }
 
-    // Round-robin interleave: one Saavn, one YT, one Saavn, one YT... so
-    // the final section is genuinely balanced rather than front-loaded
-    // with one source. Whichever source runs out first, the other keeps
-    // contributing until the 80-cap or its own pool is exhausted.
-    var si = 0, yi = 0;
-    while ((si < saavnShuffled.length || yi < rawYt.length) && merged.length < 80) {
-      if (si < saavnShuffled.length) {
-        tryAdd(saavnShuffled[si], isYt: false);
-        si++;
-      }
-      if (yi < rawYt.length && merged.length < 80) {
-        tryAdd(rawYt[yi], isYt: true);
-        yi++;
-      }
+    for (final s in rawYt) {
+      if (merged.length >= _kHomeSectionTarget) break;
+      tryAdd(s);
     }
 
     if (merged.isEmpty) return null;
-    return SongSection(title: label, songs: merged.take(80).toList());
+    return SongSection(title: label, songs: merged.take(_kHomeSectionTarget).toList());
   }
 
   // "Because You Played" section — pure JioSaavn suggestions, same category guaranteed
@@ -1487,22 +1477,24 @@ class ApiService {
     'hindi', 'punjabi', 'tamil', 'telugu',
   ];
 
+  // Clean, no-emoji, Spotify/YT-Music-style naming — "Top 50" is exactly
+  // how those apps label a language/region chart shelf.
   static const Map<String, String> _languageLabels = {
-    'hindi':      '🇮🇳 Hindi Top 50',
-    'punjabi':    '🎵 Punjabi Top 50',
-    'tamil':      '🎶 Tamil Top 50',
-    'telugu':     '🎸 Telugu Top 50',
-    'kannada':    '🥁 Kannada Top 50',
-    'malayalam':  '🎺 Malayalam Top 50',
-    'marathi':    '🪘 Marathi Top 50',
-    'bengali':    '🎻 Bengali Top 50',
-    'bhojpuri':   '🎤 Bhojpuri Top 50',
-    'gujarati':   '🪗 Gujarati Top 50',
-    'english':    '🌍 English Top 50',
-    'rajasthani': '🎵 Rajasthani Hits',
-    'odia':       '🎶 Odia Hits',
-    'haryanvi':   '🎤 Haryanvi Hits',
-    'assamese':   '🎵 Assamese Hits',
+    'hindi':      'Hindi Top 50',
+    'punjabi':    'Punjabi Top 50',
+    'tamil':      'Tamil Top 50',
+    'telugu':     'Telugu Top 50',
+    'kannada':    'Kannada Top 50',
+    'malayalam':  'Malayalam Top 50',
+    'marathi':    'Marathi Top 50',
+    'bengali':    'Bengali Top 50',
+    'bhojpuri':   'Bhojpuri Top 50',
+    'gujarati':   'Gujarati Top 50',
+    'english':    'English Top 50',
+    'rajasthani': 'Rajasthani Hits',
+    'odia':       'Odia Hits',
+    'haryanvi':   'Haryanvi Hits',
+    'assamese':   'Assamese Hits',
   };
 
   /// Saavn ke featured playlists fetch karo ek language ke liye.
@@ -1608,42 +1600,19 @@ class ApiService {
 
   /// Home feed ke liye: ek language ke featured playlists fetch karo
   /// aur unke songs ko ek SongSection mein merge karo.
+  // YOUTUBE-ONLY REWRITE: this used to be a 3-step Saavn pipeline (featured
+  // playlists → top-3 playlist songs → merge). Saavn's featured-playlists
+  // and playlist-by-id endpoints (fetchSaavnFeaturedPlaylists,
+  // fetchSaavnPlaylistById above) are untouched and still fully working —
+  // they're just no longer called from this home-feed path. Same
+  // name/signature/label as before so fetchSaavnChartsStreaming (the only
+  // caller) needed zero changes. Routes through the same
+  // multi-variant + deep-page YouTube pipeline as _saavnSectionV4 for a
+  // consistent, genuine 100-song per-language shelf.
   static Future<SongSection?> fetchSaavnLanguageSection(String language) async {
     final label = _languageLabels[language] ?? '$language Hits';
     try {
-      // Step 1: Featured playlists list lo
-      final playlists = await fetchSaavnFeaturedPlaylists(language: language, limit: 5);
-      if (playlists.isEmpty) {
-        // Fallback: direct search from Saavn
-        final songs = await _searchSaavnDeep('$language superhits top songs', limit: 80);
-        if (songs.isEmpty) return null;
-        return SongSection(title: label, songs: songs.take(80).toList());
-      }
-
-      // Step 2: Top 3 playlists ke songs parallel fetch karo
-      final topPlaylists = playlists.take(3).toList();
-      final songBatches = await Future.wait(
-        topPlaylists.map((p) => fetchSaavnPlaylistById(p['id']!.toString(), limit: 50)
-            .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[])
-            .catchError((_) => <Song>[])),
-      );
-
-      // Step 3: Merge + dedup
-      final seenIds = <String>{};
-      final seenTitles = <String>[];
-      final merged = <Song>[];
-      for (final batch in songBatches) {
-        for (final s in batch) {
-          if (merged.length >= 80) break;
-          if (!seenIds.add(s.id)) continue;
-          if (RecommendationEngine.isInherentVariant(s.title)) continue;
-          if (_isDupOfAny(s.title, seenTitles)) continue;
-          seenTitles.add(s.title);
-          merged.add(s);
-        }
-      }
-      if (merged.isEmpty) return null;
-      return SongSection(title: label, songs: merged);
+      return await _saavnSectionV4('$language top songs', label);
     } catch (e) {
       _log('[fetchSaavnLanguageSection] $language error: $e');
       return null;
@@ -4761,19 +4730,32 @@ class ApiService {
   /// leave a full 80-song section instead of collapsing to whatever a
   /// single ~20-video search page contained.
   static Future<SongSection?> _ytSectionV1(String query, String label) async {
+    // FIX: these variants were previously written with an escaped `\$query`
+    // — a literal string, not real interpolation — so every "variant" here
+    // silently searched the literal text "$query audio" etc. instead of
+    // "<actual query> audio". Only the plain `query` entry ever did real
+    // work; the other four calls were wasted round-trips returning
+    // near-empty results. Fixed to real interpolation so this section
+    // actually gets the widened pool the comment always claimed.
     final variants = <String>{
       query,
-      '\$query audio',
-      '\$query official',
-      '\$query lyrics',   // zyada YT results
-      '\$query hd songs', // high quality uploads
+      '$query audio',
+      '$query official',
+      '$query lyrics',   // zyada YT results
+      '$query hd songs', // high quality uploads
     };
     final results = await Future.wait(
       variants.map((q) => _searchYt(q, limit: 60)),
     );
+    // Deep multi-page pass for extra raw volume, same reasoning as
+    // _saavnSectionV4's YouTube-only rewrite — needed for a realistic
+    // shot at a genuine 100-song shelf after quality filtering/dedup.
+    final deepVideos = await _searchYtPaged(query, 100).catchError((_) => <Video>[]);
+    final deepSongs = deepVideos.map(_songFromYtVideo).toList();
+
     final seenIdsRaw = <String>{};
     final ytSongs = <Song>[];
-    for (final list in results) {
+    for (final list in [...results, deepSongs]) {
       for (final s in list) {
         if (seenIdsRaw.add(s.id)) ytSongs.add(s);
       }
@@ -4783,7 +4765,7 @@ class ApiService {
     final seenTitles = <String>{};
     final merged = <Song>[];
     for (final s in ytSongs) {
-      if (merged.length >= 80) break;
+      if (merged.length >= _kHomeSectionTarget) break;
       if (!seenIds.add(s.id)) continue;
       if (RecommendationEngine.isInherentVariant(s.title)) continue;
       if (RecommendationEngine.isLowQualityUpload(s.title)) continue;
