@@ -4,9 +4,9 @@
 // DESCRIPTION: Artist page — profile header, Top Songs list, Albums/Singles grid.
 // =============================================================================
 
+import 'dart:ui';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/artist.dart';
 import '../models/song.dart';
@@ -15,6 +15,7 @@ import '../providers/followed_artists_provider.dart';
 import '../services/api_service.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_pressable.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/mini_player_slot.dart';
 import '../utils/aurum_transitions.dart';
@@ -158,64 +159,86 @@ class _ArtistScreenState extends State<ArtistScreen> {
       physics: const BouncingScrollPhysics(),
       slivers: [
         SliverAppBar(
-          expandedHeight: 400,
+          expandedHeight: 380,
           pinned: true,
           backgroundColor: AurumTheme.bgOf(context),
+          elevation: 0,
           iconTheme: const IconThemeData(color: Colors.white),
-          leading: Padding(
-            padding: const EdgeInsets.all(8),
-            child: CircleAvatar(
-              backgroundColor: Colors.black.withOpacity(0.4),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-                onPressed: () {
-                  AurumHaptics.selection();
-                  Navigator.pop(context);
-                },
-              ),
-            ),
-          ),
+          automaticallyImplyLeading: false,
           flexibleSpace: FlexibleSpaceBar(
             background: Stack(
               fit: StackFit.expand,
               children: [
+                // Full-bleed artist photo, edge to edge — no framing card,
+                // matching YT Music's artist banner treatment.
                 AurumArtwork(url: artist.imageUrl, size: 700, borderRadius: 0),
+                // LIGHT-MODE FIX: same reasoning as mix_screen.dart's
+                // header gradient — an extra near-opaque black stop
+                // right before the handoff to AurumTheme.bgOf(context)
+                // keeps the whole photo dark under the white name/text
+                // regardless of theme, instead of jumping straight into
+                // light mode's warm off-white background.
                 DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.black.withOpacity(0.05),
-                        Colors.black.withOpacity(0.25),
-                        Colors.black.withOpacity(0.75),
+                        Colors.black.withOpacity(0.08),
+                        Colors.black.withOpacity(0.30),
+                        Colors.black.withOpacity(0.78),
+                        Colors.black.withOpacity(0.92),
                         AurumTheme.bgOf(context),
                       ],
-                      stops: const [0.0, 0.45, 0.8, 1.0],
+                      stops: const [0.0, 0.40, 0.72, 0.92, 1.0],
                     ),
                   ),
                 ),
+
+                // Name + subscriber/listener count, centered — YT Music
+                // stacks these as one block under the channel name.
                 Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: 16,
+                  left: 24,
+                  right: 24,
+                  bottom: 18,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         artist.name,
+                        textAlign: TextAlign.center,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 38,
+                          fontSize: 30,
                           fontWeight: FontWeight.w800,
-                          height: 1.05,
+                          height: 1.1,
+                          shadows: [
+                            Shadow(color: Colors.black54, blurRadius: 10),
+                          ],
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      if (artist.followerCount > 0) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.asMonthlyListeners(
+                              _formatFollowers(artist.followerCount)),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.85),
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w500,
+                            shadows: const [
+                              Shadow(color: Colors.black45, blurRadius: 6),
+                            ],
+                          ),
+                        ),
+                      ],
                       if (artist.isVerified) ...[
                         const SizedBox(height: 8),
                         Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
                               padding: const EdgeInsets.all(2),
@@ -241,35 +264,109 @@ class _ArtistScreenState extends State<ArtistScreen> {
                     ],
                   ),
                 ),
+
+                // Floating glass back button — same lightweight per-pill
+                // BackdropFilter treatment as the playlist header
+                // (mix_screen.dart's _GlassPill), so both screens share
+                // one consistent, cheap "glass over artwork" chrome
+                // instead of a flat AppBar.
+                SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.22),
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              icon: const Icon(Icons.arrow_back_rounded,
+                                  color: Colors.white, size: 21),
+                              splashRadius: 20,
+                              onPressed: () {
+                                AurumHaptics.selection();
+                                Navigator.pop(context);
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
         ),
 
-        // Monthly listeners
-        if (artist.followerCount > 0)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-              child: Text(
-                l10n.asMonthlyListeners(_formatFollowers(artist.followerCount)),
-                style: TextStyle(
-                  color: AurumTheme.textSecondaryOf(context),
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-
-        // Action row: Save · Shuffle · Play
+        // Action row — radio/related (outline circle) · shuffle (solid
+        // fill, center) · follow (outline circle), centered — matches
+        // the reference screenshot's row exactly. Built from theme
+        // colors rather than hardcoded white: this row sits in the
+        // scrollable body below the artwork header (not over the photo
+        // itself), so on light mode a hardcoded white fill/outline
+        // would wash out against the pale background — using
+        // textPrimaryOf/bgOf here reproduces the same look real YT
+        // Music shows in dark mode while staying correctly visible in
+        // light mode too.
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                OutlinedButton(
-                  onPressed: () {
+                _ArtistGlassButton(
+                  icon: Icons.sensors_rounded,
+                  onTap: artist.topSongs.isEmpty
+                      ? null
+                      : () {
+                          AurumHaptics.light();
+                          player.playSong(artist.topSongs.first,
+                              queue: artist.topSongs,
+                              index: 0,
+                              curatedQueue: true);
+                        },
+                ),
+                const SizedBox(width: 16),
+                AurumPressable(
+                  scaleAmount: 0.92,
+                  onTap: artist.topSongs.isEmpty
+                      ? null
+                      : () {
+                          AurumHaptics.heavy();
+                          final shuffled =
+                              List<Song>.from(artist.topSongs)..shuffle();
+                          player.playSong(shuffled.first,
+                              queue: shuffled, index: 0, curatedQueue: true);
+                        },
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: artist.topSongs.isEmpty
+                          ? AurumTheme.textPrimaryOf(context).withOpacity(0.3)
+                          : AurumTheme.textPrimaryOf(context),
+                    ),
+                    child: Icon(Icons.shuffle_rounded,
+                        color: AurumTheme.bgOf(context), size: 26),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                _ArtistGlassButton(
+                  icon: isFollowing
+                      ? Icons.person_remove_rounded
+                      : Icons.person_add_alt_1_rounded,
+                  active: isFollowing,
+                  onTap: () {
                     AurumHaptics.medium();
                     followed.toggleFollow(
                       artistId: artist.id,
@@ -277,71 +374,11 @@ class _ArtistScreenState extends State<ArtistScreen> {
                       imageUrl: artist.imageUrl,
                     );
                   },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: isFollowing
-                        ? AurumTheme.gold
-                        : AurumTheme.textPrimaryOf(context),
-                    side: BorderSide(
-                      color: isFollowing
-                          ? AurumTheme.gold
-                          : AurumTheme.dividerOf(context),
-                    ),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20)),
-                  ),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    transitionBuilder: (child, anim) =>
-                        FadeTransition(opacity: anim, child: child),
-                    child: Text(
-                      isFollowing ? l10n.asSaved : l10n.asSave,
-                      key: ValueKey(isFollowing),
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 13.5),
-                    ),
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.shuffle_rounded),
-                  color: AurumTheme.textSecondaryOf(context),
-                  onPressed: artist.topSongs.isEmpty
-                      ? null
-                      : () {
-                          AurumHaptics.light();
-                          final shuffled = List<Song>.from(artist.topSongs)
-                            ..shuffle();
-                          player.playSong(shuffled.first,
-                              queue: shuffled, index: 0, curatedQueue: true);
-                        },
-                ),
-                const SizedBox(width: 4),
-                GestureDetector(
-                  onTap: artist.topSongs.isEmpty
-                      ? null
-                      : () {
-                          AurumHaptics.heavy();
-                          player.playSong(artist.topSongs.first,
-                              queue: artist.topSongs, index: 0, curatedQueue: true);
-                        },
-                  child: Container(
-                    width: 52,
-                    height: 52,
-                    decoration: const BoxDecoration(
-                      color: AurumTheme.gold,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.play_arrow_rounded,
-                        color: Colors.black, size: 30),
-                  ),
                 ),
               ],
             ),
           ),
         ),
-
 
         if (artist.topSongs.isNotEmpty) ...[
           _sectionHeader(context, l10n.asPopular),
@@ -475,6 +512,63 @@ class _ArtistScreenState extends State<ArtistScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// Circular outline action button flanking the artist header's central
+/// shuffle button (radio/related on the left, follow on the right) —
+/// matches the reference screenshot's row exactly: transparent fill,
+/// visible border, same 56px size as the center shuffle button. Local +
+/// stateless: no per-instance AnimationController beyond what
+/// AurumPressable already provides, keeping this cheap to build.
+class _ArtistGlassButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool active;
+
+  const _ArtistGlassButton({
+    required this.icon,
+    required this.onTap,
+    this.active = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    return AurumPressable(
+      scaleAmount: 0.9,
+      onTap: disabled
+          ? null
+          : () {
+              AurumHaptics.selection();
+              onTap!();
+            },
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.transparent,
+          border: Border.all(
+            width: 1.4,
+            color: active
+                ? AurumTheme.gold
+                : disabled
+                    ? AurumTheme.dividerOf(context)
+                    : AurumTheme.textPrimaryOf(context).withOpacity(0.7),
+          ),
+        ),
+        child: Icon(
+          icon,
+          size: 22,
+          color: disabled
+              ? AurumTheme.textMutedOf(context).withOpacity(0.4)
+              : active
+                  ? AurumTheme.gold
+                  : AurumTheme.textPrimaryOf(context),
         ),
       ),
     );
