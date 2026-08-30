@@ -317,6 +317,31 @@ class YtHomePlaylistCard {
     required this.artworkUrl,
     required this.songs,
   });
+
+  // Added for the same cold-start cache treatment as the rest of Home
+  // (HomeFeedCache) — this row previously had no persistence at all, so
+  // it silently fetched fresh (different) playlists on every single app
+  // launch, even while every other section correctly stayed frozen from
+  // cache. See HomeFeedCache.savePlaylistCards/loadPlaylistCards.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'subtitle': subtitle,
+        'artworkUrl': artworkUrl,
+        'songs': songs.map((s) => s.toJson()).toList(),
+      };
+
+  factory YtHomePlaylistCard.fromJson(Map<String, dynamic> json) =>
+      YtHomePlaylistCard(
+        id: json['id'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        subtitle: json['subtitle'] as String? ?? '',
+        artworkUrl: json['artworkUrl'] as String? ?? '',
+        songs: ((json['songs'] as List?) ?? [])
+            .whereType<Map>()
+            .map((s) => Song.fromJson(Map<String, dynamic>.from(s)))
+            .toList(),
+      );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1245,13 +1270,15 @@ class ApiService {
     // each section itself already fans out to ~100 songs via 5 query
     // variants + a deep paged search (see _saavnSectionV4 above), so more
     // sections means more of those expensive fetches stacking up.
-    // Now capped at 6-7 sections total: the time-of-day mood row, top 2
-    // personal artists (was 4), top 1 genre mix (was up to 3), 1 English
-    // row (was 3), top 1 recently-played (was up to 3), and the random
-    // pool/cold-start padding below is skipped entirely once this list
-    // already has enough sections. Every section still targets up to 100
-    // songs each — only the section COUNT dropped, not depth per shelf.
-    const int _kMaxHomeSections = 7;
+    // UPDATED (2026-08-30): bumped 7 -> 12 total sections per request —
+    // time-of-day mood row, top 2 personal artists, top 1 genre mix, 1
+    // English row, top 1 recently-played, plus random pool/cold-start
+    // padding filling the remaining slots up to 12. Every section still
+    // targets up to 100 songs each — only the section COUNT changed, not
+    // depth per shelf. The wave-throttled fetch below (waveSize 3,
+    // waveGap 200ms) already scales cleanly to the extra sections without
+    // opening more simultaneous connections at once.
+    const int _kMaxHomeSections = 12;
     final queryList = <_SectionQuery>[];
     queryList.add(_SectionQuery(timeMoodQuery, timeMoodLabel, priority: true));
     for (final artist in personalArtists.take(2)) {
@@ -1291,7 +1318,7 @@ class ApiService {
     // regardless of how many sections already existed.
     for (final entry in shuffledPool) {
       if (queryList.length >= _kMaxHomeSections) break;
-      if (poolPicks >= 3) break;
+      if (poolPicks >= 6) break;
       if (queryList.any((q) => q.label == entry.label)) continue;
       queryList.add(_SectionQuery(entry.query, entry.label));
       poolPicks++;
@@ -6581,17 +6608,20 @@ class ApiService {
         // intentionally left as browse's own (uploads scraping can't
         // produce those — see _fetchArtistFromYoutube's doc comment), so
         // the merge only ever extends topSongs.
-        // FIX ("artist tap karne pe bahut kam songs aa rahe hai"): this
-        // threshold used to be 15 — meaning any shelf with 15+ songs (a
-        // very common size for YT Music's own curated Top Songs list,
-        // often sitting right around 10-15) skipped the uploads top-up
-        // entirely and returned exactly that shelf, even though the real
-        // channel usually has far more. Lowered to 30 so a "medium-sized
-        // but still nowhere near the full catalog" shelf also gets topped
-        // up from the channel's own uploads, matching the "as many songs
-        // as possible" bar Musify/SimpMusic-style apps hold to.
-        const thinShelfThreshold = 30;
-        if (browseArtist.topSongs.length >= thinShelfThreshold) return browseArtist;
+        // FIX ("21 songs aa rahe hai, sab artists mein kam se kam 100
+        // chahiye"): this used to gate the whole top-up chain (uploads
+        // merge + final-100-floor search) behind `>= thinShelfThreshold`
+        // (30) — so ANY browse shelf of 30+ songs returned immediately
+        // as-is, even when it was nowhere near songCount (100), and the
+        // FINAL FLOOR top-up below (the part actually meant to guarantee
+        // the 100 floor) never even ran for those artists since it lives
+        // inside this same branch. A shelf of exactly 21, or 45, or 88
+        // all short-circuited here with no chance to reach 100. Gate is
+        // now `>= songCount` — the only case allowed to skip the entire
+        // top-up chain is a browse shelf that has ALREADY reached the
+        // real target, so every artist consistently gets topped up all
+        // the way to songCount (100) whenever more songs exist to find.
+        if (browseArtist.topSongs.length >= songCount) return browseArtist;
 
         try {
           // FIX: outer timeout raised 12s -> 18s to actually fit the
@@ -6602,20 +6632,46 @@ class ApiService {
           // budget the walk's internal deadline was designed to use.
           final uploadsArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount)
               .timeout(const Duration(seconds: 18), onTimeout: () => null);
-          if (uploadsArtist == null || uploadsArtist.topSongs.isEmpty) return browseArtist;
 
           final seenIds = <String>{};
           final seenTitles = <String>{};
           final seenRawTitles = <String>[];
           final mergedSongs = <Song>[];
-          for (final s in [...browseArtist.topSongs, ...uploadsArtist.topSongs]) {
-            if (mergedSongs.length >= songCount) break;
-            if (!seenIds.add(s.id)) continue;
-            final tk = _normTitle(s.title);
-            if (!seenTitles.add(tk)) continue;
-            if (_isDupOfAny(s.title, seenRawTitles)) continue;
-            seenRawTitles.add(s.title);
-            mergedSongs.add(s);
+          // FIX ("100 floor" gap): this used to `return browseArtist`
+          // immediately whenever the uploads walk failed/timed out/came
+          // back empty — skipping the merge loop AND the final-floor
+          // top-up below entirely, so an artist whose channel walk
+          // happened to fail (timeout, transient error, genuinely no
+          // uploads) was stuck below 100 with no second chance. Now the
+          // merge loop always runs (an empty uploadsArtist.topSongs list
+          // just means nothing to merge in, not a hard stop), so the
+          // final-floor top-up below still gets its shot at reaching 100
+          // regardless of why the uploads walk came up short.
+          if (uploadsArtist != null) {
+            for (final s in [...browseArtist.topSongs, ...uploadsArtist.topSongs]) {
+              if (mergedSongs.length >= songCount) break;
+              if (!seenIds.add(s.id)) continue;
+              final tk = _normTitle(s.title);
+              if (!seenTitles.add(tk)) continue;
+              if (_isDupOfAny(s.title, seenRawTitles)) continue;
+              seenRawTitles.add(s.title);
+              mergedSongs.add(s);
+            }
+          } else {
+            // Uploads walk failed/timed out — nothing to merge in beyond
+            // browse's own shelf, same loop body as above with just that
+            // second source dropped (kept as its own branch, not a
+            // shared helper, to match this function's existing style of
+            // inline loops rather than adding new private methods).
+            for (final s in browseArtist.topSongs) {
+              if (mergedSongs.length >= songCount) break;
+              if (!seenIds.add(s.id)) continue;
+              final tk = _normTitle(s.title);
+              if (!seenTitles.add(tk)) continue;
+              if (_isDupOfAny(s.title, seenRawTitles)) continue;
+              seenRawTitles.add(s.title);
+              mergedSongs.add(s);
+            }
           }
 
           // FINAL FLOOR ("kam se kam 100 songs aaye, production grade"):

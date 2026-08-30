@@ -548,8 +548,29 @@ class _HomeScreenState extends State<HomeScreen> {
     // a genuine first-ever launch with nothing cached yet, in which case
     // behavior is identical to before this fix.
     _hydrateFromCache();
-    _loadOnline(clearExisting: false);
-    _loadArtists();
+    // NO-SILENT-REFRESH FIX ("ek hi rahe hamesha jab tak user khud
+    // manually refresh na kare"): previously _loadOnline() always ran
+    // here regardless of whether a cache existed, so even a cache from
+    // the last session still triggered a real background fetch that
+    // silently swapped the whole feed the instant it finished — a
+    // visible reshuffle the user never asked for. Now the fetch only
+    // fires on cold start when there is NO cache at all yet (first-ever
+    // launch, or cleared app data) — a cache, however old, is left
+    // exactly as shown, untouched, forever, until the user explicitly
+    // pulls to refresh (see RefreshIndicator's onRefresh above, which
+    // always calls _loadOnline() directly regardless of this check).
+    HomeFeedCache.isFresh().then((fresh) {
+      if (!mounted) return;
+      if (!fresh) _loadOnline(clearExisting: false);
+    });
+    // Artist strip follows the exact same no-silent-refresh rule as the
+    // section feed above — only loaded on cold start when nothing has
+    // ever been cached; once cached, it stays exactly as-is until
+    // pull-to-refresh.
+    HomeFeedCache.isArtistsFresh().then((fresh) {
+      if (!mounted) return;
+      if (!fresh) _loadArtists();
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final lib = context.read<LibraryProvider>();
       if (!lib.hasLoaded) lib.load();
@@ -912,6 +933,23 @@ class _HomeScreenState extends State<HomeScreen> {
               physics: const BouncingScrollPhysics(
                 parent: AlwaysScrollableScrollPhysics(),
               ),
+              // PERF FIX (scroll jank/stutter, "atke atke feel"): default
+              // Sliver cacheExtent is only 250 logical px. With ~12 heavy
+              // shelves (each a horizontal ListView of up to 12 cards,
+              // each card a network image) stacked in one SliverList, a
+              // fast fling scroll routinely outran that tiny window —
+              // every section that briefly left the 250px buffer got torn
+              // down (dispose + image eviction), then rebuilt from scratch
+              // the instant it re-entered, on every single fling. That
+              // build/dispose/rebuild churn racing the frame budget is
+              // exactly what reads as "makkhan nahi, atka hua" scrolling.
+              // Widening to ~1.5 screen heights keeps 1-2 shelves above
+              // and below the viewport permanently warm (already built,
+              // already decoded) so a normal fling never has to pay that
+              // cost — RepaintBoundary on every card (_SongGridCard) plus
+              // the per-row memCacheWidth cap already keep the actual
+              // paint/decode cost of the wider window cheap.
+              cacheExtent: 1200,
               slivers: [
                 _buildAppBar(context, src),
                 SliverToBoxAdapter(child: _HeroNowPlaying(isActive: widget.isActive)),
@@ -3143,7 +3181,19 @@ class _ArtistChip extends StatelessWidget {
     );
     final isActuallyPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
 
-    return AurumPressable(
+    // PERF FIX (scroll jank): this chip listens to PlayerProvider via
+    // context.select — every song change AND every play/pause toggle
+    // rebuilds every single chip in the strip, including all the ones
+    // that aren't the current artist. Without a RepaintBoundary, none of
+    // those rebuilds/repaints were isolated to just this chip's own
+    // layer — they could ripple into whatever the compositor was doing
+    // for neighboring widgets in the same frame, exactly the kind of
+    // extra work that shows up as stutter while scrolling past this
+    // strip (which sits mid-feed, injected into the same SliverList as
+    // every song section). Matches the RepaintBoundary already used on
+    // _SongGridCard/album cards for the same reason.
+    return RepaintBoundary(
+      child: AurumPressable(
       scaleAmount: 0.94,
       onTap: () => _open(context),
       child: Container(
@@ -3175,6 +3225,7 @@ class _ArtistChip extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -3240,7 +3291,35 @@ class _YtPlaylistsForYouSectionState
   @override
   void initState() {
     super.initState();
-    _load();
+    // NO-SILENT-REFRESH FIX (same rule as the rest of Home): this row had
+    // no cache at all before — it always fetched fresh, different
+    // playlists on every single app open (worse: HomePlaylistHistory's
+    // own "no repeat" system guaranteed they'd be different each time),
+    // even while every other Home section correctly stayed frozen from
+    // cache until the user pulled to refresh. Now it hydrates from its
+    // own cache first (instant, same as sections/artists) and only fires
+    // a real fetch when nothing has ever been cached for this mood yet —
+    // mood switches and pull-to-refresh (see didUpdateWidget below) are
+    // unaffected and always still fetch fresh, exactly as before.
+    _hydrateFromCache();
+  }
+
+  Future<void> _hydrateFromCache() async {
+    // Single SharedPreferences round-trip covers both "what to show" and
+    // "do we still need a real fetch" — loadPlaylistCards() returns []
+    // only when nothing has ever been cached for this mood (no time-based
+    // expiry — see HomeFeedCache's class doc), so an empty result here
+    // unambiguously means "no usable cache yet".
+    final cached = await HomeFeedCache.loadPlaylistCards(_selectedMood);
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() {
+        _cards = cached;
+        _everLoadedOnce = true;
+      });
+    } else {
+      _load();
+    }
   }
 
   @override
@@ -3281,6 +3360,9 @@ class _YtPlaylistsForYouSectionState
         excludeIds: excludeIds,
       ).timeout(const Duration(seconds: 12));
       if (!mounted) return;
+      if (cards.isNotEmpty) {
+        unawaited(HomeFeedCache.savePlaylistCards(_selectedMood, cards));
+      }
       if (cards.isEmpty) {
         setState(() => _failed = true);
       } else {
@@ -3576,7 +3658,14 @@ class _YtHomePlaylistCardWidgetState
   @override
   Widget build(BuildContext context) {
     final c = widget.card;
-    return GestureDetector(
+    // PERF FIX (scroll jank): this card has its own local press state
+    // (_pressed) and AnimatedScale — without a RepaintBoundary, every
+    // tap-driven rebuild here had no isolated compositor layer, same gap
+    // as _ArtistChip above. Wrapping it means press feedback and any
+    // parent-driven rebuild stay contained to this one card instead of
+    // costing a repaint pass on neighboring cards in the row.
+    return RepaintBoundary(
+      child: GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
@@ -3641,6 +3730,7 @@ class _YtHomePlaylistCardWidgetState
             ),
           ),
         ),
+      ),
       ),
     );
   }

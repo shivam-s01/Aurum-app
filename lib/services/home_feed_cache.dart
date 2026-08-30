@@ -33,18 +33,18 @@ import 'api_service.dart';
 /// launch) or unreadable, behavior falls back to exactly what it was
 /// before this fix — a normal loading state until the fetch resolves.
 ///
-/// FRESHNESS GUARANTEE ("100 songs, category-wise, top-grade, instant
-/// open, auto-refresh every 10 hours — not on every single app open"):
-/// cold start reads this cache and paints it instantly (near-0ms,
-/// SharedPreferences, no network) instead of showing shimmer while a
-/// fresh fetch runs. [loadSections]/[loadArtists] enforce [maxFreshAge]
-/// (10 hours) internally: once a cache is older than that, it's treated
-/// exactly like no cache exists and a real background fetch runs instead
-/// — callers don't need to remember to check staleness themselves. A
-/// manual pull-to-refresh bypasses this entirely (home_screen.dart's
-/// RefreshIndicator calls _loadOnline() directly, which never reads this
-/// cache), so the user can always force a real refresh on demand
-/// regardless of how fresh the last cache still is.
+/// STABILITY GUARANTEE ("ek hi rahe hamesha jab tak user khud manually
+/// refresh na kare" — no time-based auto-expiry): cold start reads this
+/// cache and paints it instantly (near-0ms, SharedPreferences, no
+/// network) instead of showing shimmer while a fresh fetch runs. Once
+/// something is cached, [loadSections]/[loadArtists]/[loadPlaylistCards]
+/// keep returning that exact saved content forever — there is no age
+/// check anywhere in this file that can treat a cache as stale on its
+/// own. The ONLY things that ever produce different content are (a) a
+/// manual pull-to-refresh (home_screen.dart's RefreshIndicator calls
+/// _loadOnline()/_loadArtists() directly, which never reads this cache),
+/// or (b) a genuine first-ever launch / cleared app data with nothing
+/// cached yet.
 /// Runs on a background isolate via compute() — see loadSections() below
 /// for why this was pulled out of the main isolate for LARGE payloads.
 /// Must be a top-level function (not a closure/instance method) for
@@ -111,17 +111,45 @@ class HomeFeedCache {
   static const _savedAtKey = 'home_feed_cache_saved_at_ms';
   static const _artistsSavedAtKey = 'home_feed_cache_artists_saved_at_ms';
 
-  // A cache older than this is indistinguishable from no cache at all —
-  // enforced inside loadSections/loadArtists themselves, not left to
-  // callers to remember to check. 10 hours per explicit product
-  // requirement: the home feed should show the SAME 100-per-category
-  // songs, instantly, for the whole day between opens — it should not
-  // silently reshuffle/refetch just because the user closed and reopened
-  // the app a few minutes later. A real background refresh only kicks in
-  // once this window has genuinely elapsed; a manual pull-to-refresh
-  // (see RefreshIndicator in home_screen.dart) always bypasses this cache
-  // entirely and forces a real fetch regardless of age.
-  static const Duration maxFreshAge = Duration(hours: 10);
+  // REMOVED (2026-08-30): the 10-hour auto-expiry ("maxFreshAge") that
+  // used to live here. Per explicit product requirement — "ek hi rahe
+  // hamesha jab tak user khud manually refresh na kare" — the cache now
+  // NEVER expires on its own, for any amount of time. Once a cold start
+  // has content, that exact content stays exactly as-is across every
+  // future cold start, indefinitely, until the user explicitly pulls to
+  // refresh (RefreshIndicator's onRefresh in home_screen.dart, which
+  // still always forces a real fetch regardless of this cache). There is
+  // now no time-based condition anywhere in this file that can trigger a
+  // background fetch on its own.
+
+  // GATE for the caller's own background network fetch — not just what's
+  // displayed. isFresh()/isArtistsFresh()/isPlaylistsFresh() below now
+  // simply mean "is there any saved cache at all" — true the instant
+  // something has ever been cached, with no expiry — so initState() in
+  // home_screen.dart only ever fires a real fetch on a genuine first-ever
+  // launch (nothing cached yet) or a cleared/corrupted cache, never
+  // because time has passed.
+  static Future<bool> isFresh() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getInt(_savedAtKey) != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Same gate as isFresh() above, for the artist strip's own SEPARATE
+  // cache timestamp (_artistsSavedAtKey) — sections and artists are saved
+  // independently, so checking the sections' isFresh() alone would wrongly
+  // decide the artist strip's freshness off the wrong signal.
+  static Future<bool> isArtistsFresh() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getInt(_artistsSavedAtKey) != null;
+    } catch (_) {
+      return false;
+    }
+  }
 
   static Future<void> saveSections(List<SongSection> sections) async {
     if (sections.isEmpty) return; // never overwrite a good cache with nothing
@@ -158,14 +186,9 @@ class HomeFeedCache {
       final prefs = await SharedPreferences.getInstance();
       final savedAtMs = prefs.getInt(_savedAtKey);
       if (savedAtMs == null) return [];
-      final age = DateTime.now()
-          .difference(DateTime.fromMillisecondsSinceEpoch(savedAtMs));
-      // FRESHNESS GUARANTEE: a stale cache is treated as if it doesn't
-      // exist — see the class doc comment above. This is what makes "the
-      // user always gets fresh content" and "cold start is instant" both
-      // true at once: instant applies only to genuinely recent data,
-      // never to something old enough to feel stale or off.
-      if (age > maxFreshAge) return [];
+      // NO EXPIRY (2026-08-30): the age-based staleness check that used
+      // to sit here is gone — a saved cache is used exactly as-is,
+      // however old it is, until the user manually pulls to refresh.
       final raw = prefs.getString(_sectionsKey);
       if (raw == null || raw.isEmpty) return [];
       // PERF FIX ("app freezes right after opening, splash looks skipped"):
@@ -217,9 +240,7 @@ class HomeFeedCache {
       final prefs = await SharedPreferences.getInstance();
       final savedAtMs = prefs.getInt(_artistsSavedAtKey);
       if (savedAtMs == null) return [];
-      final age = DateTime.now()
-          .difference(DateTime.fromMillisecondsSinceEpoch(savedAtMs));
-      if (age > maxFreshAge) return []; // same freshness guarantee as sections
+      // NO EXPIRY — see loadSections() above for the same removal.
       final raw = prefs.getString(_artistsKey);
       if (raw == null || raw.isEmpty) return [];
       // PERF FIX — same "splash skipped / frozen open" issue loadSections()
@@ -234,6 +255,57 @@ class HomeFeedCache {
       return compute(_decodeArtists, raw);
     } catch (_) {
       return [];
+    }
+  }
+
+  // ── "Playlists For You" row cache ──────────────────────────────────
+  // Same no-expiry treatment as sections/artists above. Keyed separately
+  // by mood (_kMoodAll's cards are different from e.g. "bollywood"'s),
+  // so each mood's own cache is used exactly as-is, indefinitely, until
+  // the user switches mood (a deliberate action, always fetches fresh)
+  // or manually pulls to refresh.
+  static String _playlistsKey(String mood) => 'home_playlist_cards_v1_$mood';
+  static String _playlistsSavedAtKey(String mood) =>
+      'home_playlist_cards_saved_at_ms_$mood';
+
+  static Future<void> savePlaylistCards(
+      String mood, List<YtHomePlaylistCard> cards) async {
+    if (cards.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(cards.map((c) => c.toJson()).toList());
+      await prefs.setString(_playlistsKey(mood), encoded);
+      await prefs.setInt(
+          _playlistsSavedAtKey(mood), DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
+  static Future<List<YtHomePlaylistCard>> loadPlaylistCards(
+      String mood) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedAtMs = prefs.getInt(_playlistsSavedAtKey(mood));
+      if (savedAtMs == null) return [];
+      // NO EXPIRY — see loadSections() above for the same removal.
+      final raw = prefs.getString(_playlistsKey(mood));
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw) as List;
+      return decoded
+          .whereType<Map>()
+          .map((e) =>
+              YtHomePlaylistCard.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<bool> isPlaylistsFresh(String mood) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getInt(_playlistsSavedAtKey(mood)) != null;
+    } catch (_) {
+      return false;
     }
   }
 }

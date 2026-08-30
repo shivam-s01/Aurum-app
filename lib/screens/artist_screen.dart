@@ -157,6 +157,15 @@ class _ArtistScreenState extends State<ArtistScreen> {
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
+      // PERF FIX (album row + 100-song list jank, "makkhan" scrolling):
+      // same root cause as home_screen.dart's CustomScrollView — default
+      // Sliver cacheExtent is only 250 logical px. With the artist header,
+      // an album row, and now a full 100-song list all stacked in one
+      // scroll view, a fast fling routinely outran that tiny buffer —
+      // every sliver section briefly outside it got torn down and rebuilt
+      // from scratch on re-entry, every single fling. Matches the same
+      // 1200 used on Home for identical reasoning.
+      cacheExtent: 1200,
       slivers: [
         SliverAppBar(
           expandedHeight: 380,
@@ -465,7 +474,13 @@ class _ArtistScreenState extends State<ArtistScreen> {
           itemCount: albums.length,
           itemBuilder: (context, i) {
             final a = albums[i];
-            return Padding(
+            // PERF: isolate each album card into its own compositor
+            // layer — same reasoning as _SongGridCard on Home. Without
+            // this, every card in the row repaints/relayouts alongside
+            // its siblings on every scroll frame instead of being
+            // cached as its own independent layer.
+            return RepaintBoundary(
+              child: Padding(
               padding: const EdgeInsets.only(right: 12),
               child: GestureDetector(
                 onTap: () {
@@ -509,6 +524,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                     ],
                   ),
                 ),
+              ),
               ),
             );
           },
