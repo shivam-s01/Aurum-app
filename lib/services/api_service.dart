@@ -1236,12 +1236,28 @@ class ApiService {
     final timeMoodQuery = _timeMoodQuery(slot);
     final timeMoodLabel = _timeMoodLabel(slot);
 
+    // TRIMMED HOME FEED (2026-08-30): previously this built out 15-19
+    // total sections (time-mood + up to 4 personal artists + up to 3
+    // genres + 3 English + up to 3 recently-played + up to 8 random pool
+    // picks). Combined with the one-shot reveal in home_screen.dart (which
+    // now waits for the ENTIRE batch before painting anything), that many
+    // sections meant a long wait before the user saw anything at all —
+    // each section itself already fans out to ~100 songs via 5 query
+    // variants + a deep paged search (see _saavnSectionV4 above), so more
+    // sections means more of those expensive fetches stacking up.
+    // Now capped at 6-7 sections total: the time-of-day mood row, top 2
+    // personal artists (was 4), top 1 genre mix (was up to 3), 1 English
+    // row (was 3), top 1 recently-played (was up to 3), and the random
+    // pool/cold-start padding below is skipped entirely once this list
+    // already has enough sections. Every section still targets up to 100
+    // songs each — only the section COUNT dropped, not depth per shelf.
+    const int _kMaxHomeSections = 7;
     final queryList = <_SectionQuery>[];
     queryList.add(_SectionQuery(timeMoodQuery, timeMoodLabel, priority: true));
-    for (final artist in personalArtists.take(4)) {
+    for (final artist in personalArtists.take(2)) {
       queryList.add(_SectionQuery('$artist best songs', 'Made for You · $artist', priority: true));
     }
-    for (final genre in topGenres) {
+    for (final genre in topGenres.take(1)) {
       queryList.add(_SectionQuery(_genreMixQuery(genre), _genreMixLabel(genre), priority: true));
     }
     // ── English/International (direct YouTube search) ──
@@ -1249,17 +1265,17 @@ class ApiService {
     // the earlier iTunes-discovery approach: one search call per section
     // straight to YouTube, no extra per-song lookup — fewer moving parts,
     // fewer failure points, faster.
+    // Trimmed to just the single strongest English row instead of 3 — see
+    // _kMaxHomeSections note above.
     const englishQueries = [
       ('top english songs 2026', 'Top English Hits'),
-      ('english pop hits', 'English Pop'),
-      ('english love songs', 'English Love Songs'),
     ];
     for (final (q, label) in englishQueries) {
       queryList.add(_SectionQuery(q, label, isEnglish: true));
     }
     final recentOnline = recentlyPlayed
         .where((s) => !s.isLocal && s.source == SongSource.saavn && s.id.isNotEmpty)
-        .take(3)
+        .take(1)
         .toList();
     for (final recent in recentOnline) {
       final cleanId = recent.id.replaceFirst(RegExp(r'^[a-z]+_'), '');
@@ -1270,8 +1286,12 @@ class ApiService {
     }
 
     int poolPicks = 0;
+    // Only pad with random pool picks if we're still short of
+    // _kMaxHomeSections — previously this always added up to 8 more
+    // regardless of how many sections already existed.
     for (final entry in shuffledPool) {
-      if (poolPicks >= 8) break;
+      if (queryList.length >= _kMaxHomeSections) break;
+      if (poolPicks >= 3) break;
       if (queryList.any((q) => q.label == entry.label)) continue;
       queryList.add(_SectionQuery(entry.query, entry.label));
       poolPicks++;
@@ -1294,18 +1314,17 @@ class ApiService {
     // picks above (which stay as later, lower-priority sections instead
     // of being the whole first screen).
     if (personalArtists.isEmpty && topGenres.isEmpty && recentOnline.isEmpty) {
+      // Trimmed to the 3 strongest cold-start rows (was 5 + 3 icons + 3
+      // extra = up to 11 more) — see _kMaxHomeSections note above. A
+      // brand-new account gets: greeting, Trending Now, New Releases,
+      // Top Charts, capped by _kMaxHomeSections same as everyone else.
       const coldStartLabels = [
         'Trending Now',
         'New Releases',
         'Top Charts',
-        'Viral Hits',
-        'Trending in India',
       ];
-      const coldStartIcons = ['Arijit Singh', 'A.R. Rahman', 'Shreya Ghoshal'];
-      // Iterate reversed so repeated insert(1, ...) calls land in the
-      // intended reading order (Trending Now, New Releases, Top Charts,
-      // ... icons) rather than reversed by the insert-at-front pattern.
-      for (final label in [...coldStartLabels, ...coldStartIcons].reversed) {
+      for (final label in coldStartLabels.reversed) {
+        if (queryList.length >= _kMaxHomeSections) break;
         final entry = _pool.firstWhere(
           (e) => e.label == label,
           orElse: () => _PoolEntry('', ''),
@@ -1327,15 +1346,17 @@ class ApiService {
         // greeting row even on a brand-new account.
         queryList.insert(1, _SectionQuery(entry.query, entry.label, priority: true));
       }
-      int extra = 0;
-      for (final entry in shuffledPool.reversed) {
-        if (extra >= 3) break;
-        if (!queryList.any((q) => q.label == entry.label)) {
-          queryList.add(_SectionQuery(entry.query, entry.label));
-          extra++;
-        }
-      }
     }
+
+    // Hard safety cap: whatever path built queryList (returning user,
+    // cold-start new account, etc.), never fire more than
+    // _kMaxHomeSections network-heavy section fetches. Priority sections
+    // (greeting/personalized/genre/cold-start trending) are kept over
+    // plain random pool picks since take() below reads in insertion order
+    // and priority entries were always inserted/added first.
+    final _trimmedQueryList = queryList.length > _kMaxHomeSections
+        ? queryList.take(_kMaxHomeSections).toList()
+        : queryList;
 
     final globalSeenIds = <String>{};
     final seenTitles = <String>{};
@@ -1387,8 +1408,8 @@ class ApiService {
     // 4 with a short gap between waves, so the total concurrent connection
     // count at any instant stays roughly constant regardless of how many
     // sections the feed ends up building.
-    final priorityQueries = queryList.where((q) => q.priority).toList();
-    final restQueries = queryList.where((q) => q.priority == false).toList();
+    final priorityQueries = _trimmedQueryList.where((q) => q.priority).toList();
+    final restQueries = _trimmedQueryList.where((q) => q.priority == false).toList();
 
     // FIX (cold-start lag/data spike): priorityQueries used to all fire in
     // one single wave with zero throttling ("there are only ever ~8 of

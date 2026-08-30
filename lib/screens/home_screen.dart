@@ -778,96 +778,50 @@ class _HomeScreenState extends State<HomeScreen> {
         seed: math.Random().nextInt(1000000),
       );
       final recentSongs = recentlyPlayedProvider.history.take(10).toList();
-      // BUGFIX: "sections load late" — this previously collected every
-      // section into a local list and only called setState once, after
-      // the ENTIRE fetchHomeStreaming batch finished (up to the full 25s
-      // timeout in the worst case). fetchHomeStreaming already streams
-      // sections in one-by-one via onSection specifically so the UI can
-      // show them progressively — batching them all up here just meant
-      // every section waited on the slowest one, which is exactly why
-      // "Playlists For You" (loaded separately, by _YtPlaylistsForYouSection)
-      // appeared fast while everything else felt stuck. Calling setState
-      // per-section restores that progressive reveal.
-      // Growable list built once and appended to in place — avoids an
-      // O(n) full-list copy on every single section arrival, keeping
-      // this lightweight even as more sections stream in. setState
-      // triggers the rebuild Flutter needs; the List reference itself
-      // doesn't need to change for that.
-      // FIX (cold-start cache continuation): this used to always start
-      // from a fresh empty list, which — combined with the
-      // `clearExisting: false` fix above — meant cache-hydrated sections
-      // would survive the setState above only to be wiped out right here
-      // instead, the instant this line ran and before the first real
-      // onSection callback even fired. Seeding from whatever's already in
-      // _onlineSections (the cache, on a cold start) means those sections
-      // stay visible on screen exactly as they were, and get replaced
-      // title-by-title as genuine live sections stream in below — a
-      // section whose title matches an already-shown cached one is
-      // swapped in place instead of appended as a duplicate, so the user
-      // never sees the same shelf twice while a refresh is in flight.
+      // liveSections is a local buffer only — see ONE-SHOT REVEAL below for
+      // why nothing here touches _onlineSections/the notifier until the
+      // whole batch is done. Seeded from whatever's already showing (the
+      // cache, on a cold start) purely so a mid-fetch failure has something
+      // to fall back to in the catch block below, not to display partially.
       final liveSections = clearExisting ? <SongSection>[] : List<SongSection>.from(_onlineSections);
-      if (clearExisting) _onlineSections = liveSections;
-      // PERF FIX ("refresh ke poore time tak lag/jerky rehta hai"): each of
-      // the ~15-19 streamed sections used to trigger its own IMMEDIATE
-      // List.from() copy + ValueNotifier rebuild the instant it arrived.
-      // api_service.dart's own wave-throttling fires sections in small
-      // bursts (up to 3 at a time, ~200ms apart) — so within a single burst,
-      // 2-3 of these full copy+rebuild cycles were landing back-to-back in
-      // the same handful of frames, competing with each other and with
-      // whatever the just-hydrated cache content was still laying out. That
-      // repeating burst-of-rebuilds pattern, once per wave, for the entire
-      // duration of the refresh, is what read as "lag until fresh content
-      // finishes loading" rather than one clean jank moment.
-      // Coalescing into a microtask means every section that arrives within
-      // the same synchronous batch (a whole burst resolving together) is
-      // folded into ONE list copy and ONE notifier update, scheduled once
-      // per burst instead of once per section — cutting the rebuild count
-      // roughly 3x during exactly the window that felt janky, with zero
-      // change to which sections appear or how fast the first one shows up.
-      bool _flushScheduled = false;
-      void scheduleFlush() {
-        if (_flushScheduled) return;
-        _flushScheduled = true;
-        scheduleMicrotask(() {
-          _flushScheduled = false;
-          if (!mounted) return;
-          _onlineSections = List<SongSection>.from(liveSections);
-          if (_onlineLoading) setState(() => _onlineLoading = false);
-        });
-      }
+      // ONE-SHOT REVEAL (2026-08-30): previously each streamed section
+      // triggered its own list copy + ValueNotifier update (coalesced per
+      // network burst), so the home screen visibly filled in piece by
+      // piece — a section or two at a time — instead of appearing all at
+      // once. That's what read as "refresh 5-10 baar mein hota hai".
+      // Now every section from fetchHomeStreaming is buffered locally in
+      // liveSections and NOTHING is written to _onlineSections or the
+      // ValueNotifier until the entire stream finishes below. The loader
+      // (shimmer/spinner) stays on screen as one unbroken state for the
+      // whole fetch, then the complete home feed paints in a single frame.
+      // On a cold start with cached content already visible, we still seed
+      // liveSections from the old _onlineSections so a failure mid-fetch
+      // doesn't wipe the screen (see catch block) — the cache just isn't
+      // shown as "live" until the full fresh batch is ready to replace it
+      // wholesale.
       await ApiService.fetchHomeStreaming(
         topArtists: topArtists,
         topArtistsRotating: topArtistsRotating,
         recentlyPlayed: recentSongs,
         onSection: (section) {
-          if (!mounted) return;
-          // PERF FIX (40s cold-start lag): this used to be wrapped in
-          // setState() on _HomeScreenState — see the ValueNotifier's doc
-          // comment near the top of this State class for the full
-          // explanation. Each of the ~15-19 sections streaming in here now
-          // only notifies _onlineSectionsNotifier's own
-          // ValueListenableBuilder (wrapping just _OnlineContent further
-          // down in build()), instead of rebuilding the entire Home
-          // screen — AppBar, curated playlists, premium banner, and artist
-          // strip included — on every single arrival.
+          // Buffer only — no setState, no notifier update. See comment
+          // above: the whole point is that nothing paints until every
+          // section has arrived.
           final existingIdx = liveSections.indexWhere((s) => s.id == section.id);
           if (existingIdx != -1) {
             liveSections[existingIdx] = section;
           } else {
             liveSections.add(section);
           }
-          // Reassign to a fresh list so the ValueNotifier's own identity
-          // check (it only notifies listeners when the value actually
-          // changes) reliably fires — mutating liveSections in place above
-          // and reusing the same reference here would risk being treated
-          // as "unchanged" by some ValueNotifier-adjacent tooling.
-          // (See scheduleFlush() above — the actual reassignment + setState
-          // now happens once per burst instead of once per section.)
-          scheduleFlush();
         },
       ).timeout(const Duration(seconds: 25));
       if (mounted) {
+        // Single flush: the entire batch is ready, so the whole home feed
+        // (every section) becomes visible together, in one rebuild, with
+        // the loader turning off in that same rebuild — never a frame
+        // where loading is false but sections are still trickling in.
         setState(() {
+          _onlineSections = List<SongSection>.from(liveSections);
           _onlineLoading = false;
         });
       }
@@ -989,7 +943,22 @@ class _HomeScreenState extends State<HomeScreen> {
                     valueListenable: _onlineSectionsNotifier,
                     builder: (context, sections, _) {
                       if (_onlineLoading) {
-                        return SliverToBoxAdapter(child: _buildOnlineShimmer(context));
+                        // Plain Google-style Material circular spinner,
+                        // shown as ONE steady state for the whole fetch
+                        // (see _loadOnline's single-flush fix) instead of
+                        // the old section-shimmer that got replaced
+                        // piecemeal as each section streamed in.
+                        return SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 64),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: AurumTheme.gold,
+                                strokeWidth: 3,
+                              ),
+                            ),
+                          ),
+                        );
                       }
                       if (sections.isEmpty) {
                         return SliverToBoxAdapter(
