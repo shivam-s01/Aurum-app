@@ -1058,7 +1058,31 @@ class ApiService {
       final batchResults = await Future.wait(
         batch.map((sq) => sq.isSuggestion
             ? _suggestionSection(sq.suggestionSongId!, sq.label)
-            : _saavnSectionV4(sq.query, sq.label)),
+            // NOTE: this legacy non-streaming fetchHome() has no onSection
+            // callback and therefore no way to receive a background
+            // top-up — unlike fetchHomeStreaming's queryList path, which
+            // gets a fast _saavnSectionV4() call now paired with an
+            // automatic _topUpSectionInBackground() right after (see
+            // there). Using the plain fast-phase helper here would leave
+            // every section this function returns permanently capped at
+            // _kFastFirstTarget (28) with nothing to ever top it up to
+            // the real _kHomeSectionTarget (100). No current call site
+            // uses this function (superseded by fetchHomeStreaming), but
+            // routing it through the full pipeline directly keeps its
+            // 100-song contract correct for any future caller.
+            : _fetchSaavnSection(
+                sq.query,
+                sq.label,
+                variants: <String>{
+                  sq.query,
+                  '${sq.query} audio',
+                  '${sq.query} official',
+                  '${sq.query} hd',
+                  '${sq.query} hits',
+                },
+                includeDeepPage: true,
+                target: _kHomeSectionTarget,
+              )),
       );
       results.addAll(batchResults);
       if (i + batchSize < queryList.length) {
@@ -1130,35 +1154,104 @@ class ApiService {
   // than a rewrite if it's ever needed again.
   static const int _kHomeSectionTarget = 100;
 
+  // FAST-REFRESH SPLIT (2026-08-31 — "refresh pe lag, fast nahi ho raha"):
+  // this used to always do the FULL job in one call — 5 query variants +
+  // a 6-page deep search, ~6 network round-trips, before a single section
+  // could paint — because the 100-song target demanded that much raw
+  // volume up front. But home only ever displays 12 of those 100 songs
+  // per row (see _SongSectionRow's itemCount.clamp(0, 12) in
+  // home_screen.dart) — the other ~88 exist purely so MixScreen's "See
+  // all" has a full shelf ready. Paying the full 6-call cost for every one
+  // of up to 12 sections, on every refresh, before the user sees anything,
+  // is exactly backwards: it's optimizing for a screen (MixScreen) the
+  // user hasn't even asked to open yet, at the expense of the screen
+  // they're staring at right now.
+  //
+  // Split into two phases:
+  //   Phase 1 (this function, awaited by fetchHomeStreaming below): only
+  //   2 lightweight query variants, no deep page walk. Enough raw volume
+  //   for a solid quality-filtered ~25-30 songs — comfortably past the
+  //   12 home actually renders, so home's own row never looks thin —
+  //   while cutting the section's network cost from 6 calls to 2.
+  //   Phase 2 (_topUpSectionInBackground, fire-and-forget, NOT awaited):
+  //   runs the original full 5-variant + deep-page pipeline in the
+  //   background after phase 1 has already painted, then quietly
+  //   overwrites the section (via the same onSection/id-dedup path
+  //   home_screen.dart already uses) once it resolves — up to the full
+  //   _kHomeSectionTarget. MixScreen only ever gets opened by tapping
+  //   "See all" on a section already on screen, i.e. strictly after
+  //   phase 1 (and almost always after phase 2, which runs in a handful
+  //   of seconds) has had time to run — so by the time a user can
+  //   possibly tap into it, the full 100-song shelf is either ready or
+  //   moments away, with zero perceptible loading state added to
+  //   MixScreen itself (it already just reads whatever section.songs it
+  //   was opened with, same as before this change).
+  static const int _kFastFirstTarget = 28;
+
   static Future<SongSection?> _saavnSectionV4(String query, String label) async {
+    final fast = await _fetchSaavnSection(
+      query,
+      label,
+      variants: <String>{query, '$query audio'},
+      includeDeepPage: false,
+      target: _kFastFirstTarget,
+    );
+    return fast;
+  }
+
+  // Background top-up: reruns the section with the ORIGINAL full pipeline
+  // (5 variants + deep page walk, target 100) and calls onTopUp with the
+  // result once done. Never awaited by the refresh flow — see doc comment
+  // above. Errors are swallowed; a failed top-up just leaves the fast
+  // phase-1 section as the final one, which is still a complete, valid
+  // shelf on its own.
+  static void _topUpSectionInBackground(
+    String query,
+    String label,
+    void Function(SongSection section) onTopUp,
+  ) {
+    unawaited(_fetchSaavnSection(
+      query,
+      label,
+      variants: <String>{query, '$query audio', '$query official', '$query hd', '$query hits'},
+      includeDeepPage: true,
+      target: _kHomeSectionTarget,
+    ).then((full) {
+      if (full != null && full.songs.length > _kFastFirstTarget) {
+        onTopUp(full);
+      }
+    }).catchError((_) {}));
+  }
+
+  static Future<SongSection?> _fetchSaavnSection(
+    String query,
+    String label, {
+    required Set<String> variants,
+    required bool includeDeepPage,
+    required int target,
+  }) async {
     // YOUTUBE-ONLY HOME FEED: this used to be a 50/50 Saavn+YouTube merge.
     // Saavn is now fully backed out of the home-feed pipeline (kept intact
     // elsewhere in the app — search, playlists, charts endpoints are all
     // untouched) so every home section is pure YouTube, sourced the same
     // way _ytSectionV1's English rows already prove out: several query
     // variants fired in parallel (widens the raw pool well past what one
-    // query alone returns) PLUS a deep multi-page explode search for extra
-    // volume, then merged/deduped/quality-filtered down to a genuine
-    // 100-song shelf. Name kept as _saavnSectionV4 so every existing call
-    // site (queryList.map, fetchHome, fetchHomeStreaming) needs zero
-    // changes elsewhere.
-    final variants = <String>{
-      query,
-      '$query audio',
-      '$query official',
-      '$query hd',
-      '$query hits',
-    };
+    // query alone returns) PLUS (for the background top-up only) a deep
+    // multi-page explode search for extra volume, then merged/deduped/
+    // quality-filtered down to `target` songs.
     final variantResults = await Future.wait(
       variants.map((q) => _searchYt(q, limit: 60)),
     );
-    // Deep multi-page pass (youtube_explode_dart, walks up to 6 pages) on
-    // the bare query for extra raw volume beyond what the worker/direct
-    // single-page search above returns — this is what makes a genuine
-    // 100-song post-filter shelf realistic instead of hoping 5 queries'
-    // worth of ~60-limit calls happen to clear the bar.
-    final deepVideos = await _searchYtPaged(query, 100).catchError((_) => <Video>[]);
-    final deepSongs = deepVideos.map(_songFromYtVideo).toList();
+    // Deep multi-page pass (youtube_explode_dart, walks up to 6 pages) —
+    // only run for the background top-up (includeDeepPage: true). Phase 1
+    // skips this entirely since 2 variants already clear a 28-song bar
+    // comfortably, and this is the single most expensive part of the
+    // pipeline (up to 6 sequential/paged network round-trips on its own).
+    List<Song> deepSongs = const [];
+    if (includeDeepPage) {
+      final deepVideos = await _searchYtPaged(query, 100).catchError((_) => <Video>[]);
+      deepSongs = deepVideos.map(_songFromYtVideo).toList();
+    }
 
     final rawYt = <Song>[];
     final seenRawIds = <String>{};
@@ -1174,12 +1267,12 @@ class ApiService {
     // Same smart-dedup pass _ytSectionV1/RecommendationEngine already use
     // elsewhere — catches reuploads ("8K...", "With LYRICS...") that a
     // plain exact-title check would let through as if they were different
-    // songs, so the 100-slot cap isn't quietly wasted on duplicates.
+    // songs, so the slot cap isn't quietly wasted on duplicates.
     final seenRawTitles = <String>[];
     final merged = <Song>[];
 
     bool tryAdd(Song s) {
-      if (merged.length >= _kHomeSectionTarget) return false;
+      if (merged.length >= target) return false;
       if (!seenIds.add(s.id)) return false;
       if (RecommendationEngine.isInherentVariant(s.title)) return false;
       if (RecommendationEngine.isLowQualityUpload(s.title)) return false;
@@ -1195,12 +1288,12 @@ class ApiService {
     }
 
     for (final s in rawYt) {
-      if (merged.length >= _kHomeSectionTarget) break;
+      if (merged.length >= target) break;
       tryAdd(s);
     }
 
     if (merged.isEmpty) return null;
-    return SongSection(title: label, songs: merged.take(_kHomeSectionTarget).toList());
+    return SongSection(title: label, songs: merged.take(target).toList());
   }
 
   // "Because You Played" section — pure JioSaavn suggestions, same category guaranteed
@@ -1418,6 +1511,14 @@ class ApiService {
 
     final globalSeenIds = <String>{};
     final seenTitles = <String>{};
+    // Per-section ownership of ids this section has already contributed
+    // to globalSeenIds — needed so the top-up phase (below) can tell "a
+    // song already claimed by MY OWN phase-1 fetch" (fine, still belongs
+    // in this section, must stay) apart from "a song already claimed by
+    // a DIFFERENT section" (must be excluded, or it'd duplicate across
+    // the page). Keyed by section label since that's stable between a
+    // section's fast phase-1 call and its own later top-up call.
+    final sectionOwnIds = <String, Set<String>>{};
 
     Future<void> runQuery(_SectionQuery sq) {
       final future = sq.isSuggestion
@@ -1429,8 +1530,65 @@ class ApiService {
         if (s == null) return;
         if (!seenTitles.add(s.title)) return;
         final uniqueSongs = s.songs.where((song) => globalSeenIds.add(song.id)).toList();
+        sectionOwnIds[s.title] = uniqueSongs.map((song) => song.id).toSet();
         if (uniqueSongs.isNotEmpty) {
           onSection(SongSection(title: s.title, songs: uniqueSongs));
+        }
+        // BACKGROUND TOP-UP (fast-refresh split — see _fetchSaavnSection
+        // doc comment): plain saavn/pool/genre/artist sections just got a
+        // fast, shallow ~28-song fetch above so refresh could paint this
+        // section quickly. Kick off the full 100-song version now, in the
+        // background — NOT awaited, so it can't slow down runQuery's own
+        // completion or the wave throttling below. When it resolves
+        // (typically a few seconds later), it silently replaces this
+        // section's songs via the same onSection path, same section id —
+        // home_screen.dart's existing dedup-by-id already overwrites in
+        // place with zero extra plumbing needed there. English rows and
+        // "Because You Played" are excluded: _ytSectionV1 is already a
+        // single direct call (no deep-page pipeline to split), and
+        // suggestions have no top-up path at all.
+        //
+        // BUG FIX (cross-section duplicates, AND lost phase-1 songs): the
+        // top-up callback used to call onSection(fullSection) with the
+        // RAW result, completely bypassing the globalSeenIds filter that
+        // runQuery's own path applies just above. Since globalSeenIds
+        // already contains every song id from every section's phase-1
+        // fetch (and every other section's top-up as they land), an
+        // unfiltered top-up could reintroduce a song that's already
+        // showing in a DIFFERENT section elsewhere on the page —
+        // something that was never possible before this fast/top-up
+        // split existed, since the old single-phase fetch always went
+        // through this same globalSeenIds filter.
+        //
+        // A naive fix (just running the same `globalSeenIds.add` filter
+        // on the top-up result) breaks a different way: this section's
+        // OWN phase-1 songs already sit in globalSeenIds (added above),
+        // so a plain filter would treat them as "already seen" too and
+        // silently drop them from the replacement section — the section
+        // would flip from its real phase-1 songs to only whatever NEW
+        // songs the deeper top-up pipeline happened to find, instead of
+        // growing from ~28 to ~100. sectionOwnIds tracks which ids THIS
+        // section itself already owns, so those are always kept
+        // (re-claimed, not treated as new) while ids owned by any OTHER
+        // section are correctly excluded — giving the intended result:
+        // this section grows to its full deduped set, nothing it already
+        // had disappears, and nothing already shown elsewhere gets
+        // duplicated in.
+        if (!sq.isSuggestion && !sq.isEnglish) {
+          _topUpSectionInBackground(sq.query, sq.label, (fullSection) {
+            if (!seenTitles.contains(fullSection.title)) return;
+            final myIds = sectionOwnIds[fullSection.title] ?? const <String>{};
+            final uniqueFullSongs = fullSection.songs
+                .where((song) => myIds.contains(song.id) || globalSeenIds.add(song.id))
+                .toList();
+            if (uniqueFullSongs.isEmpty) return;
+            sectionOwnIds[fullSection.title] = uniqueFullSongs.map((song) => song.id).toSet();
+            onSection(SongSection(
+              title: fullSection.title,
+              songs: uniqueFullSongs,
+              id: fullSection.id,
+            ));
+          });
         }
       }).catchError((_) {
         // one query failing shouldn't stop the rest of the feed from loading
@@ -1691,7 +1849,30 @@ class ApiService {
   static Future<SongSection?> fetchSaavnLanguageSection(String language) async {
     final label = _languageLabels[language] ?? '$language Hits';
     try {
-      return await _saavnSectionV4('$language top songs', label);
+      // FULL PIPELINE HERE, NOT _saavnSectionV4: language chart rows are
+      // fetched once per language via fetchSaavnChartsStreaming (already
+      // wave-throttled, 3 at a time — see below) and have no separate
+      // top-up call site of their own, unlike the main queryList sections
+      // in fetchHomeStreaming which get a fast phase-1 here and a
+      // background top-up right after. Routing this through the plain
+      // _saavnSectionV4 fast-phase would leave these rows permanently
+      // stuck at ~28 songs with nothing to ever top them back up to a
+      // real 100-song shelf. Calling _fetchSaavnSection directly with the
+      // original full variant set + deep page walk keeps this call site's
+      // existing 100-song contract intact.
+      return await _fetchSaavnSection(
+        '$language top songs',
+        label,
+        variants: <String>{
+          '$language top songs',
+          '$language top songs audio',
+          '$language top songs official',
+          '$language top songs hd',
+          '$language top songs hits',
+        },
+        includeDeepPage: true,
+        target: _kHomeSectionTarget,
+      );
     } catch (e) {
       _log('[fetchSaavnLanguageSection] $language error: $e');
       return null;
@@ -4621,10 +4802,30 @@ class ApiService {
         for (final item in _findRenderers(json, 'musicResponsiveListItemRenderer')) {
           for (final run in _artistRunsInSubtitle(item)) {
             if (!seen.add(run.channelId)) continue;
-            final image = _ytmThumbnailUrl(item);
-            if (image.isEmpty) continue;
+            // BUG FIX ("artist ka sahi se thumbnail nahi dikhta" — home
+            // page artist strip): `item` here is a SONG search result row
+            // (the seed queries above are song searches, not artist
+            // searches), so _ytmThumbnailUrl(item) was pulling that
+            // SONG's own album/video artwork — not the artist's actual
+            // profile photo — and forcing it into this artist's circular
+            // avatar slot. That's a different image entirely: often a
+            // rectangular thumbnail cropped into a circle, sometimes not
+            // even visually associated with the artist at all (a
+            // compilation cover, a feature-artist's own photo, etc.).
+            // This only ever affected the FALLBACK path (used when the
+            // Worker's dedicated /api/yt-music-home-artists endpoint —
+            // which does return real artist avatars — is down/degraded),
+            // so it's an occasional-but-real wrong-photo bug, not a
+            // constant one.
+            //
+            // Leaving imageUrl empty here instead of feeding it a wrong
+            // photo lets AurumArtwork's own clean placeholder (gold
+            // music-note glyph) render for these entries — genuinely
+            // better UX than a confidently-wrong image, and consistent
+            // with how every other artwork call site in this app already
+            // treats "no real image available".
             out.add(YtHomeArtist(
-                channelId: run.channelId, name: _cleanText(run.name), imageUrl: image));
+                channelId: run.channelId, name: _cleanText(run.name), imageUrl: ''));
             if (out.length >= limit) return out;
           }
         }
@@ -5944,37 +6145,29 @@ class ApiService {
         }
       } catch (_) {}
 
-      // ── 2. YouTube thumbnail fallback ──
-      try {
-        final ytQuery = Uri.encodeQueryComponent('${a.query} artist');
-        final ytUrl = Uri.parse(
-          'https://www.youtube.com/results?search_query=$ytQuery',
-        );
-        final ytRes = await _client
-            .get(ytUrl, headers: {'User-Agent': 'Mozilla/5.0'})
-            .timeout(const Duration(seconds: 6));
-        if (ytRes.statusCode == 200) {
-          // Extract first videoId from page source
-          final match = RegExp(r'"videoId":"([a-zA-Z0-9_-]{11})"')
-              .firstMatch(ytRes.body);
-          if (match != null) {
-            final videoId = match.group(1)!;
-            // BUGFIX: mqdefault (320x180) upgraded to hqdefault (480x360) —
-            // hqdefault is guaranteed available for every YouTube video,
-            // unlike maxresdefault which 404s for many older/lower-res
-            // uploads. Safe universal quality bump for this scrape-based
-            // path where we don't have a full ThumbnailSet to fall back through.
-            final thumbUrl =
-                'https://i.ytimg.com/vi/$videoId/hqdefault.jpg';
-            return ArtistSimple(
-              id: '',
-              name: a.displayName,
-              imageUrl: thumbUrl,
-            );
-          }
-        }
-      } catch (_) {}
-
+      // ── 2. NO reliable fallback beyond Saavn ──
+      // BUG FIX ("artist ka sahi se thumbnail nahi dikhta" — home page
+      // artist strip): this used to scrape YouTube's public search
+      // results page for the artist's name + "artist", grab the FIRST
+      // videoId it found via a raw regex on the page source, and use
+      // THAT VIDEO's thumbnail as the artist's photo. That's not the
+      // artist's photo at all — it's whatever video YouTube's search
+      // ranked first for that query, which could be a random fan cover,
+      // a news clip, a completely unrelated video sharing a similar
+      // title, or (for artists whose name is also a common word) content
+      // with no connection to the artist whatsoever. Wrong far more often
+      // than it happened to look right, and worse than showing nothing.
+      //
+      // No safe universal replacement exists inline here without an
+      // extra full artist-resolution call per pool artist (expensive
+      // across 20 concurrent lookups — this whole function is a single
+      // Future.wait batch). Returning null when Saavn's own artist search
+      // has no image lets this artist quietly drop out of THIS source's
+      // results — fetchHomeArtistsStreaming's merge with the YT Music
+      // artist shelf (which does carry a real avatar per artist) still
+      // fills the strip, and any home artist chip that ends up with no
+      // photo falls through to AurumArtwork's own clean placeholder
+      // rather than a confidently-wrong image.
       return null;
     }));
 
@@ -6691,12 +6884,18 @@ class ApiService {
           bannerUrl: browseArtist.bannerUrl,
         );
 
-    // STAGE 2: channel uploads walk top-up — same 18s outer timeout as
-    // fetchArtist, but reported the moment it resolves instead of being
-    // the thing the screen's very first paint waits on.
+    // STAGE 2: channel uploads walk top-up — outer timeout raised to 26s
+    // to actually fit the walk's own internal budget (20s wall-clock
+    // deadline inside _fetchArtistFromYoutube, plus headroom for the
+    // channel/about/first-page Future.wait ahead of it) — at 18s this
+    // outer wrap could fire BEFORE the walk's own 20s deadline, discarding
+    // everything the walk had already collected (onTimeout: () => null)
+    // even though the walk itself was about to return a real result. This
+    // reported the moment it resolves instead of being the thing the
+    // screen's very first paint waits on.
     try {
       final uploadsArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount)
-          .timeout(const Duration(seconds: 18), onTimeout: () => null);
+          .timeout(const Duration(seconds: 26), onTimeout: () => null);
       if (uploadsArtist != null) addAll(uploadsArtist.topSongs);
       onUpdate(snapshot());
     } catch (e) {
@@ -6705,11 +6904,18 @@ class ApiService {
     if (mergedSongs.length >= songCount) return;
 
     // STAGE 3: final-floor direct search top-up, same as fetchArtist.
+    // BUG FIX (wrong-artist leakage) — same artistChannelId-or-name guard
+    // as the fetchArtist() version of this exact stage above; see that
+    // doc comment for the full reasoning.
     if (browseArtist.name.isNotEmpty) {
       try {
         final extra = await _searchYtMusicDirect(browseArtist.name, songCount * 2)
             .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
-        final filtered = extra.where((s) => !RecommendationEngine.isNonMusicContent(s));
+        final filtered = extra.where((s) {
+          if (RecommendationEngine.isNonMusicContent(s)) return false;
+          if (s.artistChannelId != null) return s.artistChannelId == channelId;
+          return s.artist.trim().toLowerCase() == browseArtist.name.trim().toLowerCase();
+        });
         addAll(filtered);
         onUpdate(snapshot());
       } catch (e) {
@@ -6762,14 +6968,16 @@ class ApiService {
         if (browseArtist.topSongs.length >= songCount) return browseArtist;
 
         try {
-          // FIX: outer timeout raised 12s -> 18s to actually fit the
-          // uploads walk's own internal budget (up to ~8s for
-          // channel/about/first-page in parallel, then up to 14s more for
-          // the walk's own deadline below) — at 12s this was cutting the
-          // walk off mid-stride almost every time, wasting the very
+          // FIX: outer timeout raised to 26s to actually fit the uploads
+          // walk's own internal budget (up to ~8s for channel/about/
+          // first-page in parallel, then up to 20s more for the walk's
+          // own wall-clock deadline below) — a shorter outer wrap here
+          // cuts the walk off mid-stride and discards its progress
+          // (onTimeout: () => null) even when the walk itself was about
+          // to return a real, mostly-complete result, wasting the very
           // budget the walk's internal deadline was designed to use.
           final uploadsArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount)
-              .timeout(const Duration(seconds: 18), onTimeout: () => null);
+              .timeout(const Duration(seconds: 26), onTimeout: () => null);
 
           final seenIds = <String>{};
           final seenTitles = <String>{};
@@ -6823,11 +7031,29 @@ class ApiService {
           // back completely empty — and top up the same merged/deduped
           // list with it. Only fires when actually short, so it costs
           // nothing for the common case that already reaches songCount.
+          //
+          // BUG FIX (wrong-artist leakage): this used to keep any search
+          // result that merely passed isNonMusicContent, with no check
+          // that the result was actually BY this artist at all — a name
+          // search for a common/ambiguous artist name can return another
+          // artist entirely (a cover, a same-named channel, a compilation
+          // crediting multiple artists). _fetchArtistFromYoutube's own
+          // internal fallback (used when the uploads walk finds nothing)
+          // already guards this correctly via artistChannelId-or-name
+          // match — this call site is the one place that final-floor
+          // top-up existed WITHOUT that same guard. Matching by
+          // artistChannelId first (exact, when the search result carries
+          // one) and falling back to a case-insensitive name match (same
+          // two-tier check used elsewhere) closes that gap.
           if (mergedSongs.length < songCount && browseArtist.name.isNotEmpty) {
             try {
               final extra = await _searchYtMusicDirect(browseArtist.name, songCount * 2)
                   .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
-              for (final s in extra) {
+              final matched = extra.where((s) {
+                if (s.artistChannelId != null) return s.artistChannelId == channelId;
+                return s.artist.trim().toLowerCase() == browseArtist.name.trim().toLowerCase();
+              });
+              for (final s in matched) {
                 if (mergedSongs.length >= songCount) break;
                 if (!seenIds.add(s.id)) continue;
                 final tk = _normTitle(s.title);
@@ -7363,7 +7589,28 @@ class ApiService {
           // connection, but a hard, predictable cap on a slow one instead
           // of a multi-minute stall.
           const maxPages = 25;
-          final walkDeadline = DateTime.now().add(const Duration(seconds: 14));
+          // BUDGET FIX ("100 songs nahi mil rahe" — artist Top Songs
+          // shelf consistently landing short): 14s was tuned purely
+          // around "don't let the artist screen feel stuck" — but
+          // fetchArtistStreaming (this walk's only real caller) already
+          // paints Stage 1 (the browse shelf) immediately and reports
+          // this walk's result as a background top-up once it resolves,
+          // so the screen was never actually blocked waiting on this
+          // deadline in the first place. Meanwhile YT Music's inline Top
+          // Songs shelf typically only holds ~10-15 items on its own (no
+          // "load more" continuation exists for that specific shelf —
+          // see _fetchArtistFromYtMusicBrowse), which makes THIS walk the
+          // real source of most of an artist's 100-song target. At ~2-3s
+          // per page (nextPage's own 5s cap plus normal round-trip time),
+          // 14s only ever reached ~5-6 pages — nowhere near enough once
+          // isNonMusicContent + the 60-1200s duration filter above throw
+          // away a meaningful fraction of every page, which is exactly
+          // the "consistently short of 100" symptom being reported.
+          // Raised to 20s: still bounded (never the old "no limit, walk
+          // until YouTube itself runs out" unbounded loop), but gives
+          // roughly 8-9 pages of real room on a typical connection
+          // without the screen ever visibly waiting on it.
+          final walkDeadline = DateTime.now().add(const Duration(seconds: 20));
           var pageCount = 0;
           while (true) {
             pageCount++;

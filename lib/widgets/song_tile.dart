@@ -51,6 +51,24 @@ class _SongTileState extends State<SongTile> {
   // FIX: per-instance debounce (was static — one tile blocked ALL tiles)
   bool _isTapping = false;
 
+  // SCROLL LAG FIX (100-song mixes/playlists — "scroll pe lag ekdam jyada"):
+  // this tile used to fire its prewarm HTTP call straight from initState
+  // with NO way to cancel it and NO dispose() at all. That's harmless for
+  // a short, mostly-static list, but SliverList/ListView.builder
+  // continuously builds AND DESTROYS tiles as they pass through the
+  // viewport + cacheExtent during a fast scroll/fling — so on a 100-song
+  // mix, flinging through the list could build dozens of tiles in a
+  // couple hundred ms, each one firing its own fire-and-forget HTTP
+  // request+timer that then had no way to be cancelled even after the
+  // tile scrolled away and was disposed. That's a burst of live network
+  // calls competing for CPU/main-thread time on exactly the frames that
+  // need to stay smooth. Holding the timer here and cancelling it in
+  // dispose() means a tile that only flashed past during a fling never
+  // fires its request at all — only tiles the user actually stays on
+  // long enough to see (past the small stagger delay) still prewarm,
+  // which is all this optimization was ever meant to cover.
+  Timer? _prewarmTimer;
+
   @override
   void initState() {
     super.initState();
@@ -77,11 +95,21 @@ class _SongTileState extends State<SongTile> {
     // calls, no extra work happens on-device either way.
     if (widget.song.source == SongSource.youtube) {
       final delayMs = 120 + (widget.song.id.hashCode.abs() % 280);
-      Future.delayed(Duration(milliseconds: delayMs), () {
+      _prewarmTimer = Timer(Duration(milliseconds: delayMs), () {
         if (!mounted) return;
         ApiService.prewarmYtStream(widget.song);
       });
     }
+  }
+
+  @override
+  void dispose() {
+    // Cancel any pending prewarm call — if this tile scrolled out of view
+    // (and got destroyed by the list's builder) before its stagger delay
+    // fired, the request never goes out at all. See _prewarmTimer doc
+    // comment above.
+    _prewarmTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _handleTap(BuildContext context) async {
