@@ -813,6 +813,16 @@ class _HomeScreenState extends State<HomeScreen> {
     // write, which now goes through the ValueNotifier (see its doc comment)
     // instead of triggering a full HomeScreen rebuild.
     if (clearExisting) _onlineSections = [];
+    // SCOPE FIX (2026-08-31 build error: "Undefined name 'liveSections'" /
+    // 'flushTimer' inside the on TimeoutException / catch blocks below):
+    // these used to be declared with `final`/`Timer?` INSIDE the try block,
+    // which in Dart scopes them to that try block's own {} only — they were
+    // never visible from separate catch/on-clauses at all. Declaring them
+    // here, before try, gives them function-level scope so the fetch logic
+    // in try, the timeout handling in `on TimeoutException`, and the
+    // generic `catch (e)` below can all see and use the same buffer/timer.
+    final liveSections = clearExisting ? <SongSection>[] : List<SongSection>.from(_onlineSections);
+    Timer? flushTimer;
     try {
       final recentlyPlayedProvider = context.read<RecentlyPlayedProvider>();
       final topArtists  = recentlyPlayedProvider.topArtists(count: 3);
@@ -825,12 +835,8 @@ class _HomeScreenState extends State<HomeScreen> {
         seed: math.Random().nextInt(1000000),
       );
       final recentSongs = recentlyPlayedProvider.history.take(10).toList();
-      // liveSections is a local buffer only — see ONE-SHOT REVEAL below for
-      // why nothing here touches _onlineSections/the notifier until the
-      // whole batch is done. Seeded from whatever's already showing (the
-      // cache, on a cold start) purely so a mid-fetch failure has something
-      // to fall back to in the catch block below, not to display partially.
-      final liveSections = clearExisting ? <SongSection>[] : List<SongSection>.from(_onlineSections);
+      // liveSections (declared above, before try, for catch-block scope —
+      // see SCOPE FIX comment) is the local buffer sections stream into.
       // PROGRESSIVE REVEAL (2026-08-31, replaces the 2026-08-30 one-shot
       // reveal): the one-shot approach fixed the choppy "refresh 5-10 baar
       // mein hota hai" feel, but on a slow connection it meant NOTHING
@@ -844,7 +850,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // A ~400ms flush interval reads as smooth/continuous rather than
       // stepwise, while still showing real content within well under a
       // second on a fast connection instead of only at the very end.
-      Timer? flushTimer;
+      // (flushTimer declared above, before try — see SCOPE FIX comment.)
       void flushLiveSections() {
         if (!mounted) return;
         setState(() {
