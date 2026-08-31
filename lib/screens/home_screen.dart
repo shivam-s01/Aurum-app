@@ -664,6 +664,32 @@ class _HomeScreenState extends State<HomeScreen> {
       // they arrive, same as it already does for a from-scratch load.
       _onlineSections = cachedSections;
       if (_onlineLoading) setState(() => _onlineLoading = false);
+    } else if (_onlineSections.isEmpty) {
+      // GENUINELY NEW INSTALL FIX (2026-08-31, "1 second se bhi kam"):
+      // no on-disk cache exists at all — this is the first time this app
+      // has EVER run on this device, so HomeFeedCache is empty by
+      // definition and the screen would otherwise sit on the loader
+      // until fetchHomeStreaming's fast-first-section (~1-3s network
+      // round-trip) or the full pipeline resolves. assets/data/
+      // home_snapshot.json is a real (not fake/hardcoded) home feed
+      // captured once via lib/tools/export_home_snapshot.dart — reading
+      // it is a pure asset-bundle read, no network, effectively instant
+      // (well under 1s, typically a few ms). It's frozen/dated content
+      // (from whenever the snapshot was last generated), so exactly like
+      // the disk cache above, it's only ever the FIRST paint — the live
+      // fetch below still runs immediately after and progressively
+      // replaces every section with fresh, current data the moment it
+      // arrives. Stream URLs inside the snapshot are never used for
+      // playback (resolveStreamUrl() re-resolves fresh from the song's
+      // id/title/artist at play-time — see export_home_snapshot.dart's
+      // header comment), so there's no "dead link" risk even if this
+      // snapshot is months old by the time someone installs the app.
+      final bundled = await HomeFeedCache.loadBundledSnapshot();
+      if (!mounted) return;
+      if (_onlineSections.isEmpty && bundled.isNotEmpty) {
+        _onlineSections = bundled;
+        if (_onlineLoading) setState(() => _onlineLoading = false);
+      }
     }
     if (_homeArtists.isEmpty && cachedArtists.isNotEmpty) {
       setState(() {
@@ -805,42 +831,57 @@ class _HomeScreenState extends State<HomeScreen> {
       // cache, on a cold start) purely so a mid-fetch failure has something
       // to fall back to in the catch block below, not to display partially.
       final liveSections = clearExisting ? <SongSection>[] : List<SongSection>.from(_onlineSections);
-      // ONE-SHOT REVEAL (2026-08-30): previously each streamed section
-      // triggered its own list copy + ValueNotifier update (coalesced per
-      // network burst), so the home screen visibly filled in piece by
-      // piece — a section or two at a time — instead of appearing all at
-      // once. That's what read as "refresh 5-10 baar mein hota hai".
-      // Now every section from fetchHomeStreaming is buffered locally in
-      // liveSections and NOTHING is written to _onlineSections or the
-      // ValueNotifier until the entire stream finishes below. The loader
-      // (shimmer/spinner) stays on screen as one unbroken state for the
-      // whole fetch, then the complete home feed paints in a single frame.
-      // On a cold start with cached content already visible, we still seed
-      // liveSections from the old _onlineSections so a failure mid-fetch
-      // doesn't wipe the screen (see catch block) — the cache just isn't
-      // shown as "live" until the full fresh batch is ready to replace it
-      // wholesale.
+      // PROGRESSIVE REVEAL (2026-08-31, replaces the 2026-08-30 one-shot
+      // reveal): the one-shot approach fixed the choppy "refresh 5-10 baar
+      // mein hota hai" feel, but on a slow connection it meant NOTHING
+      // painted for up to 25s (see the timeout branch below) — the exact
+      // opposite of how Spotify/YT Music feel instant (cache-first paint +
+      // sections filling in live). This restores progressive updates but
+      // coalesces them on a fixed timer instead of firing one update per
+      // section — the earlier choppiness came from updating on every
+      // single section arrival (a burst of 3-5 in quick succession each
+      // triggering its own rebuild), not from progressive reveal itself.
+      // A ~400ms flush interval reads as smooth/continuous rather than
+      // stepwise, while still showing real content within well under a
+      // second on a fast connection instead of only at the very end.
+      Timer? flushTimer;
+      void flushLiveSections() {
+        if (!mounted) return;
+        setState(() {
+          _onlineSections = List<SongSection>.from(liveSections);
+          _onlineLoading = false;
+        });
+      }
+
       await ApiService.fetchHomeStreaming(
         topArtists: topArtists,
         topArtistsRotating: topArtistsRotating,
         recentlyPlayed: recentSongs,
+        // True cold start only: brand-new install, no cache, no sections
+        // from a previous load either — see fetchHomeStreaming's doc
+        // comment for why this path exists. A returning user (cache
+        // already painted something in liveSections) doesn't need it.
+        fastFirstSection: liveSections.isEmpty,
         onSection: (section) {
-          // Buffer only — no setState, no notifier update. See comment
-          // above: the whole point is that nothing paints until every
-          // section has arrived.
           final existingIdx = liveSections.indexWhere((s) => s.id == section.id);
           if (existingIdx != -1) {
             liveSections[existingIdx] = section;
           } else {
             liveSections.add(section);
           }
+          // Coalesce: (re)start a short timer rather than flushing
+          // immediately, so a burst of sections arriving within the same
+          // ~400ms window paints together as one smooth update instead of
+          // one rebuild per section.
+          flushTimer?.cancel();
+          flushTimer = Timer(const Duration(milliseconds: 400), flushLiveSections);
         },
       ).timeout(const Duration(seconds: 25));
+      flushTimer?.cancel();
       if (mounted) {
-        // Single flush: the entire batch is ready, so the whole home feed
-        // (every section) becomes visible together, in one rebuild, with
-        // the loader turning off in that same rebuild — never a frame
-        // where loading is false but sections are still trickling in.
+        // Final flush: guarantees the very last section(s) that arrived
+        // inside the last debounce window (and hadn't fired their timer
+        // yet) are shown, and turns the loader off for good.
         setState(() {
           _onlineSections = List<SongSection>.from(liveSections);
           _onlineLoading = false;
@@ -851,7 +892,31 @@ class _HomeScreenState extends State<HomeScreen> {
       // actually finished, so a partial/interrupted load never overwrites
       // a previously-complete good cache with a thinner one.
       unawaited(HomeFeedCache.saveSections(liveSections));
+    } on TimeoutException {
+      // SLOW-NETWORK FIX (2026-08-31): with progressive reveal above,
+      // sections that arrived before the 25s budget expired are already
+      // on screen (flushed live via the debounce timer) — this branch now
+      // mainly guards the case where flushTimer's last debounce window
+      // hadn't fired yet, and turns off the loader/clears any stale error
+      // so a timeout after partial success doesn't flash "Failed to load"
+      // over real content that's already visible.
+      flushTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _onlineLoading = false;
+          if (liveSections.isNotEmpty) {
+            _onlineSections = List<SongSection>.from(liveSections);
+            _onlineError = null;
+          } else {
+            _onlineError = AppLocalizations.of(context)!.homeFailedToLoad;
+          }
+        });
+      }
+      if (liveSections.isNotEmpty) {
+        unawaited(HomeFeedCache.saveSections(liveSections));
+      }
     } catch (e) {
+      flushTimer?.cancel();
       if (mounted) {
         // FIX (2026-07-25): this used to blame "check your internet
         // connection" for EVERY failure of the batch above — including a
@@ -981,19 +1046,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     valueListenable: _onlineSectionsNotifier,
                     builder: (context, sections, _) {
                       if (_onlineLoading) {
-                        // Plain Google-style Material circular spinner,
-                        // shown as ONE steady state for the whole fetch
-                        // (see _loadOnline's single-flush fix) instead of
-                        // the old section-shimmer that got replaced
-                        // piecemeal as each section streamed in.
+                        // GOOGLE-STYLE LOADER (2026-08-31): swapped the plain
+                        // CircularProgressIndicator for the real Material 3
+                        // Expressive shape-morphing loader (AurumMorphLoader,
+                        // already used elsewhere in the app — e.g.
+                        // pull-to-refresh) — same authentic spring-physics
+                        // morph as the current Google Play Store / Android 16
+                        // loading indicator, instead of a plain spinning
+                        // circle. Shown as ONE steady state for the whole
+                        // fetch (see _loadOnline's progressive-flush fix)
+                        // rather than the old section-shimmer.
                         return SliverToBoxAdapter(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 64),
                             child: Center(
-                              child: CircularProgressIndicator(
-                                color: AurumTheme.gold,
-                                strokeWidth: 3,
-                              ),
+                              child: AurumMorphLoader(size: 48),
                             ),
                           ),
                         );

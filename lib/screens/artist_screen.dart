@@ -44,23 +44,31 @@ class _ArtistScreenState extends State<ArtistScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadStreaming();
   }
 
-  Future<void> _load() async {
+  // NOTE: this screen used to call ApiService.fetchArtist() (a single
+  // await for the entire 3-stage top-up chain) via a _load() method. See
+  // _loadStreaming() below for the progressive replacement — fetchArtist
+  // itself is untouched and still used elsewhere in the app.
+
+  // PROGRESSIVE ARTIST LOAD (2026-08-31, "sirf 33 songs aa rahe hai, bahut
+  // late" fix): fetchArtist() above waits for the ENTIRE 3-stage top-up
+  // chain (browse shelf -> uploads walk, up to 25 sequential paginated
+  // calls -> final-floor search) before the screen sees anything. On a
+  // slow connection the walk's own 14s deadline cuts it short, so the
+  // single result the screen got was already a thin partial count with no
+  // sign more could still arrive. This calls the streaming variant
+  // instead: browse's shelf paints in a couple seconds (same as before,
+  // now just visible immediately instead of hidden behind the slower
+  // stages), then the uploads and final-floor top-ups each grow the list
+  // live as they land, exactly like the home feed's progressive reveal.
+  Future<void> _loadStreaming() async {
     setState(() {
       _loading = true;
       _failed = false;
     });
     try {
-      // ROUTING (YouTube-primary): widget.artistId, when passed, is already
-      // prefixed ('yt_<channelId>' or 'saavn_<id>') by whichever caller
-      // resolved it — song tiles pass 'yt_<artistChannelId>' directly when
-      // a song already carries a known channel id (zero extra lookup), the
-      // "Artists" search chip passes it from its own channel search. Only
-      // when no id was passed at all (artist reached by name only) do we
-      // fall back to resolveArtistId(), which tries a real YouTube channel
-      // first and Saavn only if no channel exists for that name.
       String? id = widget.artistId;
       id ??= await ApiService.resolveArtistId(widget.artistName);
       if (!mounted) return;
@@ -71,18 +79,22 @@ class _ArtistScreenState extends State<ArtistScreen> {
         });
         return;
       }
-      final artist = await ApiService.fetchArtist(id);
-      if (!mounted) return;
-      setState(() {
-        _artist = artist;
-        _loading = false;
-        _failed = artist == null;
+      var gotAny = false;
+      await ApiService.fetchArtistStreaming(id, onUpdate: (artist) {
+        if (!mounted) return;
+        gotAny = true;
+        setState(() {
+          _artist = artist;
+          _loading = false;
+        });
       });
+      if (!mounted) return;
+      if (!gotAny) setState(() { _loading = false; _failed = true; });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _failed = true;
+        _failed = _artist == null;
       });
     }
   }
@@ -138,7 +150,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
               TextButton(
                 onPressed: () {
                   AurumHaptics.light();
-                  _load();
+                  _loadStreaming();
                 },
                 child: Text(l10n.asRetry),
               ),

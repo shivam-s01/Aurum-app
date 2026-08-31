@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song.dart';
 import 'api_service.dart';
@@ -217,6 +218,37 @@ class HomeFeedCache {
     } catch (_) {
       // Corrupt/incompatible cache (e.g. a future model-shape change) —
       // treat exactly like an empty cache rather than crashing home screen.
+      return [];
+    }
+  }
+
+  // BUNDLED SNAPSHOT (2026-08-31, "1 second se bhi kam" fix): a real (not
+  // hardcoded) home feed captured once via lib/tools/export_home_snapshot.dart
+  // and shipped as an asset — assets/data/home_snapshot.json. Only ever
+  // used as a genuinely-new-install fallback (see home_screen.dart's
+  // _hydrateFromCache: this is only reached when the normal SharedPreferences
+  // cache above is empty, i.e. this app has never successfully loaded a
+  // home feed on this device before). Reading a bundled asset is a pure
+  // in-memory/rootBundle operation — no disk cache lookup, no network —
+  // so this resolves in low single-digit milliseconds. Same "frozen until
+  // live fetch replaces it" contract as the disk cache: this is only ever
+  // the very first paint, and _loadOnline()'s progressive fetch immediately
+  // starts replacing these sections with current live data. If the asset
+  // is missing (e.g. no snapshot has been generated/bundled yet) this
+  // simply returns an empty list, same as an unavailable disk cache — the
+  // screen falls through to the normal loading state exactly as before
+  // this fix existed.
+  static Future<List<SongSection>> loadBundledSnapshot() async {
+    try {
+      final raw = await rootBundle.loadString('assets/data/home_snapshot.json');
+      if (raw.isEmpty) return [];
+      if (raw.length < _computeThresholdBytes) {
+        return _decodeSections(raw);
+      }
+      return compute(_decodeSections, raw);
+    } catch (_) {
+      // Asset not bundled yet, or corrupt — fall through to normal
+      // loading state, exactly as if this feature didn't exist.
       return [];
     }
   }

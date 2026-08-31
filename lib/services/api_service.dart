@@ -1223,9 +1223,40 @@ class ApiService {
     List<String> topArtists = const [],
     List<String> topArtistsRotating = const [],
     List<Song> recentlyPlayed = const [],
+    bool fastFirstSection = false,
     required void Function(SongSection section) onSection,
   }) async {
     await RecommendationEngine.load();
+    // FAST FIRST PAINT (2026-08-31): for a genuinely cold start (new
+    // install, no cache at all — see fastFirstSection's call site in
+    // home_screen.dart), every normal home section goes through
+    // _saavnSectionV4: 5 query variants + a 6-page deep search, ~6
+    // network round-trips before that ONE section can even resolve. Fine
+    // once the feed is already showing something, but on a truly blank
+    // first launch it means the user stares at shimmer for however long
+    // that takes. Fired here, uncoupled from the wave-throttled queryList
+    // below (genuinely parallel, not first-in-queue-blocks-rest), this
+    // does the same job as _searchYt already does for live search —
+    // one direct call, worker + direct InnerTube racing each other,
+    // 1-3s typical — using "Trending Now" so a brand-new account still
+    // gets real, current, top-grade content, just delivered via the fast
+    // single-call path instead of the heavy per-section pipeline. The
+    // proper "Trending Now" section (deeper, better-filtered) still
+    // arrives normally afterward via queryList below and simply replaces
+    // this one in liveSections (same section id/label, home_screen.dart's
+    // onSection dedup-by-id already overwrites in place).
+    if (fastFirstSection) {
+      unawaited(_searchYt('trending songs 2026', limit: 30).then((songs) {
+        if (songs.isEmpty) return;
+        final quick = songs
+            .where((s) => RecommendationEngine.isPremiumQuality(s))
+            .take(20)
+            .toList();
+        if (quick.isNotEmpty) {
+          onSection(SongSection(title: 'Trending Now', songs: quick));
+        }
+      }).catchError((_) {}));
+    }
     final now = DateTime.now();
     final hourSeed = now.difference(DateTime(2026, 1, 1)).inHours;
     final refreshSalt = math.Random().nextInt(1000000);
@@ -6580,6 +6611,113 @@ class ApiService {
   /// YT channel exists for the name) routes to the original Saavn fetch
   /// below. A bare unprefixed id (old callers / deep links saved before this
   /// change) is treated as a legacy Saavn id for backward compatibility.
+  /// STREAMING VARIANT (2026-08-31, "artist mein sirf 33 songs aa rahe hai,
+  /// bahut late" fix): fetchArtist() above is correct but monolithic — the
+  /// screen awaits it once and only sees a result after the ENTIRE chain
+  /// (browse shelf -> uploads walk, up to 25 sequential paginated network
+  /// round-trips -> final-floor search) finishes or times out. On a slow
+  /// connection each of those round-trips is expensive, so the walk's own
+  /// 14s wall-clock deadline (see _fetchArtistFromYoutube) cuts it off
+  /// early with whatever it collected so far — which is exactly what a
+  /// thin count like 33 is: a real, honest partial result, not a bug in
+  /// the counting. The fix isn't to wait longer (that's the "stuck"
+  /// feeling this deadline exists to prevent) — it's to show the partial
+  /// result immediately and keep growing it live, same progressive
+  /// pattern already used for the home feed. This wraps fetchArtist's
+  /// exact same three-stage logic but reports back after EACH stage via
+  /// onUpdate instead of only once at the very end, so the screen paints
+  /// browse's shelf (usually available in 1-3s) right away, then the
+  /// uploads-walk top-up, then the final-floor top-up, each replacing the
+  /// list-so-far as they land — never blocking the first paint on the
+  /// slowest stage.
+  static Future<void> fetchArtistStreaming(
+    String artistId, {
+    int songCount = 100,
+    int albumCount = 100,
+    required void Function(Artist artist) onUpdate,
+  }) async {
+    if (artistId.isEmpty) return;
+    if (!artistId.startsWith('yt_')) {
+      // Saavn-id path has no multi-stage top-up chain to stream — single
+      // call, same as fetchArtist.
+      final artist = await fetchArtist(artistId, songCount: songCount, albumCount: albumCount);
+      if (artist != null) onUpdate(artist);
+      return;
+    }
+    final channelId = artistId.substring(3);
+    final browseArtist = await _fetchArtistFromYtMusicBrowse(channelId, songCount: songCount);
+    if (browseArtist == null) {
+      // No browse shelf at all — fall back to the uploads-only path, same
+      // as fetchArtist's own fallback branch. No earlier stage to stream,
+      // so this is a single update once it resolves.
+      final ytArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount);
+      if (ytArtist != null) onUpdate(ytArtist);
+      return;
+    }
+    // STAGE 1: browse's own Top Songs shelf, shown immediately — this is
+    // the fast path (one browse call) and is usually what a user sees
+    // within a couple seconds even on a slow connection.
+    onUpdate(browseArtist);
+    if (browseArtist.topSongs.length >= songCount) return;
+
+    final seenIds = <String>{};
+    final seenTitles = <String>{};
+    final seenRawTitles = <String>[];
+    final mergedSongs = <Song>[];
+    void addAll(Iterable<Song> songs) {
+      for (final s in songs) {
+        if (mergedSongs.length >= songCount) break;
+        if (!seenIds.add(s.id)) continue;
+        final tk = _normTitle(s.title);
+        if (!seenTitles.add(tk)) continue;
+        if (_isDupOfAny(s.title, seenRawTitles)) continue;
+        seenRawTitles.add(s.title);
+        mergedSongs.add(s);
+      }
+    }
+    addAll(browseArtist.topSongs);
+
+    Artist snapshot() => Artist(
+          id: browseArtist.id,
+          name: browseArtist.name,
+          imageUrl: browseArtist.imageUrl,
+          followerCount: browseArtist.followerCount,
+          isVerified: browseArtist.isVerified,
+          bio: browseArtist.bio,
+          topSongs: List<Song>.from(mergedSongs),
+          topAlbums: browseArtist.topAlbums,
+          singles: browseArtist.singles,
+          source: browseArtist.source,
+          bannerUrl: browseArtist.bannerUrl,
+        );
+
+    // STAGE 2: channel uploads walk top-up — same 18s outer timeout as
+    // fetchArtist, but reported the moment it resolves instead of being
+    // the thing the screen's very first paint waits on.
+    try {
+      final uploadsArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount)
+          .timeout(const Duration(seconds: 18), onTimeout: () => null);
+      if (uploadsArtist != null) addAll(uploadsArtist.topSongs);
+      onUpdate(snapshot());
+    } catch (e) {
+      _log('[fetchArtistStreaming] uploads top-up failed for "${browseArtist.name}": $e');
+    }
+    if (mergedSongs.length >= songCount) return;
+
+    // STAGE 3: final-floor direct search top-up, same as fetchArtist.
+    if (browseArtist.name.isNotEmpty) {
+      try {
+        final extra = await _searchYtMusicDirect(browseArtist.name, songCount * 2)
+            .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
+        final filtered = extra.where((s) => !RecommendationEngine.isNonMusicContent(s));
+        addAll(filtered);
+        onUpdate(snapshot());
+      } catch (e) {
+        _log('[fetchArtistStreaming] final 100-floor top-up failed for "${browseArtist.name}": $e');
+      }
+    }
+  }
+
   static Future<Artist?> fetchArtist(String artistId,
       {int songCount = 100, int albumCount = 100}) async {
     if (artistId.isEmpty) return null;
