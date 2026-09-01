@@ -90,6 +90,11 @@ class MainActivity : FlutterFragmentActivity() {
         // takes effect before the window is first created.
         setTheme(R.style.NormalTheme)
         super.onCreate(savedInstanceState)
+        // Diagnostic log — crashes, ANR, offload status, playback/network
+        // errors all funnel into one rotating file from here on. Init'd as
+        // early as possible so nothing in startup is missed. See
+        // AurumDiagnosticLog.kt for the full design reasoning.
+        AurumDiagnosticLog.init(this)
         // Apply the saved High Refresh Rate preference immediately at
         // launch — without this, the setting would only take effect after
         // the user re-opens Settings and toggles it again post-launch,
@@ -123,6 +128,25 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "getSdkInt" -> {
                         result.success(Build.VERSION.SDK_INT)
+                    }
+                    "getDiagnosticLogPath" -> {
+                        try {
+                            val file = AurumDiagnosticLog.getLogFile(this)
+                            result.success(if (file.exists()) file.absolutePath else null)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "getDiagnosticLogPath error", e)
+                            result.error("DIAG_LOG_ERROR", e.message, null)
+                        }
+                    }
+                    "clearDiagnosticLog" -> {
+                        AurumDiagnosticLog.clear(this)
+                        result.success(null)
+                    }
+                    "logNetworkError" -> {
+                        val ctx = call.argument<String>("context") ?: "unknown"
+                        val msg = call.argument<String>("message") ?: ""
+                        AurumDiagnosticLog.logNetworkError(ctx, msg)
+                        result.success(null)
                     }
                     "openAutostartSettings" -> {
                         result.success(openAutostartSettings())

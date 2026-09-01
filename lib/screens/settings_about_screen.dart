@@ -12,6 +12,7 @@ import '../widgets/aurum_settings_tile.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../services/diagnostic_log_service.dart'; // DIAGNOSTIC — temporary
 
 class SettingsAboutScreen extends StatefulWidget {
   const SettingsAboutScreen({super.key});
@@ -181,6 +182,47 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
     );
   }
 
+  // DIAGNOSTIC (temporary) — see diagnostic_log_service.dart /
+  // AurumDiagnosticLog.kt. Opens the OS share sheet with the raw log
+  // file (crashes, ANR, offload status, network errors) attached.
+  Future<void> _exportDiagnosticLog() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await DiagnosticLogService.shareLog();
+    if (!mounted) return;
+    if (!ok) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('No diagnostic log yet — nothing to share'),
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
+  Future<void> _confirmClearDiagnosticLog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AurumTheme.bgCardOf(ctx),
+        title: const Text('Clear diagnostic log?'),
+        content: const Text(
+          'This deletes everything logged so far (crashes, freezes, '
+          'network errors, playback diagnostics). This can\'t be undone.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Clear')),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await DiagnosticLogService.clearLog();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Diagnostic log cleared'),
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -277,6 +319,20 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
         title: l10n.abTelegram,
         subtitle: '@mr_s_s01',
         onTap: () { AurumHaptics.light(); _launch(AppConstants.telegram); },
+      ),
+
+      _sectionLabel('Diagnostics'),
+      AurumSettingsTile.action(context,
+        icon: Icons.bug_report_rounded,
+        title: 'Export Diagnostic Log',
+        subtitle: 'Share crash/freeze/network log for troubleshooting',
+        onTap: () { AurumHaptics.light(); _exportDiagnosticLog(); },
+      ),
+      AurumSettingsTile.action(context,
+        icon: Icons.delete_outline_rounded,
+        title: 'Clear Diagnostic Log',
+        subtitle: 'Delete everything logged so far',
+        onTap: () { AurumHaptics.light(); _confirmClearDiagnosticLog(); },
       ),
     ];
 

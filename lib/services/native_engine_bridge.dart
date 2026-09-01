@@ -110,6 +110,12 @@ class NativeAudioEngine {
       EventChannel('com.aurum.music/cast_state');
   static const EventChannel _castRoutesEvents =
       EventChannel('com.aurum.music/cast_routes');
+  // DIAGNOSTIC (heating investigation) — see onOffloadStatus in
+  // AurumAudioEngine.kt / OFFLOAD_EVENT_CHANNEL in
+  // AurumEngineChannelHandler.kt. Temporary; safe to remove once the
+  // heating root cause is confirmed.
+  static const EventChannel _offloadEvents =
+      EventChannel('com.aurum.music/offload_status');
 
   // I7: real per-request cancellation — each Kotlin resolve request gets a
   // CancelableCompleter-equivalent on the Dart side so a superseded resolve
@@ -184,6 +190,21 @@ class NativeAudioEngine {
       });
   CastState get castState => _lastCastState;
   NativeEngineState get value => _state.value;
+
+  // DIAGNOSTIC (heating investigation): same mount/unmount-scoped pattern
+  // as castStateStream above — only listens while the debug overlay is
+  // actually on screen. Emits (offloaded, encoding, sampleRate) once per
+  // track init.
+  late final Stream<OffloadStatus> offloadStatusStream = _offloadEvents
+      .receiveBroadcastStream()
+      .map((e) {
+        final m = Map<String, dynamic>.from(e as Map);
+        return OffloadStatus(
+          offloaded: m['offloaded'] as bool? ?? false,
+          encoding: m['encoding'] as int? ?? 0,
+          sampleRate: m['sampleRate'] as int? ?? 0,
+        );
+      });
 
   StreamSubscription? _stateSub;
   StreamSubscription? _errorSub;
@@ -905,5 +926,24 @@ class CastRoute {
     required this.name,
     this.description,
     this.selected = false,
+  });
+}
+
+/// DIAGNOSTIC (heating investigation) — see offloadStatusStream above.
+/// [offloaded] is the answer that actually matters: true means ExoPlayer
+/// got real hardware/DSP offload for this track (low-power decode, cool
+/// path); false means it silently fell back to normal main-CPU decode —
+/// no crash, no error, just runs hotter. [encoding]/[sampleRate] are the
+/// raw android.media.AudioFormat ENCODING_* constant and sample rate,
+/// shown as-is for anyone cross-checking against a specific track.
+class OffloadStatus {
+  final bool offloaded;
+  final int encoding;
+  final int sampleRate;
+
+  const OffloadStatus({
+    required this.offloaded,
+    required this.encoding,
+    required this.sampleRate,
   });
 }

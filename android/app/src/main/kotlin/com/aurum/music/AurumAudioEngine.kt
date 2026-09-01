@@ -441,6 +441,40 @@ class AurumAudioEngine(
             // side through the method channel, which is future work —
             // left out for now so playback stays correct.
         }
+        .also { p ->
+            // DIAGNOSTIC (heating investigation): AUDIO_OFFLOAD_MODE_ENABLED
+            // above is a REQUEST, not a guarantee — Media3 silently falls
+            // back to normal main-CPU decode whenever the device/track
+            // combo can't satisfy offload (codec not offload-capable on
+            // this device, or the gapless/speed-change requirements can't
+            // be met for this specific format). There's no error and no
+            // visible signal when that fallback happens — it just quietly
+            // decodes on the CPU instead of the low-power DSP, which reads
+            // exactly like "heats up on every song" with no other symptom.
+            // This listener logs which path is actually taken per track so
+            // that can be confirmed from logcat instead of guessed at.
+            p.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+                override fun onAudioTrackInitialized(
+                    eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                    audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig,
+                ) {
+                    Log.i(TAG, "[offload-check] AudioTrack init — offload=${audioTrackConfig.offload} " +
+                        "encoding=${audioTrackConfig.encoding} sampleRate=${audioTrackConfig.sampleRate} " +
+                        "channelConfig=${audioTrackConfig.channelConfig}")
+                    AurumDiagnosticLog.logOffload(
+                        audioTrackConfig.offload,
+                        audioTrackConfig.encoding,
+                        audioTrackConfig.sampleRate,
+                        currentSong()?.id,
+                    )
+                    onOffloadStatus?.invoke(
+                        audioTrackConfig.offload,
+                        audioTrackConfig.encoding,
+                        audioTrackConfig.sampleRate,
+                    )
+                }
+            })
+        }
 
     // ─────────────────────────────────────────────────────────────────
     // Custom audio focus handling (replaces ExoPlayer's built-in one —
@@ -685,6 +719,15 @@ class AurumAudioEngine(
 
     var onPlaybackError: ((String, Boolean) -> Unit)? = null // (message, silent)
     var onQueueChanged: (() -> Unit)? = null
+
+    // DIAGNOSTIC (heating investigation, see AnalyticsListener registered
+    // on the player builder below): fired every time ExoPlayer actually
+    // initializes an AudioTrack, reporting whether hardware offload (the
+    // low-power DSP decode path) was actually granted for that track, or
+    // whether it silently fell back to normal main-CPU decode.
+    // (offloaded, encoding, sampleRate) — forwarded to Dart so it's visible
+    // on-device without needing logcat/adb.
+    var onOffloadStatus: ((Boolean, Int, Int) -> Unit)? = null
 
     // Fired when the user taps the like/heart button on the lock screen or
     // notification (via MediaSession custom command — see
@@ -1146,6 +1189,7 @@ class AurumAudioEngine(
     }
 
     private fun emitError(message: String, silent: Boolean = false) {
+        AurumDiagnosticLog.logPlaybackError(message, currentSong()?.id)
         onPlaybackError?.invoke(message, silent)
     }
 

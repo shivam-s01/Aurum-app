@@ -75,6 +75,7 @@ import 'music_source.dart';
 import 'native_related_videos.dart' show NativeRelatedVideos, YtRelatedVideo;
 import 'lightweight_stream_cache.dart';
 import 'lyrics_cache.dart';
+import 'diagnostic_log_service.dart';
 
 // =============================================================================
 // Result of a REAL playback attempt, used by debugPlaybackPath's
@@ -5473,6 +5474,7 @@ class ApiService {
         return null;
       } catch (e) {
         _log('[worker] /api/yt-proxy failed for $videoId: $e');
+        DiagnosticLogService.logNetworkError('yt-proxy', 'videoId=$videoId error=$e');
         return null;
       }
     }
@@ -5509,6 +5511,7 @@ class ApiService {
         return url;
       } catch (e) {
         _log('[worker] /api/yt-stream failed for $videoId: $e');
+        DiagnosticLogService.logNetworkError('yt-stream', 'videoId=$videoId error=$e');
         return null;
       }
     }

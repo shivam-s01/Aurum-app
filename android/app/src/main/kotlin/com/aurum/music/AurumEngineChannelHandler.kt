@@ -25,6 +25,11 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
         private const val OUTPUT_DEVICES_EVENT_CHANNEL = "com.aurum.music/audio_output_devices"
         private const val CAST_STATE_EVENT_CHANNEL = "com.aurum.music/cast_state"
         private const val CAST_ROUTES_EVENT_CHANNEL = "com.aurum.music/cast_routes"
+        // DIAGNOSTIC (heating investigation) — see onOffloadStatus in
+        // AurumAudioEngine.kt. Temporary channel so offload status is
+        // visible on-device without adb; safe to remove once the heating
+        // root cause is confirmed and a permanent fix lands.
+        private const val OFFLOAD_EVENT_CHANNEL = "com.aurum.music/offload_status"
     }
 
     private val resolver = HybridStreamResolver(messenger)
@@ -108,6 +113,24 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
         EventChannel(messenger, ERROR_CHANNEL).setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(args: Any?, sink: EventChannel.EventSink) { errorSink = sink }
             override fun onCancel(args: Any?) { errorSink = null }
+        })
+
+        // DIAGNOSTIC (heating investigation) — see OFFLOAD_EVENT_CHANNEL
+        // above. Fires once per track init with whether hardware audio
+        // offload was actually granted (vs. silent main-CPU decode
+        // fallback), so it can be checked from an in-app overlay with no
+        // PC/adb needed.
+        EventChannel(messenger, OFFLOAD_EVENT_CHANNEL).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(args: Any?, sink: EventChannel.EventSink) {
+                engine.onOffloadStatus = { offloaded, encoding, sampleRate ->
+                    sink.success(mapOf(
+                        "offloaded" to offloaded,
+                        "encoding" to encoding,
+                        "sampleRate" to sampleRate,
+                    ))
+                }
+            }
+            override fun onCancel(args: Any?) { engine.onOffloadStatus = null }
         })
 
         // Live audio-output-device-list updates (Bluetooth connect/
