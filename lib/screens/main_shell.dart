@@ -758,6 +758,18 @@ class AurumBottomNavBar extends StatelessWidget {
           child: ValueListenableBuilder<double>(
             valueListenable: AudioPrefs.navBarBlurSigmaNotifier,
             builder: (context, blurSigma, navBarContent) {
+              // PERF/BATTERY FIX (zero-tolerance heating/battery request):
+              // same fix as mini_player.dart's effectiveBlurSigma — this
+              // nav bar sits underneath every pushed screen too (MainShell
+              // never leaves the tree), and opaque:false route transitions
+              // keep it actively compositing/blurring behind whatever is
+              // pushed on top. Gate on ModalRoute.of(context)?.isCurrent
+              // exactly the same way: not the top route → treat as
+              // sigma 0 (solid, no BackdropFilter), so the blur's
+              // continuous GPU/heat cost only ever runs while the nav bar
+              // itself is actually the thing on screen.
+              final isTopRoute = ModalRoute.of(context)?.isCurrent ?? true;
+              final effectiveBlurSigma = isTopRoute ? blurSigma : 0.0;
               // blurSigma <= 0 means the user explicitly turned blur OFF
               // (Settings → Appearance → "Nav Bar Blur" dragged to 0).
               // That should read as a fully solid, opaque bar — not a
@@ -821,7 +833,7 @@ class AurumBottomNavBar extends StatelessWidget {
               final bar = Container(
                 height: _barHeight,
                 decoration: BoxDecoration(
-                  color: blurSigma <= 0
+                  color: effectiveBlurSigma <= 0
                       ? AurumTheme.bgCardOf(context)
                       : (isDark ? Colors.black : Colors.white)
                           .withValues(alpha: isDark ? 0.45 : 0.65),
@@ -834,9 +846,10 @@ class AurumBottomNavBar extends StatelessWidget {
                 ),
                 child: navBarContent,
               );
-              if (blurSigma <= 0) return bar;
+              if (effectiveBlurSigma <= 0) return bar;
               return BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+                filter: ImageFilter.blur(
+                    sigmaX: effectiveBlurSigma, sigmaY: effectiveBlurSigma),
                 child: bar,
               );
             },

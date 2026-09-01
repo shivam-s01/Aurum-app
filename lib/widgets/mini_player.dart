@@ -453,6 +453,43 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                       return ValueListenableBuilder<double>(
                           valueListenable: AudioPrefs.miniPlayerBlurSigmaNotifier,
                           builder: (context, blurSigma, _) {
+                            // PERF FIX ("Settings ki har screen pe scroll
+                            // stuck/frozen ho jata hai"): the mini player is
+                            // a persistent overlay living underneath every
+                            // pushed screen (MainShell). Its BackdropFilter
+                            // blur used to run unconditionally on every
+                            // frame it was visible — including while fully
+                            // hidden behind an opaque:false route transition
+                            // (AurumDepthRoute etc. deliberately keep this
+                            // route compositing underneath the incoming
+                            // screen instead of pausing it — see that
+                            // opaque:false comment). That meant every
+                            // Settings screen paint was ALSO paying for a
+                            // full continuous GPU blur pass happening right
+                            // behind it, every frame, for as long as
+                            // Settings stayed open — heavy enough on
+                            // mid/low-end GPUs to read as a frozen,
+                            // unresponsive screen (dropped frames, not an
+                            // actual hang).
+                            //
+                            // Fix: treat blur as off whenever this route is
+                            // not the top of the Navigator stack, using the
+                            // same `ModalRoute.of(context)?.isCurrent`
+                            // signal already used for `isTopRoute` in
+                            // aurum_transitions.dart. This is a per-frame
+                            // read of real Navigator state, not a manually
+                            // tracked flag — unlike the old
+                            // didPushNext/didPopNext `_routeAnimGen`
+                            // bookkeeping this file's own history comment
+                            // above warns against, there is no bookkeeping
+                            // to desync or get permanently stuck: the
+                            // instant this route is current again (Settings
+                            // popped), isCurrent flips back to true on the
+                            // very next frame and blur resumes automatically.
+                            final isTopRoute =
+                                ModalRoute.of(context)?.isCurrent ?? true;
+                            final effectiveBlurSigma =
+                                isTopRoute ? blurSigma : 0.0;
                             // blurSigma <= 0 means the user explicitly
                             // turned blur OFF (Settings → Appearance →
                             // "Mini Player Blur" dragged to 0). That should
@@ -462,8 +499,11 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                             // Only the blurred variant keeps the
                             // semi-transparent tint that lets
                             // BackdropFilter's blur actually be visible.
+                            // Not-top-route is treated the same way: solid,
+                            // not glass-without-blur, so nothing looks
+                            // broken while a screen sits on top of it.
                             final solidBg = _tintColor ?? fallback;
-                            final barBg = (docked || blurSigma <= 0)
+                            final barBg = (docked || effectiveBlurSigma <= 0)
                                 ? solidBg
                                 : baseTint.withValues(
                                     alpha: isDark ? 0.42 : 0.62,
@@ -496,7 +536,7 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                               // readable text against whatever color this
                               // specific song's artwork actually painted.
                               child: _miniPlayerContent(context, player,
-                                  onTint: ((docked || blurSigma <= 0)
+                                  onTint: ((docked || effectiveBlurSigma <= 0)
                                               ? solidBg
                                               : baseTint)
                                           .computeLuminance() >
@@ -509,18 +549,23 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                             // overlay on every screen, so its BackdropFilter
                             // blur runs on every frame it's visible — real,
                             // continuous GPU cost. sigma == 0 (user set via
-                            // Settings → Appearance → "Mini Player Blur")
-                            // skips BackdropFilter entirely for the cheapest
-                            // possible steady-state render. Docked mode
-                            // ALWAYS skips it too, regardless of the blur
-                            // slider — Docked is meant to be the flat,
-                            // lightweight classic look, and the whole point
-                            // (both visually and for perf) is that it never
-                            // pays for glass/blur at all.
-                            if (docked || blurSigma <= 0) return content;
+                            // Settings → Appearance → "Mini Player Blur"),
+                            // Docked mode, or this route not being the top
+                            // of the stack (see effectiveBlurSigma above)
+                            // all skip BackdropFilter entirely for the
+                            // cheapest possible render. Docked mode ALWAYS
+                            // skips it regardless of the blur slider —
+                            // Docked is meant to be the flat, lightweight
+                            // classic look, and the whole point (both
+                            // visually and for perf) is that it never pays
+                            // for glass/blur at all.
+                            if (docked || effectiveBlurSigma <= 0) {
+                              return content;
+                            }
                             return BackdropFilter(
                               filter: ImageFilter.blur(
-                                  sigmaX: blurSigma, sigmaY: blurSigma),
+                                  sigmaX: effectiveBlurSigma,
+                                  sigmaY: effectiveBlurSigma),
                               child: content,
                             );
                           },

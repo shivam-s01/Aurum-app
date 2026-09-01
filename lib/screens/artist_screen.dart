@@ -291,37 +291,34 @@ class _ArtistScreenState extends State<ArtistScreen> {
                 // (mix_screen.dart's _GlassPill), so both screens share
                 // one consistent, cheap "glass over artwork" chrome
                 // instead of a flat AppBar.
-                SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                    child: Align(
-                      alignment: Alignment.topLeft,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                          child: Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.22),
-                              shape: BoxShape.circle,
-                            ),
-                            child: IconButton(
-                              icon: const Icon(Icons.arrow_back_rounded,
-                                  color: Colors.white, size: 21),
-                              splashRadius: 20,
-                              onPressed: () {
-                                AurumHaptics.selection();
-                                Navigator.pop(context);
-                              },
-                            ),
+                // PERF/BATTERY FIX (zero-tolerance heating/battery
+                // request): this screen is pushed via AurumDepthRoute
+                // (opaque:false), same as Settings/mini-player/nav-bar —
+                // meaning if something is pushed ON TOP of Artist (Full
+                // Player, Settings, etc.), this route keeps compositing
+                // underneath for the whole transition, and this pill's
+                // BackdropFilter blur kept running every frame the whole
+                // time even while fully hidden. Same fix as
+                // mini_player.dart/main_shell.dart: only actually blur
+                // while this route is the top of the Navigator stack.
+                Builder(
+                  builder: (context) {
+                    final isTopRoute =
+                        ModalRoute.of(context)?.isCurrent ?? true;
+                    return SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                        child: Align(
+                          alignment: Alignment.topLeft,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(22),
+                            child: _backButtonPillContent(context, isTopRoute),
                           ),
                         ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -542,6 +539,38 @@ class _ArtistScreenState extends State<ArtistScreen> {
           },
         ),
       ),
+    );
+  }
+
+  // PERF/BATTERY: extracted so the BackdropFilter can be skipped
+  // entirely (not just its output discarded) when this route isn't the
+  // top of the Navigator stack — see the isTopRoute Builder above this
+  // widget's call site. isTopRoute == false renders a flat translucent
+  // circle with identical appearance to the blurred version's base tint,
+  // so nothing visually changes; only the continuous per-frame GPU blur
+  // sampling stops.
+  Widget _backButtonPillContent(BuildContext context, bool isTopRoute) {
+    final pill = Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.22),
+        shape: BoxShape.circle,
+      ),
+      child: IconButton(
+        icon: const Icon(Icons.arrow_back_rounded,
+            color: Colors.white, size: 21),
+        splashRadius: 20,
+        onPressed: () {
+          AurumHaptics.selection();
+          Navigator.pop(context);
+        },
+      ),
+    );
+    if (!isTopRoute) return pill;
+    return BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+      child: pill,
     );
   }
 }
