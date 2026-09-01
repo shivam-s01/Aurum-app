@@ -5317,13 +5317,20 @@ class ApiService {
   //   _workerYtStream races the Worker's two independent routes
   //   (/api/yt-proxy and /api/yt-stream) against each other in parallel
   //   via _blastRace — first one to return a verified-playable URL wins,
-  //   6s timeout each. _ytStreamById is a thin wrapper with no further
+  //   16s timeout each (see TIMEOUT-MISMATCH FIX comment on
+  //   _workerYtStream — matched to the Worker's own 15s resolve budget
+  //   reported at /health; the previous 6s value here caused every
+  //   resolve to lose its race against a Worker that was often still
+  //   correctly working). _ytStreamById is a thin wrapper with no further
   //   retry layer (a second attempt at the same endpoint the race just
   //   tried adds latency, not resilience).
   //
   // Result: a healthy Worker resolves in well under 2s (whichever route
-  // is faster); a genuinely down Worker is now confirmed dead in ~6s
-  // instead of the old 58s worst-case sequential chain.
+  // is faster, and typically already warm from prewarmYtStream — see that
+  // function and its callers in song_tile.dart/player_provider.dart for
+  // the "resolve before the user even taps" path this depends on); a
+  // genuinely down Worker is now confirmed dead in ~16s instead of
+  // false-failing at 6s while still legitimately working.
   // ===========================================================================
   // SPEED FIX (2026-08-15 — same pass as _workerYtStream above): this
   // wrapper used to bolt ANOTHER full sequential retry layer (a third,
@@ -5446,13 +5453,32 @@ class ApiService {
   //
   // Timeouts also tightened: 16s/12s was generous enough to make a user
   // stare at a spinner far longer than a "genuinely dead Worker" ever
-  // needs to be confirmed. 6s per route is still comfortable headroom —
-  // /api/yt-proxy only needs to open a connection and return the first
-  // ranged chunk of an already-resolved stream, which is fast even on a
-  // cold edge — while capping the worst case per attempt at ~6s instead
-  // of 16s.
+  // needs to be confirmed. 6s per route was tried here, but turned out to
+  // be SHORTER than the Worker's own documented worst case (15s budget —
+  // see /health's TOTAL_RESOLVE_BUDGET_MS) causing every resolve to lose
+  // its race against a Worker that was often still legitimately working.
+  // See the TIMEOUT-MISMATCH FIX comment on _workerYtStream below for the
+  // corrected value and the diagnostic-log evidence that caught this.
+  // TIMEOUT-MISMATCH FIX (2026-09-01 — diagnostic log showed 100% of
+  // YouTube songs timing out, both /api/yt-proxy and /api/yt-stream, on
+  // every single attempt, with heavy retry-storm heating + 3 ANRs in one
+  // session): the client's routeTimeout below was 6s, but the Worker's own
+  // /health endpoint reports TOTAL_RESOLVE_BUDGET_MS = 15000 — the Worker
+  // legitimately budgets up to 15s to walk its YouTube-client fallback
+  // chain (WEB_EMBEDDED_PLAYER -> ANDROID_VR w/ 2 retries -> IOS ->
+  // TVHTML5). A 6s client timeout gives up before a Worker that's still
+  // correctly working on a resolve — often on the very first client in the
+  // chain — ever gets a chance to answer, so it isn't "the Worker is
+  // down", it's a race the client was guaranteed to lose. This is why
+  // retries kept hitting the same video IDs repeatedly and never
+  // recovered: every retry restarted its own losing 6s race.
+  //
+  // Fix: give the client enough headroom to actually see the Worker's
+  // answer — 16s (Worker's 15s budget + 1s margin for network/serialization
+  // overhead on top of the Worker's own processing time) — instead of
+  // cutting it off before the Worker's own documented worst case.
   static Future<String?> _workerYtStream(String videoId) async {
-    const routeTimeout = Duration(seconds: 6);
+    const routeTimeout = Duration(seconds: 16);
 
     Future<String?> tryProxy() async {
       try {

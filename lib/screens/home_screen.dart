@@ -2237,14 +2237,58 @@ class _SongSectionRowState extends State<_SongSectionRow> {
 // one oversized stretched poster per mix.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _SongGridCard extends StatelessWidget {
+class _SongGridCard extends StatefulWidget {
   final Song song;
   final List<Song> queue;
   final int index;
   const _SongGridCard({required this.song, required this.queue, required this.index});
 
   @override
+  State<_SongGridCard> createState() => _SongGridCardState();
+}
+
+class _SongGridCardState extends State<_SongGridCard> {
+  // MAKKHAN FIX (Home screen horizontal shelves — "Spotify/YT Music jaisa
+  // instant tap chahiye"): song_tile.dart already prewarms every tile the
+  // moment it's built (near-visible, per SliverList/ListView semantics),
+  // which is why Search/Library/Liked feel instant. Home's horizontal
+  // shelves render through this card instead of SongTile, so those songs
+  // never got that same head start — same class of gap _artist_screen's
+  // 100-song list had before its own fix, just a different screen.
+  //
+  // Same staggered pattern as SongTile: only fires for cards that actually
+  // get built (near-visible under the shelf's own cacheExtent), delay is
+  // per-song (hash-based) so a fast horizontal fling doesn't fire a burst
+  // of simultaneous Worker calls in the same frame, and the timer is
+  // cancelled on dispose so a card that only flashed past never fires at
+  // all. prewarmYtStream() itself already dedupes per session and skips
+  // anything already cached, so this is safe to call even if the queue's
+  // own _prewarmUpcoming() window also reaches the same song.
+  Timer? _prewarmTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.song.source == SongSource.youtube) {
+      final delayMs = 120 + (widget.song.id.hashCode.abs() % 280);
+      _prewarmTimer = Timer(Duration(milliseconds: delayMs), () {
+        if (!mounted) return;
+        ApiService.prewarmYtStream(widget.song);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _prewarmTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final song = widget.song;
+    final queue = widget.queue;
+    final index = widget.index;
     // PERF: isolates each horizontally-scrolling card into its own
     // compositor layer — same reasoning as SongTile/the followed-albums
     // grid. These rows can hold up to 12 cards each and there are several
