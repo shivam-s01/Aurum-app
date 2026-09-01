@@ -385,10 +385,36 @@ class DownloadProvider extends ChangeNotifier {
         // (same one playback uses) before falling back to the old
         // Dart-only chain, so downloads get the same reliability
         // improvement playback already has.
+        // RETRY FIX ("Couldn't download — stream unavailable" even while the
+        // exact same song plays fine): resolveForDownload used to be a
+        // single one-shot native attempt. Playback looks more reliable not
+        // because its resolver is different, but because prewarm/replay
+        // gives it multiple implicit chances over time; a download only
+        // ever got one. YoutubeInnertube can fail on a transient blip
+        // (cipher parse hiccup, one bad connection) and succeed moments
+        // later on literally the same video — so retry natively a couple
+        // times with a short gap before ever falling through to the Worker
+        // (which has its own, separate reliability issues). Falling to the
+        // Worker only after native has genuinely had a fair shot avoids
+        // wasting a download on a Worker outage when native would have
+        // worked on attempt 2.
         if (song.source == SongSource.youtube) {
-          url = await _engine.resolveForDownload(song);
+          for (var attempt = 0; attempt < 3 && url == null; attempt++) {
+            if (attempt > 0) {
+              await Future.delayed(Duration(milliseconds: 800 * attempt));
+            }
+            url = await _engine.resolveForDownload(song);
+          }
         }
-        url ??= await ApiService.resolveDownloadUrl(song, qualityOrder: qualityOrder);
+        // Worker fallback also gets a couple of tries — same rationale,
+        // since a single Worker call losing its internal race isn't
+        // necessarily the Worker actually being down.
+        for (var attempt = 0; attempt < 2 && (url == null || url.isEmpty); attempt++) {
+          if (attempt > 0) {
+            await Future.delayed(const Duration(milliseconds: 1000));
+          }
+          url = await ApiService.resolveDownloadUrl(song, qualityOrder: qualityOrder);
+        }
       } catch (_) {
         url = null;
       }
