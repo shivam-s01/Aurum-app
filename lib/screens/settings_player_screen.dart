@@ -14,6 +14,7 @@ import '../widgets/battery_saver_mode_tile.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../widgets/aurum_settings_tile.dart' show AurumStaggerItem;
 
 // =============================================================================
 // Sleep Timer Service — singleton so it survives screen navigation
@@ -463,6 +464,10 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
         children: [
 
           // ── PLAYBACK ──────────────────────────────────────────────────────
+          // Same AurumStaggerItem entrance used by every other Settings
+          // screen — one section per stagger slot keeps the cascade
+          // timing identical across all of Settings.
+          AurumStaggerItem(index: 0, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(l10n.spPlayback),
           _streamQualityTile(context),
           _switchTile(context,
@@ -557,11 +562,15 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               }),
 
           // ── SLEEP TIMER ───────────────────────────────────────────────────
+          ])),
+          AurumStaggerItem(index: 1, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const SizedBox(height: 16),
           _sectionLabel(l10n.spSleepTimer),
           _buildSleepTimerTile(context, timer),
+          ])),
 
           // ── EQUALIZER ─────────────────────────────────────────────────────
+          AurumStaggerItem(index: 2, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const SizedBox(height: 16),
           _sectionLabel(l10n.spEqualizer),
           _navTile(context,
@@ -570,8 +579,10 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
               subtitle: l10n.spEqualizerSubtitle,
               onTap: () => Navigator.of(context)
                   .push(_slideRoute(EqualizerScreen(audioEngine: widget.audioEngine)))),
+          ])),
 
           // ── BEHAVIOR ──────────────────────────────────────────────────────
+          AurumStaggerItem(index: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const SizedBox(height: 16),
           _sectionLabel(l10n.spBehavior),
           _switchTile(context,
@@ -656,6 +667,7 @@ class _SettingsPlayerScreenState extends State<SettingsPlayerScreen> {
 
           // History Duration
           _buildHistorySlider(context),
+          ])),
         ],
       ),
     );

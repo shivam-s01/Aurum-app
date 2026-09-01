@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_transitions.dart';
@@ -13,7 +14,18 @@ import 'settings_privacy_screen.dart';
 import 'settings_language_screen.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../widgets/aurum_settings_tile.dart' show AurumStaggerItem;
 
+// Settings — Spotify / Apple Music style.
+// Rebuilt from scratch. The old version leaned on per-row rainbow icon
+// tints, gradient chips, and a shader-masked title — the kind of thing
+// that reads as an amateur "cool effects" pass rather than a real
+// production settings screen. Neither Spotify nor Apple Music color-code
+// their settings icons or decorate their title; they rely on generous
+// whitespace, a single restrained icon treatment, and plain typography
+// to feel premium. This version does the same: one neutral icon style
+// throughout, a plain pinned title, flat grouped rows with hairline
+// dividers, no gradients, no glow, no per-item novelty.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -29,161 +41,117 @@ class SettingsScreen extends StatelessWidget {
         physics: const BouncingScrollPhysics(),
         slivers: [
           SliverAppBar(
-            expandedHeight: 100,
-            floating: true,
-            snap: true,
+            pinned: true,
+            elevation: 0,
+            scrolledUnderElevation: 0,
             backgroundColor: AurumTheme.bgOf(context),
+            surfaceTintColor: Colors.transparent,
             automaticallyImplyLeading: false,
-            flexibleSpace: FlexibleSpaceBar(
-              titlePadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              title: ShaderMask(
-                shaderCallback: (b) =>
-                    AurumTheme.goldGradient.createShader(b),
-                child: Text(
-                  l10n.settingsTitle,
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: -0.5,
-                  ),
-                ),
+            titleSpacing: 20,
+            toolbarHeight: 56,
+            // Plain, pinned, sentence-weight title — no shader, no gradient,
+            // no oversized display font. Pinned to a fixed font (not the
+            // user's app-wide font choice) so it stays a consistent brand
+            // moment even when the reading font elsewhere is Mono/Serif.
+            title: Text(
+              l10n.settingsTitle,
+              style: GoogleFonts.inter(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: AurumTheme.textPrimaryOf(context),
+                letterSpacing: -0.2,
               ),
             ),
           ),
-          // ── Grouped, production-style layout ──────────────────────────
-          // Instead of 7 identical floating cards (flat, no hierarchy, felt
-          // like one long undifferentiated list), items are now clustered
-          // into labeled sections — GENERAL / PLAYBACK / SYSTEM — each
-          // rendered as ONE rounded card containing its rows with thin
-          // hairline dividers between them (Spotify/Apple Music/YT Music
-          // settings all use exactly this pattern). A small caps section
-          // header sits above each card. Per-category icon tint (instead of
-          // every icon being the same gold) gives instant visual scannability
-          // — the eye can jump straight to "Storage" or "Privacy" by color
-          // before even reading the label.
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                _StaggerIn(
-                  index: 0,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _SectionHeader(l10n.settingsSectionGeneral),
-                      _SettingsGroup(
-                        children: [
-                          _SettingsRow(
-                            icon: Icons.palette_rounded,
-                            iconColor: const Color(0xFFE07BB0),
-                            title: l10n.settingsAppearance,
-                            subtitle: l10n.settingsAppearanceSubtitle,
-                            onTap: () {
-                              AurumHaptics.light();
-                              AurumDepthRoute.to(context, const SettingsAppearanceScreen());
-                            },
-                          ),
-                          _SettingsRow(
-                            icon: Icons.language_rounded,
-                            iconColor: const Color(0xFF5BA8E8),
-                            title: l10n.settingsLanguage,
-                            subtitle: l10n.settingsLanguageSubtitle,
-                            onTap: () {
-                              AurumHaptics.light();
-                              AurumDepthRoute.to(context, const SettingsLanguageScreen());
-                            },
-                          ),
-                          _SettingsRow(
-                            icon: Icons.notifications_rounded,
-                            iconColor: const Color(0xFFE8A64F),
-                            title: l10n.settingsNotifications,
-                            subtitle: l10n.settingsNotificationsSubtitle,
-                            onTap: () {
-                              AurumHaptics.light();
-                              AurumDepthRoute.to(context, const SettingsNotificationsScreen());
-                            },
-                            isLast: true,
-                          ),
-                        ],
-                      ),
-                    ],
+                _SectionHeader(l10n.settingsSectionGeneral),
+                // Same AurumStaggerItem entrance used by every other
+                // Settings screen (Privacy/Storage/Language/Notifications/
+                // About/Player) — one group per stagger slot keeps the
+                // cascade timing identical across the whole Settings
+                // section instead of this screen animating differently.
+                AurumStaggerItem(index: 0, child: _SettingsGroup(children: [
+                  _SettingsRow(
+                    icon: Icons.tune_rounded,
+                    title: l10n.settingsAppearance,
+                    subtitle: l10n.settingsAppearanceSubtitle,
+                    onTap: () {
+                      AurumHaptics.light();
+                      AurumDepthRoute.to(context, const SettingsAppearanceScreen());
+                    },
                   ),
-                ),
-                const SizedBox(height: 24),
-                _StaggerIn(
-                  index: 1,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _SectionHeader(l10n.settingsSectionPlayback),
-                      _SettingsGroup(
-                        children: [
-                          _SettingsRow(
-                            icon: Icons.equalizer_rounded,
-                            iconColor: AurumTheme.gold,
-                            title: l10n.settingsPlayerAudio,
-                            subtitle: l10n.settingsPlayerAudioSubtitle,
-                            onTap: () {
-                              AurumHaptics.light();
-                              // Matches the Liked/Playlist fade + slide-up
-                              // push (see aurum_transitions.dart's
-                              // AurumDepthRoute) — Settings' whole
-                              // sub-navigation now shares it.
-                              AurumDepthRoute.to(context, SettingsPlayerScreen(audioEngine: engine));
-                            },
-                          ),
-                          _SettingsRow(
-                            icon: Icons.storage_rounded,
-                            iconColor: const Color(0xFF6FC08A),
-                            title: l10n.settingsStorage,
-                            subtitle: l10n.settingsStorageSubtitle,
-                            onTap: () {
-                              AurumHaptics.light();
-                              AurumDepthRoute.to(context, const SettingsStorageScreen());
-                            },
-                            isLast: true,
-                          ),
-                        ],
-                      ),
-                    ],
+                  _SettingsRow(
+                    icon: Icons.language_rounded,
+                    title: l10n.settingsLanguage,
+                    subtitle: l10n.settingsLanguageSubtitle,
+                    onTap: () {
+                      AurumHaptics.light();
+                      AurumDepthRoute.to(context, const SettingsLanguageScreen());
+                    },
                   ),
-                ),
-                const SizedBox(height: 24),
-                _StaggerIn(
-                  index: 2,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _SectionHeader(l10n.settingsSectionSystem),
-                      _SettingsGroup(
-                        children: [
-                          _SettingsRow(
-                            icon: Icons.shield_rounded,
-                            iconColor: const Color(0xFF8A8AE8),
-                            title: l10n.settingsPrivacy,
-                            subtitle: l10n.settingsPrivacySubtitle,
-                            onTap: () {
-                              AurumHaptics.light();
-                              AurumDepthRoute.to(context, const SettingsPrivacyScreen());
-                            },
-                          ),
-                          _SettingsRow(
-                            icon: Icons.info_outline_rounded,
-                            iconColor: AurumTheme.textMutedOf(context),
-                            title: l10n.settingsAbout,
-                            subtitle: l10n.settingsAboutSubtitle,
-                            onTap: () {
-                              AurumHaptics.light();
-                              AurumDepthRoute.to(context, const SettingsAboutScreen());
-                            },
-                            isLast: true,
-                          ),
-                        ],
-                      ),
-                    ],
+                  _SettingsRow(
+                    icon: Icons.notifications_none_rounded,
+                    title: l10n.settingsNotifications,
+                    subtitle: l10n.settingsNotificationsSubtitle,
+                    onTap: () {
+                      AurumHaptics.light();
+                      AurumDepthRoute.to(context, const SettingsNotificationsScreen());
+                    },
+                    isLast: true,
                   ),
-                ),
+                ])),
+                const SizedBox(height: 28),
+                _SectionHeader(l10n.settingsSectionPlayback),
+                AurumStaggerItem(index: 1, child: _SettingsGroup(children: [
+                  _SettingsRow(
+                    icon: Icons.graphic_eq_rounded,
+                    title: l10n.settingsPlayerAudio,
+                    subtitle: l10n.settingsPlayerAudioSubtitle,
+                    onTap: () {
+                      AurumHaptics.light();
+                      // Matches the Liked/Playlist fade + slide-up push
+                      // (see aurum_transitions.dart's AurumDepthRoute) —
+                      // Settings' whole sub-navigation shares it.
+                      AurumDepthRoute.to(context, SettingsPlayerScreen(audioEngine: engine));
+                    },
+                  ),
+                  _SettingsRow(
+                    icon: Icons.folder_outlined,
+                    title: l10n.settingsStorage,
+                    subtitle: l10n.settingsStorageSubtitle,
+                    onTap: () {
+                      AurumHaptics.light();
+                      AurumDepthRoute.to(context, const SettingsStorageScreen());
+                    },
+                    isLast: true,
+                  ),
+                ])),
+                const SizedBox(height: 28),
+                _SectionHeader(l10n.settingsSectionSystem),
+                AurumStaggerItem(index: 2, child: _SettingsGroup(children: [
+                  _SettingsRow(
+                    icon: Icons.shield_outlined,
+                    title: l10n.settingsPrivacy,
+                    subtitle: l10n.settingsPrivacySubtitle,
+                    onTap: () {
+                      AurumHaptics.light();
+                      AurumDepthRoute.to(context, const SettingsPrivacyScreen());
+                    },
+                  ),
+                  _SettingsRow(
+                    icon: Icons.info_outline_rounded,
+                    title: l10n.settingsAbout,
+                    subtitle: l10n.settingsAboutSubtitle,
+                    onTap: () {
+                      AurumHaptics.light();
+                      AurumDepthRoute.to(context, const SettingsAboutScreen());
+                    },
+                    isLast: true,
+                  ),
+                ])),
               ]),
             ),
           ),
@@ -191,69 +159,11 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
-
 }
 
-// ── Entrance stagger — each section (header+group) fades and slides up
-// into place with a small delay after the previous one, instead of the
-// whole list just snapping onto screen instantly. This is the other half
-// of "feels dead": a static list that's already fully rendered the moment
-// you land on it reads as inert even if it's well laid out. A quick
-// 300–380ms per-item reveal with a slight stagger gives the screen a
-// sense of things settling into place, matching the kind of entrance
-// polish Spotify/Apple Music apply to their own settings/library lists.
-class _StaggerIn extends StatefulWidget {
-  final Widget child;
-  final int index;
-  const _StaggerIn({required this.child, required this.index});
-
-  @override
-  State<_StaggerIn> createState() => _StaggerInState();
-}
-
-class _StaggerInState extends State<_StaggerIn>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _fade;
-  late final Animation<Offset> _slide;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 340),
-    );
-    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
-    _slide = Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
-    // Stagger delay capped at 3 sections' worth (~240ms max) so a long
-    // settings list never makes the last section feel like it's waiting
-    // around — it just means items past the cap start together.
-    final delay = Duration(milliseconds: 60 * widget.index.clamp(0, 4));
-    Future.delayed(delay, () {
-      if (mounted) _ctrl.forward();
-    });
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _fade,
-      child: SlideTransition(position: _slide, child: widget.child),
-    );
-  }
-}
-
-// ── Small caps section label above each group (GENERAL / PLAYBACK / SYSTEM)
-// — the piece that was missing entirely before. Gives the scroll a rhythm
-// instead of one undifferentiated stack of identical cards.
+// Small caps section label above each group — quiet, muted, no
+// letter-spacing theatrics. Exactly the density Spotify/Apple Music use
+// between grouped rows.
 class _SectionHeader extends StatelessWidget {
   final String label;
   const _SectionHeader(this.label);
@@ -267,17 +177,17 @@ class _SectionHeader extends StatelessWidget {
         style: TextStyle(
           color: AurumTheme.textMutedOf(context),
           fontSize: 12,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.8,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.4,
         ),
       ),
     );
   }
 }
 
-// ── One rounded card holding a related cluster of rows, hairline dividers
-// between them — replaces the old "every single item is its own floating
-// card" pattern that read as flat and repetitive.
+// One flat card holding a related cluster of rows, hairline dividers
+// between them. Single hairline border, no elevated shadow, no heavy
+// corner radius — reads as a quiet grouping, not a decorated panel.
 class _SettingsGroup extends StatelessWidget {
   final List<Widget> children;
   const _SettingsGroup({required this.children});
@@ -287,7 +197,7 @@ class _SettingsGroup extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: AurumTheme.bgCardOf(context),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
       ),
       clipBehavior: Clip.antiAlias,
@@ -296,9 +206,13 @@ class _SettingsGroup extends StatelessWidget {
   }
 }
 
-class _SettingsRow extends StatefulWidget {
+// One row: a single neutral icon treatment (muted color, no per-item
+// tint, no gradient chip), title + subtitle, chevron. Press feedback is a
+// simple, quiet background tint — no scale-pump, no icon-brightening
+// theatrics. This restraint is exactly what separates Spotify/Apple
+// Music's settings rows from an "effects showcase".
+class _SettingsRow extends StatelessWidget {
   final IconData icon;
-  final Color iconColor;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
@@ -306,7 +220,6 @@ class _SettingsRow extends StatefulWidget {
 
   const _SettingsRow({
     required this.icon,
-    required this.iconColor,
     required this.title,
     required this.subtitle,
     required this.onTap,
@@ -314,117 +227,53 @@ class _SettingsRow extends StatefulWidget {
   });
 
   @override
-  State<_SettingsRow> createState() => _SettingsRowState();
-}
-
-class _SettingsRowState extends State<_SettingsRow>
-    with SingleTickerProviderStateMixin {
-  // Real tap feedback (press-scale on the whole row + the icon chip
-  // brightening) instead of the near-invisible 4%-opacity background tint
-  // this had before — that was too subtle to register as "the app
-  // responded to my touch", which is a big part of why the screen felt
-  // dead even after the grouping/color fixes. forward on tap-down (fast,
-  // 90ms — has to feel instant) and a springy elasticOut release back to
-  // 1.0 gives the same "pump" character the bottom nav tabs already use.
-  late final AnimationController _pressCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 90),
-    reverseDuration: const Duration(milliseconds: 240),
-  );
-  late final Animation<double> _scale = Tween(begin: 1.0, end: 0.975).animate(
-    CurvedAnimation(
-      parent: _pressCtrl,
-      curve: Curves.easeOut,
-      reverseCurve: Curves.elasticOut,
-    ),
-  );
-
-  @override
-  void dispose() {
-    _pressCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        GestureDetector(
-          onTapDown: (_) => _pressCtrl.forward(),
-          onTapUp: (_) {
-            _pressCtrl.reverse();
-            widget.onTap();
-          },
-          onTapCancel: () => _pressCtrl.reverse(),
-          child: AnimatedBuilder(
-            animation: _scale,
-            builder: (context, child) => Transform.scale(
-              scale: _scale.value,
-              alignment: Alignment.center,
-              child: child,
-            ),
-            child: AnimatedBuilder(
-              animation: _pressCtrl,
-              builder: (context, child) => Container(
-                color: AurumTheme.textPrimaryOf(context)
-                    .withValues(alpha: _pressCtrl.value * 0.06),
-                child: child,
-              ),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                child: Row(
-                  children: [
-                    AnimatedBuilder(
-                      animation: _pressCtrl,
-                      builder: (context, child) => Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          // Icon chip brightens slightly on press (0.14 →
-                          // up to 0.24 opacity) — a second, more localized
-                          // signal that this exact row is the one being
-                          // touched, on top of the whole-row scale+tint.
-                          color: widget.iconColor.withValues(
-                              alpha: 0.14 + _pressCtrl.value * 0.10),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: child,
-                      ),
-                      child: Icon(widget.icon, color: widget.iconColor, size: 20),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            splashFactory: NoSplash.splashFactory,
+            highlightColor: AurumTheme.textPrimaryOf(context).withValues(alpha: 0.04),
+            hoverColor: Colors.transparent,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Icon(icon, color: AurumTheme.textMutedOf(context), size: 22),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title,
+                            style: TextStyle(
+                                color: AurumTheme.textPrimaryOf(context),
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: -0.1)),
+                        const SizedBox(height: 2),
+                        Text(subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: AurumTheme.textMutedOf(context),
+                                fontSize: 12.5)),
+                      ],
                     ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(widget.title,
-                              style: TextStyle(
-                                  color: AurumTheme.textPrimaryOf(context),
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.2)),
-                          const SizedBox(height: 2),
-                          Text(widget.subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                  color: AurumTheme.textMutedOf(context),
-                                  fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                    Icon(Icons.chevron_right_rounded,
-                        color: AurumTheme.textMutedOf(context), size: 20),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.chevron_right_rounded,
+                      color: AurumTheme.textMutedOf(context).withValues(alpha: 0.6), size: 20),
+                ],
               ),
             ),
           ),
         ),
-        if (!widget.isLast)
+        if (!isLast)
           Padding(
-            padding: const EdgeInsets.only(left: 68),
+            padding: const EdgeInsets.only(left: 54),
             child: Divider(
               height: 1,
               thickness: 0.5,
@@ -435,5 +284,3 @@ class _SettingsRowState extends State<_SettingsRow>
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ import '../services/audio_prefs.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../widgets/aurum_settings_tile.dart' show AurumStaggerItem;
 
 class SettingsAppearanceScreen extends StatefulWidget {
   const SettingsAppearanceScreen({super.key});
@@ -60,7 +61,6 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   // without this, fast double-taps on two different fonts could stack
   // two showDialog calls and leave one scrim orphaned on screen.
   bool _fontTransitionInFlight = false;
-  String _nowPlayingCardStyle = 'Card';
   String _artworkShape = 'Rounded';
   // Animations
   bool _enableAnimations = true;
@@ -80,10 +80,16 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   // correct values already in place — no flash, no snap.
   bool _loaded = false;
 
+  // Curated to 6: gold (free) + 5 premium accents, chosen for maximum
+  // visual separation against the dark theme and clean contrast with
+  // white iconography/text drawn on top of the selected swatch.
   static const List<Color> _accentOptions = [
-    Color(0xFF6D5DF6), Color(0xFF4F8CFF), Color(0xFFE91E63),
-    Color(0xFF4CAF50), Color(0xFF9C27B0), Color(0xFFFF5722),
-    Color(0xFF00BCD4), Color(0xFFFF9800),
+    AurumTheme.gold,       // free
+    Color(0xFF6D5DF6),     // violet
+    Color(0xFF4F8CFF),     // azure
+    Color(0xFFE91E63),     // rose
+    Color(0xFF2ECC71),     // emerald
+    Color(0xFFFF7A45),     // amber-orange
   ];
 
   @override
@@ -134,7 +140,6 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _scrollAnimations = p.getBool('scroll_animations') ?? true;
       _bgGradientAnimation = p.getBool('bg_gradient_animation') ?? true;
       _fontStyle           = p.getString('font_style') ?? 'Default';
-      _nowPlayingCardStyle = p.getString('now_playing_card_style') ?? 'Card';
       _artworkShape        = p.getString('artwork_shape') ?? 'Rounded';
       _loaded = true;
     });
@@ -174,6 +179,12 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
           // ── Theme ──
+          // Every major section on this screen is wrapped in the same
+          // AurumStaggerItem entrance used by every other Settings screen
+          // (Privacy/Storage/Language/Notifications/About/Player/main
+          // Settings list) — one section per stagger slot keeps the
+          // cascade timing identical across all of Settings.
+          AurumStaggerItem(index: 0, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(l10n.saTheme),
           _card(context, child: Column(children: [
             _themeTile(context, tp, Icons.wallpaper_rounded, 'Dynamic Color',
@@ -202,7 +213,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
               AudioPrefs.pushHighRefreshRateToNative(v);
             },
           ),
+          ])),
           // Accent color
+          AurumStaggerItem(index: 1, child:
           _card(context, child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -223,11 +236,11 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                   ]),
                 ),
               ]),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               Builder(builder: (context) {
                 final isSignedIn = context.watch<AuthProvider>().isSignedIn;
-                return Wrap(
-                  spacing: 10,
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: _accentOptions.asMap().entries.map((entry) {
                     final i = entry.key;
                     final c = entry.value;
@@ -235,7 +248,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                     final sel = _accentColor.value == c.value;
                     final locked = !isFree && !isSignedIn;
                     return AurumPressable(
-                      scaleAmount: 0.88,
+                      scaleAmount: 0.9,
                       onTap: () {
                         if (locked) {
                           PremiumGate.show(context,
@@ -249,49 +262,45 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
                         _save('accent_color', c.value);
                         context.read<ThemeProvider>().setAccentColor(c);
                       },
-                      child: Stack(children: [
-                        Container(
-                          width: 32, height: 32,
-                          decoration: BoxDecoration(
-                            color: locked ? c.withOpacity(0.4) : c,
-                            shape: BoxShape.circle,
-                            border: sel ? Border.all(color: Colors.white, width: 2.5) : null,
-                            boxShadow: sel ? [BoxShadow(color: c.withOpacity(0.5), blurRadius: 8)] : null,
-                          ),
-                          child: sel ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
+                      // Flat solid fill, thin ring on selection — no
+                      // gradient, no glow shadow, no glass sheen. Matches
+                      // the same restrained treatment as the rest of the
+                      // redesigned Settings screens.
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: locked ? c.withOpacity(0.32) : c,
+                          border: sel
+                              ? Border.all(color: AurumTheme.textPrimaryOf(context), width: 2)
+                              : null,
                         ),
-                        if (locked)
-                          Positioned(
-                            right: 0, bottom: 0,
-                            child: Container(
-                              width: 13, height: 13,
-                              decoration: BoxDecoration(
-                                color: AurumTheme.bgCardOf(context),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.lock_rounded, size: 9, color: AurumTheme.gold),
-                            ),
-                          ),
-                      ]),
+                        child: sel
+                            ? const Icon(Icons.check_rounded, color: Colors.white, size: 17)
+                            : (locked
+                                ? Icon(Icons.lock_rounded, size: 13, color: Colors.white.withOpacity(0.85))
+                                : null),
+                      ),
                     );
                   }).toList(),
                 );
               }),
             ]),
           )),
+          ),
           // ── Font Style ──
+          AurumStaggerItem(index: 2, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(l10n.saFontStyle),
           _buildFontSelector(context),
-
-          // ── Now Playing Card Style ──
-          _sectionLabel(l10n.saNowPlayingCard),
-          _buildCardStyleSelector(context),
 
           // ── Artwork Shape ──
           _sectionLabel(l10n.saArtworkShape),
           _buildArtworkShapeSelector(context),
+          ])),
 
           // ── Player ──
+          AurumStaggerItem(index: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(l10n.saPlayer),
           _dropdownTile(context,
             title: 'Nav Bar & Mini Player Style',
@@ -360,7 +369,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // v4.0 for why: the old style/animation machinery was the source
           // of a class of "mini player disappears, only fixed by app
           // restart" bugs).
+          ])),
           // ── Lyrics ──
+          AurumStaggerItem(index: 4, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(l10n.saLyrics),
           _inlineSwitch(context,
             title: l10n.saShowLyricsOnPlayer,
@@ -438,7 +449,9 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           // LRC timestamps / word-level sync), so a per-word highlight or
           // active-line glow has nothing to attach to. Re-add these once
           // synced lyrics are implemented.
+          ])),
           // ── Animations ──
+          AurumStaggerItem(index: 5, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(l10n.saAnimations),
           _inlineSwitch(context,
             title: l10n.saEnableAnimations,
@@ -464,6 +477,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             value: _bgGradientAnimation,
             onChanged: (v) { setState(() => _bgGradientAnimation = v); _save('bg_gradient_animation', v); AudioPrefs.setBgGradientAnimation(v); },
           ),
+          ])),
         ],
       ),
     );
@@ -687,97 +701,6 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       Navigator.of(context, rootNavigator: true).pop();
     }
     _fontTransitionInFlight = false;
-  }
-
-  // ── Now Playing Card Style ────────────────────────────────────────────────
-  Widget _buildCardStyleSelector(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    const styles = {
-      'Compact':   Icons.view_headline_rounded,
-      'Card':      Icons.crop_square_rounded,
-      'Immersive': Icons.fullscreen_rounded,
-    };
-    final subtitles = {
-      'Compact':   l10n.saCardStyleCompactDesc,
-      'Card':      l10n.saCardStyleCardDesc,
-      'Immersive': l10n.saCardStyleImmersiveDesc,
-    };
-    // 'Compact' is free; 'Card' and 'Immersive' are premium
-    const premiumStyles = {'Card', 'Immersive'};
-
-    return Builder(builder: (context) {
-      final isSignedIn = context.watch<AuthProvider>().isSignedIn;
-      return _card(context, child: Column(
-        children: styles.entries.map((e) {
-          final sel = _nowPlayingCardStyle == e.key;
-          final isLast = e.key == 'Immersive';
-          final locked = premiumStyles.contains(e.key) && !isSignedIn;
-          return Column(children: [
-            ListTile(
-              onTap: () {
-                AurumHaptics.selection();
-                if (locked) {
-                  PremiumGate.show(context,
-                    feature: l10n.saPlayerStyleUnlockFeature(e.key),
-                    description: l10n.saPlayerStyleUnlockDesc(e.key),
-                    requiresLoginOnly: true,
-                  );
-                  return;
-                }
-                setState(() => _nowPlayingCardStyle = e.key);
-                _save('now_playing_card_style', e.key);
-              },
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-              leading: Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(
-                  color: sel ? AurumTheme.gold.withOpacity(0.15) : AurumTheme.bgOf(context),
-                  borderRadius: BorderRadius.circular(10),
-                  border: sel ? Border.all(color: AurumTheme.gold.withOpacity(0.5)) : null,
-                ),
-                child: Icon(e.value, color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 18),
-              ),
-              title: Row(children: [
-                Text(e.key,
-                    style: TextStyle(
-                      color: locked
-                          ? AurumTheme.textMutedOf(context)
-                          : (sel ? AurumTheme.gold : AurumTheme.textPrimaryOf(context)),
-                      fontSize: 14,
-                      fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
-                    )),
-                if (locked) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AurumTheme.gold.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.workspace_premium_rounded, color: AurumTheme.gold, size: 9),
-                      const SizedBox(width: 2),
-                      Text(l10n.saPremiumBadge, style: TextStyle(color: AurumTheme.gold, fontSize: 9, fontWeight: FontWeight.w700)),
-                    ]),
-                  ),
-                ],
-              ]),
-              subtitle: Text(subtitles[e.key]!,
-                  style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12)),
-              trailing: locked
-                  ? Icon(Icons.lock_rounded, color: AurumTheme.gold.withOpacity(0.5), size: 18)
-                  : Icon(
-                      sel ? Icons.check_circle_rounded : Icons.circle_outlined,
-                      color: sel ? AurumTheme.gold : AurumTheme.textMutedOf(context),
-                      size: 20,
-                    ),
-            ),
-            if (!isLast) _divider(context),
-          ]);
-        }).toList(),
-      ));
-    });
   }
 
   // ── Artwork Shape ─────────────────────────────────────────────────────────
@@ -1131,9 +1054,15 @@ class _SliderStyleCard extends StatelessWidget {
                     widthFactor: 0.72,
                     child: AnimatedBuilder(
                       animation: ticker,
-                      builder: (_, __) => Opacity(
-                        opacity: _sweepOpacity(ticker.value),
-                        child: _miniPreview(style, ticker.value),
+                      // Isolates this tiny animating preview into its own
+                      // compositing layer so the repeating ticker only
+                      // repaints this small strip, not the whole card tree
+                      // around it — cheap insurance on low-end GPUs.
+                      builder: (_, __) => RepaintBoundary(
+                        child: Opacity(
+                          opacity: _sweepOpacity(ticker.value),
+                          child: _miniPreview(style, ticker.value),
+                        ),
                       ),
                     ),
                   ),

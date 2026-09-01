@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
@@ -22,7 +23,6 @@ class SettingsAboutScreen extends StatefulWidget {
 
 class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
   String _version = '';
-  String _buildNumber = '';
 
   @override
   void initState() {
@@ -35,7 +35,6 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
     if (!mounted) return;
     setState(() {
       _version = info.version;
-      _buildNumber = info.buildNumber;
     });
   }
 
@@ -228,37 +227,46 @@ class _SettingsAboutScreenState extends State<SettingsAboutScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     final rows = <Widget>[
-      // App identity card
+      // App identity card — flat, no gradient wash. Matches the plain,
+      // restrained card treatment used across the redesigned Settings
+      // screens (no gradients, no glow, single hairline border).
       Container(
         margin: const EdgeInsets.only(bottom: 16),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: AurumTheme.bgCardOf(context),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AurumTheme.gold.withOpacity(0.2), width: 0.5),
-          gradient: LinearGradient(
-            colors: [AurumTheme.gold.withOpacity(0.06), Colors.transparent],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.5),
         ),
         child: Row(children: [
           Container(
-            width: 56, height: 56,
+            width: 52, height: 52,
             decoration: BoxDecoration(
-              color: AurumTheme.gold.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+              color: AurumTheme.gold.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 28),
+            child: const Icon(Icons.music_note_rounded, color: AurumTheme.gold, size: 26),
           ),
           const SizedBox(width: 16),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            // Pinned to a fixed display font, independent of the user's
+            // chosen "App Font" — this is the app's own brand name, not
+            // body copy, so it stays consistent even when Mono/Serif is
+            // selected elsewhere (matches the Settings title treatment).
             Text('Astra Music',
-              style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 18, fontWeight: FontWeight.w700)),
+              style: GoogleFonts.inter(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
+              )),
             const SizedBox(height: 4),
             Text(
-              _version.isEmpty ? 'Loading...' : 'v$_version (build $_buildNumber)',
+              // Plain "v2.3.2" — no trailing "(build N)". Build numbers
+              // are an internal CI artifact, not user-facing product
+              // info; every polished app (Spotify, Apple Music) shows
+              // just the version string here.
+              _version.isEmpty ? 'Loading...' : 'v$_version',
               style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
             ),
           ]),
