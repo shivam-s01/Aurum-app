@@ -458,7 +458,7 @@ class AurumAudioEngine(
                     eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
                     audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig,
                 ) {
-                    Log.i(TAG, "[offload-check] AudioTrack init — offload=${audioTrackConfig.offload} " +
+                    android.util.Log.i("AurumAudioEngine", "[offload-check] AudioTrack init — offload=${audioTrackConfig.offload} " +
                         "encoding=${audioTrackConfig.encoding} sampleRate=${audioTrackConfig.sampleRate} " +
                         "channelConfig=${audioTrackConfig.channelConfig}")
                     AurumDiagnosticLog.logOffload(
