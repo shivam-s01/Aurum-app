@@ -5996,6 +5996,25 @@ class ApiService {
   // ===========================================================================
   static final Set<String> _prewarmedIds = {};
 
+  // CONCURRENCY FIX (diagnostic log showed 56 distinct videoIds all timing
+  // out at exactly 16s within one ~46s window): every visible song_tile,
+  // plus recently_played/favorites/queue prewarm, calls prewarmYtStream()
+  // independently and fires resolveStreamUrl() immediately — fire-and-
+  // forget, no shared cap. When a list of many YT songs mounts at once
+  // (home feed, search results, a playlist), dozens of these land on the
+  // Worker within the same few-hundred-ms window. A single isolated request
+  // resolves or fails fast (confirmed via direct browser hits), so the
+  // Worker itself isn't broken — it's the burst that pushes it past
+  // whatever concurrent-subrequest / upstream-POT budget it can actually
+  // serve at once, and the ones that don't get scheduled in time just ride
+  // the full 15-16s budget out to a timeout instead of failing fast.
+  // Fix: cap how many prewarm resolves are in flight at once — extra
+  // requests queue locally and drain as slots free up, instead of all
+  // hitting the Worker simultaneously.
+  static int _prewarmInFlight = 0;
+  static const int _maxPrewarmConcurrency = 2;
+  static final List<Song> _prewarmQueue = [];
+
   static void prewarmYtStream(Song song) {
     if (song.source != SongSource.youtube) return;
     if (song.id.isEmpty) return;
@@ -6007,10 +6026,27 @@ class ApiService {
 
     if (_prewarmedIds.length > 1000) _prewarmedIds.clear(); // prevent unbounded growth
     _prewarmedIds.add(song.id);
+
+    if (_prewarmInFlight >= _maxPrewarmConcurrency) {
+      _prewarmQueue.add(song);
+      return;
+    }
+    _runPrewarm(song);
+  }
+
+  static void _runPrewarm(Song song) {
+    _prewarmInFlight++;
     resolveStreamUrl(song)
         .then((_) => _log('[prewarm] resolved & cached: "${song.title}"'))
         .catchError((_) {
           _prewarmedIds.remove(song.id); // allow retry next time
+        })
+        .whenComplete(() {
+          _prewarmInFlight--;
+          if (_prewarmQueue.isNotEmpty) {
+            final next = _prewarmQueue.removeAt(0);
+            _runPrewarm(next);
+          }
         });
   }
 

@@ -1645,7 +1645,22 @@ class AurumAudioEngine(
             else "file://$path"
         }
 
-        val perAttemptTimeoutMs = if (song.source == "youtube") 18_000L else 12_000L
+        // TIMEOUT-MISMATCH FIX (matches the 2026-09-01 fix in api_service.dart):
+        // resolver.resolve() for a youtube song is HybridStreamResolver —
+        // native YoutubeInnertube.resolve() first (unbounded, no internal
+        // timeout; can itself take several seconds across its 2 transient-
+        // error retries), THEN on native failure it falls through to
+        // MethodChannelStreamResolver, which round-trips into Dart's
+        // ApiService.resolveStreamUrl() — whose Worker route alone now
+        // budgets a full 16s (see api_service.dart's routeTimeout). Both
+        // legs run inside this ONE withTimeoutOrNull, so the old 18_000L
+        // cap left native almost no room before cutting off a Dart resolve
+        // that was still correctly working — exactly the "can't resolve
+        // url" failures reported after the Dart timeout went 6s -> 16s.
+        // Fix: give native's worst case (~6-8s) + Dart's full 16s Worker
+        // budget real headroom instead of racing them against a cap that
+        // was sized for the old, shorter Dart timeout.
+        val perAttemptTimeoutMs = if (song.source == "youtube") 26_000L else 12_000L
         repeat(maxAttempts) { attemptIndex ->
             if (sessionId != playSessionId) return null
             val url = try {
