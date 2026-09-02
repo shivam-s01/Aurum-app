@@ -505,6 +505,15 @@ class ApiService {
   //
   // _songFromSaavn() already handles both shapes safely.
   // ===========================================================================
+  // FIX ("Saavn ko api mai down kr diya hu, sirf YT try kare, Saavn skip
+  // kare fast"): Saavn's backend is down right now, so every call that
+  // still tried it was burning a full timeout (4-10s per host) before
+  // falling through to YT anyway. This flag short-circuits every Saavn
+  // call site below to an instant empty/null result instead, so
+  // searchAlbums/searchArtists/resolveArtistId resolve on the YT leg
+  // alone with no wasted wait. Flip back to false once Saavn is back up.
+  static const bool _saavnDisabled = true;
+
   static const List<String> _saavnNodeHosts = [
     'https://jiosaavn-op-c4oo.onrender.com', // primary — confirmed working 2026-07
     // Add more Node-family mirrors here if you deploy/find one, e.g.:
@@ -6519,6 +6528,7 @@ class ApiService {
   }
 
   static Future<List<ArtistSimple>> _searchArtistsSaavn(String query, int limit) async {
+    if (_saavnDisabled) return const [];
     final path = '/api/search/artists?query=${Uri.encodeQueryComponent(query)}&limit=$limit';
     for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
       final body = await _getFromHosts(hosts, path,
@@ -6689,6 +6699,7 @@ class ApiService {
   }
 
   static Future<List<BrowseAlbum>> _searchAlbumsSaavn(String query, int limit) async {
+    if (_saavnDisabled) return const [];
     final path = '/api/search/albums?query=${Uri.encodeQueryComponent(query)}&limit=$limit';
     for (final hosts in [_saavnNodeHosts, _saavnFlaskHosts]) {
       final body = await _getFromHosts(hosts, path,
@@ -6840,7 +6851,7 @@ class ApiService {
   /// Resolve an artist's Saavn ID from their display name (used when navigating
   /// from a song tile, where we only have the artist's name string).
   static Future<String?> searchArtistByName(String name) async {
-    if (name.trim().isEmpty) return null;
+    if (name.trim().isEmpty || _saavnDisabled) return null;
     final lower = name.trim().toLowerCase();
     final path = '/api/search/artists?query=${Uri.encodeQueryComponent(name)}';
 
@@ -6960,7 +6971,7 @@ class ApiService {
     // screen's very first paint waits on.
     try {
       final uploadsArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount)
-          .timeout(const Duration(seconds: 26), onTimeout: () => null);
+          .timeout(const Duration(seconds: 100), onTimeout: () => null);
       if (uploadsArtist != null) addAll(uploadsArtist.topSongs);
       onUpdate(snapshot());
     } catch (e) {
@@ -7042,7 +7053,7 @@ class ApiService {
           // to return a real, mostly-complete result, wasting the very
           // budget the walk's internal deadline was designed to use.
           final uploadsArtist = await _fetchArtistFromYoutube(channelId, songCount: songCount)
-              .timeout(const Duration(seconds: 26), onTimeout: () => null);
+              .timeout(const Duration(seconds: 100), onTimeout: () => null);
 
           final seenIds = <String>{};
           final seenTitles = <String>{};
@@ -7214,8 +7225,12 @@ class ApiService {
             const [];
         if (thumbs.isNotEmpty) {
           final rawUrl = (thumbs.last['url'] ?? '').toString();
+          // FIX ("thumbnail ekdam full hd"): matched to the same
+          // w1080-h1080 upgrade already applied to album header art —
+          // was capped at 500 here, visibly softer than the album
+          // banner right next to it on the same screen.
           imageUrl = rawUrl.isNotEmpty
-              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500-p')
+              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1080-h1080-p')
               : '';
         }
         final bannerThumbs = (headerRenderer['background']?['musicThumbnailRenderer']
@@ -7223,7 +7238,11 @@ class ApiService {
             const [];
         if (bannerThumbs.isNotEmpty) {
           bannerUrl = (bannerThumbs.last['url'] ?? '').toString();
-          if (bannerUrl.isEmpty) bannerUrl = null;
+          if (bannerUrl.isNotEmpty) {
+            bannerUrl = bannerUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1440-h1440-p');
+          } else {
+            bannerUrl = null;
+          }
         }
         // REAL FIELD NAMES verified against ytmusicapi's mixins/browsing.py
         // get_artist() implementation (the reference library for this
@@ -7653,7 +7672,18 @@ class ApiService {
           // whichever comes first — same 100-song ceiling on a fast
           // connection, but a hard, predictable cap on a slow one instead
           // of a multi-minute stall.
-          const maxPages = 25;
+          // FIX ("bahut jyda songs aaye" — jitne bhi max ho poore aaye,
+          // artificial cap na ho): 25 pages / 20s was tuned to keep the
+          // artist screen feeling snappy when the walk was blocking the
+          // first paint — but fetchArtistStreaming (this walk's only
+          // caller) already paints Stage 1 immediately and reports this
+          // as a background top-up, so a longer walk here doesn't stall
+          // anything the user is staring at. Raised well past the
+          // typical uploads-channel page count so the walk keeps going
+          // until it genuinely runs out of songCount room or YouTube
+          // itself runs out of pages, not an arbitrary early cutoff.
+          const maxPages = 200;
+          final walkDeadline = DateTime.now().add(const Duration(seconds: 90));
           // BUDGET FIX ("100 songs nahi mil rahe" — artist Top Songs
           // shelf consistently landing short): 14s was tuned purely
           // around "don't let the artist screen feel stuck" — but
@@ -7674,8 +7704,8 @@ class ApiService {
           // Raised to 20s: still bounded (never the old "no limit, walk
           // until YouTube itself runs out" unbounded loop), but gives
           // roughly 8-9 pages of real room on a typical connection
-          // without the screen ever visibly waiting on it.
-          final walkDeadline = DateTime.now().add(const Duration(seconds: 20));
+          // without the screen ever visibly waiting on it. (Deadline
+          // itself now set above, raised to 90s — see maxPages comment.)
           var pageCount = 0;
           while (true) {
             pageCount++;
@@ -7980,6 +8010,24 @@ class ApiService {
     return [];
   }
 
+  /// FIX ("YT se complete albums aaye ekdam top grade"): AlbumScreen was
+  /// stuck showing the small ~500x500 search-result thumbnail passed in
+  /// from the album chip/searchAlbums card for its whole header banner,
+  /// even though the browse response this function already fetches
+  /// carries the album's own dedicated header thumbnail — same source
+  /// YT Music's own album page uses, and typically a much larger/cleaner
+  /// crop than a search card thumb. Returns (songs, headerArtworkUrl) so
+  /// callers can upgrade the banner without a second network round-trip;
+  /// headerArtworkUrl is '' when the header shape didn't expose one, so
+  /// callers should keep falling back to whatever they already had.
+  static Future<({List<Song> songs, String headerArtworkUrl})> fetchAlbumSongsWithArtwork(
+      String albumId) async {
+    if (!albumId.startsWith('MPRE')) {
+      return (songs: await fetchAlbumSongs(albumId), headerArtworkUrl: '');
+    }
+    return _fetchYtAlbumSongsWithArtwork(albumId);
+  }
+
   /// Real YT Music album fetch via the `browse` endpoint, verified against
   /// ytmusicapi's get_album(): the header exposes an `audioPlaylistId`
   /// (format "OLAK5uy_..." — a genuine YouTube playlist id representing
@@ -7992,9 +8040,15 @@ class ApiService {
   /// with that id was present, so a header-shape quirk still degrades
   /// gracefully instead of returning nothing.
   static Future<List<Song>> _fetchYtAlbumSongs(String albumBrowseId) async {
+    final result = await _fetchYtAlbumSongsWithArtwork(albumBrowseId);
+    return result.songs;
+  }
+
+  static Future<({List<Song> songs, String headerArtworkUrl})> _fetchYtAlbumSongsWithArtwork(
+      String albumBrowseId) async {
     try {
       final decoded = await _ytmBrowseRaw(albumBrowseId, timeout: const Duration(seconds: 8));
-      if (decoded == null) return [];
+      if (decoded == null) return (songs: <Song>[], headerArtworkUrl: '');
 
       final albumTitle = ((decoded['header']?['musicResponsiveHeaderRenderer']?['title']
                       ?['runs'] as List?) ??
@@ -8004,6 +8058,28 @@ class ApiService {
           .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
           .join()
           .trim();
+
+      // Header's own thumbnail — same field YT Music's own album page
+      // reads for its banner, typically a much larger/cleaner crop than
+      // any search-result card thumb. Upsized the same way
+      // _ytmThumbnailUrl does elsewhere, so this stays consistent with
+      // every other artwork URL in the app.
+      String headerArtworkUrl = '';
+      final headerThumbs = ((decoded['header']?['musicResponsiveHeaderRenderer']
+                      ?['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
+                  ?['thumbnails'] as List?) ??
+              (decoded['header']?['musicDetailHeaderRenderer']?['thumbnail']
+                      ?['croppedSquareThumbnailRenderer']?['thumbnail']?['thumbnails']
+                  as List?) ??
+              const [])
+          .whereType<Map>()
+          .toList();
+      if (headerThumbs.isNotEmpty) {
+        final rawUrl = (headerThumbs.last['url'] ?? '').toString();
+        if (rawUrl.isNotEmpty) {
+          headerArtworkUrl = rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1080-h1080-p');
+        }
+      }
 
       // audioPlaylistId lives on the header's own play button — walk every
       // musicPlayButtonRenderer in the header subtree (not the whole
@@ -8023,27 +8099,37 @@ class ApiService {
 
       if (audioPlaylistId != null) {
         try {
-          final songs = await fetchYtPlaylistSongs(audioPlaylistId, limit: 200)
+          // FIX ("albums/artist jitne bhi songs hai sab aaye, koi cap
+          // nahi"): 200 was an arbitrary ceiling — a legit full album or
+          // deluxe/anniversary edition can run past that. take(limit) in
+          // _fetchPlaylistVideosWithRetry and the worker route both
+          // already respect whatever's passed here with no hidden
+          // second cap, so this alone removes the artificial ceiling;
+          // real album length still bounds the result naturally.
+          final songs = await fetchYtPlaylistSongs(audioPlaylistId, limit: 2000)
               .timeout(const Duration(seconds: 12));
           if (songs.isNotEmpty) {
-            if (albumTitle.isEmpty) return songs;
+            if (albumTitle.isEmpty) return (songs: songs, headerArtworkUrl: headerArtworkUrl);
             // Stamp the real album title onto every track — playlist rows
             // don't reliably carry it themselves (import path leaves
             // `album` blank for a bare playlist fetch).
-            return songs
-                .map((s) => Song(
-                      id: s.id,
-                      title: s.title,
-                      artist: s.artist,
-                      album: _cleanText(albumTitle),
-                      artworkUrl: s.artworkUrl,
-                      streamUrl: s.streamUrl,
-                      duration: s.duration,
-                      source: s.source,
-                      viewCount: s.viewCount,
-                      artistChannelId: s.artistChannelId,
-                    ))
-                .toList();
+            return (
+              songs: songs
+                  .map((s) => Song(
+                        id: s.id,
+                        title: s.title,
+                        artist: s.artist,
+                        album: _cleanText(albumTitle),
+                        artworkUrl: s.artworkUrl,
+                        streamUrl: s.streamUrl,
+                        duration: s.duration,
+                        source: s.source,
+                        viewCount: s.viewCount,
+                        artistChannelId: s.artistChannelId,
+                      ))
+                  .toList(),
+              headerArtworkUrl: headerArtworkUrl,
+            );
           }
         } catch (e) {
           _log('[_fetchYtAlbumSongs] playlist fetch failed for $audioPlaylistId: $e');
@@ -8085,10 +8171,10 @@ class ApiService {
         if (RecommendationEngine.isNonMusicContent(song)) continue;
         songs.add(song);
       }
-      return songs;
+      return (songs: songs, headerArtworkUrl: headerArtworkUrl);
     } catch (e) {
       _log('[_fetchYtAlbumSongs] failed for $albumBrowseId: $e');
-      return [];
+      return (songs: <Song>[], headerArtworkUrl: '');
     }
   }
 

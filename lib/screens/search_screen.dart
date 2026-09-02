@@ -1266,7 +1266,7 @@ class _SearchScreenState extends State<SearchScreen>
                   const SizedBox(height: 3),
                   Text(
                     [
-                      'Album',
+                      album.isFromYoutube ? 'YouTube' : 'Saavn',
                       if (album.artist.isNotEmpty) album.artist,
                       if (album.releaseYear != null) album.releaseYear!,
                     ].join(' • '),
@@ -2606,7 +2606,37 @@ class _AlbumCard extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: AurumArtwork(url: album.artworkUrl, size: 130),
+            child: Stack(
+              children: [
+                AurumArtwork(url: album.artworkUrl, size: 130),
+                // FIX ("kisse aata hai search pr bata na" — surface each
+                // album search result's actual source): BrowseAlbum
+                // already carries isFromYoutube (set true by
+                // _searchAlbumsAttempt's YT leg, left false by
+                // BrowseAlbum.fromSaavn's Saavn leg), so this is just
+                // reading an existing field, not guessing anything.
+                Positioned(
+                  left: 6,
+                  top: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.65),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      album.isFromYoutube ? 'YT' : 'Saavn',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 6),
           Text(album.name, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),

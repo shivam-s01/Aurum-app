@@ -625,7 +625,23 @@ class _AlbumChipState extends State<_AlbumChip> {
     if (_resolving) return;
     setState(() => _resolving = true);
     try {
-      final albumId = await ApiService.searchAlbumByName(widget.albumName);
+      // FIX ("YouTube se play kiya to album/artist chip work nahi karta"):
+      // searchAlbumByName only ever hit Saavn's search endpoint, so a song
+      // streamed from YouTube — whose album name usually isn't in Saavn's
+      // catalog at all — always failed to resolve, even with network up.
+      // searchAlbums() already races Saavn AND YT Music and returns
+      // BrowseAlbum.collectionId (MPRE-prefixed for YT, bare id for Saavn),
+      // exactly the shape fetchAlbumSongs()/AlbumScreen already know how to
+      // route by prefix — so just reuse it and pick the closest name match.
+      final lower = widget.albumName.trim().toLowerCase();
+      final results = await ApiService.searchAlbums(widget.albumName, limit: 5);
+      final match = results.isEmpty
+          ? null
+          : results.firstWhere(
+              (a) => a.name.trim().toLowerCase() == lower,
+              orElse: () => results.first,
+            );
+      final albumId = match?.collectionId;
       if (!mounted) return;
       if (albumId == null || albumId.isEmpty) {
         setState(() => _resolving = false);
@@ -644,7 +660,7 @@ class _AlbumChipState extends State<_AlbumChip> {
           builder: (_) => AlbumScreen(
             albumId: albumId,
             albumName: widget.albumName,
-            artworkUrl: '',
+            artworkUrl: match?.artworkUrl ?? '',
           ),
         ),
       );

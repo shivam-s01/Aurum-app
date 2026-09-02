@@ -48,6 +48,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
   List<Song> _songs = [];
   bool _loading = true;
   bool _shuffle = false;
+  late String _artworkUrl = widget.artworkUrl;
 
   @override
   void initState() {
@@ -56,10 +57,18 @@ class _AlbumScreenState extends State<AlbumScreen> {
   }
 
   Future<void> _load() async {
-    final songs = await ApiService.fetchAlbumSongs(widget.albumId);
+    // FIX ("YT se complete albums aaye ekdam top grade"): use the
+    // artwork+songs variant so a YT album can upgrade its header banner
+    // from the small search-card thumbnail (passed in via widget.artworkUrl)
+    // to the album's own dedicated high-res header image, same source the
+    // official YT Music album page uses. Saavn albums and any failure case
+    // both come back with an empty headerArtworkUrl, so the widget-provided
+    // artwork keeps working exactly as before for them.
+    final result = await ApiService.fetchAlbumSongsWithArtwork(widget.albumId);
     if (!mounted) return;
     setState(() {
-      _songs = songs;
+      _songs = result.songs;
+      if (result.headerArtworkUrl.isNotEmpty) _artworkUrl = result.headerArtworkUrl;
       _loading = false;
     });
   }
@@ -158,7 +167,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                             borderRadius: BorderRadius.circular(10),
                             clipBehavior: Clip.antiAlias,
                             child: AurumArtwork(
-                              url: widget.artworkUrl,
+                              url: _artworkUrl,
                               size: 220,
                               borderRadius: 10,
                             ),
@@ -285,7 +294,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                         onTap: () => followedAlbums.toggleFollow(
                           albumId: widget.albumId,
                           name: widget.albumName,
-                          artworkUrl: widget.artworkUrl,
+                          artworkUrl: _artworkUrl,
                         ),
                       );
                     },
@@ -414,7 +423,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
       builder: (_) => _AlbumOptionsSheet(
         albumId: widget.albumId,
         albumName: widget.albumName,
-        artworkUrl: widget.artworkUrl,
+        artworkUrl: _artworkUrl,
         songs: _songs,
         artists: _creditedArtists,
         rootContext: rootContext,

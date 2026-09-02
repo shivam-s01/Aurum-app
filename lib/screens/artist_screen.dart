@@ -80,7 +80,12 @@ class _ArtistScreenState extends State<ArtistScreen> {
         return;
       }
       var gotAny = false;
-      await ApiService.fetchArtistStreaming(id, onUpdate: (artist) {
+      // FIX ("bahut jyda songs aaye" — no artificial cap): default 100
+      // was a deliberate ceiling; ask for a much higher target so the
+      // walk keeps collecting until the artist's real upload catalog
+      // (or the walk's own maxPages/time budget) genuinely runs out,
+      // not an arbitrary round number.
+      await ApiService.fetchArtistStreaming(id, songCount: 1000, onUpdate: (artist) {
         if (!mounted) return;
         gotAny = true;
         setState(() {
