@@ -11,6 +11,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_motion.dart';
 
 class UpdateService {
   static const _repo = 'shivam-s01/Aurum-app';
@@ -226,7 +227,7 @@ class _UpdateToastState extends State<_UpdateToast> with SingleTickerProviderSta
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 220));
+    _ctrl = AnimationController(vsync: this, duration: AurumMotion.medium1);
     _ctrl.forward();
     Future.delayed(const Duration(milliseconds: 1800), () async {
       if (!mounted) return;
@@ -251,7 +252,7 @@ class _UpdateToastState extends State<_UpdateToast> with SingleTickerProviderSta
         opacity: _ctrl,
         child: SlideTransition(
           position: Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero)
-              .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic)),
+              .animate(CurvedAnimation(parent: _ctrl, curve: AurumMotion.standard)),
           child: Material(
             color: Colors.transparent,
             child: Center(
@@ -312,7 +313,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
   @override
   void initState() {
     super.initState();
-    _entryCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 420));
+    _entryCtrl = AnimationController(vsync: this, duration: AurumMotion.long2);
     _entryCtrl.forward();
   }
 
@@ -387,7 +388,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
 
   @override
   Widget build(BuildContext context) {
-    final curved = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic);
+    final curved = CurvedAnimation(parent: _entryCtrl, curve: AurumMotion.standard);
     return ScaleTransition(
       scale: Tween<double>(begin: 0.92, end: 1.0).animate(curved),
       child: FadeTransition(
@@ -541,7 +542,7 @@ class _UpdateDialogState extends State<_UpdateDialog> with SingleTickerProviderS
                               ? const AurumM3Loader(height: 6, borderRadius: 8)
                               : TweenAnimationBuilder<double>(
                                   tween: Tween(begin: 0, end: _progress),
-                                  duration: const Duration(milliseconds: 200),
+                                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                                   builder: (_, value, __) => LinearProgressIndicator(
                                     value: value,
                                     minHeight: 6,

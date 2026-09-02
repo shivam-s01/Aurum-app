@@ -27,6 +27,7 @@ import 'artist_screen.dart';
 import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_sheet.dart';
+import '../utils/aurum_motion.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -530,7 +531,7 @@ class _AlbumOptionsSheetState extends State<_AlbumOptionsSheet> {
                   ),
                 ),
                 AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
+                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(

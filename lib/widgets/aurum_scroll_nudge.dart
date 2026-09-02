@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/aurum_motion.dart';
 
 /// AurumScrollNudge — Echo Nightly's scroll-reveal effect, ported.
 ///
@@ -52,6 +53,14 @@ class AurumScrollDelta {
   }
 
   void _onScroll() {
+    // Echo parity: its own scroll-reveal is opt-in and OFF by default
+    // (scrollAnimations defaults to false in AnimationUtils.kt) — the
+    // per-frame notifier update is exactly the per-item cost that's
+    // pointless to pay when the user has motion disabled. Skipping the
+    // notifier write here (instead of only gating in build()) means every
+    // AurumScrollNudge's ValueListenableBuilder never even rebuilds while
+    // scrolling — zero extra work per frame, not just a skipped visual.
+    if (!AurumMotion.enabled) return;
     final c = _controller;
     if (c == null || !c.hasClients) return;
     final pixels = c.position.pixels;
@@ -75,6 +84,11 @@ class AurumScrollNudge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Same reasoning as _onScroll above: with motion disabled there's no
+    // point building the ValueListenableBuilder/RepaintBoundary wrapper at
+    // all — return the plain child so this card costs nothing extra to
+    // lay out or paint, matching Echo's off-by-default scroll animation.
+    if (!AurumMotion.enabled) return child;
     final notifier = AurumScrollDeltaScope.of(context);
     if (notifier == null) return child;
     return RepaintBoundary(

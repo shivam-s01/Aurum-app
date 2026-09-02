@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_motion.dart';
 
 class AurumSaveButton extends StatefulWidget {
   final bool saved;
@@ -47,7 +48,7 @@ class _AurumSaveButtonState extends State<AurumSaveButton>
     super.initState();
     _bounceCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 420),
+      duration: AurumMotion.durationOrZero(AurumMotion.long2),
     );
     _bounce = TweenSequence<double>([
       TweenSequenceItem(
@@ -127,7 +128,7 @@ class _AurumSaveButtonState extends State<AurumSaveButton>
               },
             ),
             AnimatedContainer(
-              duration: const Duration(milliseconds: 260),
+              duration: AurumMotion.durationOrZero(AurumMotion.medium2),
               curve: Curves.easeOut,
               width: widget.size,
               height: widget.size,
@@ -148,7 +149,7 @@ class _AurumSaveButtonState extends State<AurumSaveButton>
                     child: child,
                   ),
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
+                    duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                     transitionBuilder: (child, anim) =>
                         ScaleTransition(scale: anim, child: child),
                     child: Icon(

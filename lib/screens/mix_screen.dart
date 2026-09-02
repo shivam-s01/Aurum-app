@@ -40,6 +40,7 @@ import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../utils/aurum_motion.dart';
 
 class MixScreen extends StatefulWidget {
   final String mixId;
@@ -731,7 +732,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                   ),
                 ),
                 AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
+                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(

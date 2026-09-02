@@ -6,6 +6,7 @@ import '../services/feedback_service.dart';
 import '../theme/aurum_theme.dart';
 import 'aurum_focus_field.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_motion.dart';
 
 /// Shows the feedback dialog. Call this from either the auto-prompt
 /// (after 1-2 songs) or from a manual "Send Feedback" entry in
@@ -154,7 +155,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
                 padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
                 child: SingleChildScrollView(
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
+                    duration: AurumMotion.durationOrZero(AurumMotion.long1),
                     child: _sent ? _buildThankYou(context) : _buildForm(context),
                   ),
                 ),
@@ -206,7 +207,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog>
                 child: TweenAnimationBuilder<double>(
                   key: ValueKey('star_$i${filled}'),
                   tween: Tween(begin: filled ? 1.3 : 1.0, end: 1.0),
-                  duration: const Duration(milliseconds: 280),
+                  duration: AurumMotion.durationOrZero(AurumMotion.medium2),
                   curve: Curves.elasticOut,
                   builder: (context, scale, child) =>
                       Transform.scale(scale: scale, child: child),

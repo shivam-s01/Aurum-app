@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/aurum_theme.dart';
+import '../utils/aurum_motion.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AurumEmptyState — Premium empty-state widget
@@ -181,7 +182,7 @@ class _EmptyStateActionState extends State<_EmptyStateAction> {
       onTap: widget.onTap,
       child: AnimatedScale(
         scale: _pressed ? 0.96 : 1.0,
-        duration: const Duration(milliseconds: 120),
+        duration: AurumMotion.durationOrZero(AurumMotion.short2),
         curve: Curves.easeOut,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),

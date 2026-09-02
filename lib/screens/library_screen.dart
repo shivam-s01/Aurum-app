@@ -66,6 +66,7 @@ import 'mix_screen.dart';
 import '../widgets/aurum_focus_field.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../utils/aurum_motion.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Library Root
@@ -1532,7 +1533,7 @@ class _PlaylistSongTile extends StatelessWidget {
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         leading: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
+          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
           switchInCurve: Curves.easeOut,
           switchOutCurve: Curves.easeIn,
           transitionBuilder: (child, anim) =>
@@ -1544,7 +1545,7 @@ class _PlaylistSongTile extends StatelessWidget {
                   height: 48,
                   child: Center(
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
+                      duration: AurumMotion.durationOrZero(AurumMotion.short2),
                       width: 24,
                       height: 24,
                       decoration: BoxDecoration(
@@ -2513,7 +2514,7 @@ class _HistoryScreenState extends State<_HistoryScreen>
     super.initState();
     _headerCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: AurumMotion.durationOrZero(AurumMotion.long2),
     )..forward();
     _headerFade = CurvedAnimation(parent: _headerCtrl, curve: Curves.easeOut);
   }
@@ -2862,13 +2863,13 @@ class _AnimatedHistoryItemState extends State<_AnimatedHistoryItem>
     final cappedIndex = widget.index.clamp(0, 15);
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 350),
+      duration: AurumMotion.durationOrZero(AurumMotion.long1),
     );
     _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
     _slide = Tween<Offset>(
       begin: const Offset(0, 0.06),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    ).animate(CurvedAnimation(parent: _ctrl, curve: AurumMotion.standard));
 
     final seenKey = widget.itemKey ?? 'idx_${widget.index}';
     if (_seenHistoryItems.contains(seenKey)) {
@@ -3380,7 +3381,7 @@ class _DownloadTileEntranceState extends State<_DownloadTileEntrance> {
     if (_skipAnimation) return widget.child;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.0, end: 1.0),
-      duration: const Duration(milliseconds: 220),
+      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
       curve: Curves.easeOut,
       builder: (context, t, child) => Opacity(
         opacity: t,
@@ -4376,14 +4377,14 @@ class _CollectionRowState extends State<_CollectionRow>
     _entranceCtrl = AnimationController(vsync: this, duration: _riseDuration);
     _snapBackCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 180),
+      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
     );
 
     // easeOutCubic gives a confident, slightly-decelerating rise rather
     // than a linear pop — reads as "premium spring" without the bounce
     // overshooting into cartoonish territory.
     final curved =
-        CurvedAnimation(parent: _entranceCtrl, curve: Curves.easeOutCubic);
+        CurvedAnimation(parent: _entranceCtrl, curve: AurumMotion.standard);
     _fade = curved;
     _slide = Tween<Offset>(
       begin: const Offset(0, 0.35),
@@ -4427,7 +4428,7 @@ class _CollectionRowState extends State<_CollectionRow>
       },
       child: AnimatedScale(
         scale: _pressed ? 0.975 : 1.0,
-        duration: const Duration(milliseconds: 120),
+        duration: AurumMotion.durationOrZero(AurumMotion.short2),
         curve: Curves.easeOut,
         // Transform.translate driven directly by _dragDx: during an
         // active drag this is a raw pixel-for-pixel finger-follow (no
@@ -4439,7 +4440,7 @@ class _CollectionRowState extends State<_CollectionRow>
         child: Transform.translate(
           offset: Offset(_dragDx, 0),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
+            duration: AurumMotion.durationOrZero(AurumMotion.short2),
             curve: Curves.easeOut,
             padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 14),
             decoration: BoxDecoration(

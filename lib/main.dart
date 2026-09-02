@@ -72,6 +72,7 @@ import 'screens/splash_screen.dart';
 import 'screens/app_lock_screen.dart';
 import 'utils/aurum_transitions.dart';
 import 'utils/aurum_haptics.dart';
+import 'utils/aurum_motion.dart';
 
 late NativeAudioEngine _audioEngine;
 
@@ -544,8 +545,8 @@ class AurumApp extends StatelessWidget {
             builder: (context, child) {
               return AnimatedTheme(
                 data: Theme.of(context),
-                duration: const Duration(milliseconds: 320),
-                curve: Curves.easeOutCubic,
+                duration: AurumMotion.durationOrZero(AurumMotion.long1),
+                curve: AurumMotion.standard,
                 child: child ?? const SizedBox.shrink(),
               );
             },

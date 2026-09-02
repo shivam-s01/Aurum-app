@@ -24,6 +24,7 @@ import '../utils/aurum_haptics.dart';
 import '../utils/aurum_transitions.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
+import '../utils/aurum_motion.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Staggered list item — fade + slide up, same system as home_screen.dart's
@@ -123,7 +124,7 @@ class _StaggeredItemState extends State<_StaggeredItem>
     final cappedIndex = widget.index.clamp(0, 10);
     final ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 320),
+      duration: AurumMotion.durationOrZero(AurumMotion.long1),
     );
     _ctrl = ctrl;
     _fade = Tween(begin: 0.0, end: 1.0).animate(
@@ -132,7 +133,7 @@ class _StaggeredItemState extends State<_StaggeredItem>
     _slide = Tween<Offset>(
       begin: const Offset(0, 0.06),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: ctrl, curve: Curves.easeOutCubic));
+    ).animate(CurvedAnimation(parent: ctrl, curve: AurumMotion.standard));
 
     Future.delayed(Duration(milliseconds: 20 + cappedIndex * 35), () {
       if (mounted) ctrl.forward();
@@ -1056,7 +1057,7 @@ class _SearchScreenState extends State<SearchScreen>
                         final slide = Tween<Offset>(
                           begin: const Offset(0, 0.05),
                           end: Offset.zero,
-                        ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+                        ).animate(CurvedAnimation(parent: animation, curve: AurumMotion.standard));
                         return FadeTransition(
                           opacity: animation,
                           child: SlideTransition(
@@ -1171,7 +1172,7 @@ class _SearchScreenState extends State<SearchScreen>
               setState(() => _activeFilter = filter);
             },
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
+              duration: AurumMotion.durationOrZero(AurumMotion.medium1),
               curve: Curves.easeOut,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               alignment: Alignment.center,
@@ -1407,7 +1408,7 @@ class _SearchScreenState extends State<SearchScreen>
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
+        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
         curve: Curves.easeOut,
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -2515,8 +2516,8 @@ class _PressScaleState extends State<_PressScale>
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 90),
-      reverseDuration: const Duration(milliseconds: 200),
+      duration: AurumMotion.durationOrZero(AurumMotion.short1),
+      reverseDuration: AurumMotion.durationOrZero(AurumMotion.medium1),
     );
     _scale = Tween(begin: 1.0, end: 0.94).animate(
       CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),

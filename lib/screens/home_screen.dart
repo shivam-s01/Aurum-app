@@ -14,6 +14,7 @@ import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/api_service.dart';
+import '../services/aurum_image_cache.dart';
 import '../services/home_feed_cache.dart';
 import '../services/recommendation_engine.dart';
 import '../providers/download_provider.dart';
@@ -50,6 +51,7 @@ import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../utils/aurum_motion.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
 // NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
@@ -403,7 +405,7 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
         // transition" complaint this comment describes does not return.
         transitionsBuilder: (context, anim, __, child) => SlideTransition(
           position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-              .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+              .animate(CurvedAnimation(parent: anim, curve: AurumMotion.standard)),
           child: child,
         ),
         // Explicit 380ms both directions — matches the tuned duration
@@ -1161,7 +1163,7 @@ class _HomeScreenState extends State<HomeScreen> {
               final slide = Tween<Offset>(
                 begin: const Offset(0, 0.04),
                 end: Offset.zero,
-              ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+              ).animate(CurvedAnimation(parent: animation, curve: AurumMotion.standard));
               return ColoredBox(
                 color: AurumTheme.bgOf(context),
                 child: FadeTransition(
@@ -1350,14 +1352,14 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
 
     _swipeCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 180),
+      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
     );
     _slideInCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 220),
+      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
     );
     _slideInAnim =
-        CurvedAnimation(parent: _slideInCtrl, curve: Curves.easeOutCubic);
+        CurvedAnimation(parent: _slideInCtrl, curve: AurumMotion.standard);
   }
 
   ModalRoute<void>? _subscribedRoute;
@@ -1492,7 +1494,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     _swipeCtrl.stop();
     final gen = ++_swipeGen;
     _swipeAnim = Tween<double>(begin: _dragX, end: 0.0).animate(
-      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic),
+      CurvedAnimation(parent: _swipeCtrl, curve: AurumMotion.standard),
     );
     _swipeCtrl.forward(from: 0.0).whenComplete(() {
       if (!mounted || gen != _swipeGen) return;
@@ -1506,7 +1508,7 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     final gen = ++_swipeGen;
     _swipeAnim =
         Tween<double>(begin: _dragX, end: next ? -220.0 : 220.0).animate(
-      CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeInCubic),
+      CurvedAnimation(parent: _swipeCtrl, curve: AurumMotion.standardReverse),
     );
     _swipeDir = next ? -1 : 1;
     _swipeCtrl.forward(from: 0.0).whenComplete(() {
@@ -1561,12 +1563,12 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
     // artifact directly, rather than trying to paint over a gap that
     // shouldn't be visible in the first place.
     return AnimatedSize(
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
+      duration: AurumMotion.durationOrZero(AurumMotion.medium2),
+      curve: AurumMotion.standard,
       alignment: Alignment.topCenter,
       clipBehavior: Clip.hardEdge,
       child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
+        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeIn,
         transitionBuilder: (child, anim) => FadeTransition(
@@ -2241,7 +2243,7 @@ class _StaggeredSectionState extends State<_StaggeredSection>
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 420),
+      duration: AurumMotion.durationOrZero(AurumMotion.long2),
     );
     _fade = Tween(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _ctrl, curve: Curves.easeOut),
@@ -2250,7 +2252,7 @@ class _StaggeredSectionState extends State<_StaggeredSection>
       begin: const Offset(0, 0.10),
       end: Offset.zero,
     ).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic),
+      CurvedAnimation(parent: _ctrl, curve: AurumMotion.standard),
     );
 
     // If this section id has been seen before (already shown from cache,
@@ -2603,7 +2605,7 @@ class _ProfileAvatarButton extends StatelessWidget {
                   begin: const Offset(0, 0.05),
                   end: Offset.zero,
                 ).animate(CurvedAnimation(
-                    parent: animation, curve: Curves.easeOutCubic)),
+                    parent: animation, curve: AurumMotion.standard)),
                 child: child,
               ),
             ),
@@ -2641,6 +2643,7 @@ class _ProfileAvatarButton extends StatelessWidget {
             child: avatarUrl != null
                 ? CachedNetworkImage(
                     imageUrl: avatarUrl,
+                    cacheManager: AurumImageCache(),
                     fit: BoxFit.cover,
                     memCacheWidth: 96,
                     memCacheHeight: 96,
@@ -2689,7 +2692,7 @@ class _StatusPillState extends State<_StatusPill> {
       scaleAmount: 0.96,
       onTap: widget.onTap,
       child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
           curve: Curves.easeOut,
           margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -2705,7 +2708,7 @@ class _StatusPillState extends State<_StatusPill> {
             mainAxisSize: MainAxisSize.min,
             children: [
               AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
+                duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                 width: 7,
                 height: 7,
                 decoration: BoxDecoration(
@@ -2749,7 +2752,7 @@ class _SourceSheet extends StatelessWidget {
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.0, end: 1.0),
-      duration: const Duration(milliseconds: 200),
+      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
       curve: Curves.easeOut,
       builder: (_, v, child) => Opacity(
         opacity: v,
@@ -2860,7 +2863,7 @@ class _SourceOptionState extends State<_SourceOption> {
       scaleAmount: 0.98,
       onTap: widget.onTap,
       child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
+          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: widget.selected
@@ -3474,7 +3477,7 @@ class _MoodChipRow extends StatelessWidget {
             child: GestureDetector(
               onTap: () => onTap(chip.id),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
+                duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                 curve: Curves.easeOut,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
@@ -3643,7 +3646,7 @@ class _YtHomePlaylistCardWidgetState
       onTap: _open,
       child: AnimatedScale(
         scale: _pressed ? 0.96 : 1.0,
-        duration: const Duration(milliseconds: 110),
+        duration: AurumMotion.durationOrZero(AurumMotion.short1),
         curve: Curves.easeOut,
         child: Container(
           width: 130,
@@ -3656,6 +3659,7 @@ class _YtHomePlaylistCardWidgetState
                 if (c.artworkUrl.isNotEmpty)
                   CachedNetworkImage(
                     imageUrl: c.artworkUrl,
+                    cacheManager: AurumImageCache(),
                     fit: BoxFit.cover,
                     memCacheWidth: 260,
                     memCacheHeight: 260,

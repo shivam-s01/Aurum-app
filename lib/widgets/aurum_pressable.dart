@@ -24,6 +24,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_motion.dart';
 
 class AurumPressable extends StatefulWidget {
   const AurumPressable({
@@ -62,11 +63,11 @@ class _AurumPressableState extends State<AurumPressable>
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 110),
-      reverseDuration: const Duration(milliseconds: 180),
+      duration: AurumMotion.durationOrZero(AurumMotion.short1),
+      reverseDuration: AurumMotion.durationOrZero(AurumMotion.medium1),
     );
     _scale = Tween<double>(begin: 1.0, end: widget.scaleAmount).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut, reverseCurve: Curves.easeOutBack),
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut, reverseCurve: AurumMotion.emphasized),
     );
   }
 

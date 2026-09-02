@@ -16,6 +16,7 @@ import '../providers/auth_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../services/audio_prefs.dart';
+import '../utils/aurum_motion.dart';
 
 class PremiumScreen extends StatefulWidget {
   const PremiumScreen({super.key});
@@ -65,13 +66,13 @@ class _PremiumScreenState extends State<PremiumScreen>
 
     Animation<double> fadeFor(double s, double e) => CurvedAnimation(
           parent: _entranceCtrl,
-          curve: Interval(s, e, curve: Curves.easeOutCubic),
+          curve: Interval(s, e, curve: AurumMotion.standard),
         );
     Animation<Offset> slideFor(double s, double e) =>
         Tween<Offset>(begin: const Offset(0, 0.07), end: Offset.zero).animate(
           CurvedAnimation(
             parent: _entranceCtrl,
-            curve: Interval(s, e, curve: Curves.easeOutCubic),
+            curve: Interval(s, e, curve: AurumMotion.standard),
           ),
         );
 
@@ -129,7 +130,7 @@ class _PremiumScreenState extends State<PremiumScreen>
 
     _pressCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 120),
+      duration: AurumMotion.durationOrZero(AurumMotion.short2),
       lowerBound: 0.0,
       upperBound: 0.04,
     );
@@ -732,8 +733,8 @@ class _PlanCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOutCubic,
+        duration: AurumMotion.durationOrZero(AurumMotion.medium2),
+        curve: AurumMotion.standard,
         width: isFullWidth ? double.infinity : null,
         padding: EdgeInsets.symmetric(
           vertical: isFullWidth ? 14 : 18,
@@ -780,7 +781,7 @@ class _PlanCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 220),
+                            duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                             style: TextStyle(
                               color:
                                   isSelected ? Colors.black87 : Colors.white60,
@@ -792,7 +793,7 @@ class _PlanCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 220),
+                            duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                             style: TextStyle(
                               color:
                                   isSelected ? Colors.black54 : Colors.white38,
@@ -804,7 +805,7 @@ class _PlanCard extends StatelessWidget {
                       ),
                       Row(children: [
                         AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 220),
+                          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                           style: TextStyle(
                             color: isSelected ? Colors.black : Colors.white,
                             fontSize: 32,
@@ -814,7 +815,7 @@ class _PlanCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 12),
                         AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
+                          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                           child: Icon(
                             isSelected
                                 ? Icons.check_circle_rounded
@@ -833,7 +834,7 @@ class _PlanCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       AnimatedDefaultTextStyle(
-                        duration: const Duration(milliseconds: 220),
+                        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                         style: TextStyle(
                           color: isSelected ? Colors.black87 : Colors.white60,
                           fontSize: 12.5,
@@ -844,7 +845,7 @@ class _PlanCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       AnimatedDefaultTextStyle(
-                        duration: const Duration(milliseconds: 220),
+                        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                         style: TextStyle(
                           color: isSelected ? Colors.black : Colors.white,
                           fontSize: 28,
@@ -853,7 +854,7 @@ class _PlanCard extends StatelessWidget {
                         child: Text(plan.priceLabel),
                       ),
                       AnimatedDefaultTextStyle(
-                        duration: const Duration(milliseconds: 220),
+                        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                         style: TextStyle(
                           color: isSelected ? Colors.black54 : Colors.white38,
                           fontSize: 11,
@@ -862,7 +863,7 @@ class _PlanCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 220),
+                        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                         child: Icon(
                           isSelected
                               ? Icons.check_circle_rounded
@@ -942,7 +943,7 @@ class _SuccessViewState extends State<_SuccessView>
         Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(
       CurvedAnimation(
           parent: _ctrl,
-          curve: const Interval(0.35, 0.65, curve: Curves.easeOutCubic)),
+          curve: const Interval(0.35, 0.65, curve: AurumMotion.standard)),
     );
     _buttonFade = CurvedAnimation(
       parent: _ctrl,
@@ -952,7 +953,7 @@ class _SuccessViewState extends State<_SuccessView>
         Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(
       CurvedAnimation(
           parent: _ctrl,
-          curve: const Interval(0.6, 0.95, curve: Curves.easeOutCubic)),
+          curve: const Interval(0.6, 0.95, curve: AurumMotion.standard)),
     );
 
     _ctrl.forward();

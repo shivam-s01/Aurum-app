@@ -18,6 +18,7 @@
 import 'package:flutter/material.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/artwork_palette_cache.dart';
+import '../utils/aurum_motion.dart';
 
 /// Renders a playlist's "no thumbnail" identity as a rich diagonal
 /// gradient sourced from its own first song's artwork — the shared
@@ -96,7 +97,7 @@ class _PlaylistColorCoverState extends State<PlaylistColorCover> {
           PlaylistColorCover._fallbackB,
         ];
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 320),
+      duration: AurumMotion.durationOrZero(AurumMotion.long1),
       curve: Curves.easeOut,
       width: widget.size.isFinite ? widget.size : null,
       height: widget.size.isFinite ? widget.size : null,

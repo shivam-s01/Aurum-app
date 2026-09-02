@@ -8,6 +8,7 @@ import '../widgets/aurum_settings_tile.dart';
 import '../widgets/aurum_loader.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_motion.dart';
 
 class SettingsLanguageScreen extends StatefulWidget {
   const SettingsLanguageScreen({super.key});
@@ -172,7 +173,7 @@ class _LanguageRow extends StatelessWidget {
               ),
             ),
             AnimatedSwitcher(
-              duration: const Duration(milliseconds: 150),
+              duration: AurumMotion.durationOrZero(AurumMotion.short2),
               transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
               child: loading
                   ? const SizedBox(

@@ -31,6 +31,7 @@ import '../theme/aurum_theme.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../utils/aurum_motion.dart';
 
 class BatterySaverModeTile extends StatelessWidget {
   const BatterySaverModeTile({super.key});
@@ -278,7 +279,7 @@ class _BatterySaverSheetState extends State<_BatterySaverSheet> {
                 const Spacer(),
                 AnimatedOpacity(
                   opacity: _showSavedTick ? 1 : 0,
-                  duration: const Duration(milliseconds: 200),
+                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -336,7 +337,7 @@ class _BatterySaverSheetState extends State<_BatterySaverSheet> {
             ),
             const SizedBox(height: 20),
             AnimatedCrossFade(
-              duration: const Duration(milliseconds: 220),
+              duration: AurumMotion.durationOrZero(AurumMotion.medium1),
               crossFadeState: _enabled ? CrossFadeState.showFirst : CrossFadeState.showSecond,
               firstChild: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -353,7 +354,7 @@ class _BatterySaverSheetState extends State<_BatterySaverSheet> {
                         child: GestureDetector(
                           onTap: () => _selectThreshold(v),
                           child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
+                            duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                             margin: EdgeInsets.only(right: v == 15 ? 10 : 0),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             decoration: BoxDecoration(
@@ -429,7 +430,7 @@ class _ModeOption extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: selected ? AurumTheme.gold.withOpacity(0.08) : Colors.transparent,

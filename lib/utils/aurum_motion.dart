@@ -28,7 +28,7 @@ import '../services/audio_prefs.dart';
 /// HOW TO USE:
 /// This is additive — nothing existing breaks if you don't switch it
 /// over. For NEW animations, or when touching an existing one, prefer:
-///   duration: AurumMotion.medium1
+///   duration: AurumMotion.durationOrZero(AurumMotion.medium1)
 ///   curve: AurumMotion.standard
 /// instead of a fresh `Duration(milliseconds: 267)` + a curve picked at
 /// random. Migrating old call sites can happen gradually, file by file,

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/aurum_image_cache.dart';
 import '../theme/aurum_theme.dart';
+import '../utils/aurum_motion.dart';
 
 /// Unified artwork widget — handles:
 ///   • Network URLs  (https://...)
@@ -333,7 +334,7 @@ class _FadeInImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 220),
+      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
       switchInCurve: Curves.easeOut,
       switchOutCurve: Curves.easeIn,
       layoutBuilder: (currentChild, previousChildren) => Stack(

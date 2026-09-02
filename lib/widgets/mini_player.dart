@@ -14,6 +14,7 @@ import 'aurum_play_pause_icon.dart';
 import '../screens/home_screen.dart' show pushFullPlayer;
 import '../utils/aurum_haptics.dart';
 import '../services/audio_prefs.dart';
+import '../utils/aurum_motion.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
 // NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
@@ -392,8 +393,8 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
                     tween: ColorTween(
                         begin: _tintColor ?? const Color(0xFF1A1714),
                         end: _tintColor ?? const Color(0xFF1A1714)),
-                    duration: const Duration(milliseconds: 420),
-                    curve: Curves.easeOutCubic,
+                    duration: AurumMotion.durationOrZero(AurumMotion.long2),
+                    curve: AurumMotion.standard,
                     builder: (context, animatedTint, _) {
                       final isDark =
                           Theme.of(context).brightness == Brightness.dark;

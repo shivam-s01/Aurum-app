@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/player_provider.dart';
 import 'mini_player.dart';
+import '../utils/aurum_motion.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
 // MINI PLAYER SLOT — Echo Nightly-parity "nav bar hidden on pushed
@@ -72,13 +73,13 @@ class MiniPlayerSlot extends StatelessWidget {
           // single-frame jump was what let this Scaffold's implicit
           // Material fill flash visible for a beat.
           child: AnimatedSize(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
+            duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+            curve: AurumMotion.standard,
             alignment: Alignment.bottomCenter,
             child: Selector<PlayerProvider, bool>(
               selector: (_, p) => p.miniPlayerVisible,
               builder: (context, visible, __) => AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
+                duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                 switchInCurve: Curves.easeOut,
                 switchOutCurve: Curves.easeIn,
                 transitionBuilder: (child, anim) =>

@@ -17,6 +17,7 @@ import 'aurum_like_button.dart';
 import 'aurum_stacked_artwork.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../utils/aurum_motion.dart';
 
 class SongTile extends StatefulWidget {
   final Song song;
@@ -394,7 +395,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                 ),
                 // Like button in header — pop + sparkle burst on like
                 AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
+                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(

@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../utils/aurum_motion.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AurumEqualizerBars — live "now playing" equalizer, YT Music style.
@@ -84,7 +85,7 @@ class _AurumEqualizerBarsState extends State<AurumEqualizerBars>
   void _stopAll() {
     for (final c in _controllers) {
       c.stop();
-      c.animateTo(0.18, duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+      c.animateTo(0.18, duration: AurumMotion.durationOrZero(AurumMotion.medium1), curve: Curves.easeOut);
     }
   }
 

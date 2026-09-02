@@ -33,6 +33,7 @@ import '../providers/favorites_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_motion.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -569,13 +570,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               // enough for the underlying Material fill to ever get a
               // visible frame to itself.
               AnimatedSize(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
+                duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                curve: AurumMotion.standard,
                 alignment: Alignment.bottomCenter,
                 child: Selector<PlayerProvider, bool>(
                   selector: (_, p) => p.miniPlayerVisible,
                   builder: (context, visible, __) => AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
+                    duration: AurumMotion.durationOrZero(AurumMotion.medium1),
                     switchInCurve: Curves.easeOut,
                     switchOutCurve: Curves.easeIn,
                     transitionBuilder: (child, anim) =>
@@ -638,8 +639,8 @@ class _NavTabTapPumpState extends State<_NavTabTapPump>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 100),
-    reverseDuration: const Duration(milliseconds: 260),
+    duration: AurumMotion.durationOrZero(AurumMotion.short1),
+    reverseDuration: AurumMotion.durationOrZero(AurumMotion.medium2),
   );
   late final Animation<double> _scale = Tween(begin: 1.0, end: 0.86).animate(
     CurvedAnimation(
@@ -892,8 +893,8 @@ class AurumBottomNavBar extends StatelessWidget {
                           // own content is visually boxed.
                           child: Center(
                             child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 280),
-                            curve: Curves.easeOutCubic,
+                            duration: AurumMotion.durationOrZero(AurumMotion.medium2),
+                            curve: AurumMotion.standard,
                             padding: selected
                                 ? const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 8)

@@ -8,6 +8,7 @@ import '../theme/aurum_theme.dart';
 import '../providers/player_provider.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_motion.dart';
 
 class AppLockScreen extends StatefulWidget {
   final Widget child;
@@ -218,7 +219,7 @@ class _LockUI extends StatelessWidget {
           // PIN dots with shake animation
           TweenAnimationBuilder<double>(
             tween: Tween(begin: 0, end: shaking ? 1 : 0),
-            duration: const Duration(milliseconds: 400),
+            duration: AurumMotion.durationOrZero(AurumMotion.long2),
             builder: (_, v, child) => Transform.translate(
               offset: Offset(
                 8 * (v < 0.5 ? v * 2 : (1 - v) * 2) *
@@ -232,7 +233,7 @@ class _LockUI extends StatelessWidget {
               children: List.generate(4, (i) {
                 final filled = i < enteredPin.length;
                 return AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
+                  duration: AurumMotion.durationOrZero(AurumMotion.short2),
                   margin: const EdgeInsets.symmetric(horizontal: 12),
                   width: filled ? 18 : 14,
                   height: filled ? 18 : 14,
@@ -255,7 +256,7 @@ class _LockUI extends StatelessWidget {
           const SizedBox(height: 16),
           AnimatedOpacity(
             opacity: error.isEmpty ? 0 : 1,
-            duration: const Duration(milliseconds: 200),
+            duration: AurumMotion.durationOrZero(AurumMotion.medium1),
             child: Text(error, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
           ),
 

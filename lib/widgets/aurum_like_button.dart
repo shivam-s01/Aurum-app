@@ -29,6 +29,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_motion.dart';
 
 class AurumLikeButton extends StatefulWidget {
   const AurumLikeButton({
@@ -74,7 +75,7 @@ class _AurumLikeButtonState extends State<AurumLikeButton>
     _wasLiked = widget.isLiked;
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 480),
+      duration: AurumMotion.durationOrZero(AurumMotion.long2),
     );
   }
 
