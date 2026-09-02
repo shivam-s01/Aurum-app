@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -7,7 +6,6 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:palette_generator/palette_generator.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
 import '../providers/player_provider.dart';
@@ -16,6 +14,7 @@ import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/api_service.dart';
+import '../services/aurum_image_cache.dart';
 import '../services/home_feed_cache.dart';
 import '../services/recommendation_engine.dart';
 import '../providers/download_provider.dart';
@@ -23,6 +22,8 @@ import '../services/audio_prefs.dart';
 import '../services/native_engine_bridge.dart';
 import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
+import '../widgets/aurum_scroll_nudge.dart';
+import '../widgets/aurum_stage_backdrop.dart';
 import '../widgets/faded_horizontal_list.dart';
 import '../widgets/song_tile.dart';
 import '../main.dart' show aurumRouteObserver;
@@ -509,6 +510,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isFirstArtistUpdate = true;
 
   final ScrollController _scrollCtrl = ScrollController();
+  // Echo Nightly-style scroll-linked nudge — one shared delta feed for
+  // every card on the page (see aurum_scroll_nudge.dart for why this is
+  // a single listener, not one per tile).
+  final AurumScrollDelta _scrollDelta = AurumScrollDelta();
 
   // PERF FIX (40s "katarnak lag" on every cold start): _onlineSections used
   // to live as plain State fields, updated via setState() on _HomeScreenState
@@ -539,6 +544,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _scrollDelta.attach(_scrollCtrl);
     // FIX (cold-start instant load, Spotify-style): render whatever was
     // cached from the last successful load FIRST, synchronously into
     // initial state where possible, so the very first frame already shows
@@ -701,6 +707,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _scrollDelta.dispose();
     _scrollCtrl.dispose();
     _onlineSectionsNotifier.dispose();
     super.dispose();
@@ -983,8 +990,9 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: AurumTheme.bgOf(context),
       body: Stack(
         children: [
-          // ── Top ambient glow layer (behind everything) ──
-          const _TopAmbientGlow(),
+          // ── Top stage backdrop: Echo Nightly-style baked blur + grain.
+          // Replaces the old flat palette-color glow. ──
+          const AurumStageBackdrop(),
 
           // ── Main scroll content ──
           // Reverted to Flutter's stock RefreshIndicator — the custom
@@ -999,7 +1007,9 @@ class _HomeScreenState extends State<HomeScreen> {
             onRefresh: () => isOnline
                 ? Future.wait([_loadOnline(), _loadArtists()])
                 : context.read<LibraryProvider>().refresh(),
-            child: CustomScrollView(
+            child: AurumScrollDeltaScope(
+              notifier: _scrollDelta.notifier,
+              child: CustomScrollView(
               controller: _scrollCtrl,
               physics: const BouncingScrollPhysics(
                 parent: AlwaysScrollableScrollPhysics(),
@@ -1120,6 +1130,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
                 const SliverToBoxAdapter(child: SizedBox(height: 110)),
               ],
+              ),
             ),
           ),
         ],
@@ -1809,169 +1820,6 @@ class _HeroNowPlayingState extends State<_HeroNowPlaying>
   }
 }
 
-class _TopAmbientGlow extends StatefulWidget {
-  const _TopAmbientGlow();
-
-  @override
-  State<_TopAmbientGlow> createState() => _TopAmbientGlowState();
-}
-
-class _TopAmbientGlowState extends State<_TopAmbientGlow>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _opacity;
-
-  Color _currentColor = Colors.transparent;
-  Color _targetColor  = Colors.transparent;
-  String _lastUrl     = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-    _opacity = Tween(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _extractColor(String url) async {
-    if (url.isEmpty || url == _lastUrl) return;
-    _lastUrl = url;
-
-    try {
-      final ImageProvider provider = url.startsWith('http')
-          ? CachedNetworkImageProvider(url)
-          : FileImage(File(url)) as ImageProvider;
-
-      // 80x80 is enough for palette — minimal cost
-      final pg = await PaletteGenerator.fromImageProvider(
-        provider,
-        size: const Size(48, 48),
-      );
-
-      final raw = pg.vibrantColor?.color ??
-          pg.dominantColor?.color ??
-          pg.lightVibrantColor?.color;
-
-      if (raw == null || !mounted) return;
-
-      // Snapshot current lerped value before transition
-      final t = _ctrl.value;
-      _currentColor = Color.lerp(_currentColor, _targetColor, t) ?? _currentColor;
-
-      final isDark = mounted && Theme.of(context).brightness == Brightness.dark;
-      _targetColor = isDark
-          // Dark mode: subtle, low-lightness — artwork stays the focus.
-          ? HSLColor.fromColor(raw).withSaturation(0.45).withLightness(0.14).toColor()
-          // Light mode: airy, higher lightness so it reads as soft
-          // colored light rather than a dark smear behind bright text.
-          : HSLColor.fromColor(raw).withSaturation(0.55).withLightness(0.72).toColor();
-
-      // Fade out → update → fade in (crossfade feel)
-      await _ctrl.reverse();
-      if (!mounted) return;
-      setState(() => _currentColor = _targetColor);
-      _ctrl.forward();
-    } catch (_) {}
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final song = context.select<PlayerProvider, Song?>((p) => p.currentSong);
-
-    if (song != null) {
-      // Fire async, no setState in build
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _extractColor(song.artworkUrl);
-      });
-    }
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // FIX — home screen looked completely flat whenever nothing was
-    // playing (which is exactly the state a fresh app-open lands on,
-    // e.g. "Pick something to play"): this glow used to render nothing
-    // at all with no active song, even though the whole point of the
-    // effect is to give the page ambient depth instead of a flat block
-    // of background color. A paid app's home surface has *some* subtle
-    // life to it even before playback starts. Fall back to a gentle,
-    // static wash of the brand gold at low opacity instead of
-    // SizedBox.shrink — same painter, same position, just a fixed
-    // idle color rather than one extracted from currently-playing art.
-    final effectiveColor = song != null
-        ? _currentColor
-        : (isDark
-            ? AurumTheme.gold.withOpacity(0.16)
-            : AurumTheme.gold.withOpacity(0.10));
-
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _opacity,
-        builder: (_, __) {
-          final opacity = song != null ? _opacity.value : 1.0;
-          return Opacity(
-            opacity: opacity,
-            child: SizedBox(
-              height: isDark ? 220 : 240,
-              width: double.infinity,
-              child: _GlowPainter(color: effectiveColor, isDark: isDark),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-// CustomPainter — single radial gradient blob at the top center.
-// Cheaper than a Container with BoxDecoration because it skips the
-// layout pass entirely.
-class _GlowPainter extends StatelessWidget {
-  final Color color;
-  final bool isDark;
-  const _GlowPainter({required this.color, required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(painter: _GlowBlobPainter(color, isDark));
-  }
-}
-
-class _GlowBlobPainter extends CustomPainter {
-  final Color color;
-  final bool isDark;
-  _GlowBlobPainter(this.color, this.isDark);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (color == Colors.transparent) return;
-
-    final paint = Paint()
-      ..shader = RadialGradient(
-        center: Alignment.topCenter,
-        radius: 1.1,
-        colors: isDark
-            ? [color.withOpacity(0.30), color.withOpacity(0.10), Colors.transparent]
-            : [color.withOpacity(0.22), color.withOpacity(0.08), Colors.transparent],
-        stops: const [0.0, 0.4, 1.0],
-      ).createShader(Rect.fromLTWH(0, -size.height * 0.3, size.width, size.height * 0.9));
-
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
-  }
-
-  @override
-  bool shouldRepaint(_GlowBlobPainter old) => old.color != color || old.isDark != isDark;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Online Content
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2170,24 +2018,29 @@ class _SongSectionRowState extends State<_SongSectionRow> {
                   ),
                 ),
               ),
+              // ECHO-NIGHTLY MATCH: replaced the "See all" text button
+              // with the exact same treatment Echo Nightly uses on every
+              // shelf header — a plain circular icon button holding a
+              // simple forward-arrow glyph (Echo: ic_back flipped via
+              // scaleX="-1", styled IconButtonTransparent — no fill, no
+              // outline, no ripple background, just the glyph + a
+              // touch-target-sized transparent hit area). Cheapest
+              // possible swap: no new asset, no new package — Icons.
+              // arrow_forward_rounded is already bundled with Flutter's
+              // Material icon font, so this costs nothing extra in APK
+              // size or first-paint time, same onTap/behavior as before.
               Material(
                 color: Colors.transparent,
+                shape: const CircleBorder(),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
+                  customBorder: const CircleBorder(),
                   onTap: openAsPlaylist,
-                  // Own padded hit area (not just the text glyph bounds) so
-                  // the tap target is consistently reachable and gives
-                  // immediate ripple feedback — a "See all" mis-tap/no-op
-                  // used to be the row's least reliable interaction.
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                    child: Text(
-                      'See all',
-                      style: TextStyle(
-                        color: AurumTheme.gold,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 20,
+                      color: AurumTheme.textPrimaryOf(context),
                     ),
                   ),
                 ),
@@ -2294,7 +2147,8 @@ class _SongGridCardState extends State<_SongGridCard> {
     // grid. These rows can hold up to 12 cards each and there are several
     // per Home screen, so this adds up on weaker devices during scroll.
     return RepaintBoundary(
-      child: GestureDetector(
+      child: AurumScrollNudge(
+        child: GestureDetector(
       onTap: () {
         AurumHaptics.selection();
         // SPOTIFY-STYLE FIX ("kahi se bhi full player na khule"): tap
@@ -2338,6 +2192,7 @@ class _SongGridCardState extends State<_SongGridCard> {
             ],
           ),
         ),
+      ),
       ),
       ),
     );
@@ -2787,6 +2642,7 @@ class _ProfileAvatarButton extends StatelessWidget {
             child: avatarUrl != null
                 ? CachedNetworkImage(
                     imageUrl: avatarUrl,
+                    cacheManager: AurumImageCache(),
                     fit: BoxFit.cover,
                     memCacheWidth: 96,
                     memCacheHeight: 96,
@@ -3802,6 +3658,7 @@ class _YtHomePlaylistCardWidgetState
                 if (c.artworkUrl.isNotEmpty)
                   CachedNetworkImage(
                     imageUrl: c.artworkUrl,
+                    cacheManager: AurumImageCache(),
                     fit: BoxFit.cover,
                     memCacheWidth: 260,
                     memCacheHeight: 260,

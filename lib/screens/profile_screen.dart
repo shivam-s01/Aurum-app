@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../services/aurum_image_cache.dart';
 import '../theme/aurum_theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
@@ -122,6 +123,7 @@ class _ProfileHero extends StatelessWidget {
                 imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                 child: CachedNetworkImage(
                   imageUrl: avatarUrl,
+                  cacheManager: AurumImageCache(),
                   fit: BoxFit.cover,
                   // LOW-END DEVICE FIX (2GB RAM): heavily blurred (28σ)
                   // full-screen background — a small decode target looks
@@ -181,6 +183,7 @@ class _ProfileHero extends StatelessWidget {
                   child: avatarUrl != null
                       ? CachedNetworkImage(
                           imageUrl: avatarUrl,
+                          cacheManager: AurumImageCache(),
                           fit: BoxFit.cover,
                           // LOW-END DEVICE FIX (2GB RAM): 100x100 display
                           // circle, capped to 2x for crisp high-DPI

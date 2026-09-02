@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../services/aurum_image_cache.dart';
 import '../theme/aurum_theme.dart';
 
 /// Unified artwork widget — handles:
@@ -277,6 +278,11 @@ class _RetryableNetworkImageState extends State<_RetryableNetworkImage> {
       // tracks which tier is currently being attempted.
       key: ValueKey(widget.url),
       imageUrl: _activeUrl,
+      // Echo Nightly match: routes disk caching through a size-bounded
+      // CacheManager (AurumImageCache, 100MB-equivalent cap) instead of
+      // the plugin's default unbounded-by-size cache — see that class's
+      // own doc comment for why this matters on long-term disk usage.
+      cacheManager: AurumImageCache(),
       width: widget.size,
       height: widget.size,
       fit: BoxFit.cover,

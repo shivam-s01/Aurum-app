@@ -43,6 +43,13 @@ dependencies:
   # UI
   scrollable_positioned_list: ^0.3.8
   cached_network_image: ^3.3.1
+  # Explicit dependency (was already pulled in transitively by
+  # cached_network_image) so we can cap its disk cache — see main.dart's
+  # AurumImageCache config. Matches Echo Nightly's own Coil setup
+  # (100MB disk cache, size-bounded) instead of the default unbounded
+  # (age-only, 30-day) cache_manager policy, which could otherwise grow
+  # disk usage indefinitely on a heavy-browsing session.
+  flutter_cache_manager: ^3.3.1
   shimmer: ^3.0.0
   palette_generator: ^0.3.3+3
   google_fonts: ^6.2.1
