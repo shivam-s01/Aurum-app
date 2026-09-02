@@ -14,7 +14,6 @@ import '../providers/library_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/api_service.dart';
-import '../services/aurum_image_cache.dart';
 import '../services/home_feed_cache.dart';
 import '../services/recommendation_engine.dart';
 import '../providers/download_provider.dart';
@@ -2642,7 +2641,6 @@ class _ProfileAvatarButton extends StatelessWidget {
             child: avatarUrl != null
                 ? CachedNetworkImage(
                     imageUrl: avatarUrl,
-                    cacheManager: AurumImageCache(),
                     fit: BoxFit.cover,
                     memCacheWidth: 96,
                     memCacheHeight: 96,
@@ -3658,7 +3656,6 @@ class _YtHomePlaylistCardWidgetState
                 if (c.artworkUrl.isNotEmpty)
                   CachedNetworkImage(
                     imageUrl: c.artworkUrl,
-                    cacheManager: AurumImageCache(),
                     fit: BoxFit.cover,
                     memCacheWidth: 260,
                     memCacheHeight: 260,
