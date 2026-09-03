@@ -66,28 +66,70 @@ class MiniPlayerSlot extends StatelessWidget {
           top: false,
           // FIX (white flash on auto-skip reappear — see the matching,
           // more detailed comment in main_shell.dart's bottomNavigationBar
-          // for the full mechanism): wrapped in AnimatedSize +
-          // AnimatedSwitcher instead of an instant SizedBox.shrink() ↔
-          // MiniPlayer() swap, so the layout height change is smoothed
-          // over real time rather than jumping in a single frame — that
-          // single-frame jump was what let this Scaffold's implicit
-          // Material fill flash visible for a beat.
-          child: AnimatedSize(
-            duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-            curve: AurumMotion.standard,
-            alignment: Alignment.bottomCenter,
-            child: Selector<PlayerProvider, bool>(
-              selector: (_, p) => p.miniPlayerVisible,
-              builder: (context, visible, __) => AnimatedSwitcher(
-                duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
-                transitionBuilder: (child, anim) =>
-                    FadeTransition(opacity: anim, child: child),
-                child: visible
-                    ? const MiniPlayer(key: ValueKey('mini_player_visible'))
-                    : const SizedBox.shrink(key: ValueKey('mini_player_hidden')),
+          // for the full mechanism): wrapped in AnimatedSwitcher instead
+          // of an instant SizedBox.shrink() ↔ MiniPlayer() swap, so
+          // appearing/disappearing is smoothed over real time rather than
+          // jumping in a single frame — that single-frame jump was what
+          // let this Scaffold's implicit Material fill flash visible for
+          // a beat. The custom layoutBuilder below (Stack instead of
+          // AnimatedSwitcher's default) sizes the slot to MiniPlayer's
+          // own height immediately once it's the incoming child, instead
+          // of growing from zero — matching Echo Nightly's own mini
+          // player, which never height-animates on entry at all, only
+          // fades/slides in place.
+          // FIX ("song click karte hi mini player jatke se aaye, chahiye
+          // ekdam smooth/lightweight/stable entrance"): AnimatedSize
+          // (height) and AnimatedSwitcher's FadeTransition (opacity) used
+          // to run as two independent animations driven by two separate
+          // Tweens/tickers, both racing to settle on the very first
+          // frame a song starts. Height and opacity finishing at
+          // slightly different rates — even a few ms apart — reads as a
+          // visible "pop"/jatka rather than one continuous motion,
+          // because the box briefly finishes resizing while still only
+          // partially faded in (or vice versa), which also occasionally
+          // causes a one-frame layout jump depending on frame timing.
+          // Fix: a single AnimatedSwitcher drives ONE Tween end-to-end —
+          // opacity, a small upward slide, and a subtle scale are all
+          // derived from that same `anim` value, so they can never drift
+          // out of sync with each other. This also removes the extra
+          // AnimatedSize ticker entirely (one animation instead of two
+          // running concurrently), which is strictly cheaper per frame,
+          // not just smoother-looking. Curves.easeOutCubic (via
+          // AurumMotion.standard) means it starts fast and settles
+          // gently — no bounce, no overshoot, so it can never look
+          // "stuck" or jittery even if animations are toggled off
+          // mid-flight (durationOrZero still short-circuits to an
+          // instant snap when the user has disabled animations).
+          child: Selector<PlayerProvider, bool>(
+            selector: (_, p) => p.miniPlayerVisible,
+            builder: (context, visible, __) => AnimatedSwitcher(
+              duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+              switchInCurve: AurumMotion.standard,
+              switchOutCurve: AurumMotion.standardReverse,
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                alignment: Alignment.bottomCenter,
+                children: [
+                  ...previousChildren,
+                  if (currentChild != null) currentChild,
+                ],
               ),
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.12),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim),
+                    alignment: Alignment.bottomCenter,
+                    child: child,
+                  ),
+                ),
+              ),
+              child: visible
+                  ? const MiniPlayer(key: ValueKey('mini_player_visible'))
+                  : const SizedBox.shrink(key: ValueKey('mini_player_hidden')),
             ),
           ),
         ),

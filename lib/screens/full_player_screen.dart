@@ -1797,6 +1797,52 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             ),
             SizedBox(height: (vGapMd - 15).clamp(0.0, vGapMd)),
             // Song info — staggered fade+slide up (delay ~90ms)
+            // FIX ("Spotify jaisa — lyrics upar, title/artist niche"):
+            // this block (lyrics strip) and the title/artist block below
+            // it used to be in the opposite order — title/artist first,
+            // then the lyrics strip underneath. Swapped so the lyrics
+            // strip now sits directly under the artwork and title/artist
+            // sits right above the seek bar, matching Spotify's layout
+            // exactly. Nothing about either widget itself changed — same
+            // widgets, same animations, just reordered.
+            ValueListenableBuilder<bool>(
+              valueListenable: AudioPrefs.showLyricsOnPlayerNotifier,
+              builder: (context, show, _) {
+                return ValueListenableBuilder<LyricsViewMode>(
+                  valueListenable: AudioPrefs.lyricsViewModeNotifier,
+                  builder: (context, viewMode, __) {
+                    // Inline strip only exists in Inline mode — Full Screen
+                    // mode routes exclusively through the trigger button,
+                    // same as Spotify's two lyrics presentations never
+                    // showing at once.
+                    if (!show ||
+                        _immersiveLyricsOpen ||
+                        viewMode == LyricsViewMode.fullscreen) {
+                      return const SizedBox.shrink();
+                    }
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _InlineLyricsStrip(
+                            hPad: hPad,
+                            bgLuma: _currentBg2.computeLuminance(),
+                            // FIX: this used to call _openPanel(initialTab: 1),
+                            // which pushed the old bottom-sheet Lyrics tab —
+                            // completely bypassing the full-screen immersive
+                            // glow overlay below. This strip's own tap opens
+                            // the same full-screen experience; there's no
+                            // sheet-based lyrics view left in the flow now.
+                            onTap: _openImmersiveLyrics,
+                          ),
+                        ),
+                        SizedBox(width: hPad * 0.5),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
+            SizedBox(height: vGapSm * 0.3),
             FadeTransition(
               opacity: _infoStagger,
               child: SlideTransition(
@@ -1846,51 +1892,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   ),
                 ),
               ),
-            ),
-            SizedBox(height: vGapSm * 0.3),
-            // sitting between title/artist and the seek bar. Tapping it
-            // opens straight to the full Lyrics tab. Hidden (not removed)
-            // while the immersive full-screen lyrics overlay is open —
-            // showing a redundant single-line ticker underneath the
-            // full-screen lyrics view it triggers would be the exact
-            // "awkward moment" the overlay is meant to avoid. Reappears
-            // the instant the overlay closes, same as before.
-            ValueListenableBuilder<bool>(
-              valueListenable: AudioPrefs.showLyricsOnPlayerNotifier,
-              builder: (context, show, _) {
-                return ValueListenableBuilder<LyricsViewMode>(
-                  valueListenable: AudioPrefs.lyricsViewModeNotifier,
-                  builder: (context, viewMode, __) {
-                    // Inline strip only exists in Inline mode — Full Screen
-                    // mode routes exclusively through the trigger button,
-                    // same as Spotify's two lyrics presentations never
-                    // showing at once.
-                    if (!show ||
-                        _immersiveLyricsOpen ||
-                        viewMode == LyricsViewMode.fullscreen) {
-                      return const SizedBox.shrink();
-                    }
-                    return Row(
-                      children: [
-                        Expanded(
-                          child: _InlineLyricsStrip(
-                            hPad: hPad,
-                            bgLuma: _currentBg2.computeLuminance(),
-                            // FIX: this used to call _openPanel(initialTab: 1),
-                            // which pushed the old bottom-sheet Lyrics tab —
-                            // completely bypassing the full-screen immersive
-                            // glow overlay below. This strip's own tap opens
-                            // the same full-screen experience; there's no
-                            // sheet-based lyrics view left in the flow now.
-                            onTap: _openImmersiveLyrics,
-                          ),
-                        ),
-                        SizedBox(width: hPad * 0.5),
-                      ],
-                    );
-                  },
-                );
-              },
             ),
             SizedBox(height: vGapSm * 0.3),
             // Seek bar — delay ~150ms
@@ -8632,7 +8633,17 @@ class _RepeatMorphPainter extends CustomPainter {
     final s = size.width / 40.0;
     Offset p(double x, double y) => Offset(x * s, y * s);
 
-    final strokeW = 2.5 * s;
+    // FIX ("suffer/shuffle se repeat button ka weight/balance alag lagta
+    // hai"): shuffle uses Flutter's built-in Icons.shuffle_rounded glyph,
+    // whose visual stroke weight at 20px reads noticeably bolder than
+    // this hand-drawn CustomPaint repeat icon used to. The old stroke
+    // width here was `2.5 * s` where s = size.width / 40 — at size=20
+    // that's s=0.5, so strokeW came out to only 1.25px, visibly thinner
+    // than shuffle's glyph at the same 20px box. Raised the base stroke
+    // constant so the two icons carry matching visual weight at the same
+    // size — a real top-grade UI never has one icon in a symmetric pair
+    // reading heavier/lighter than its sibling.
+    final strokeW = 3.4 * s;
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke

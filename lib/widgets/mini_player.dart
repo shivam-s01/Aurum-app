@@ -43,6 +43,24 @@ class MiniPlayer extends StatefulWidget {
   State<MiniPlayer> createState() => _MiniPlayerState();
 }
 
+// Tiny value-equality holder so Selector only fires a rebuild when
+// visibility or the actual current song identity changes — NOT on every
+// PlayerProvider.notifyListeners() call (which also fires on every
+// playback-position tick). See the PERF FIX comment on MiniPlayer's
+// build() for the full reasoning.
+class _MiniPlayerVis {
+  final bool visible;
+  final Song? song;
+  const _MiniPlayerVis(this.visible, this.song);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _MiniPlayerVis && other.visible == visible && other.song == song;
+
+  @override
+  int get hashCode => Object.hash(visible, song);
+}
+
 class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
   double _dragY = 0;
   bool _dragging = false;
@@ -232,9 +250,20 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
   // treat the vertical-drag-end as a tap. One recognizer, one decision,
   // every gesture resolves predictably.
   double _totalMovement = 0;
+  // Tracks the most negative (highest upward) and most positive (deepest
+  // downward) _dragY reached during THIS gesture — not just wherever the
+  // finger happens to be at release. A single dominant direction is what
+  // actually defines "the user swiped down" vs "the user swiped up";
+  // using only the release-frame value is fragile because natural thumb
+  // motion almost always has a tiny reversal in the last few pixels
+  // right as it lifts off.
+  double _maxDragY = 0; // most positive (deepest downward reach)
+  double _minDragY = 0; // most negative (deepest upward reach)
 
   void _onDragStart(DragStartDetails d) {
     _totalMovement = 0;
+    _maxDragY = 0;
+    _minDragY = 0;
   }
 
   void _onDragUpdate(DragUpdateDetails d) {
@@ -242,6 +271,8 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
     setState(() {
       _dragging = true;
       _dragY = (_dragY + d.delta.dy).clamp(-120.0, 160.0);
+      if (_dragY > _maxDragY) _maxDragY = _dragY;
+      if (_dragY < _minDragY) _minDragY = _dragY;
     });
   }
 
@@ -258,11 +289,38 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
       _openFullPlayer();
       return;
     }
-    if (y < _openThreshold || velocity < -400) {
+    // FIX ("swipe down ekdam to-grade hona chahiye, kabhi bhi upar/full
+    // player nahi khulna chahiye"): previously a gesture could still open
+    // the full player off of `y` or velocity alone, even when the swipe
+    // was clearly, overwhelmingly a downward one — e.g. finger goes
+    // 140px down, then in the very last couple of pixels before lift-off
+    // drifts back up by 20-30px (completely normal thumb mechanics).
+    // That left `y` (the release-frame position) small/negative and
+    // `velocity` briefly upward, even though `_maxDragY` (140) shows the
+    // gesture was unmistakably a downward swipe the whole way. Fix: a
+    // downward gesture is now judged by whether it EVER reached deep
+    // downward travel (_maxDragY), not by wherever it happened to be on
+    // the exact release frame — so a genuine swipe-down always resolves
+    // to dismiss, full stop, regardless of any late micro-reversal.
+    // Opening the full player now requires BOTH that the gesture never
+    // went meaningfully downward AND (a deep-enough upward drag or a
+    // clean upward flick) — the `_maxDragY < 40` guard is what makes a
+    // downward-then-recoil gesture structurally unable to open the full
+    // player, no matter how sharp the recoil's velocity is.
+    final wentMeaningfullyDown = _maxDragY > 40;
+    final wentMeaningfullyUp = _minDragY < -40;
+    if (!wentMeaningfullyDown &&
+        (_minDragY < _openThreshold || (velocity < -400 && y <= 0))) {
       _openFullPlayer();
       return;
     }
-    if (y > _dismissThreshold || velocity > 400) {
+    // Symmetric guard for the dismiss side: a clean upward swipe should
+    // never accidentally dismiss just because its release-frame velocity
+    // briefly reads positive (the mirror image of the recoil problem
+    // fixed above). wentMeaningfullyUp being true structurally blocks
+    // dismiss the same way wentMeaningfullyDown blocks open.
+    if (!wentMeaningfullyUp &&
+        (_maxDragY > _dismissThreshold || velocity > 400)) {
       AurumHaptics.medium();
       final player = context.read<PlayerProvider>();
       player.pause();
@@ -332,9 +390,30 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<PlayerProvider>(
-      builder: (context, player, _) {
-        if (!player.miniPlayerVisible || player.currentSong == null) {
+    // PERF FIX ("low-end device pe mini player ke saath hang/lag ho jaata
+    // hai"): this used to be Consumer<PlayerProvider>, which rebuilds this
+    // ENTIRE subtree — GestureDetector, the artwork-tint TweenAnimationBuilder,
+    // the BackdropFilter blur, every text/icon widget below — on EVERY
+    // single PlayerProvider.notifyListeners() call. PlayerProvider notifies
+    // on every playback-position tick (multiple times per second while a
+    // song is playing), not just on song-change/play-pause/visibility
+    // changes. _MiniProgressBar already isolates its own progress-only
+    // rebuild via a Selector further down — so under Consumer, every tick
+    // was doing that narrow progress-bar rebuild AND a full mini-player
+    // rebuild (blur repaint, tint tween re-evaluation, gesture detector
+    // reattachment, full row/column layout) redundantly, dozens of times a
+    // minute, for the entire time any song plays. That's cheap to absorb
+    // on a fast device (invisible) but is exactly the kind of steady,
+    // avoidable per-frame cost that reads as "hang/lag" on a low-end one.
+    // Selector<PlayerProvider, _MiniPlayerVis> below only triggers a
+    // rebuild when visibility or the current song actually changes —
+    // playback ticks now flow to _MiniProgressBar's own Selector alone,
+    // exactly where they're needed and nowhere else.
+    return Selector<PlayerProvider, _MiniPlayerVis>(
+      selector: (_, p) => _MiniPlayerVis(p.miniPlayerVisible, p.currentSong),
+      builder: (context, vis, _) {
+        final player = context.read<PlayerProvider>();
+        if (!vis.visible || vis.song == null) {
           return const SizedBox.shrink();
         }
 
@@ -342,7 +421,7 @@ class _MiniPlayerState extends State<MiniPlayer> with WidgetsBindingObserver {
         // is now playing. Deferred a frame — calling setState() directly
         // inside build() isn't safe, and the cache-hit path (the common
         // case) resolves so fast the one-frame delay is imperceptible.
-        final currentSong = player.currentSong;
+        final currentSong = vis.song;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _syncTintForSong(currentSong);
         });
@@ -747,47 +826,65 @@ class _PlayBtn extends StatelessWidget {
     final accent = context.watch<ThemeProvider>().accentColor;
     final btnSize = compact ? 34.0 : 36.0;
     final iconSize = compact ? 18.0 : 20.0;
-    if (player.isLoading) {
-      return Opacity(
-        opacity: 0.35,
-        child: SizedBox(
-          width: btnSize,
-          height: btnSize,
-          child: Icon(Icons.play_arrow_rounded, color: accent, size: iconSize + 6),
-        ),
-      );
-    }
-    return AurumPressable(
-      scaleAmount: 0.88,
-      haptic: false,
-      onTap: () {
-        AurumHaptics.heavy();
-        player.togglePlay();
+    // PERF/CORRECTNESS FIX: now that MiniPlayer's outer build() only
+    // rebuilds on visibility/song changes (see the PERF FIX comment
+    // there), this button needs its OWN narrow listener for
+    // isLoading/isPlaying — those used to update purely as a side effect
+    // of the old Consumer<PlayerProvider> rebuilding this entire widget
+    // on every notifyListeners() call. Without this Selector, tapping
+    // play/pause would still work (the callback below still calls
+    // player.togglePlay()) but the icon itself would silently stop
+    // updating. Selector here is still strictly narrower than the old
+    // Consumer was — it only rebuilds THIS button, not the whole bar,
+    // and only when isLoading/isPlaying actually flip (not on every
+    // playback-position tick).
+    return Selector<PlayerProvider, ({bool isLoading, bool isPlaying})>(
+      selector: (_, p) => (isLoading: p.isLoading, isPlaying: p.isPlaying),
+      builder: (context, state, _) {
+        if (state.isLoading) {
+          return Opacity(
+            opacity: 0.35,
+            child: SizedBox(
+              width: btnSize,
+              height: btnSize,
+              child:
+                  Icon(Icons.play_arrow_rounded, color: accent, size: iconSize + 6),
+            ),
+          );
+        }
+        return AurumPressable(
+          scaleAmount: 0.88,
+          haptic: false,
+          onTap: () {
+            AurumHaptics.heavy();
+            player.togglePlay();
+          },
+          child: Container(
+            width: btnSize,
+            height: btnSize,
+            decoration: BoxDecoration(
+              color: accent,
+              shape: BoxShape.circle,
+            ),
+            child: AurumPlayPauseIcon(
+              // EXACT Echo Nightly port (real path-data morph — triangle
+              // reshapes into bars, not a crossfade) — see
+              // aurum_play_pause_icon.dart. Same widget as the full player's
+              // button so mini/full stay visually identical, just smaller.
+              isPlaying: state.isPlaying,
+              // FIX: was hardcoded AurumTheme.bg (always the app's dark
+              // background color), which reads fine against a light accent
+              // but goes near-invisible if the user picks a dark accent
+              // color in Settings → Appearance — dark icon on a dark circle.
+              // Deriving black/white from the accent's own luminance
+              // guarantees the icon stays visible against whatever color
+              // is actually behind it.
+              color: accent.computeLuminance() > 0.5 ? Colors.black : Colors.white,
+              size: iconSize,
+            ),
+          ),
+        );
       },
-      child: Container(
-        width: btnSize,
-        height: btnSize,
-        decoration: BoxDecoration(
-          color: accent,
-          shape: BoxShape.circle,
-        ),
-        child: AurumPlayPauseIcon(
-          // EXACT Echo Nightly port (real path-data morph — triangle
-          // reshapes into bars, not a crossfade) — see
-          // aurum_play_pause_icon.dart. Same widget as the full player's
-          // button so mini/full stay visually identical, just smaller.
-          isPlaying: player.isPlaying,
-          // FIX: was hardcoded AurumTheme.bg (always the app's dark
-          // background color), which reads fine against a light accent
-          // but goes near-invisible if the user picks a dark accent
-          // color in Settings → Appearance — dark icon on a dark circle.
-          // Deriving black/white from the accent's own luminance
-          // guarantees the icon stays visible against whatever color
-          // is actually behind it.
-          color: accent.computeLuminance() > 0.5 ? Colors.black : Colors.white,
-          size: iconSize,
-        ),
-      ),
     );
   }
 }
