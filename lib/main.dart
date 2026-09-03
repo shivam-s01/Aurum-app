@@ -523,14 +523,17 @@ class AurumApp extends StatelessWidget {
               }
               return const Locale('en');
             },
-            // NOTE: _BlurShaderWarmup wraps here, OUTSIDE
-            // _SplashOnEveryEntry's child. SplashScreen now mounts
-            // MainShell immediately (as of the Echo-Nightly-matched
-            // rewrite — see splash_screen.dart's own doc comment), so
-            // the warmup would fire at the same moment either way; kept
-            // at this outer level regardless so it's never nested inside
-            // (and therefore never accidentally gated by) the splash
-            // overlay's own build path.
+            // NOTE: _SplashOnEveryEntry now wraps EVERYTHING below,
+            // including _BlurShaderWarmup and AppLockScreen — it used to
+            // sit *inside* AppLockScreen's child slot, which meant its
+            // real first mount was delayed behind AppLockScreen's own
+            // async "_checking" loading state, and the splash effectively
+            // never rendered (see splash_screen.dart / _SplashOnEveryEntry
+            // doc comments for the full root-cause writeup). Splash is
+            // now the true outermost widget at MaterialApp.home, exactly
+            // once per real cold start, with everything else — including
+            // the blur-shader warmup and the lock screen — mounting in
+            // parallel underneath it from frame 1.
             // Cross-fades dark/light/AMOLED + accent color changes instead
             // of the previous instant one-frame swap. MaterialApp already
             // builds the correct Theme internally (theme/darkTheme/
@@ -550,9 +553,11 @@ class AurumApp extends StatelessWidget {
                 child: child ?? const SizedBox.shrink(),
               );
             },
-            home: _BlurShaderWarmup(
-              child: AppLockScreen(
-                child: _SplashOnEveryEntry(child: const MainShell()),
+            home: _SplashOnEveryEntry(
+              child: _BlurShaderWarmup(
+                child: AppLockScreen(
+                  child: const MainShell(),
+                ),
               ),
             ),
             ); // closes MaterialApp
@@ -607,9 +612,14 @@ class _BlurShaderWarmup extends StatefulWidget {
 }
 
 class _BlurShaderWarmupState extends State<_BlurShaderWarmup> {
-  // Survives hot-reload / background-resume for the process lifetime, same
-  // pattern as _SplashOnEveryEntry._played — only a real cold start should
-  // pay this cost again.
+  // Survives hot-reload / background-resume for the process lifetime.
+  // Unlike _SplashOnEveryEntry (which needed to move off this exact
+  // static-flag pattern — see its own doc comment for why), a static
+  // flag is actually correct here: shader compilation only needs to
+  // happen once per process regardless of how many times this widget's
+  // State gets torn down and recreated further down the tree, so
+  // re-warming on a State recreation would be pure wasted cost, not a
+  // correctness bug.
   static bool _warmed = false;
 
   @override
@@ -694,43 +704,37 @@ class _SplashOnEveryEntry extends StatefulWidget {
 }
 
 class _SplashOnEveryEntryState extends State<_SplashOnEveryEntry> {
-  // True after the splash has been mounted once per process lifetime —
-  // set immediately (not deferred to a hand-off point) because
-  // SplashScreen now mounts `child` in parallel with its own overlay
-  // from frame 1 (see splash_screen.dart's doc comment for why), so
-  // there's no longer a distinct "hand-off moment" to defer this to; a
-  // second _SplashOnEveryEntry build within the same process (e.g. after
-  // a full navigator reset) should just skip straight to `child` with no
-  // overlay at all, matching Echo Nightly's own splash — which the OS
-  // only ever shows once per process launch, never again on in-app
-  // navigation resets.
-  static bool _played = false;
-
-  // BUG FIX ("splash animation nahi aa raha" — it played for a single
-  // frame and was gone): this was a StatelessWidget flipping the static
-  // `_played` flag directly inside build(). MaterialApp's `home` widget
-  // sits underneath a Consumer2 (theme/locale providers) in this file,
-  // and those providers finish their async init and notifyListeners()
-  // within the very first few frames of a cold start — each one forces
-  // this whole subtree, including _SplashOnEveryEntry, to rebuild. Since
-  // `_played` was flipped to true on the FIRST of those builds, every
-  // rebuild immediately after (often still within the same cold-start
-  // burst, well before the intended 900ms animation had any chance to
-  // run) already satisfied `if (_played) return child` and skipped
-  // straight to the bare MainShell — so the splash overlay was mounted
-  // and unmounted again inside a handful of frames, invisible in
-  // practice. Deciding this once in initState (which never re-runs on
-  // rebuild, only on a genuine new State object) instead of on every
-  // build() call means the SplashScreen widget, once mounted, stays
-  // mounted for its full 900ms regardless of how many times an ancestor
-  // provider rebuilds this subtree in the meantime.
-  late final bool _showSplash = !_played;
-
-  @override
-  void initState() {
-    super.initState();
-    _played = true;
-  }
+  // BUG FIX ("splash animation dikhta hi nahi" — root cause, two parts):
+  //
+  // 1. This widget used to sit INSIDE AppLockScreen's `child` slot.
+  //    AppLockScreen's build() returns a totally different Scaffold
+  //    (the PIN/biometric loading state) while `_checking` is true, and
+  //    only returns `widget.child` — i.e. only actually builds this
+  //    widget for the first time — once its async SharedPreferences
+  //    read completes. So on every single cold start, this widget's
+  //    real first mount already happened one async hop late, behind an
+  //    invisible-if-app-lock-is-off loading gate. Fixed in main.dart:
+  //    _SplashOnEveryEntry now wraps AppLockScreen (and everything else)
+  //    from the very first frame, instead of being wrapped BY it.
+  //
+  // 2. `_played` was `static bool`, flipped true in initState() and
+  //    never reset. A static field lives for the whole process, not
+  //    per-widget-instance — so once ANY _SplashOnEveryEntryState in
+  //    this isolate's lifetime had initState() run once (e.g. during a
+  //    debug hot-restart, or if anything above it in the tree ever
+  //    caused this widget to be torn down and rebuilt — which is
+  //    exactly what AppLockScreen's `_checking` → Scaffold →
+  //    widget.child switch does, since that's a different widget TYPE
+  //    at that slot each time, forcing element/State teardown), every
+  //    later mount saw `_played == true` immediately and skipped the
+  //    splash silently. Fixed by using an instance-level flag instead:
+  //    each State object now decides purely from its OWN lifecycle
+  //    (did *this* instance already show it), never from cross-instance
+  //    process memory. A genuine new State object — the only thing that
+  //    can happen now, since this widget sits at the true root — always
+  //    means a genuine new cold start, so it's always correct for it to
+  //    show the splash again.
+  bool _showSplash = true;
 
   @override
   Widget build(BuildContext context) {
@@ -738,6 +742,9 @@ class _SplashOnEveryEntryState extends State<_SplashOnEveryEntry> {
     return SplashScreen(
       key: const ValueKey('aurum_splash_once'),
       child: widget.child,
+      onFinished: () {
+        if (mounted) setState(() => _showSplash = false);
+      },
     );
   }
 }
