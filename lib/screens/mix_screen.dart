@@ -775,7 +775,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                 _GridOption(
                   icon: Icons.play_arrow_rounded,
                   label: 'Play',
-                  color: AurumTheme.gold,
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     if (songs.isEmpty) return;
                     Navigator.pop(context);
@@ -786,7 +786,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                 _GridOption(
                   icon: Icons.shuffle_rounded,
                   label: 'Shuffle Play',
-                  color: AurumTheme.gold,
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     if (songs.isEmpty) return;
                     Navigator.pop(context);
@@ -798,7 +798,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                 _GridOption(
                   icon: Icons.queue_music_rounded,
                   label: 'Add to Queue',
-                  color: Colors.purpleAccent,
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     if (songs.isEmpty) return;
                     Navigator.pop(context);
@@ -814,7 +814,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                       ? Icons.bookmark_rounded
                       : Icons.bookmark_border_rounded,
                   label: saved ? 'Saved to Library' : 'Add to Library',
-                  color: const Color(0xFFE1306C),
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     followedAlbums.toggleFollow(
                       albumId: widget.mixId,
@@ -829,7 +829,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                 _GridOption(
                   icon: Icons.download_outlined,
                   label: 'Download All',
-                  color: Colors.blueAccent,
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     if (songs.isEmpty) return;
                     final toQueue = songs
@@ -850,7 +850,7 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
                 _GridOption(
                   icon: Icons.share_rounded,
                   label: 'Share',
-                  color: Colors.greenAccent,
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     Navigator.pop(context);
                     if (songs.isNotEmpty) {
@@ -1044,9 +1044,9 @@ class _GridOption extends StatelessWidget {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
+          color: AurumTheme.bgSurfaceOf(context),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withOpacity(0.18), width: 0.8),
+          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.8),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,

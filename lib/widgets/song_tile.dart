@@ -430,10 +430,22 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
               mainAxisSpacing: 8,
               childAspectRatio: 2.8,
               children: [
+                // ECHO NIGHTLY MATCH: Echo's own bottom-sheet action grid
+                // (dialog_media_more.xml / item_more_button.xml) tints
+                // EVERY button — including Play — the same flat neutral
+                // surface color (`app:backgroundTint="?echoBackground"`)
+                // with no icon color override at all, so every icon
+                // renders in the theme's plain control color. No per-
+                // action rainbow coding (gold/purple/pink/blue/green)
+                // anywhere in Echo's sheet — that was purely this app's
+                // own addition. Matching it exactly below: one shared
+                // neutral color for every _GridOption, action identity
+                // now comes from the icon glyph + label text alone,
+                // same as Echo relies on.
                 _GridOption(
                   icon: Icons.play_arrow_rounded,
                   label: 'Play',
-                  color: AurumTheme.gold,
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     Navigator.pop(context);
                     unawaited(player.playSong(song));
@@ -442,7 +454,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                 _GridOption(
                   icon: Icons.skip_next_rounded,
                   label: 'Play Next',
-                  color: AurumTheme.gold,
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     unawaited(player.playNext(song));
                     _snack('Playing "${song.title}" next');
@@ -451,7 +463,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                 _GridOption(
                   icon: Icons.queue_music_rounded,
                   label: 'Add to Queue',
-                  color: Colors.purpleAccent,
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     unawaited(player.addToQueue(song));
                     _snack('Added to queue');
@@ -460,7 +472,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                 _GridOption(
                   icon: isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                   label: isLiked ? 'Liked' : 'Like',
-                  color: const Color(0xFFE1306C),
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     // FIX: toggle first, THEN check updated state for correct message
                     fav.toggleFavorite(song);
@@ -471,7 +483,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                 _GridOption(
                   icon: Icons.playlist_add_rounded,
                   label: 'Save to Playlist',
-                  color: Colors.blueAccent,
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     Navigator.pop(context);
                     showAddToPlaylistSheet(widget.rootContext, song);
@@ -480,7 +492,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                 _GridOption(
                   icon: Icons.share_rounded,
                   label: 'Share',
-                  color: Colors.greenAccent,
+                  color: AurumTheme.textPrimaryOf(context),
                   onTap: () {
                     Navigator.pop(context);
                     shareSong(context, song);
@@ -581,9 +593,16 @@ class _GridOption extends StatelessWidget {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
+          // ECHO NIGHTLY MATCH: flat neutral surface, no per-action tint —
+          // see the call site's own comment for why every button now
+          // shares this same background/border instead of a rainbow of
+          // per-action accent colors.
+          color: AurumTheme.bgSurfaceOf(context),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withValues(alpha: 0.18), width: 0.8),
+          border: Border.all(
+            color: AurumTheme.dividerOf(context),
+            width: 0.8,
+          ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,

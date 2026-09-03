@@ -20,14 +20,31 @@ class AurumTheme {
   static const Color goldDark  = Color(0xFF7A5FC4);
 
   // ── Dark Theme ──
-  static const Color darkBg          = Color(0xFF050508);
-  static const Color darkBgCard      = Color(0xFF0D0D14);
-  static const Color darkBgElevated  = Color(0xFF12121C);
-  static const Color darkBgSurface   = Color(0xFF1A1A28);
+  // ECHO NIGHTLY MATCH ("ekdam dark na rahe"): Echo's default dark mode
+  // is NOT flat black — its base theme (Base.Theme.Echo) extends
+  // Material3's DynamicColors, so echoBackground = ?colorSurface, a
+  // Material You tonal surface that carries a subtle hue from the
+  // seed/wallpaper color rather than being neutral grey. Flat true-black
+  // only exists as Echo's separate opt-in "Amoled" style
+  // (echoBackground = @color/amoled_bg) — the two are deliberately
+  // different tones, not the same black at two names.
+  //
+  // Astra's old darkBg (0xFF050508) and amoledBg (0xFF000000) were only
+  // 5 units apart — indistinguishable in practice, so "Dark" mode never
+  // actually looked different from Amoled. Rebuilt below the same way
+  // Echo derives its palette: one shared hue (258°, the app's own brand
+  // violet — gold/goldLight/goldDark above), stepped lightness per tier,
+  // low-but-perceptible saturation (~16%) so the cast reads as a
+  // deliberate charcoal-violet surface rather than a color error, while
+  // AMOLED below stays exactly the flat true-black it always was.
+  static const Color darkBg          = Color(0xFF08070A);
+  static const Color darkBgCard      = Color(0xFF100E13);
+  static const Color darkBgElevated  = Color(0xFF14121A);
+  static const Color darkBgSurface   = Color(0xFF1D1A23);
   static const Color darkTextPrimary = Color(0xFFF0EBD8);
   static const Color darkTextSecondary = Color(0xFF8A8A9A);
   static const Color darkTextMuted   = Color(0xFF4A4A5E);
-  static const Color darkDivider     = Color(0xFF1E1E2E);
+  static const Color darkDivider     = Color(0xFF231F2B);
 
   // ── AMOLED Theme ──
   static const Color amoledBg          = Color(0xFF000000);

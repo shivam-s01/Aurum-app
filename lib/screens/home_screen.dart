@@ -2143,6 +2143,18 @@ class _SongGridCardState extends State<_SongGridCard> {
     final song = widget.song;
     final queue = widget.queue;
     final index = widget.index;
+    // ECHO/YT-MUSIC MATCH: home shelves never showed the live "now
+    // playing" equalizer bars — AurumEqualizerBars already existed
+    // (search_screen.dart uses it) but was never wired in here. Same
+    // identity-safe comparison as search_screen.dart: compares by
+    // song.id, not title/artist strings, so a reupload/cover with a
+    // matching title never falsely lights up.
+    final isPlaying = context.select<PlayerProvider, bool>(
+      (p) => p.currentSong?.id == song.id,
+    );
+    final isActuallyPlaying = context.select<PlayerProvider, bool>(
+      (p) => p.isPlaying,
+    );
     // PERF: isolates each horizontally-scrolling card into its own
     // compositor layer — same reasoning as SongTile/the followed-albums
     // grid. These rows can hold up to 12 cards each and there are several
@@ -2166,7 +2178,32 @@ class _SongGridCardState extends State<_SongGridCard> {
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: AurumArtwork(url: song.artworkUrl, size: 152, borderRadius: 0),
+                child: Stack(
+                  children: [
+                    AurumArtwork(url: song.artworkUrl, size: 152, borderRadius: 0),
+                    if (isPlaying)
+                      Positioned(
+                        left: 8,
+                        bottom: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            // Dark translucent chip so the bars stay
+                            // visible over any artwork color — same
+                            // reasoning as the mini player's own tint
+                            // fallback elsewhere in the app.
+                            color: Colors.black.withOpacity(0.55),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: AurumEqualizerBars(
+                            playing: isActuallyPlaying,
+                            color: AurumTheme.gold,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
               const SizedBox(height: 8),
               Text(

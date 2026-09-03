@@ -4651,11 +4651,18 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
         : '';
 
     final actions = [
-      _SheetAction(Icons.skip_next_rounded, l10n.fpPlayNext, AurumTheme.gold, () {
+      // ECHO NIGHTLY MATCH: same reasoning as song_tile.dart's grid —
+      // Echo's own bottom-sheet buttons are all one flat neutral color
+      // (icon included), never a per-action rainbow. The press-state
+      // tint here already used `action.color` only as a brief on-tap
+      // highlight, so switching every action to `textPrimary` keeps
+      // that same press feedback mechanism while making the resting
+      // icon color neutral instead of colorful.
+      _SheetAction(Icons.skip_next_rounded, l10n.fpPlayNext, textPrimary, () {
         Navigator.pop(context);
         widget.player.playNext(song);
       }),
-      _SheetAction(Icons.queue_music_rounded, l10n.fpAddToQueue, Colors.purpleAccent, () {
+      _SheetAction(Icons.queue_music_rounded, l10n.fpAddToQueue, textPrimary, () {
         Navigator.pop(context);
         widget.player.addToQueue(song);
         _snack(l10n.fpAddedToQueue);
@@ -4663,7 +4670,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       _SheetAction(
         isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
         isLiked ? l10n.fpLiked : l10n.fpLikeAction,
-        const Color(0xFFE1306C),
+        textPrimary,
         () {
           PremiumGate.guard(
             context,
@@ -4678,15 +4685,15 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
           );
         },
       ),
-      _SheetAction(Icons.share_rounded, l10n.fpShare, Colors.greenAccent, () {
+      _SheetAction(Icons.share_rounded, l10n.fpShare, textPrimary, () {
         Navigator.pop(context);
         shareSong(context, song);
       }),
-      _SheetAction(Icons.playlist_add_rounded, l10n.fpSaveToPlaylist, Colors.blueAccent, () {
+      _SheetAction(Icons.playlist_add_rounded, l10n.fpSaveToPlaylist, textPrimary, () {
         Navigator.pop(context);
         showAddToPlaylistSheet(widget.rootContext, song);
       }),
-      _SheetAction(Icons.equalizer_rounded, l10n.fpAudioEffects, Colors.orangeAccent, () {
+      _SheetAction(Icons.equalizer_rounded, l10n.fpAudioEffects, textPrimary, () {
         Navigator.pop(context);
         Navigator.of(widget.rootContext).push(AurumPageRoute(
           builder: (_) => EqualizerScreen(audioEngine: widget.player.handler),
@@ -4695,7 +4702,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
       _SheetAction(
         sleepActive ? Icons.bedtime_rounded : Icons.timer_outlined,
         sleepActive ? l10n.fpSleepRemaining(sleepRemainingLabel) : l10n.fpSleepTimer,
-        Colors.cyan,
+        textPrimary,
         () {
           Navigator.pop(context);
           showSleepTimerForSong(widget.rootContext, widget.player);
@@ -4712,7 +4719,7 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
             : isDownloading
                 ? l10n.fpDownloading
                 : l10n.fpDownload,
-        AurumTheme.gold,
+        textPrimary,
         () {
           if (isDownloaded) {
             _snack(l10n.fpAlreadyDownloaded);
