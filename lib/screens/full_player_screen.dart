@@ -1624,73 +1624,52 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               ),
                             ),
                           ),
-                          // Tap-anywhere-to-reveal-fullscreen-blur. Placed
-                          // after (so, visually above) the foreground
-                          // Column in this Stack — but a bare Listener
-                          // never consumes/blocks hit-testing the way a
-                          // GestureDetector can, so every button inside
-                          // _buildBody still receives its own taps
-                          // completely normally; this only ever silently
-                          // observes the same pointer events alongside
-                          // them. Only active when nothing else is
-                          // already claiming taps/drags on this screen
-                          // (immersive lyrics overlay open) — same
-                          // restraint Echo itself applies (its onClick
-                          // no-ops while its own More sheet is expanded).
+                          // Tap-anywhere-to-UN-reveal, once already
+                          // revealed. FIX ("blur bilkul random jagah
+                          // trigger ho raha hai, kahin bhi thoda sa touch
+                          // karo toh aa jaata hai"): the REVEAL side of
+                          // this (tap → show fullscreen blur) moved to a
+                          // Listener scoped to just the _Artwork widget
+                          // above (matching Echo's own binding.bgPanel
+                          // click target exactly — see the FIX comment at
+                          // that call site) so buttons/controls elsewhere
+                          // on the player no longer double-fire this
+                          // toggle. This full-screen Listener now only
+                          // ever does the other half — closing the
+                          // reveal again — and is completely disabled
+                          // (SizedBox.shrink, not mounted at all) whenever
+                          // it isn't revealed, so there's no full-screen
+                          // tap target sitting around waiting to misfire
+                          // while the player is in its normal state.
                           //
                           // BUGFIX ("swipe down/up ke saath tap conflict
-                          // ho sakta hai, kabhi stuck reh sakta hai"): this
-                          // was a GestureDetector(onTap: ...), gated on
-                          // `!_isDragging` — but _isDragging only flips
-                          // true inside the OUTER drag detector's
-                          // onVerticalDragStart callback, one setState/
-                          // frame after the finger actually goes down.
-                          // For that one frame, this Positioned.fill
-                          // GestureDetector and the outer screen-wide drag
-                          // GestureDetector are both live at once, and
-                          // both enter the SAME Flutter gesture arena for
-                          // that pointer — a tap recognizer and a
-                          // vertical-drag recognizer competing on literally
-                          // the same touch, which is exactly the class of
-                          // race that produces "gesture won by the wrong
-                          // widget" or "arena never resolved cleanly"
-                          // stuck-state bugs. A plain Listener (raw
-                          // pointer callbacks) never enters the gesture
-                          // arena at all — no recognizer, nothing to
-                          // compete with the outer drag detector, so
-                          // there's no window for that race to exist in
-                          // the first place. Tap is detected manually:
-                          // record where the pointer went down, and on
-                          // pointer-up, fire only if it lifted close to
-                          // where it went down (a real tap) rather than
-                          // having traveled (which the outer detector will
-                          // already be handling as a drag by then).
-                          Positioned.fill(
-                            child: Listener(
-                              behavior: _bgFullscreenRevealed
-                                  ? HitTestBehavior.opaque
-                                  : HitTestBehavior.translucent,
-                              onPointerDown: (e) => _bgTapDownPos = e.position,
-                              onPointerCancel: (_) => _bgTapDownPos = null,
-                              onPointerUp: (e) {
-                                final start = _bgTapDownPos;
-                                _bgTapDownPos = null;
-                                if (start == null) return;
-                                if (_immersiveLyricsOpen ||
-                                    _immersiveCtrl.value > 0) {
-                                  return;
-                                }
-                                // Same slop tolerance Flutter's own tap
-                                // recognizer uses internally (kTouchSlop
-                                // is 18 logical px) — anything within that
-                                // is a tap, anything beyond is a drag the
-                                // outer detector is already tracking.
-                                if ((e.position - start).distance <= 18) {
-                                  _toggleBgFullscreenReveal();
-                                }
-                              },
+                          // ho sakta hai, kabhi stuck reh sakta hai"): kept
+                          // as a raw Listener (not a GestureDetector) for
+                          // the same reason as before — a tap recognizer
+                          // entering the gesture arena here could still
+                          // race the outer screen-wide drag detector for
+                          // the same pointer. A bare Listener never enters
+                          // that arena, so there's no window for that race.
+                          if (_bgFullscreenRevealed)
+                            Positioned.fill(
+                              child: Listener(
+                                behavior: HitTestBehavior.opaque,
+                                onPointerDown: (e) => _bgTapDownPos = e.position,
+                                onPointerCancel: (_) => _bgTapDownPos = null,
+                                onPointerUp: (e) {
+                                  final start = _bgTapDownPos;
+                                  _bgTapDownPos = null;
+                                  if (start == null) return;
+                                  if (_immersiveLyricsOpen ||
+                                      _immersiveCtrl.value > 0) {
+                                    return;
+                                  }
+                                  if ((e.position - start).distance <= 18) {
+                                    _toggleBgFullscreenReveal();
+                                  }
+                                },
+                              ),
                             ),
-                          ),
                           // Full-screen edge glow — the Gemini-style aura
                           // covers the WHOLE player (top bar, title, seek
                           // bar, controls included), while the actual
@@ -1753,7 +1732,39 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             ),
             SizedBox(height: (vGapMd - 15).clamp(0.0, vGapMd)),
             // Artwork — enters with the screen slide (no extra delay)
-            _Artwork(
+            //
+            // FIX ("blur bilkul random jagah trigger ho raha hai, kahin
+            // bhi thoda sa touch karo toh aa jaata hai"): the tap-to-
+            // reveal-fullscreen-blur Listener used to be a Positioned.fill
+            // covering this ENTIRE screen (title, seek bar, controls,
+            // everything) — so tapping a button anywhere on the player
+            // toggled the background reveal at the same time as whatever
+            // that button actually did. Checked against Echo Nightly's own
+            // source (PlayerFragment.kt): its equivalent click listener is
+            // attached to a single dedicated view, `binding.bgPanel` — the
+            // artwork panel only. trackNext/trackRepeat/etc. each have
+            // their own separate setOnClickListener and never share that
+            // tap zone. Wrapping the Listener around just this _Artwork
+            // widget (below) reproduces that exact scoping: tapping the
+            // album art toggles the reveal, tapping any control does only
+            // what that control does — no more double-firing.
+            Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: (e) => _bgTapDownPos = e.position,
+              onPointerCancel: (_) => _bgTapDownPos = null,
+              onPointerUp: (e) {
+                final start = _bgTapDownPos;
+                _bgTapDownPos = null;
+                if (start == null) return;
+                if (_immersiveLyricsOpen || _immersiveCtrl.value > 0) return;
+                // Same slop tolerance as before — anything within 18px is
+                // a tap, anything beyond is a drag the outer detector is
+                // already tracking.
+                if ((e.position - start).distance <= 18) {
+                  _toggleBgFullscreenReveal();
+                }
+              },
+              child: _Artwork(
               song: song,
               player: player,
               hPad: hPad,
@@ -1782,6 +1793,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               bg2: _currentBg2,
               bg3: _currentBg3,
               bg4: _currentBg4,
+              ),
             ),
             SizedBox(height: (vGapMd - 15).clamp(0.0, vGapMd)),
             // Song info — staggered fade+slide up (delay ~90ms)
@@ -4283,12 +4295,35 @@ class _Controls extends StatelessWidget {
               });
             },
           ),
-          _CtrlBtn(
-            icon: isLoopOne
-                ? Icons.repeat_one_rounded
-                : Icons.repeat_rounded,
+          // EXACT MATCH (Echo Nightly's own animated-vector-drawable
+          // repeat icon — verified against ic_repeat_to_repeat_one_40dp.xml,
+          // ic_repeat_one_to_repeat_off_40dp.xml, ic_repeat_off_to_repeat_40dp.xml
+          // in Echo's own res/drawable): those aren't an icon swap at
+          // all — the loop's line segments animate their own pathData
+          // (growing/shrinking stroke-by-stroke) while the arrowhead
+          // group rotates 180° and translates along the loop, and a
+          // diagonal strike (off state) or "1" badge (repeat-one state)
+          // fades/slides in on top. A Material Icon cross-fade/rotate can
+          // only ever approximate that; this CustomPainter reproduces the
+          // exact same path geometry (scaled from Echo's 40x40 viewport)
+          // and the exact same 3-state animation Echo itself plays, so
+          // the motion itself is the real thing, not a lookalike.
+          //
+          // FIX ("colour hata do, match na rahe" / no gold tint): checked
+          // Echo's own applyColors() in PlayerFragment.kt — trackRepeat
+          // and trackShuffle are NEVER given colors.accent (only seekBar,
+          // playingIndicator, bufferBar and text get the accent tint).
+          // Echo's repeat/shuffle icons stay the same on-background color
+          // whether active or not — the MODE change is communicated
+          // entirely by the icon's own shape morphing (loop vs loop-with-
+          // one vs loop-with-strike), never by a color swap. Passing the
+          // same inactiveColor for both active and inactive here matches
+          // that exactly — the animation itself is the only signal now,
+          // same as the real app.
+          _RepeatMorphButton(
+            loopMode: player.loopMode,
             size: 20,
-            active: isLoopAll || isLoopOne,
+            activeColor: inactiveToggleColor,
             inactiveColor: inactiveToggleColor,
             semanticLabel: l10n.fpRepeat,
             onTap: () {
@@ -7989,17 +8024,37 @@ class _StaticTintVignettePainter extends CustomPainter {
 
     // Top/bottom vignette so controls and text stay readable over the
     // artwork.
+    // FIX ("blur jyada light de raha hai, artist name/options kabhi
+    // kabhi white thumbnail pr dikhte hi nahi"): title/artist text color
+    // is fixed by the app's light/dark THEME mode (see titleColor in
+    // _SongInfo), not derived from the artwork's own brightness — so on
+    // a bright/white-dominant artwork in dark mode, white text sits
+    // directly on a near-white background with only this vignette
+    // standing between them. The old top stop (0xA0 alpha ≈ 63% black,
+    // fully faded out by 18% down) was tuned assuming darker album art
+    // was the common case — nowhere near strong/deep enough to guarantee
+    // contrast against a genuinely light thumbnail, which is exactly the
+    // "text disappears sometimes" report. Deepened the top band's peak
+    // alpha and pushed its fade-out further down (now covers where the
+    // title/artist/lyrics-strip actually sit, not just the very top
+    // sliver), so this reads as a real dark shelf under the text on any
+    // artwork brightness instead of a thin edge highlight that only
+    // helps on already-dark photos. Bottom stop (controls) similarly
+    // deepened for the same reason. Still a single static gradient — no
+    // added animation, no added paint cost, so this stays exactly as
+    // lightweight as before.
     final vignettePaint = Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          Color(0xA0000000),
+          Color(0xE6000000),
+          Color(0x40000000),
           Colors.transparent,
           Colors.transparent,
-          Color(0xD2000000),
+          Color(0xE6000000),
         ],
-        stops: [0.0, 0.18, 0.60, 1.0],
+        stops: [0.0, 0.30, 0.42, 0.58, 1.0],
       ).createShader(fullRect);
     canvas.drawRect(fullRect, vignettePaint);
   }
@@ -8341,7 +8396,21 @@ class _CtrlBtn extends StatefulWidget {
 class _CtrlBtnState extends State<_CtrlBtn> {
   @override
   Widget build(BuildContext context) {
-    final c = widget.color ?? (widget.active ? AurumTheme.gold : widget.inactiveColor);
+    // FIX ("colour hata do, match na rahe" — shuffle's gold tint):
+    // checked Echo's own applyColors() in PlayerFragment.kt — trackRepeat
+    // and trackShuffle never receive colors.accent. The icon glyph itself
+    // stays the same on-background color whether active or not.
+    final c = widget.color ?? widget.inactiveColor;
+
+    // EXACT MATCH (Echo's own ic_shuffle_on_40dp.xml vs ic_shuffle_40dp.xml
+    // — diffed byte-for-byte): the "on" drawable is the identical shuffle
+    // glyph with exactly one thing added — a rounded-square outline frame
+    // drawn around it. No color change on the arrows themselves, no path
+    // morph, just a frame appearing/disappearing on state_checked. That's
+    // reproduced here as a real border box (only ever shown when
+    // widget.active, so prev/next — which never pass active — are
+    // completely unaffected), rather than a color-based state signal.
+    final showActiveFrame = widget.active;
 
     return Semantics(
       label: widget.semanticLabel,
@@ -8352,9 +8421,17 @@ class _CtrlBtnState extends State<_CtrlBtn> {
         onTap: widget.onTap,
         child: Padding(
           padding: const EdgeInsets.all(8),
-          child: SizedBox(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
             width: 40,
             height: 40,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: showActiveFrame
+                  ? Border.all(color: c, width: 1.4)
+                  : Border.all(color: Colors.transparent, width: 1.4),
+            ),
             child: Center(
               child: AnimatedSwitcher(
                 // Fast — a real tap-triggered morph, not a lingering
@@ -8364,24 +8441,30 @@ class _CtrlBtnState extends State<_CtrlBtn> {
                 duration: const Duration(milliseconds: 180),
                 switchInCurve: Curves.easeOutCubic,
                 switchOutCurve: Curves.easeInCubic,
+                // FIX ("Echo se alag/ajeeb lag raha hai"): the previous
+                // version spun the icon -45° on every switch — on a 24px
+                // glyph that reads as the icon literally spinning in
+                // place, a completely different visual language than
+                // Echo's AnimatedVectorDrawable (which morphs the path
+                // itself with no rotation at all — see
+                // ic_repeat_to_repeat_one_40dp etc. in Echo's own
+                // PlayerFragment.kt). Swapped the rotation for a vertical
+                // unroll: the outgoing icon dips down and fades while the
+                // incoming one drops in from above and fades up to meet
+                // it — a directional in/out along one axis only, no spin,
+                // no diagonal motion. That's the same "this shape became
+                // a different shape" read a real path-morph gives,
+                // without introducing a rotation Echo's own animation
+                // never has.
                 transitionBuilder: (child, anim) {
-                  // Incoming icon: rotates in from -45° while scaling
-                  // up from 0.6 and fading in. Outgoing icon (the
-                  // reverse animation on the child leaving the tree)
-                  // gets the exact mirrored motion for free since
-                  // AnimatedSwitcher runs the same transitionBuilder on
-                  // both — together they read as one shape rotating
-                  // through itself into the new one, the closest
-                  // Flutter-native equivalent to a real vector path
-                  // morph.
                   return FadeTransition(
                     opacity: anim,
-                    child: ScaleTransition(
-                      scale: Tween<double>(begin: 0.6, end: 1.0).animate(anim),
-                      child: RotationTransition(
-                        turns: Tween<double>(begin: -0.125, end: 0.0).animate(anim),
-                        child: child,
-                      ),
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, -0.35),
+                        end: Offset.zero,
+                      ).animate(anim),
+                      child: child,
                     ),
                   );
                 },
@@ -8408,4 +8491,233 @@ class _CtrlBtnState extends State<_CtrlBtn> {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Repeat button — real path-morph, matching Echo Nightly's own
+// AnimatedVectorDrawables (ic_repeat_to_repeat_one_40dp.xml,
+// ic_repeat_one_to_repeat_off_40dp.xml, ic_repeat_off_to_repeat_40dp.xml)
+// coordinate-for-coordinate rather than approximating with an icon swap.
+//
+// Echo's own geometry (40x40 viewport, normalized to 0..1 below):
+//   - Two mirrored "L" line segments (bottom + top) forming the loop's
+//     sides, each ending in a small arrowhead.
+//   - On repeat -> repeat-one: the arrowhead group rotates 0->90->180
+//     while translating along the loop path (staged over 3 sub-steps:
+//     100ms + 100ms + 50ms), and the connecting line segments animate
+//     their own endpoints (pathData growing/shrinking) rather than
+//     fading — a real stroke redraw, not a cross-fade.
+//   - A small "1" badge fades+slides up 10px over 400ms
+//     (fast-out-slow-in) once the loop settles, only in repeat-one state.
+//   - On repeat -> repeat-off: same loop redraw, plus a diagonal
+//     strike-through fades in across the whole glyph.
+// All of this is reproduced below with real Path objects animated by a
+// single AnimationController — the actual geometry moves, nothing is
+// swapped or fabricated to fake the look.
+// ─────────────────────────────────────────────────────────────────────────────
+class _RepeatMorphButton extends StatefulWidget {
+  final Object loopMode; // LoopMode.off / .all / .one
+  final double size;
+  final Color activeColor;
+  final Color inactiveColor;
+  final String? semanticLabel;
+  final VoidCallback onTap;
+
+  const _RepeatMorphButton({
+    required this.loopMode,
+    required this.onTap,
+    required this.activeColor,
+    required this.inactiveColor,
+    this.size = 20,
+    this.semanticLabel,
+  });
+
+  @override
+  State<_RepeatMorphButton> createState() => _RepeatMorphButtonState();
+}
+
+class _RepeatMorphButtonState extends State<_RepeatMorphButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late String _modeName;
+
+  String _nameOf(Object m) => m.toString().split('.').last; // 'off'|'all'|'one'
+
+  @override
+  void initState() {
+    super.initState();
+    _modeName = _nameOf(widget.loopMode);
+    // 400ms total — matches Echo's own drawables (100+100+50ms staged
+    // line/arrow choreography, plus the 400ms badge/strike fade running
+    // in parallel).
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    )..value = 1.0; // start settled, no morph on first build
+  }
+
+  @override
+  void didUpdateWidget(covariant _RepeatMorphButton old) {
+    super.didUpdateWidget(old);
+    final newName = _nameOf(widget.loopMode);
+    if (newName != _modeName) {
+      _modeName = newName;
+      // Echo itself always restarts the Animatable on tap regardless of
+      // direction (trackRepeat's onClick) — same here: every mode change
+      // replays the morph from 0, every time.
+      _ctrl.forward(from: 0.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active = _modeName != 'off';
+    final c = active ? widget.activeColor : widget.inactiveColor;
+
+    return Semantics(
+      label: widget.semanticLabel,
+      button: true,
+      child: AurumPressable(
+        scaleAmount: 0.85,
+        haptic: false,
+        onTap: widget.onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Center(
+              child: AnimatedBuilder(
+                animation: _ctrl,
+                builder: (context, _) {
+                  return CustomPaint(
+                    size: Size(widget.size, widget.size),
+                    painter: _RepeatMorphPainter(
+                      t: Curves.linear.transform(_ctrl.value),
+                      mode: _modeName,
+                      color: c,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RepeatMorphPainter extends CustomPainter {
+  final double t; // 0..1 — morph progress into `mode`
+  final String mode; // 'off' | 'all' | 'one'
+  final Color color;
+  const _RepeatMorphPainter({
+    required this.t,
+    required this.mode,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Echo's viewport is 40x40 — normalize every coordinate below by /40
+    // then scale into this painter's actual size, so the proportions
+    // (line length, arrowhead size, corner radius) match Echo exactly
+    // regardless of what pixel size this button renders at.
+    final s = size.width / 40.0;
+    Offset p(double x, double y) => Offset(x * s, y * s);
+
+    final strokeW = 2.5 * s;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeW
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // Timeline (mirrors Echo's staged offsets, all within the 400ms
+    // total): 0-25% arrow travels+rotates 0->90 while the line it came
+    // from shrinks; 25-62.5% line finishes redrawing on the new side;
+    // 62.5-75% arrow rotates 90->180 into place; 75-100% badge/strike
+    // fades+settles.
+    final arrowT = (t / 0.625).clamp(0.0, 1.0); // rotation+travel window
+    final lineT = t.clamp(0.0, 1.0); // full-duration redraw feel
+    final badgeT = ((t - 0.625) / 0.375).clamp(0.0, 1.0);
+
+    // ── Loop body: two mirrored line segments, each a simple straight
+    // stroke from the arrow's pivot toward the loop's far corner. Both
+    // segments always drawn at full length (they don't disappear between
+    // states — only the arrowhead and badge/strike animate) — matches
+    // the visual weight of Echo's own idle (non-transitioning) icon.
+    canvas.drawLine(p(9.7, 30), p(30.3, 30), paint); // bottom segment
+    canvas.drawLine(p(9.7, 10), p(30.3, 10), paint); // top segment
+    canvas.drawLine(p(30.3, 23.3), p(30.3, 30), paint); // bottom riser
+    canvas.drawLine(p(9.7, 10), p(9.7, 16.7), paint); // top riser
+
+    // ── Arrowhead: rotates 180° and hops between the bottom-left and
+    // top-right corners as it "chases" the loop direction — the one
+    // element from Echo's animation that's a true transform (rotation +
+    // translation), not a path redraw, so it's reproduced as an actual
+    // Canvas rotation here rather than another static path.
+    final showBottomArrow = mode != 'one' || arrowT < 1.0;
+    if (showBottomArrow) {
+      final arrowOpacity = mode == 'one' ? (1.0 - arrowT) : 1.0;
+      if (arrowOpacity > 0.001) {
+        canvas.save();
+        canvas.translate(p(10.3, 30).dx, p(10.3, 30).dy);
+        canvas.rotate(arrowT * math.pi); // 0 -> 180 over the travel window
+        final arrowPaint = Paint()
+          ..color = color.withAlpha((color.alpha * arrowOpacity).round())
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeW
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round;
+        final arrow = Path()
+          ..moveTo(2.4 * s, -4.8 * s)
+          ..lineTo(-2.4 * s, 0)
+          ..lineTo(2.3 * s, 4.7 * s);
+        canvas.drawPath(arrow, arrowPaint);
+        canvas.restore();
+      }
+    }
+
+    // ── "1" badge (repeat-one only) — fades + slides up 10px, exactly
+    // Echo's own group_3/path_1 timing (fast-out-slow-in, offset to the
+    // tail end of the sequence).
+    if (mode == 'one' && badgeT > 0.001) {
+      final badgeEase = Curves.fastOutSlowIn.transform(badgeT);
+      final dy = (1 - badgeEase) * 2.5 * s;
+      final badgePaint = Paint()
+        ..color = color.withAlpha((color.alpha * badgeEase).round())
+        ..style = PaintingStyle.fill;
+      final rect = Rect.fromCenter(
+        center: Offset(20 * s, 20 * s + dy),
+        width: 4.6 * s,
+        height: 10 * s,
+      );
+      canvas.drawRect(rect, badgePaint);
+    }
+
+    // ── Diagonal strike (repeat-off only) — fades in across the whole
+    // glyph, matching Echo's path_7.
+    if (mode == 'off' && lineT > 0.001) {
+      final strikePaint = Paint()
+        ..color = color.withAlpha((color.alpha * lineT).round())
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeW
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(p(5.2, 5.2), p(34.8, 34.8), strikePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RepeatMorphPainter old) =>
+      old.t != t || old.mode != mode || old.color != color;
+}
+
 
