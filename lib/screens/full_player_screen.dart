@@ -174,6 +174,37 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   set _dragY(double v) => _dragYNotifier.value = v;
   bool _isDragging = false;
   bool _dragIsUpward = false;
+  // EXACT MATCH (Echo Nightly's tap-anywhere-to-reveal-fullscreen-blur):
+  // Echo's PlayerFragment toggles a single playerBgVisible flag on tap —
+  // true fades OUT the foreground (fgContainer + playerMoreContainer)
+  // and hides system UI, leaving only the already-rendered bg_image
+  // (its blurred Ken Burns artwork) visible full-screen; tapping again
+  // reverses it. No new blur is ever created — Echo already has the
+  // blurred layer sitting behind the UI at all times, it's just always
+  // covered. Reproduced identically here: this flag fades out
+  // SafeArea(_buildBody(...)) — the foreground content Column (top bar,
+  // artwork, title, seekbar, controls) — over the already-present
+  // _BgLayer/_StaticBlurArtwork, which needs zero changes and keeps
+  // running its Ken Burns drift underneath exactly as it already does
+  // when covered. Cheapest possible implementation for a low-end
+  // device: one bool, one AnimatedOpacity, nothing re-rendered.
+  bool _bgFullscreenRevealed = false;
+  // Raw pointer-down position for the Listener-based tap detector above
+  // — see the BUGFIX comment at that call site for why this is a
+  // Listener instead of a GestureDetector.
+  Offset? _bgTapDownPos;
+
+  void _toggleBgFullscreenReveal() {
+    // EXACT MATCH (Echo's own guard in PlayerFragment.onClick: "if
+    // (binding.bgImage.drawable == null && !hasVideo) return"): don't
+    // reveal fullscreen if there's nothing back there to actually show
+    // — with the blur setting off, or no artwork loaded yet, this would
+    // just fade the UI away onto a flat black/gradient base, which
+    // reads as broken rather than a deliberate reveal.
+    if (!AudioPrefs.showBlurredBgNotifier.value) return;
+    AurumHaptics.selection();
+    setState(() => _bgFullscreenRevealed = !_bgFullscreenRevealed);
+  }
   // Tracks how far the finger has moved upward during this gesture, purely
   // for the release-time "did they mean to open Up Next" threshold check
   // below. Deliberately NOT applied to _dragY / screen position (see
@@ -1569,9 +1600,95 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               isDragging: _isDragging,
                             ),
                           ),
-                          SafeArea(
-                            child: RepaintBoundary(
-                              child: _buildBody(context, player, song),
+                          // EXACT MATCH (Echo Nightly tap-to-reveal): a
+                          // single AnimatedOpacity around the entire
+                          // foreground Column — cheapest possible toggle
+                          // for a low-end device, since nothing new is
+                          // ever built or re-rendered; this only fades
+                          // opacity on an already-composited subtree.
+                          // IgnorePointer while hidden lets the tap that
+                          // triggers this (below) and the Ken Burns
+                          // background underneath receive gestures
+                          // instead of this now-invisible layer eating
+                          // them.
+                          AnimatedOpacity(
+                            opacity: _bgFullscreenRevealed ? 0.0 : 1.0,
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutCubic,
+                            child: IgnorePointer(
+                              ignoring: _bgFullscreenRevealed,
+                              child: SafeArea(
+                                child: RepaintBoundary(
+                                  child: _buildBody(context, player, song),
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Tap-anywhere-to-reveal-fullscreen-blur. Placed
+                          // after (so, visually above) the foreground
+                          // Column in this Stack — but a bare Listener
+                          // never consumes/blocks hit-testing the way a
+                          // GestureDetector can, so every button inside
+                          // _buildBody still receives its own taps
+                          // completely normally; this only ever silently
+                          // observes the same pointer events alongside
+                          // them. Only active when nothing else is
+                          // already claiming taps/drags on this screen
+                          // (immersive lyrics overlay open) — same
+                          // restraint Echo itself applies (its onClick
+                          // no-ops while its own More sheet is expanded).
+                          //
+                          // BUGFIX ("swipe down/up ke saath tap conflict
+                          // ho sakta hai, kabhi stuck reh sakta hai"): this
+                          // was a GestureDetector(onTap: ...), gated on
+                          // `!_isDragging` — but _isDragging only flips
+                          // true inside the OUTER drag detector's
+                          // onVerticalDragStart callback, one setState/
+                          // frame after the finger actually goes down.
+                          // For that one frame, this Positioned.fill
+                          // GestureDetector and the outer screen-wide drag
+                          // GestureDetector are both live at once, and
+                          // both enter the SAME Flutter gesture arena for
+                          // that pointer — a tap recognizer and a
+                          // vertical-drag recognizer competing on literally
+                          // the same touch, which is exactly the class of
+                          // race that produces "gesture won by the wrong
+                          // widget" or "arena never resolved cleanly"
+                          // stuck-state bugs. A plain Listener (raw
+                          // pointer callbacks) never enters the gesture
+                          // arena at all — no recognizer, nothing to
+                          // compete with the outer drag detector, so
+                          // there's no window for that race to exist in
+                          // the first place. Tap is detected manually:
+                          // record where the pointer went down, and on
+                          // pointer-up, fire only if it lifted close to
+                          // where it went down (a real tap) rather than
+                          // having traveled (which the outer detector will
+                          // already be handling as a drag by then).
+                          Positioned.fill(
+                            child: Listener(
+                              behavior: _bgFullscreenRevealed
+                                  ? HitTestBehavior.opaque
+                                  : HitTestBehavior.translucent,
+                              onPointerDown: (e) => _bgTapDownPos = e.position,
+                              onPointerCancel: (_) => _bgTapDownPos = null,
+                              onPointerUp: (e) {
+                                final start = _bgTapDownPos;
+                                _bgTapDownPos = null;
+                                if (start == null) return;
+                                if (_immersiveLyricsOpen ||
+                                    _immersiveCtrl.value > 0) {
+                                  return;
+                                }
+                                // Same slop tolerance Flutter's own tap
+                                // recognizer uses internally (kTouchSlop
+                                // is 18 logical px) — anything within that
+                                // is a tap, anything beyond is a drag the
+                                // outer detector is already tracking.
+                                if ((e.position - start).distance <= 18) {
+                                  _toggleBgFullscreenReveal();
+                                }
+                              },
                             ),
                           ),
                           // Full-screen edge glow — the Gemini-style aura
@@ -1623,7 +1740,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _DragHandle(isDragging: _isDragging),
-            TopBarWithCastBanner(song: song, bgLuma: _currentBg2.computeLuminance(), onMore: () => _showOptions(context)),
+            ValueListenableBuilder<LyricsViewMode>(
+              valueListenable: AudioPrefs.lyricsViewModeNotifier,
+              builder: (context, viewMode, _) => TopBarWithCastBanner(
+                song: song,
+                bgLuma: _currentBg2.computeLuminance(),
+                onMore: () => _showOptions(context),
+                showLyricsTrigger: viewMode == LyricsViewMode.fullscreen,
+                lyricsTriggerActive: _immersiveLyricsOpen,
+                onLyricsTrigger: _openImmersiveLyrics,
+              ),
+            ),
             SizedBox(height: (vGapMd - 15).clamp(0.0, vGapMd)),
             // Artwork — enters with the screen slide (no extra delay)
             _Artwork(
@@ -1789,54 +1916,14 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             SizedBox(height: isCompact ? 8.0 : 12.0),
             SizedBox(
               height: 28,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Extra right padding here (on top of hPad) reserves
-                  // room for the lyrics trigger button positioned at
-                  // `right: hPad` below, so a song with multiple quality
-                  // pills (LOCAL + language + year) can't visually
-                  // collide with it on narrower screens.
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 34),
-                      child: _QualityPills(song: song, hPad: hPad, bgLuma: _currentBg2.computeLuminance()),
-                    ),
-                  ),
-                  // Lyrics trigger — relocated here from the right-side
-                  // icon column (was sitting oddly stacked under the
-                  // cast pill). This row (same one as the LOCAL/quality
-                  // pills) reads as a clean, deliberate spot: aligned
-                  // with the pill row, clear of every other control.
-                  //
-                  // FIX ("Immersive Lyrics OFF pe ye button dikhna hi
-                  // nahi chahiye, ON pe hi aaye"): this button used to
-                  // render unconditionally regardless of the Settings →
-                  // Appearance → Immersive Lyrics switch — so turning
-                  // that setting off left a dead button on screen that
-                  // did nothing useful to tap (or worse, still opened
-                  // the overlay the setting was supposed to disable).
-                  // Now gated on the same lyricsViewModeNotifier the
-                  // inline strip already checks elsewhere on this
-                  // screen — only fullscreen mode shows it, matching the
-                  // setting exactly.
-                  ValueListenableBuilder<LyricsViewMode>(
-                    valueListenable: AudioPrefs.lyricsViewModeNotifier,
-                    builder: (context, viewMode, _) {
-                      if (viewMode != LyricsViewMode.fullscreen) {
-                        return const SizedBox.shrink();
-                      }
-                      return Positioned(
-                        right: hPad,
-                        child: _ImmersiveLyricsTriggerButton(
-                          bgLuma: _currentBg2.computeLuminance(),
-                          isActive: _immersiveLyricsOpen,
-                          onTap: _openImmersiveLyrics,
-                        ),
-                      );
-                    },
-                  ),
-                ],
+              // Immersive Lyrics trigger moved to the top bar (see
+              // TopBarWithCastBanner above) — this row is back to just
+              // the quality pills, no reserved right-side padding or
+              // Positioned overlay needed anymore, so it never fights
+              // for space with LOCAL/language/year pills on narrower
+              // screens or longer pill sets.
+              child: Center(
+                child: _QualityPills(song: song, hPad: hPad, bgLuma: _currentBg2.computeLuminance()),
               ),
             ),
             const Spacer(),
@@ -2051,7 +2138,29 @@ class _TopBar extends StatelessWidget {
   final Song song;
   final double bgLuma;
   final VoidCallback onMore;
-  const _TopBar({required this.song, required this.bgLuma, required this.onMore});
+  // Immersive Lyrics trigger now lives here instead of squeezed into the
+  // LOCAL/quality-pill row lower down — that row already has to fit a
+  // variable number of pills (LOCAL badge, language, year) depending on
+  // the song, so a 4th thing competing for the same 28px-tall strip was
+  // the actual source of the crowded feel. The top bar has exactly one
+  // icon on each side (chevron, more-menu) with a fixed-width pill
+  // between them — always the same layout regardless of song metadata,
+  // so adding a small third icon here can never collide with anything
+  // else on any song, on any screen width. Nullable + only built when
+  // non-null so a song with Immersive Lyrics off (or a song where it's
+  // simply unavailable) renders the exact same two-icon bar as before —
+  // no dead space, no placeholder gap.
+  final bool showLyricsTrigger;
+  final bool lyricsTriggerActive;
+  final VoidCallback? onLyricsTrigger;
+  const _TopBar({
+    required this.song,
+    required this.bgLuma,
+    required this.onMore,
+    this.showLyricsTrigger = false,
+    this.lyricsTriggerActive = false,
+    this.onLyricsTrigger,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2080,6 +2189,19 @@ class _TopBar extends StatelessWidget {
           onTap: () => Navigator.pop(context),
           semanticLabel: l10n.fpClosePlayer,
         ),
+        // Small gap + the lyrics trigger, immediately after the chevron
+        // — a deliberately different (smaller, circular, tinted) shape
+        // from the two square-ish _IconBtns either side of it, so at a
+        // glance it reads as "a distinct feature toggle", not just a
+        // third nav icon.
+        if (showLyricsTrigger) ...[
+          const SizedBox(width: 4),
+          _ImmersiveLyricsTriggerButton(
+            bgLuma: bgLuma,
+            isActive: lyricsTriggerActive,
+            onTap: onLyricsTrigger!,
+          ),
+        ],
         Expanded(
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 12),
@@ -2135,12 +2257,30 @@ class TopBarWithCastBanner extends StatelessWidget {
   final Song song;
   final double bgLuma;
   final VoidCallback onMore;
-  const TopBarWithCastBanner({super.key, required this.song, required this.bgLuma, required this.onMore});
+  final bool showLyricsTrigger;
+  final bool lyricsTriggerActive;
+  final VoidCallback? onLyricsTrigger;
+  const TopBarWithCastBanner({
+    super.key,
+    required this.song,
+    required this.bgLuma,
+    required this.onMore,
+    this.showLyricsTrigger = false,
+    this.lyricsTriggerActive = false,
+    this.onLyricsTrigger,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Column(children: [
-      _TopBar(song: song, bgLuma: bgLuma, onMore: onMore),
+      _TopBar(
+        song: song,
+        bgLuma: bgLuma,
+        onMore: onMore,
+        showLyricsTrigger: showLyricsTrigger,
+        lyricsTriggerActive: lyricsTriggerActive,
+        onLyricsTrigger: onLyricsTrigger,
+      ),
       const CastingBanner(),
     ]);
   }
@@ -3126,6 +3266,48 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                               ),
                               const Expanded(child: _LyricsPage()),
                             ],
+                          ),
+                        ),
+                      ),
+                    // Dedicated in-overlay close button — fades in together
+                    // with the lyrics content (same lyricsOpacity curve) so
+                    // it's on screen the instant immersive lyrics is opened
+                    // from the inline strip, instead of requiring the user
+                    // to look back up at the top-bar sparkle toggle to find
+                    // a way out. Still just calls the same widget.onClose
+                    // callback as that top-bar button — one close path,
+                    // two entry points. Ignored while effectively invisible
+                    // so it never eats a tap meant for the lyrics list
+                    // underneath during the very start of the transition.
+                    if (lyricsOpacity > 0.001)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: IgnorePointer(
+                          ignoring: lyricsOpacity < 0.4,
+                          child: Opacity(
+                            opacity: lyricsOpacity,
+                            child: AurumPressable(
+                              onTap: widget.onClose,
+                              scaleAmount: 0.90,
+                              child: Container(
+                                width: 30,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.black.withAlpha(70),
+                                  border: Border.all(
+                                    color: Colors.white.withAlpha(50),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.close_rounded,
+                                  size: 16,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -7320,53 +7502,103 @@ class _StaticBlurArtwork extends StatefulWidget {
 // this file, not the blur shader's cost. Restoring it now matches Echo
 // exactly while staying just as lightweight as the fully-static version
 // was.
+// REWRITE ("Echo Nightly jaisa ekdam same, background mein continuously
+// run ho — pehle wala bilkul freeze tha"): the previous implementation
+// drove this off an AnimationController that was created in initState
+// and only ever started via .repeat(reverse: true) there or in resume().
+// That controller lived on THIS State object, but this widget is given
+// the same GlobalKey (kenBurnsKey) at every _BgLayer rebuild (_BgLayer
+// itself rebuilds on every bgCtrl tick during a song-change color morph,
+// and sits inside an AnimatedSwitcher keyed the same way) — a GlobalKey
+// is only ever supposed to be attached to one live Element at a time,
+// and reusing it across what's meant to be "the same" widget in
+// different rebuild passes is exactly the situation Flutter's GlobalKey
+// contract warns about corrupting: it can silently cause the framework
+// to detach/reattach the Element (and therefore this State) instead of
+// simply reusing it, which drops the ticker before it ever gets a
+// visible frame — no crash, no error, it just never visibly moves.
+// That's a fragile foundation for something that has to run forever in
+// the background, so this drops the AnimationController entirely.
+//
+// EXACT MATCH to how Echo Nightly actually does this: Echo doesn't
+// hand-roll any animation code for this at all (confirmed by reading
+// its source — there is no Ken Burns controller anywhere in its Kotlin).
+// It sets the blurred bitmap on a KenBurnsView and that third-party
+// view's own internal Choreographer-driven loop starts automatically
+// the moment it has an image, and keeps running for as long as the view
+// is attached — no external controller to create, restart, or
+// accidentally lose. This reproduces that exact model in Flutter: a
+// single Ticker (not an AnimationController) that reads elapsed
+// wall-clock time directly every frame and derives the pan/zoom from
+// it. There's no .forward()/.repeat() call to forget, no "did the
+// controller actually start" state to track, and — critically — no
+// GlobalKey-driven Element churn can ever stop it, because the ticker
+// isn't gated behind an initState-only kickoff: it starts the instant
+// this State exists and runs every frame until disposed, full stop.
 class _StaticBlurArtworkState extends State<_StaticBlurArtwork>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _kenBurnsCtrl;
+  late final Ticker _ticker;
+  // The Ticker's own callback arg restarts from zero every time .start()
+  // is called (a fresh ticker "session"), so _elapsed is tracked here as
+  // the running total instead — each session's ticks are added on top of
+  // whatever had already accumulated, and stop() below folds the current
+  // session into that total. This is what makes stop()/start() (pause/
+  // resume, drag start/end, GlobalKey pause/resume — all of them) a pure
+  // freeze-in-place with zero jump on resume: the very first tick of a
+  // new session continues exactly from the last frame of the previous
+  // one instead of the phase silently skipping forward by however long
+  // the pause lasted.
+  Duration _accumulated = Duration.zero;
+  Duration _sessionElapsed = Duration.zero;
+
+  // 18s round trip — same tempo as before/as the app's other ambient
+  // motion — kept as a plain constant now that there's no
+  // AnimationController duration to read it from.
+  static const _cycle = Duration(seconds: 18);
 
   @override
   void initState() {
     super.initState();
-    // Slow, subtle — 18s round trip, same tempo as the app's other
-    // ambient/breathing motion elsewhere in this file, so nothing on
-    // screen ever feels like it's animating at a different "speed of
-    // life" than anything else.
-    _kenBurnsCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 18),
-    );
-    // EDGE CASE FIX: this widget is keyed per-song (see the ValueKey at
-    // the call site), so a song change during an active drag creates a
-    // brand new State here — didUpdateWidget below (which normally
-    // handles pausing on drag) never runs for a freshly-created State,
-    // only for one that persists across rebuilds. Checking
-    // widget.isDragging here too means a song change mid-drag still
-    // starts paused instead of ticking for one frame before anything
-    // downstream notices.
-    if (!widget.isDragging) {
-      _kenBurnsCtrl.repeat(reverse: true);
-    }
+    _ticker = createTicker(_onTick);
+    if (!widget.isDragging) _startTicker();
+  }
+
+  void _onTick(Duration sessionElapsed) {
+    if (!mounted) return;
+    setState(() => _sessionElapsed = sessionElapsed);
+  }
+
+  Duration get _currentElapsed => _accumulated + _sessionElapsed;
+
+  void _startTicker() {
+    _sessionElapsed = Duration.zero;
+    _ticker.start();
+  }
+
+  void _stopTicker() {
+    _ticker.stop();
+    _accumulated += _sessionElapsed;
+    _sessionElapsed = Duration.zero;
   }
 
   @override
   void dispose() {
-    _kenBurnsCtrl.dispose();
+    _ticker.dispose();
     super.dispose();
   }
 
   @override
   void didUpdateWidget(_StaticBlurArtwork old) {
     super.didUpdateWidget(old);
-    // Pause the ticker entirely while mid-dismiss-drag — matches the
-    // app-wide pattern (_pauseAmbientAnims in the full player screen) of
-    // not spending any frame budget on ambient motion while a gesture is
-    // actively competing for it. Skipped if the parent already paused
-    // this for a different reason (backgrounded/panel open) — that pause
-    // should only be lifted by resume() above, not by the drag ending.
+    // Pause/resume on drag start/end — same behavior as before, just
+    // driven by starting/stopping the Ticker directly instead of an
+    // AnimationController. Skipped if the parent already paused this
+    // for a different reason (backgrounded/panel open) — that pause
+    // should only be lifted by resume() below, not by the drag ending.
     if (widget.isDragging && !old.isDragging) {
-      _kenBurnsCtrl.stop();
+      _stopTicker();
     } else if (!widget.isDragging && old.isDragging && !_pausedByParent) {
-      _kenBurnsCtrl.repeat(reverse: true);
+      _startTicker();
     }
   }
 
@@ -7378,15 +7610,13 @@ class _StaticBlurArtworkState extends State<_StaticBlurArtwork>
 
   void pause() {
     _pausedByParent = true;
-    _kenBurnsCtrl.stop();
+    _stopTicker();
   }
 
   void resume() {
     if (!_pausedByParent) return;
     _pausedByParent = false;
-    if (!widget.isDragging) {
-      _kenBurnsCtrl.repeat(reverse: true);
-    }
+    if (!widget.isDragging) _startTicker();
   }
 
   @override
@@ -7398,25 +7628,30 @@ class _StaticBlurArtworkState extends State<_StaticBlurArtwork>
     // "layer" during swipe-to-dismiss. _BlurredArtworkCore now handles
     // the empty-artwork case itself (gradient placeholder instead of
     // nothing), so it's safe to always build it here too.
-    return AnimatedBuilder(
-      animation: _kenBurnsCtrl,
-      builder: (context, child) {
-        final t = Curves.easeInOut.transform(_kenBurnsCtrl.value);
-        // Small, slow drift — a scale of 1.0→1.06 and a few px of pan,
-        // same subtlety as Echo's own KenBurnsView defaults (a gentle
-        // "the photo is quietly alive" feel, never a noticeable zoom).
-        final scale = 1.0 + 0.06 * t;
-        final dx = -6.0 + 12.0 * t;
-        final dy = -4.0 + 8.0 * t;
-        return Transform(
-          alignment: Alignment.center,
-          transform: Matrix4.identity()
-            ..translate(dx, dy)
-            ..scale(scale),
-          child: child,
-        );
-      },
-      child: _BlurredArtworkCore(song: widget.song, isLight: widget.isLight),
+    // t: 0→1→0 continuous ping-pong derived straight from wall-clock
+    // elapsed time (no controller value to be out of sync with) — this
+    // is what actually guarantees it runs the instant the ticker is
+    // ticking, with nothing else that could gate it off.
+    final phase =
+        (_currentElapsed.inMilliseconds % _cycle.inMilliseconds) /
+            _cycle.inMilliseconds;
+    final t = Curves.easeInOut.transform(
+      phase < 0.5 ? phase * 2 : (1 - phase) * 2,
+    );
+    // Small, slow drift — a scale of 1.0→1.06 and a few px of pan,
+    // same subtlety as Echo's own KenBurnsView defaults (a gentle
+    // "the photo is quietly alive" feel, never a noticeable zoom).
+    final scale = 1.0 + 0.06 * t;
+    final dx = -6.0 + 12.0 * t;
+    final dy = -4.0 + 8.0 * t;
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.identity()
+        ..translate(dx, dy)
+        ..scale(scale),
+      child: RepaintBoundary(
+        child: _BlurredArtworkCore(song: widget.song, isLight: widget.isLight),
+      ),
     );
   }
 }
@@ -8083,78 +8318,30 @@ class _CtrlBtn extends StatefulWidget {
   State<_CtrlBtn> createState() => _CtrlBtnState();
 }
 
-// PREMIUM POLISH PASS 2 ("shuffle/repeat feel dead — make them feel
-// premium and clickable"): pass 1 (see the animation notes preserved
-// below) handled color/icon transitions but the buttons still had no felt
-// depth — flat icon in empty space, a barely-visible 4px dot the only
-// active signal, and a generic 0.85 press-scale shared with every other
-// control on the screen (skip/prev/next included), so shuffle/repeat
-// never read as distinct, "considered" controls.
+// EXACT MATCH ("Echo Nightly jaisa ekdam top grade — full animation ke
+// saath, sab kuch clean"): Echo Nightly's own repeat/shuffle buttons
+// (confirmed by reading PlayerFragment.kt) carry no backdrop, no glow,
+// no underline mark at all — the entire "feel" comes from exactly one
+// thing: on tap, the icon itself morphs via an AnimatedVectorDrawable
+// (repeat ↔ repeat-one ↔ repeat-off, each a real path-morph animation
+// baked into the drawable) instead of an instant swap. That's the whole
+// design language: restrained everywhere except the one moment that
+// matters (the tap), where the icon itself performs.
 //
-// This pass is scoped ONLY to shuffle/repeat: skip/prev/next and the play
-// button are untouched, still using the plain _CtrlBtn/_PremiumPlayButton
-// paths elsewhere on screen — this widget is StatefulWidget now (needed
-// for the press-pulse AnimationController below) but every call site
-// still constructs it identically (`_CtrlBtn(...)`), so nothing else in
-// the file needed to change.
-//
-// Three additions, all deliberately restrained (no glow, no shadow, no
-// color outside the existing gold/inactive palette already used
-// everywhere else on this screen — an isolated flourish here would read
-// as inconsistent rather than premium):
-//  1. A soft circular backdrop fades in behind the icon when active
-//     (gold at ~10% opacity) — gives the toggle actual depth/weight
-//     instead of just a color change, same visual language as how
-//     "selected" chips read elsewhere in the app.
-//  2. The active indicator changed from a 4px dot to a short underline
-//     bar beneath the icon — reads as a more confident, considered
-//     status mark (closer to how Apple Music signals active
-//     shuffle/repeat) rather than a barely-visible pixel.
-//  3. A brief press-pulse: the backdrop scales up and its opacity ticks
-//     slightly on tap-down, settling back on release — gives the tap
-//     itself a felt moment rather than only the eventual state change
-//     being visible. Purely additive to the existing AurumPressable
-//     scale — that press-scale on the whole button is untouched.
-class _CtrlBtnState extends State<_CtrlBtn> with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 260),
-      reverseDuration: const Duration(milliseconds: 200),
-    );
-  }
-
-  @override
-  void dispose() {
-    _pulseCtrl.dispose();
-    super.dispose();
-  }
-
-  void _onPressDown(_) => _pulseCtrl.forward();
-  void _onPressEnd(_) => _pulseCtrl.reverse();
-  void _onPressCancel() => _pulseCtrl.reverse();
-
+// Flutter has no AnimatedVectorDrawable equivalent, so this reproduces
+// the same felt effect — the icon visibly transforming into its new
+// shape, not just cross-fading — with a short combined rotate+scale-
+// through on the MaterialIcon swap: the old icon shrinks/rotates away
+// and the new one grows/rotates in from the opposite direction, timed
+// tight enough (180ms) to read as one continuous morph rather than two
+// separate fades. Every other bit of chrome from the previous pass
+// (press-pulse backdrop, active-state underline bar) is removed — Echo
+// has none of it, and this pass is about matching Echo exactly, not
+// adding to it.
+class _CtrlBtnState extends State<_CtrlBtn> {
   @override
   Widget build(BuildContext context) {
     final c = widget.color ?? (widget.active ? AurumTheme.gold : widget.inactiveColor);
-
-    // Same restrained language as before (no pill, no glow, no shadow —
-    // that restraint is what reads as premium rather than gamified) but
-    // refines the motion quality:
-    //  - The icon's color now animates (AnimatedDefaultTextStyle-style
-    //    tween via TweenAnimationBuilder) instead of snapping instantly
-    //    between muted/gold on toggle — a deliberate, considered
-    //    transition rather than a hard cut.
-    //  - Icon swap crossfade slowed very slightly (180ms -> 200ms) and
-    //    paired with a tiny scale so it reads as a soft transition rather
-    //    than a flicker.
-    // Only shuffle/repeat pass `active`; skip/prev/next never do, so all
-    // of this only affects the two toggle buttons.
-    final showActiveMark = widget.color == null;
 
     return Semantics(
       label: widget.semanticLabel,
@@ -8163,100 +8350,57 @@ class _CtrlBtnState extends State<_CtrlBtn> with SingleTickerProviderStateMixin 
         scaleAmount: 0.85,
         haptic: false, // callers already fire their own haptic per action
         onTap: widget.onTap,
-        child: Listener(
-          onPointerDown: showActiveMark ? _onPressDown : null,
-          onPointerUp: showActiveMark ? _onPressEnd : null,
-          onPointerCancel: showActiveMark ? (_) => _onPressCancel() : null,
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      if (showActiveMark)
-                        AnimatedBuilder(
-                          animation: _pulseCtrl,
-                          builder: (_, __) {
-                            final pulse = _pulseCtrl.value;
-                            // Backdrop is visible when active OR mid-press
-                            // (so even a tap that ends up toggling OFF
-                            // still gets a felt moment on press-down),
-                            // fading smoothly between the two.
-                            final baseOpacity = widget.active ? 0.12 : 0.0;
-                            final opacity =
-                                (baseOpacity + pulse * 0.10).clamp(0.0, 0.22);
-                            final scale = 1.0 + pulse * 0.08;
-                            if (opacity <= 0.001) return const SizedBox.shrink();
-                            return Transform.scale(
-                              scale: scale,
-                              child: Container(
-                                width: 36,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: AurumTheme.gold.withOpacity(opacity),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 200),
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeInCubic,
-                        transitionBuilder: (child, anim) => FadeTransition(
-                          opacity: anim,
-                          child: ScaleTransition(
-                            scale: Tween<double>(begin: 0.88, end: 1.0).animate(anim),
-                            child: child,
-                          ),
-                        ),
-                        // Keyed on the icon shape only (not color) — a
-                        // pure color change (shuffle/repeat toggling
-                        // active while the icon shape stays the same)
-                        // animates smoothly via the TweenAnimationBuilder
-                        // below instead of retriggering the fade/scale
-                        // switch, which is reserved for genuine icon
-                        // shape changes (repeat -> repeat-one).
-                        child: TweenAnimationBuilder<Color?>(
-                          key: ValueKey(widget.icon),
-                          tween: ColorTween(end: c),
-                          duration: const Duration(milliseconds: 260),
-                          curve: Curves.easeOutCubic,
-                          builder: (_, animatedColor, __) => Icon(
-                            widget.icon,
-                            size: widget.size,
-                            color: animatedColor ?? c,
-                          ),
-                        ),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Center(
+              child: AnimatedSwitcher(
+                // Fast — a real tap-triggered morph, not a lingering
+                // transition. Long enough to read as motion, short
+                // enough that rapid re-tapping (spamming repeat mode
+                // through its 3 states) never feels laggy.
+                duration: const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, anim) {
+                  // Incoming icon: rotates in from -45° while scaling
+                  // up from 0.6 and fading in. Outgoing icon (the
+                  // reverse animation on the child leaving the tree)
+                  // gets the exact mirrored motion for free since
+                  // AnimatedSwitcher runs the same transitionBuilder on
+                  // both — together they read as one shape rotating
+                  // through itself into the new one, the closest
+                  // Flutter-native equivalent to a real vector path
+                  // morph.
+                  return FadeTransition(
+                    opacity: anim,
+                    child: ScaleTransition(
+                      scale: Tween<double>(begin: 0.6, end: 1.0).animate(anim),
+                      child: RotationTransition(
+                        turns: Tween<double>(begin: -0.125, end: 0.0).animate(anim),
+                        child: child,
                       ),
-                    ],
-                  ),
-                ),
-                if (showActiveMark) ...[
-                  const SizedBox(height: 2),
-                  // Short underline bar replaces the old 4px dot — a
-                  // more confident, deliberate status mark. Width
-                  // animates in from a sliver rather than just fading,
-                  // so it reads as "drawing itself" on activation.
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 260),
-                    curve: Curves.easeOutBack,
-                    width: widget.active ? 14 : 3,
-                    height: 2.5,
-                    decoration: BoxDecoration(
-                      color: AurumTheme.gold
-                          .withOpacity(widget.active ? 1.0 : 0.0),
-                      borderRadius: BorderRadius.circular(2),
                     ),
-                  ),
-                ],
-              ],
+                  );
+                },
+                // Keyed on icon shape + color together — unlike the
+                // previous pass (which kept color animating separately
+                // so pure activation didn't retrigger the switch), Echo
+                // itself re-plays its icon animation on every tap
+                // regardless of whether the shape changed (see
+                // trackShuffle/trackRepeat's onClick in PlayerFragment.kt
+                // — the Animatable always restarts) — matching that
+                // means every tap gets the morph, every time, exactly
+                // like Echo.
+                child: Icon(
+                  widget.icon,
+                  key: ValueKey('${widget.icon}_${widget.active}'),
+                  size: widget.size,
+                  color: c,
+                ),
+              ),
             ),
           ),
         ),
@@ -8264,3 +8408,4 @@ class _CtrlBtnState extends State<_CtrlBtn> with SingleTickerProviderStateMixin 
     );
   }
 }
+
