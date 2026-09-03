@@ -1213,10 +1213,19 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         _queue.add(song);
       }
 
-      // Prefetch next song's stream URL so it starts instantly
+      // NOTE: no Dart-side prefetchNext() call here anymore — see the
+      // FIX comment above _engine.addToQueue in this same loop. Native
+      // AurumAudioEngine.addToQueue() already calls resolveFast() for
+      // every song added here, so a follow-up ApiService.prefetchNext()
+      // was resolving the exact same song a second time through a
+      // completely separate cache (Dart's _streamCache vs native's own
+      // resolve path) — genuine duplicate network + CPU work with zero
+      // benefit, since neither resolve result was shared with the other.
+      // This was contributing to the same background-CPU/heating family
+      // as the native-side priority-window fix, just from the Dart side
+      // instead. The song is already ready to play instantly by the time
+      // playback reaches it; nothing here needs to warm it a second time.
       if (cleanToAdd.isNotEmpty) {
-        ApiService.prefetchNext(cleanToAdd.first);
-        if (cleanToAdd.length > 1) ApiService.prefetchNext(cleanToAdd[1]);
         notifyListeners();
       }
     } catch (e) {
@@ -1427,7 +1436,16 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     if (isFullyOfflineQueue) {
       _queue = List<Song>.from(queue);
-      _currentIndex = index!.clamp(0, _queue.length - 1);
+      // FIX (latent crash): index is nullable in this function's signature,
+      // and unlike the curatedQueue branch below, this branch never checked
+      // `index != null` before force-unwrapping it. No caller currently
+      // hits this (all pass index alongside queue today), but nothing
+      // stops a future caller from passing queue without index — the
+      // type-checker allows it since index is `int?`. Falling back to the
+      // tapped song's own position in the queue (or 0) is what every other
+      // branch here already does when index is absent.
+      final resolvedIndex = index ?? queue.indexWhere((s) => s.id == song.id).clamp(0, queue.length - 1);
+      _currentIndex = resolvedIndex.clamp(0, _queue.length - 1);
       _currentSong = _queue[_currentIndex];
       _expectedSongId = _currentSong!.id;
       _expectedSongIdSetAt = DateTime.now();

@@ -68,7 +68,6 @@ import 'screens/library_screen.dart';
 import 'providers/source_provider.dart';
 import 'providers/favorites_provider.dart';
 import 'providers/recently_played_provider.dart';
-import 'screens/splash_screen.dart';
 import 'screens/app_lock_screen.dart';
 import 'utils/aurum_transitions.dart';
 import 'utils/aurum_haptics.dart';
@@ -523,17 +522,10 @@ class AurumApp extends StatelessWidget {
               }
               return const Locale('en');
             },
-            // NOTE: _SplashOnEveryEntry now wraps EVERYTHING below,
-            // including _BlurShaderWarmup and AppLockScreen — it used to
-            // sit *inside* AppLockScreen's child slot, which meant its
-            // real first mount was delayed behind AppLockScreen's own
-            // async "_checking" loading state, and the splash effectively
-            // never rendered (see splash_screen.dart / _SplashOnEveryEntry
-            // doc comments for the full root-cause writeup). Splash is
-            // now the true outermost widget at MaterialApp.home, exactly
-            // once per real cold start, with everything else — including
-            // the blur-shader warmup and the lock screen — mounting in
-            // parallel underneath it from frame 1.
+            // Splash is fully native now — see the doc comment on
+            // `home:` below for why any Dart-side splash overlay was
+            // removed entirely (it would restart/double-play alongside
+            // the native OS splash instead of running once, smoothly).
             // Cross-fades dark/light/AMOLED + accent color changes instead
             // of the previous instant one-frame swap. MaterialApp already
             // builds the correct Theme internally (theme/darkTheme/
@@ -553,11 +545,24 @@ class AurumApp extends StatelessWidget {
                 child: child ?? const SizedBox.shrink(),
               );
             },
-            home: _SplashOnEveryEntry(
-              child: _BlurShaderWarmup(
-                child: AppLockScreen(
-                  child: const MainShell(),
-                ),
+            // Splash is entirely native now (android:windowSplashScreenAnimatedIcon
+            // in styles.xml + art_splash_anim.xml) — matching Echo Nightly's
+            // own approach exactly: Echo has no Dart/Compose-side splash
+            // widget at all, only the OS-level animated vector. Aurum
+            // previously ALSO ran a Dart-side SplashScreen overlay here
+            // (_SplashOnEveryEntry) with its own independent 2400ms
+            // animation — since the native OS splash already runs its own
+            // separate 900ms animation before Flutter's first frame even
+            // exists, the two would play back-to-back with a visible
+            // restart/discontinuity between them (native finishes at 900ms,
+            // then the Dart one starts over from its own beginning and
+            // runs a further 2400ms) — a combined ~3.3s with a jarring
+            // "it restarted" moment in the middle, not a single smooth
+            // animation. Removed entirely so only the one native animation
+            // plays, exactly once, exactly like Echo.
+            home: _BlurShaderWarmup(
+              child: AppLockScreen(
+                child: const MainShell(),
               ),
             ),
             ); // closes MaterialApp
@@ -695,56 +700,4 @@ class _BlurShaderWarmupState extends State<_BlurShaderWarmup> {
   }
 }
 
-class _SplashOnEveryEntry extends StatefulWidget {
-  final Widget child;
-  const _SplashOnEveryEntry({required this.child});
 
-  @override
-  State<_SplashOnEveryEntry> createState() => _SplashOnEveryEntryState();
-}
-
-class _SplashOnEveryEntryState extends State<_SplashOnEveryEntry> {
-  // BUG FIX ("splash animation dikhta hi nahi" — root cause, two parts):
-  //
-  // 1. This widget used to sit INSIDE AppLockScreen's `child` slot.
-  //    AppLockScreen's build() returns a totally different Scaffold
-  //    (the PIN/biometric loading state) while `_checking` is true, and
-  //    only returns `widget.child` — i.e. only actually builds this
-  //    widget for the first time — once its async SharedPreferences
-  //    read completes. So on every single cold start, this widget's
-  //    real first mount already happened one async hop late, behind an
-  //    invisible-if-app-lock-is-off loading gate. Fixed in main.dart:
-  //    _SplashOnEveryEntry now wraps AppLockScreen (and everything else)
-  //    from the very first frame, instead of being wrapped BY it.
-  //
-  // 2. `_played` was `static bool`, flipped true in initState() and
-  //    never reset. A static field lives for the whole process, not
-  //    per-widget-instance — so once ANY _SplashOnEveryEntryState in
-  //    this isolate's lifetime had initState() run once (e.g. during a
-  //    debug hot-restart, or if anything above it in the tree ever
-  //    caused this widget to be torn down and rebuilt — which is
-  //    exactly what AppLockScreen's `_checking` → Scaffold →
-  //    widget.child switch does, since that's a different widget TYPE
-  //    at that slot each time, forcing element/State teardown), every
-  //    later mount saw `_played == true` immediately and skipped the
-  //    splash silently. Fixed by using an instance-level flag instead:
-  //    each State object now decides purely from its OWN lifecycle
-  //    (did *this* instance already show it), never from cross-instance
-  //    process memory. A genuine new State object — the only thing that
-  //    can happen now, since this widget sits at the true root — always
-  //    means a genuine new cold start, so it's always correct for it to
-  //    show the splash again.
-  bool _showSplash = true;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_showSplash) return widget.child;
-    return SplashScreen(
-      key: const ValueKey('aurum_splash_once'),
-      child: widget.child,
-      onFinished: () {
-        if (mounted) setState(() => _showSplash = false);
-      },
-    );
-  }
-}

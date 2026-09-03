@@ -232,20 +232,29 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
                   child: Row(
                     children: [
-                      Builder(builder: (context) {
-                        final song =
-                            context.watch<PlayerProvider>().currentSong;
-                        return AurumArtwork(
-                          url: song?.artworkUrl ?? '',
-                          size: 44,
-                          borderRadius: 10,
-                        );
-                      }),
+                      Selector<PlayerProvider, String>(
+                        selector: (_, p) => p.currentSong?.artworkUrl ?? '',
+                        builder: (context, artworkUrl, _) {
+                          return AurumArtwork(
+                            url: artworkUrl,
+                            size: 44,
+                            borderRadius: 10,
+                          );
+                        },
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Consumer<PlayerProvider>(
-                          builder: (context, player, _) {
-                            final song = player.currentSong;
+                        // PERF (consistency with mini_player.dart/queue_screen.dart's
+                        // same fix): Consumer<PlayerProvider> here rebuilt on every
+                        // playback-position notifyListeners() tick — multiple times a
+                        // second — for a title/subtitle Text that only actually needs
+                        // to change when the current song itself changes. A Selector
+                        // scoped to just currentSong?.id/title stops that redundant
+                        // rebuild without changing anything else about this widget.
+                        child: Selector<PlayerProvider, (String?, String)>(
+                          selector: (_, p) => (p.currentSong?.id, p.currentSong?.title ?? ''),
+                          builder: (context, data, _) {
+                            final (songId, title) = data;
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
@@ -256,9 +265,9 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                                             context),
                                         fontSize: 11.5,
                                         fontWeight: FontWeight.w600)),
-                                if (song != null) ...[
+                                if (songId != null) ...[
                                   const SizedBox(height: 2),
-                                  Text(song.title,
+                                  Text(title,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(

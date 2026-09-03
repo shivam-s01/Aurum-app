@@ -86,6 +86,13 @@ class LibraryScreen extends StatelessWidget {
       extendBody: true,
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
+        // PERF FIX (same class as home_screen.dart / artist_screen.dart's
+        // matching fix): default Sliver cacheExtent (250px) is too small
+        // once real library data (playlists, downloads, history) is
+        // loaded — fast flings tear down and rebuild sections just
+        // outside that tiny buffer. Matching the same 1200 used
+        // elsewhere for identical reasoning.
+        cacheExtent: 1200,
         slivers: [
           _buildAppBar(context),
           SliverToBoxAdapter(
@@ -456,6 +463,8 @@ class PlaylistsScreen extends StatelessWidget {
           resizeToAvoidBottomInset: false,
           body: CustomScrollView(
             physics: const BouncingScrollPhysics(),
+            // PERF FIX — see LibraryScreen's matching cacheExtent comment above.
+            cacheExtent: 1200,
             slivers: [
               // ── App Bar ─────────────────────────────────────────────────
               SliverAppBar(
@@ -652,6 +661,15 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
         bottomNavigationBar: const MiniPlayerSlot(),
         body: CustomScrollView(
           physics: const BouncingScrollPhysics(),
+          // PERF FIX (same class as home_screen.dart / artist_screen.dart's
+          // matching fix): default Sliver cacheExtent is only 250 logical
+          // px. With a 300px expanded header sitting above a potentially
+          // long, reorderable song list, a fast fling could easily outrun
+          // that tiny buffer — tiles just past it got torn down and
+          // rebuilt from scratch on every re-entry into view, which reads
+          // as stutter/lag on a big playlist. Matching the same 1200 used
+          // on Home/Artist for identical reasoning.
+          cacheExtent: 1200,
           slivers: [
             // ── Header / Select-mode app bar ──────────────────────────────
             if (_selecting)
@@ -2548,6 +2566,8 @@ class _HistoryScreenState extends State<_HistoryScreen>
           bottomNavigationBar: const MiniPlayerSlot(),
           body: CustomScrollView(
             physics: const BouncingScrollPhysics(),
+            // PERF FIX — see LibraryScreen's matching cacheExtent comment above.
+            cacheExtent: 1200,
             slivers: [
               // ── App Bar ──
               SliverAppBar(
@@ -3074,6 +3094,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       bottomNavigationBar: const MiniPlayerSlot(),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
+        // PERF FIX — see LibraryScreen's matching cacheExtent comment above.
+        cacheExtent: 1200,
         slivers: [
           SliverAppBar(
             expandedHeight: 100,
@@ -3565,6 +3587,8 @@ class _AlbumsScreen extends StatelessWidget {
       bottomNavigationBar: const MiniPlayerSlot(),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
+        // PERF FIX — see LibraryScreen's matching cacheExtent comment above.
+        cacheExtent: 1200,
         slivers: [
           SliverAppBar(
             expandedHeight: 100,
@@ -3847,6 +3871,8 @@ class _ArtistsScreen extends StatelessWidget {
       bottomNavigationBar: const MiniPlayerSlot(),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
+        // PERF FIX — see LibraryScreen's matching cacheExtent comment above.
+        cacheExtent: 1200,
         slivers: [
           SliverAppBar(
             expandedHeight: 100,
@@ -4117,6 +4143,8 @@ class _ComingSoonScreen extends StatelessWidget {
       bottomNavigationBar: const MiniPlayerSlot(),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
+        // PERF FIX — see LibraryScreen's matching cacheExtent comment above.
+        cacheExtent: 1200,
         slivers: [
           SliverAppBar(
             expandedHeight: 100,

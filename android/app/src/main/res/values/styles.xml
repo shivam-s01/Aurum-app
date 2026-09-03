@@ -1,7 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Wired up exactly like Echo Nightly's own values/themes.xml
+         (windowSplashScreenBackground + windowSplashScreenAnimatedIcon +
+         windowSplashScreenAnimationDuration + windowSplashScreenBrandingImage,
+         all together, no MainActivity-side avoidance). See
+         art_splash_anim.xml's own doc comment for why the earlier
+         "leave the icon unset to dodge a MIUI bug" approach is what
+         was actually causing the static-icon-with-nothing-animating
+         symptom: leaving it unset didn't avoid an OS splash, it just
+         handed MIUI's OWN uncontrolled default splash the job instead,
+         for however long MIUI feels like keeping it up. Setting it
+         explicitly — Echo's approach — puts Aurum's actual animation in
+         that slot instead. -->
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/bgColor</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">@drawable/art_splash_anim</item>
+        <item name="android:windowSplashScreenAnimationDuration" tools:targetApi="s">900</item>
+        <item name="android:windowSplashScreenBrandingImage" tools:targetApi="s">@null</item>
+        <item name="android:windowSplashScreenBehavior" tools:targetApi="tiramisu">icon_preferred</item>
     </style>
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">@color/bgColor</item>

@@ -61,18 +61,23 @@ class MainActivity : FlutterFragmentActivity() {
     // own once real playback starts (see AurumMediaSessionService.kt).
     private var mediaSessionServiceConnection: ServiceConnection? = null
 
-    // NOTE: We intentionally do NOT use androidx.core.splashscreen's
-    // installSplashScreen() here. On several OEM skins (MIUI, OxygenOS,
-    // etc.) it forces the launcher icon to render inside a light/white
-    // "icon card" on the Android 12+ system splash regardless of any
-    // background/icon-background color set in styles.xml, and it also
-    // interferes with the status bar's edge-to-edge transparency that
-    // Flutter sets up in main.dart. Falling back to the plain
-    // launch_background.xml + dark LaunchTheme (no SplashScreen API
-    // involvement at all) avoids both issues consistently across devices.
-    // The system splash is then just a flat dark frame for ~1 cold-start
-    // frame, immediately replaced by Flutter's own UI — including our
-    // _A_ + AURUM animation in splash_screen.dart.
+    // NOTE: We still do NOT call androidx.core.splashscreen's
+    // installSplashScreen() here — that's a separate compat-library API
+    // (adds its own dependency, its own OnExitAnimationListener hookup)
+    // and isn't what's needed. The actual MIUI/OxygenOS "icon forced
+    // onto a light card" issue turned out to be specifically about
+    // windowSplashScreenIconBackgroundColor — Aurum was never setting
+    // that, so it isn't at risk here regardless. What WAS wrong is
+    // covered in styles.xml's LaunchTheme doc comment and
+    // art_splash_anim.xml's own header: windowSplashScreenAnimatedIcon
+    // itself was left unset "to be safe", which meant MIUI fell back to
+    // its own uncontrolled default OS splash (bare static launcher icon,
+    // no animation, visible for however long MIUI wants) instead of
+    // ever showing Aurum's actual animated icon. Now set directly in
+    // styles.xml's LaunchTheme, the exact same way Echo Nightly's own
+    // values/themes.xml sets it — no MainActivity involvement needed
+    // either way, this comment exists purely so a future edit doesn't
+    // reintroduce the old avoidance out of the same caution.
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // FIX (gray/white screen flash on cold start, swipe-down full-player
@@ -86,10 +91,34 @@ class MainActivity : FlutterFragmentActivity() {
         // composited (cold start, and any full-screen surface change like a
         // route transition or the full player's swipe-to-dismiss), the OS
         // briefly shows that stale window background — which is what read
-        // as a gray flash. Must be called BEFORE super.onCreate() so it
-        // takes effect before the window is first created.
-        setTheme(R.style.NormalTheme)
+        // as a gray flash.
+        //
+        // MOVED to run AFTER super.onCreate(), not before (previous
+        // position — confirmed root cause of "OS splash shows nothing/
+        // static icon, animation never plays"): Android's SplashScreen
+        // system (API 31+) resolves which theme's splash attributes to
+        // actually use as part of super.onCreate()'s own window-creation
+        // work — calling Activity.setTheme() before that point is the
+        // OFFICIAL documented way to substitute your OWN splash-screen
+        // setup in place of the platform one (see
+        // androidx.core.splashscreen.SplashScreen's own kdoc: "this call
+        // can be replaced by Activity#setTheme if a SplashScreen instance
+        // isn't needed"). Since NormalTheme below defines no
+        // windowSplashScreen* attributes at all, calling setTheme(NormalTheme)
+        // before super.onCreate() was — on the exact devices/OS versions
+        // that take this path most strictly (MIUI observed in practice) —
+        // substituting "no splash configuration at all" in place of
+        // LaunchTheme's real windowSplashScreenAnimatedIcon/Background/etc,
+        // which left MIUI showing its own uncontrolled default splash
+        // (bare static launcher icon, no animation) instead of
+        // art_splash_anim.xml. Calling it AFTER super.onCreate() instead
+        // — the same "postSplashScreenTheme" ordering the official API
+        // uses — still swaps the window's background well before the
+        // window is actually drawn/composited (which is what the gray-
+        // flash fix above needs), while no longer racing the splash
+        // screen's own theme resolution.
         super.onCreate(savedInstanceState)
+        setTheme(R.style.NormalTheme)
         // Diagnostic log — crashes, ANR, offload status, playback/network
         // errors all funnel into one rotating file from here on. Init'd as
         // early as possible so nothing in startup is missed. See

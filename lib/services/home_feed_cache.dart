@@ -34,18 +34,19 @@ import 'api_service.dart';
 /// launch) or unreadable, behavior falls back to exactly what it was
 /// before this fix — a normal loading state until the fetch resolves.
 ///
-/// STABILITY GUARANTEE ("ek hi rahe hamesha jab tak user khud manually
-/// refresh na kare" — no time-based auto-expiry): cold start reads this
-/// cache and paints it instantly (near-0ms, SharedPreferences, no
-/// network) instead of showing shimmer while a fresh fetch runs. Once
-/// something is cached, [loadSections]/[loadArtists]/[loadPlaylistCards]
-/// keep returning that exact saved content forever — there is no age
-/// check anywhere in this file that can treat a cache as stale on its
-/// own. The ONLY things that ever produce different content are (a) a
-/// manual pull-to-refresh (home_screen.dart's RefreshIndicator calls
-/// _loadOnline()/_loadArtists() directly, which never reads this cache),
-/// or (b) a genuine first-ever launch / cleared app data with nothing
-/// cached yet.
+/// FRESHNESS: cold start reads this cache and paints it instantly
+/// (near-0ms, SharedPreferences, no network) instead of showing shimmer
+/// while a fresh fetch runs — [loadSections]/[loadArtists]/
+/// [loadPlaylistCards] never apply any age check themselves, so painting
+/// is always instant regardless of how old the saved cache is. Whether a
+/// background RE-FETCH also kicks off is a separate decision: [isFresh]/
+/// [isArtistsFresh]/[isPlaylistsFresh] gate that on a 6-hour age window
+/// (see `_maxFreshAge`'s doc comment on [HomeFeedCache]) — old enough to
+/// avoid a network fetch on every single cold start, young enough that
+/// RecommendationEngine's listening-based personalization actually gets
+/// to run again periodically instead of only once per install. A manual
+/// pull-to-refresh (home_screen.dart's RefreshIndicator) always forces a
+/// real fetch regardless of this cache either way.
 /// Runs on a background isolate via compute() — see loadSections() below
 /// for why this was pulled out of the main isolate for LARGE payloads.
 /// Must be a top-level function (not a closure/instance method) for
@@ -112,28 +113,43 @@ class HomeFeedCache {
   static const _savedAtKey = 'home_feed_cache_saved_at_ms';
   static const _artistsSavedAtKey = 'home_feed_cache_artists_saved_at_ms';
 
-  // REMOVED (2026-08-30): the 10-hour auto-expiry ("maxFreshAge") that
-  // used to live here. Per explicit product requirement — "ek hi rahe
-  // hamesha jab tak user khud manually refresh na kare" — the cache now
-  // NEVER expires on its own, for any amount of time. Once a cold start
-  // has content, that exact content stays exactly as-is across every
-  // future cold start, indefinitely, until the user explicitly pulls to
-  // refresh (RefreshIndicator's onRefresh in home_screen.dart, which
-  // still always forces a real fetch regardless of this cache). There is
-  // now no time-based condition anywhere in this file that can trigger a
-  // background fetch on its own.
+  // TIME-BASED FRESHNESS (restored 2026-09): the previous "never expire on
+  // its own" behavior meant _loadOnline()/_loadArtists() — and therefore
+  // RecommendationEngine's own listening-based personalization
+  // (rotatingAffinityArtists/rotatingAffinityGenres in api_service.dart's
+  // fetchHomeStreaming) — only ever ran ONCE per install, on the very
+  // first cold start with nothing cached yet. Every subsequent app open
+  // kept re-showing that exact same first-ever snapshot forever, no
+  // matter how much new listening history piled up, until the user
+  // discovered and used pull-to-refresh themselves. That's the opposite
+  // of what recommendations are supposed to do.
+  //
+  // A fixed interval strikes the balance the previous two states each
+  // missed: zero-expiry never refreshed on its own (stale forever);
+  // refreshing on every cold start would burn data/battery on every
+  // single app open even minutes apart. 6 hours means roughly 3-4
+  // natural refreshes a day — real listening-based content turnover
+  // without a background fetch on every launch.
+  static const Duration _maxFreshAge = Duration(hours: 6);
+
+  static bool _isRecent(int? savedAtMs) {
+    if (savedAtMs == null) return false;
+    final age = DateTime.now().millisecondsSinceEpoch - savedAtMs;
+    return age >= 0 && age < _maxFreshAge.inMilliseconds;
+  }
 
   // GATE for the caller's own background network fetch — not just what's
-  // displayed. isFresh()/isArtistsFresh()/isPlaylistsFresh() below now
-  // simply mean "is there any saved cache at all" — true the instant
-  // something has ever been cached, with no expiry — so initState() in
-  // home_screen.dart only ever fires a real fetch on a genuine first-ever
-  // launch (nothing cached yet) or a cleared/corrupted cache, never
-  // because time has passed.
+  // displayed. isFresh()/isArtistsFresh()/isPlaylistsFresh() below mean
+  // "is there a cache AND is it still within _maxFreshAge" — true right
+  // after a fresh save, false again once it's aged out, so
+  // initState() in home_screen.dart fires a real background fetch on a
+  // genuine first-ever launch, a cleared/corrupted cache, OR simply
+  // whenever the existing cache has gone stale — never on every single
+  // cold start regardless of age.
   static Future<bool> isFresh() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getInt(_savedAtKey) != null;
+      return _isRecent(prefs.getInt(_savedAtKey));
     } catch (_) {
       return false;
     }
@@ -146,7 +162,7 @@ class HomeFeedCache {
   static Future<bool> isArtistsFresh() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getInt(_artistsSavedAtKey) != null;
+      return _isRecent(prefs.getInt(_artistsSavedAtKey));
     } catch (_) {
       return false;
     }
@@ -187,22 +203,26 @@ class HomeFeedCache {
       final prefs = await SharedPreferences.getInstance();
       final savedAtMs = prefs.getInt(_savedAtKey);
       if (savedAtMs == null) return [];
-      // NO EXPIRY (2026-08-30): the age-based staleness check that used
-      // to sit here is gone — a saved cache is used exactly as-is,
-      // however old it is, until the user manually pulls to refresh.
+      // Always paints instantly regardless of age (2026-09): this
+      // function itself has no expiry check — a saved cache paints
+      // immediately on cold start no matter how old it is, so there is
+      // never a shimmer/wait here. Whether a background RE-FETCH also
+      // kicks off is a completely separate decision, gated by isFresh()
+      // (see that function's doc comment) — that's where _maxFreshAge
+      // is actually enforced, not here.
       final raw = prefs.getString(_sectionsKey);
       if (raw == null || raw.isEmpty) return [];
       // PERF FIX ("app freezes right after opening, splash looks skipped"):
       // this used to run jsonDecode() + SongSection.fromJson() for every
       // song in every cached section directly here, on the UI isolate,
       // inside HomeScreen.initState() — i.e. the exact same frame window
-      // splash_screen.dart's AnimationController needs to keep ticking
-      // smoothly at 60fps (widget.child, which contains HomeScreen, is
-      // deliberately mounted underneath the splash from frame 1 — see that
-      // file's comment). A cache with many sections/songs made this decode
-      // heavy enough to drop enough frames that the splash animation read
-      // as "skipped" (it was still running, just too janky/fast-forwarded
-      // to see) and the whole UI felt frozen.
+      // where the native OS splash (art_splash_anim.xml) hands off to
+      // Flutter's first real frame. A cache with many sections/songs
+      // made this decode heavy enough to drop frames right at that
+      // handoff, which read as the splash animation stuttering/skipping
+      // (it was actually the native splash's OWN animation still
+      // finishing, but Flutter's very next frame freezing made the
+      // handoff itself feel broken) and the whole UI felt frozen.
       //
       // Size-aware dispatch: only hand this off to compute() (a real
       // background isolate) once the payload is big enough that decoding
@@ -272,7 +292,7 @@ class HomeFeedCache {
       final prefs = await SharedPreferences.getInstance();
       final savedAtMs = prefs.getInt(_artistsSavedAtKey);
       if (savedAtMs == null) return [];
-      // NO EXPIRY — see loadSections() above for the same removal.
+      // Always paints instantly regardless of age — see loadSections() above; background re-fetch gating lives in isArtistsFresh()/isPlaylistsFresh() instead.
       final raw = prefs.getString(_artistsKey);
       if (raw == null || raw.isEmpty) return [];
       // PERF FIX — same "splash skipped / frozen open" issue loadSections()
@@ -291,11 +311,12 @@ class HomeFeedCache {
   }
 
   // ── "Playlists For You" row cache ──────────────────────────────────
-  // Same no-expiry treatment as sections/artists above. Keyed separately
-  // by mood (_kMoodAll's cards are different from e.g. "bollywood"'s),
-  // so each mood's own cache is used exactly as-is, indefinitely, until
-  // the user switches mood (a deliberate action, always fetches fresh)
-  // or manually pulls to refresh.
+  // Same treatment as sections/artists above — always paints instantly,
+  // background re-fetch gated by isPlaylistsFresh()'s 6-hour window.
+  // Keyed separately by mood (_kMoodAll's cards are different from e.g.
+  // "bollywood"'s), so each mood's own cache/timestamp is independent —
+  // switching mood is a deliberate action that always fetches fresh
+  // regardless of this cache's age either way.
   static String _playlistsKey(String mood) => 'home_playlist_cards_v1_$mood';
   static String _playlistsSavedAtKey(String mood) =>
       'home_playlist_cards_saved_at_ms_$mood';
@@ -318,7 +339,7 @@ class HomeFeedCache {
       final prefs = await SharedPreferences.getInstance();
       final savedAtMs = prefs.getInt(_playlistsSavedAtKey(mood));
       if (savedAtMs == null) return [];
-      // NO EXPIRY — see loadSections() above for the same removal.
+      // Always paints instantly regardless of age — see loadSections() above; background re-fetch gating lives in isArtistsFresh()/isPlaylistsFresh() instead.
       final raw = prefs.getString(_playlistsKey(mood));
       if (raw == null || raw.isEmpty) return [];
       final decoded = jsonDecode(raw) as List;
@@ -335,7 +356,9 @@ class HomeFeedCache {
   static Future<bool> isPlaylistsFresh(String mood) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getInt(_playlistsSavedAtKey(mood)) != null;
+      // Time-gated the same way as isFresh()/isArtistsFresh() — see
+      // _maxFreshAge's doc comment near the top of this file.
+      return _isRecent(prefs.getInt(_playlistsSavedAtKey(mood)));
     } catch (_) {
       return false;
     }

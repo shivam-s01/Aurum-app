@@ -555,25 +555,19 @@ class _HomeScreenState extends State<HomeScreen> {
     // a genuine first-ever launch with nothing cached yet, in which case
     // behavior is identical to before this fix.
     _hydrateFromCache();
-    // NO-SILENT-REFRESH FIX ("ek hi rahe hamesha jab tak user khud
-    // manually refresh na kare"): previously _loadOnline() always ran
-    // here regardless of whether a cache existed, so even a cache from
-    // the last session still triggered a real background fetch that
-    // silently swapped the whole feed the instant it finished — a
-    // visible reshuffle the user never asked for. Now the fetch only
-    // fires on cold start when there is NO cache at all yet (first-ever
-    // launch, or cleared app data) — a cache, however old, is left
-    // exactly as shown, untouched, forever, until the user explicitly
-    // pulls to refresh (see RefreshIndicator's onRefresh above, which
-    // always calls _loadOnline() directly regardless of this check).
+    // BACKGROUND REFRESH GATE: HomeFeedCache.isFresh()/isArtistsFresh()
+    // are time-gated (6-hour window — see home_feed_cache.dart's
+    // _maxFreshAge doc comment) — a real background fetch fires here on
+    // cold start whenever there's no cache yet OR the existing cache has
+    // aged past that window, so the feed periodically refreshes with
+    // genuinely new listening-based recommendations without needing a
+    // network fetch on every single app open.
     HomeFeedCache.isFresh().then((fresh) {
       if (!mounted) return;
       if (!fresh) _loadOnline(clearExisting: false);
     });
-    // Artist strip follows the exact same no-silent-refresh rule as the
-    // section feed above — only loaded on cold start when nothing has
-    // ever been cached; once cached, it stays exactly as-is until
-    // pull-to-refresh.
+    // Artist strip follows the exact same freshness rule as the section
+    // feed above — its own separate 6-hour-gated timestamp.
     HomeFeedCache.isArtistsFresh().then((fresh) {
       if (!mounted) return;
       if (!fresh) _loadArtists();

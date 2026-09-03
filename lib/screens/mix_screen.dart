@@ -190,6 +190,12 @@ class _MixScreenState extends State<MixScreen> {
     final songs = _songs;
 
     Widget body = CustomScrollView(
+        // PERF FIX (same class as home_screen.dart / artist_screen.dart /
+        // library_screen.dart's matching fix): default Sliver cacheExtent
+        // (250px) is too small once a full mix song list is loaded below
+        // the header — fast flings tear down and rebuild sections just
+        // outside that tiny buffer. Matching the same 1200 used elsewhere.
+        cacheExtent: 1200,
         slivers: [
           SliverAppBar(
             pinned: true,

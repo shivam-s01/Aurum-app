@@ -871,10 +871,23 @@ class AurumAudioEngine(
         // Saver Mode (see batterySaverActive below) this drops to 2 —
         // enough for one instant skip in a row, capping the background
         // resolve/network work on low-end or low-battery devices.
-        private const val PRIORITY_FORWARD_WINDOW_NORMAL = 4
-        private const val PRIORITY_FORWARD_WINDOW_SAVER = 2
+        // MINIMUM-BATTERY MODE: shrunk from 4/2 to 1 for both normal and
+        // saver — only the single immediate-next song gets prewarmed ahead
+        // of time now (ensureNextResolved() already guarantees that one
+        // stays pre-buffered on every skip/index change regardless of this
+        // window, so "Next" never lags even at window=1). Every song
+        // beyond that is left to the slow paced tail below instead of the
+        // old back-to-back priority burst — this is what was driving
+        // Astra's background CPU/battery cost well above apps like
+        // YouTube that don't do on-device stream extraction at all.
+        private const val PRIORITY_FORWARD_WINDOW_NORMAL = 1
+        private const val PRIORITY_FORWARD_WINDOW_SAVER = 1
         private const val PRIORITY_BACKWARD_WINDOW = 1
-        private const val PACED_RESOLVE_DELAY_MS = 2500L
+        // Paced tail gap widened (2.5s -> 5s) so far-off queue songs don't
+        // resolve any faster than they need to — nothing in the app reads
+        // a song more than one PACED_RESOLVE_DELAY_MS step ahead of where
+        // playback actually is, so slowing this down costs no responsiveness.
+        private const val PACED_RESOLVE_DELAY_MS = 5000L
 
         // FIX (Spotify-style slow-network tolerance): both caps sized to
         // actually cover resolveFast()'s own inner budget instead of

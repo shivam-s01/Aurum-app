@@ -31,6 +31,12 @@ class LikedScreen extends StatelessWidget {
       bottomNavigationBar: const MiniPlayerSlot(),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
+        // PERF FIX (same class as home_screen.dart / artist_screen.dart /
+        // library_screen.dart / mix_screen.dart's matching fix): default
+        // Sliver cacheExtent (250px) is too small for a large liked-songs
+        // list — fast flings tear down and rebuild tiles just outside
+        // that tiny buffer. Matching the same 1200 used elsewhere.
+        cacheExtent: 1200,
         slivers: [
           SliverAppBar(
             expandedHeight: 100,
