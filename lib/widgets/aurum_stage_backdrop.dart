@@ -35,6 +35,19 @@ class AurumStageBackdrop extends StatelessWidget {
   Widget build(BuildContext context) {
     final song = context.select<PlayerProvider, Song?>((p) => p.currentSong);
     final isLight = Theme.of(context).brightness == Brightness.light;
+    // FIX ("wallpaper theme mein awkward patch dikh raha hai"): this used
+    // to blend into the hardcoded AurumTheme.darkBg/lightBg constants,
+    // which is correct for the fixed Dark/Light themes but WRONG for
+    // Material You "wallpaper" mode (AurumTheme.dynamicTheme()) — that
+    // mode's actual page background is a device-specific dynamic.surface
+    // color that has nothing to do with darkBg/lightBg. Blending to the
+    // wrong color is exactly what created the visible seam/patch right
+    // where this backdrop's scrim meets the page underneath it. bgOf()
+    // reads the THEME'S OWN resolved scaffoldBackgroundColor (same value
+    // the Scaffold itself is already painted with, whichever theme is
+    // active), so this now always blends into whatever's actually behind
+    // it — Dark, Light, or wallpaper-derived — instead of a fixed guess.
+    final pageBg = AurumTheme.bgOf(context);
 
     return RepaintBoundary(
       child: SizedBox(
@@ -49,9 +62,7 @@ class AurumStageBackdrop extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: isLight
-                      ? [AurumTheme.gold.withOpacity(0.14), AurumTheme.lightBg]
-                      : [AurumTheme.gold.withOpacity(0.20), AurumTheme.darkBg],
+                  colors: [AurumTheme.gold.withOpacity(isLight ? 0.14 : 0.20), pageBg],
                 ),
               ),
             ),
@@ -74,9 +85,8 @@ class AurumStageBackdrop extends StatelessWidget {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.transparent,
-                    (isLight ? AurumTheme.lightBg : AurumTheme.darkBg)
-                        .withOpacity(0.55),
-                    isLight ? AurumTheme.lightBg : AurumTheme.darkBg,
+                    pageBg.withOpacity(0.55),
+                    pageBg,
                   ],
                   stops: const [0.0, 0.72, 1.0],
                 ),

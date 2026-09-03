@@ -31,6 +31,7 @@ import '../services/waveform_service.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_like_button.dart';
+import '../widgets/aurum_snack.dart';
 import '../widgets/aurum_play_pause_icon.dart';
 import '../widgets/premium_gate.dart';
 import 'library_screen.dart' show showAddToPlaylistSheet;
@@ -39,7 +40,6 @@ import '../widgets/cast_button.dart';
 import 'settings_player_screen.dart' show SleepTimerService, SleepTimerSheet, EqualizerScreen;
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
-import '../utils/aurum_motion.dart';
 
 // ═══════════════════════════════════════════════════════════════════════
 // NOTICE FOR ANY FUTURE EDITS TO THIS FILE (human or AI assistant):
@@ -256,17 +256,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // the slide-up settles everything is already fully visible.
     _staggerCtrl = AnimationController(
       vsync: this,
-      duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+      duration: const Duration(milliseconds: 220),
     );
     _infoStagger = Tween<double>(begin: 0.0, end: 1.0).animate(
         CurvedAnimation(parent: _staggerCtrl,
-            curve: const Interval(0.18, 0.75, curve: AurumMotion.standard)));
+            curve: const Interval(0.18, 0.75, curve: Curves.easeOutCubic)));
     _seekStagger = Tween<double>(begin: 0.0, end: 1.0).animate(
         CurvedAnimation(parent: _staggerCtrl,
-            curve: const Interval(0.30, 0.85, curve: AurumMotion.standard)));
+            curve: const Interval(0.30, 0.85, curve: Curves.easeOutCubic)));
     _ctrlStagger = Tween<double>(begin: 0.0, end: 1.0).animate(
         CurvedAnimation(parent: _staggerCtrl,
-            curve: const Interval(0.42, 1.0, curve: AurumMotion.standard)));
+            curve: const Interval(0.42, 1.0, curve: Curves.easeOutCubic)));
     _staggerCtrl.forward();
 
     // Song title cross-fade on track change
@@ -279,15 +279,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _titleSlideAnim = Tween<Offset>(
             begin: const Offset(0, 0.08), end: Offset.zero)
         .animate(CurvedAnimation(
-            parent: _titleChangeCtrl, curve: AurumMotion.standard));
+            parent: _titleChangeCtrl, curve: Curves.easeOutCubic));
     _titleChangeCtrl.value = 1.0; // starts fully visible
 
     _artworkCtrl = AnimationController(
       vsync: this,
-      duration: AurumMotion.durationOrZero(AurumMotion.long2),
+      duration: const Duration(milliseconds: 480),
     );
     _artworkAnim = Tween<double>(begin: 0.94, end: 1.0)
-        .animate(CurvedAnimation(parent: _artworkCtrl, curve: AurumMotion.standard));
+        .animate(CurvedAnimation(parent: _artworkCtrl, curve: Curves.easeOutCubic));
     // FIX (first-open scale-pop) — the comment above _staggerCtrl says the
     // intent is "artwork appears with entry" (i.e. already settled,
     // riding in with the route's own 380ms slide-up), while info/seekbar/
@@ -307,7 +307,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
     _playBtnCtrl = AnimationController(
       vsync: this,
-      duration: AurumMotion.durationOrZero(AurumMotion.short1),
+      duration: const Duration(milliseconds: 110),
     );
     _playBtnAnim = Tween<double>(begin: 1.0, end: 0.87)
         .animate(CurvedAnimation(parent: _playBtnCtrl, curve: Curves.easeInOut));
@@ -332,7 +332,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 
     _springBackCtrl = AnimationController(
       vsync: this,
-      duration: AurumMotion.durationOrZero(AurumMotion.long1),
+      duration: const Duration(milliseconds: 320),
     );
     // NOTE: no unconditional `setState(() {})` listener here anymore —
     // _springBackDrag below drives _dragYNotifier directly during the
@@ -433,7 +433,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _springBackCtrl.duration = Duration(milliseconds: durationMs);
     _springBackCtrl.reset();
     final anim = Tween<double>(begin: start, end: 0.0).animate(
-      CurvedAnimation(parent: _springBackCtrl, curve: AurumMotion.standard),
+      CurvedAnimation(parent: _springBackCtrl, curve: Curves.easeOutCubic),
     );
     void listener() {
       if (!mounted) return;
@@ -800,7 +800,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   late final AnimationController _immersiveCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 5200),
-    reverseDuration: AurumMotion.durationOrZero(AurumMotion.long2),
+    reverseDuration: const Duration(milliseconds: 420),
   );
   double _immersiveDragY = 0.0;
   bool _immersiveDragging = false;
@@ -1665,7 +1665,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   begin: const Offset(0, 0.06), end: Offset.zero)
                     .animate(CurvedAnimation(
                         parent: _staggerCtrl,
-                        curve: const Interval(0.18, 0.75, curve: AurumMotion.standard))),
+                        curve: const Interval(0.18, 0.75, curve: Curves.easeOutCubic))),
                 child: FadeTransition(
                   opacity: _titleFadeAnim,
                   child: SlideTransition(
@@ -1762,7 +1762,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   begin: const Offset(0, 0.05), end: Offset.zero)
                     .animate(CurvedAnimation(
                         parent: _staggerCtrl,
-                        curve: const Interval(0.30, 0.85, curve: AurumMotion.standard))),
+                        curve: const Interval(0.30, 0.85, curve: Curves.easeOutCubic))),
                 child: _SeekBar(player: player, hPad: hPad, bgLuma: _currentBg2.computeLuminance()),
               ),
             ),
@@ -1775,7 +1775,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   begin: const Offset(0, 0.05), end: Offset.zero)
                     .animate(CurvedAnimation(
                         parent: _staggerCtrl,
-                        curve: const Interval(0.42, 1.0, curve: AurumMotion.standard))),
+                        curve: const Interval(0.42, 1.0, curve: Curves.easeOutCubic))),
                 child: _Controls(
                   player: player,
                   hPad: hPad,
@@ -2031,7 +2031,7 @@ class _DragHandle extends StatelessWidget {
       padding: const EdgeInsets.only(top: 12, bottom: 4),
       child: Center(
         child: AnimatedContainer(
-          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+          duration: const Duration(milliseconds: 200),
           width: isDragging ? 44 : 32,
           height: 4,
           decoration: BoxDecoration(
@@ -2215,7 +2215,7 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
   // extra compositing layers) so it stays lightweight.
   late final AnimationController _snapBackCtrl = AnimationController(
     vsync: this,
-    duration: AurumMotion.durationOrZero(AurumMotion.short2),
+    duration: const Duration(milliseconds: 150),
   );
   Animation<double>? _snapBackAnim;
 
@@ -2241,7 +2241,7 @@ class _ArtworkState extends State<_Artwork> with SingleTickerProviderStateMixin 
       return;
     }
     _snapBackAnim = Tween<double>(begin: start, end: 0).animate(
-      CurvedAnimation(parent: _snapBackCtrl, curve: AurumMotion.standard),
+      CurvedAnimation(parent: _snapBackCtrl, curve: Curves.easeOutCubic),
     )..addListener(() {
         if (!mounted) return;
         setState(() => _dragDx = _snapBackAnim!.value);
@@ -2437,7 +2437,7 @@ class _ArtworkVisual extends StatelessWidget {
               return RepaintBoundary(
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 500),
-                  curve: AurumMotion.standard,
+                  curve: Curves.easeOutCubic,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(radius),
                     // FIX: this shadow used a flat Colors.black at
@@ -2741,8 +2741,8 @@ class _ImmersiveLyricsTriggerButton extends StatelessWidget {
         // premium transitions (active lyric line, glow fades) — a
         // consistent animation "voice" across every touch point reads
         // as intentional design, not a grab-bag of different timings.
-        duration: AurumMotion.durationOrZero(AurumMotion.long1),
-        curve: AurumMotion.standard,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
         width: 26,
         height: 26,
         decoration: BoxDecoration(
@@ -3400,7 +3400,7 @@ class _SyncedLineTicker extends StatelessWidget {
       alignment: Alignment.centerLeft,
       child: ClipRect(
         child: AnimatedSwitcher(
-          duration: AurumMotion.durationOrZero(AurumMotion.medium2),
+          duration: const Duration(milliseconds: 280),
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeInCubic,
           transitionBuilder: (child, anim) => FadeTransition(
@@ -4298,7 +4298,7 @@ class _PremiumPlayButtonState extends State<_PremiumPlayButton> {
                   // XML defines. See aurum_play_pause_icon.dart for the
                   // full breakdown of how the source path data was
                   // ported.
-                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                  duration: const Duration(milliseconds: 200),
                   transitionBuilder: (child, anim) =>
                       FadeTransition(opacity: anim, child: child),
                   child: widget.isLoading
@@ -4581,12 +4581,13 @@ class _PremiumOptionsSheetState extends State<_PremiumOptionsSheet> {
     if (mounted) setState(() {});
   }
 
+  // Shared, deduped toast handler — see aurum_snack.dart for why this
+  // replaced a hand-copied per-file implementation (this one previously
+  // never set backgroundColor, so it fell back to Flutter's default
+  // Material snackbar color instead of Astra's themed elevated surface —
+  // now consistent with every other screen's toast).
   void _snack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-    ));
+    AurumSnack.show(context, msg);
   }
 
   void _downloadSong() {
@@ -4886,7 +4887,7 @@ class _SheetActionTileState extends State<_SheetActionTile> {
       },
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedContainer(
-        duration: AurumMotion.durationOrZero(AurumMotion.short1),
+        duration: const Duration(milliseconds: 100),
         decoration: BoxDecoration(
           color: _pressed
               ? widget.action.color.withAlpha(isLight ? 30 : 22)
@@ -4971,7 +4972,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
   void initState() {
     super.initState();
     _springBackCtrl = AnimationController(
-        vsync: this, duration: AurumMotion.long2);
+        vsync: this, duration: const Duration(milliseconds: 420));
     _springBackCtrl.addListener(() {
       if (_springBackAnim != null) {
         _dragY = _springBackAnim!.value;
@@ -4979,9 +4980,9 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     });
 
     _exitCtrl = AnimationController(
-        vsync: this, duration: AurumMotion.medium2);
+        vsync: this, duration: const Duration(milliseconds: 280));
     _exitTranslate = Tween<double>(begin: 0, end: 1).animate(
-        CurvedAnimation(parent: _exitCtrl, curve: AurumMotion.standardReverse));
+        CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInCubic));
     // FIX ("swipe up/down Up Next panel pe blur ek alag layer/ghost jaisa
     // dikhta hai"): this used to run on the exact same 0→1 curve as
     // _exitTranslate — so a tap-to-close (no drag, straight to _dismiss())
@@ -4995,7 +4996,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
     _exitFade = Tween<double>(begin: 1, end: 0).animate(
         CurvedAnimation(
             parent: _exitCtrl,
-            curve: const Interval(0.7, 1.0, curve: AurumMotion.standardReverse)));
+            curve: const Interval(0.7, 1.0, curve: Curves.easeInCubic)));
   }
 
   @override
@@ -5574,8 +5575,8 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
                   behavior: HitTestBehavior.opaque,
                   onTap: () => _switchTab(i),
                   child: AnimatedContainer(
-                    duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                    curve: AurumMotion.standard,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
                     decoration: BoxDecoration(
                       color: isActive ? activeBg : inactiveBg,
                       borderRadius: BorderRadius.circular(24),
@@ -5987,7 +5988,7 @@ class _MiniEqualizerIconState extends State<_MiniEqualizerIcon>
   }
 
   Widget _bar(double f, double maxH) => AnimatedContainer(
-        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+        duration: const Duration(milliseconds: 220),
         curve: Curves.easeOut,
         width: 2,
         height: maxH * f,
@@ -6430,8 +6431,8 @@ class _LyricsPageState extends State<_LyricsPage> {
           if (mounted && _scrollController.isAttached) {
             _scrollController.scrollTo(
               index: idx,
-              duration: AurumMotion.durationOrZero(AurumMotion.long1),
-              curve: AurumMotion.standard,
+              duration: const Duration(milliseconds: 320),
+              curve: Curves.easeOutCubic,
               // Keeps the active line roughly a third of the way down
               // the viewport instead of pinned to the very top.
               alignment: 0.35,
@@ -6580,7 +6581,7 @@ class _LyricsPageState extends State<_LyricsPage> {
       children: [
         Positioned.fill(
           child: AnimatedSwitcher(
-            duration: AurumMotion.durationOrZero(AurumMotion.medium2),
+            duration: const Duration(milliseconds: 260),
             child: content,
           ),
         ),
@@ -6692,8 +6693,8 @@ class _SyncedLyricsView extends StatelessWidget {
                 // extra rebuild, safe on low-end devices.
                 child: AnimatedSlide(
                   offset: isActive ? Offset.zero : const Offset(0, 0.03),
-                  duration: AurumMotion.durationOrZero(AurumMotion.long1),
-                  curve: AurumMotion.standard,
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeOutCubic,
                   child: AnimatedScale(
                   // Matches the 320ms scroll-to duration in
                   // _onPositionChanged so the line's own emphasis (scale +
@@ -6701,8 +6702,8 @@ class _SyncedLyricsView extends StatelessWidget {
                   // scroll settling on it, instead of the text style
                   // finishing early and the scroll catching up after.
                   scale: isActive ? 1.05 : 1.0,
-                  duration: AurumMotion.durationOrZero(AurumMotion.long1),
-                  curve: AurumMotion.standard,
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeOutCubic,
                   alignment: style.position == 'Left'
                       ? Alignment.centerLeft
                       : Alignment.center,
@@ -6729,8 +6730,8 @@ class _SyncedLyricsView extends StatelessWidget {
                       Positioned.fill(
                         child: AnimatedOpacity(
                           opacity: isActive ? 1.0 : 0.0,
-                          duration: AurumMotion.durationOrZero(AurumMotion.long1),
-                          curve: AurumMotion.standard,
+                          duration: const Duration(milliseconds: 320),
+                          curve: Curves.easeOutCubic,
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(16),
@@ -6770,8 +6771,8 @@ class _SyncedLyricsView extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         vertical: 11, horizontal: 14),
                     child: AnimatedDefaultTextStyle(
-                      duration: AurumMotion.durationOrZero(AurumMotion.long1),
-                      curve: AurumMotion.standard,
+                      duration: const Duration(milliseconds: 320),
+                      curve: Curves.easeOutCubic,
                       style: TextStyle(
                         color: isActive ? activeColor : inactiveColor,
                         fontSize: isActive ? activeSize : baseSize,
@@ -7107,7 +7108,7 @@ class _BgLayer extends StatelessWidget {
         final staticBlur = !showBlur
             ? const SizedBox.expand()
             : AnimatedSwitcher(
-                duration: AurumMotion.durationOrZero(AurumMotion.long1),
+                duration: const Duration(milliseconds: 320),
                 switchInCurve: Curves.easeOut,
                 switchOutCurve: Curves.easeIn,
                 layoutBuilder: (currentChild, previousChildren) => Stack(
@@ -7590,7 +7591,7 @@ class _BlurredArtworkCoreState extends State<_BlurredArtworkCore> {
         // extra cost since it only plays once per song, right after the
         // one-time bake.
         child: AnimatedSwitcher(
-          duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+          duration: const Duration(milliseconds: 220),
           switchInCurve: Curves.easeOut,
           switchOutCurve: Curves.easeIn,
           layoutBuilder: (currentChild, previousChildren) => Stack(
@@ -8122,8 +8123,8 @@ class _CtrlBtnState extends State<_CtrlBtn> with SingleTickerProviderStateMixin 
     super.initState();
     _pulseCtrl = AnimationController(
       vsync: this,
-      duration: AurumMotion.durationOrZero(AurumMotion.medium2),
-      reverseDuration: AurumMotion.durationOrZero(AurumMotion.medium1),
+      duration: const Duration(milliseconds: 260),
+      reverseDuration: const Duration(milliseconds: 200),
     );
   }
 
@@ -8205,7 +8206,7 @@ class _CtrlBtnState extends State<_CtrlBtn> with SingleTickerProviderStateMixin 
                           },
                         ),
                       AnimatedSwitcher(
-                        duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                        duration: const Duration(milliseconds: 200),
                         switchInCurve: Curves.easeOutCubic,
                         switchOutCurve: Curves.easeInCubic,
                         transitionBuilder: (child, anim) => FadeTransition(
@@ -8225,8 +8226,8 @@ class _CtrlBtnState extends State<_CtrlBtn> with SingleTickerProviderStateMixin 
                         child: TweenAnimationBuilder<Color?>(
                           key: ValueKey(widget.icon),
                           tween: ColorTween(end: c),
-                          duration: AurumMotion.durationOrZero(AurumMotion.medium2),
-                          curve: AurumMotion.standard,
+                          duration: const Duration(milliseconds: 260),
+                          curve: Curves.easeOutCubic,
                           builder: (_, animatedColor, __) => Icon(
                             widget.icon,
                             size: widget.size,
@@ -8244,8 +8245,8 @@ class _CtrlBtnState extends State<_CtrlBtn> with SingleTickerProviderStateMixin 
                   // animates in from a sliver rather than just fading,
                   // so it reads as "drawing itself" on activation.
                   AnimatedContainer(
-                    duration: AurumMotion.durationOrZero(AurumMotion.medium2),
-                    curve: AurumMotion.emphasized,
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutBack,
                     width: widget.active ? 14 : 3,
                     height: 2.5,
                     decoration: BoxDecoration(

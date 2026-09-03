@@ -21,13 +21,13 @@ import '../theme/aurum_theme.dart';
 import '../widgets/aurum_artwork.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/aurum_save_button.dart';
+import '../widgets/aurum_snack.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/mini_player_slot.dart';
 import 'artist_screen.dart';
 import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_sheet.dart';
-import '../utils/aurum_motion.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -385,14 +385,10 @@ class _AlbumScreenState extends State<AlbumScreen> {
     );
   }
 
+  // Shared, deduped toast handler — see aurum_snack.dart.
   void _snack(BuildContext context, String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: AurumTheme.bgElevatedOf(context),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-    ));
+    AurumSnack.show(context, msg);
   }
 
   /// Queues every song in the album for download via DownloadProvider,
@@ -458,13 +454,9 @@ class _AlbumOptionsSheet extends StatefulWidget {
 }
 
 class _AlbumOptionsSheetState extends State<_AlbumOptionsSheet> {
+  // Shared, deduped toast handler — see aurum_snack.dart.
   void _snack(String msg) {
-    ScaffoldMessenger.of(widget.rootContext).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: AurumTheme.bgElevatedOf(widget.rootContext),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-    ));
+    AurumSnack.show(widget.rootContext, msg);
   }
 
   @override
@@ -531,7 +523,7 @@ class _AlbumOptionsSheetState extends State<_AlbumOptionsSheet> {
                   ),
                 ),
                 AnimatedContainer(
-                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                  duration: const Duration(milliseconds: 200),
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(

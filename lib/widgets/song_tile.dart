@@ -7,6 +7,7 @@ import '../models/song.dart';
 import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../theme/aurum_theme.dart';
+import 'aurum_snack.dart';
 import '../screens/library_screen.dart' show showAddToPlaylistSheet;
 import '../screens/full_player_screen.dart' show shareSong;
 import '../screens/artist_screen.dart';
@@ -17,7 +18,6 @@ import 'aurum_like_button.dart';
 import 'aurum_stacked_artwork.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
-import '../utils/aurum_motion.dart';
 
 class SongTile extends StatefulWidget {
   final Song song;
@@ -309,15 +309,11 @@ class _SongOptionsSheet extends StatefulWidget {
 }
 
 class _SongOptionsSheetState extends State<_SongOptionsSheet> {
-  // FIX: use rootContext for snack so post-dismiss context is never stale
+  // Shared, deduped toast handler — see aurum_snack.dart for why this
+  // replaced a hand-copied per-file implementation.
   void _snack(String msg) {
     Navigator.pop(context);
-    ScaffoldMessenger.of(widget.rootContext).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: AurumTheme.bgElevatedOf(widget.rootContext),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-    ));
+    AurumSnack.show(widget.rootContext, msg);
   }
 
   @override
@@ -395,7 +391,7 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
                 ),
                 // Like button in header — pop + sparkle burst on like
                 AnimatedContainer(
-                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                  duration: const Duration(milliseconds: 200),
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
