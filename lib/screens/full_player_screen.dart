@@ -1795,7 +1795,21 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               bg4: _currentBg4,
               ),
             ),
-            SizedBox(height: (vGapMd - 15).clamp(0.0, vGapMd)),
+            // FIX ("thumbnail ke paas lyrics bahut sata/chipka hua lagta
+            // hai, Spotify jaisa comfortable gap chahiye"): this gap used
+            // to be `(vGapMd - 15).clamp(0.0, vGapMd)` — only ~5px (or
+            // literally 0px on compact/short screens, since vGapMd-15
+            // goes negative and clamps to 0). That value was originally
+            // tuned for the title/artist block sitting here (which has
+            // its own visual breathing room from the text's line-height/
+            // ascent above the glyphs), not for the lyrics strip that now
+            // sits here after the Spotify-style reorder — the lyrics
+            // strip's text sits flush at the top of its box with no such
+            // built-in padding, so the same 5px reads as the line
+            // touching the artwork. Using the full vGapMd (no -15
+            // shrink) restores a proper Spotify-style gap between the
+            // cover and the line below it.
+            SizedBox(height: vGapMd),
             // Song info — staggered fade+slide up (delay ~90ms)
             // FIX ("Spotify jaisa — lyrics upar, title/artist niche"):
             // this block (lyrics strip) and the title/artist block below
@@ -1842,7 +1856,20 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 );
               },
             ),
-            SizedBox(height: vGapSm * 0.3),
+            // FIX ("sab balance mein ho, ekdam sahi se" — lyrics-to-title
+            // gap check): this 0.3x-shrunk gap (≈4.8px) was originally
+            // tuned for the OLD order, where title/artist sat right under
+            // the artwork and this small gap separated them from the
+            // lyrics teaser beneath. After the Spotify-style reorder,
+            // this same tight gap now sits between the lyrics strip and
+            // the title/artist block instead — two independent visual
+            // blocks that read as cramped together at ~4.8px, especially
+            // next to the much larger 20px gap directly above the lyrics
+            // strip (artwork → lyrics). Bumped to the same vGapSm used
+            // for title → seek bar just below, so the lyrics strip gets
+            // even, symmetric breathing room on both sides instead of
+            // being squeezed tight against the title beneath it.
+            SizedBox(height: vGapSm * 0.6),
             FadeTransition(
               opacity: _infoStagger,
               child: SlideTransition(
