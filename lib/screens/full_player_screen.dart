@@ -8640,57 +8640,64 @@ class _RepeatMorphPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
 
-    // Timeline (mirrors Echo's staged offsets, all within the 400ms
-    // total): 0-25% arrow travels+rotates 0->90 while the line it came
-    // from shrinks; 25-62.5% line finishes redrawing on the new side;
-    // 62.5-75% arrow rotates 90->180 into place; 75-100% badge/strike
-    // fades+settles.
-    final arrowT = (t / 0.625).clamp(0.0, 1.0); // rotation+travel window
-    final lineT = t.clamp(0.0, 1.0); // full-duration redraw feel
-    final badgeT = ((t - 0.625) / 0.375).clamp(0.0, 1.0);
-
-    // ── Loop body: two mirrored line segments, each a simple straight
-    // stroke from the arrow's pivot toward the loop's far corner. Both
-    // segments always drawn at full length (they don't disappear between
-    // states — only the arrowhead and badge/strike animate) — matches
-    // the visual weight of Echo's own idle (non-transitioning) icon.
+    // FIX ("ek button akward/adhura lag raha hai" — screenshot showed the
+    // repeat icon missing its second arrowhead): the loop shape needs
+    // BOTH arrowheads — one at the bottom-left, one at the top-right —
+    // to read as a complete repeat symbol at rest, exactly like Echo's
+    // own two <group>/<path name="arrow"/"arrow2"> pairs in
+    // ic_repeat_to_repeat_one_40dp.xml. The previous version only ever
+    // drew ONE of them (and rotated it away entirely once settled),
+    // leaving the icon permanently incomplete in its resting state, not
+    // just mid-animation. Both are now drawn always, each fixed at its
+    // own correct resting orientation — the animation below only adds a
+    // brief accent flourish on top of this always-complete base shape,
+    // it never removes either arrowhead.
     canvas.drawLine(p(9.7, 30), p(30.3, 30), paint); // bottom segment
     canvas.drawLine(p(9.7, 10), p(30.3, 10), paint); // top segment
-    canvas.drawLine(p(30.3, 23.3), p(30.3, 30), paint); // bottom riser
-    canvas.drawLine(p(9.7, 10), p(9.7, 16.7), paint); // top riser
+    canvas.drawLine(p(30.3, 16.7), p(30.3, 30), paint); // right riser (bottom half)
+    canvas.drawLine(p(9.7, 10), p(9.7, 23.3), paint); // left riser (top half)
 
-    // ── Arrowhead: rotates 180° and hops between the bottom-left and
-    // top-right corners as it "chases" the loop direction — the one
-    // element from Echo's animation that's a true transform (rotation +
-    // translation), not a path redraw, so it's reproduced as an actual
-    // Canvas rotation here rather than another static path.
-    final showBottomArrow = mode != 'one' || arrowT < 1.0;
-    if (showBottomArrow) {
-      final arrowOpacity = mode == 'one' ? (1.0 - arrowT) : 1.0;
-      if (arrowOpacity > 0.001) {
-        canvas.save();
-        canvas.translate(p(10.3, 30).dx, p(10.3, 30).dy);
-        canvas.rotate(arrowT * math.pi); // 0 -> 180 over the travel window
-        final arrowPaint = Paint()
-          ..color = color.withAlpha((color.alpha * arrowOpacity).round())
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = strokeW
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round;
-        final arrow = Path()
-          ..moveTo(2.4 * s, -4.8 * s)
-          ..lineTo(-2.4 * s, 0)
-          ..lineTo(2.3 * s, 4.7 * s);
-        canvas.drawPath(arrow, arrowPaint);
-        canvas.restore();
-      }
+    // Bottom-left arrowhead — points left, sitting on the bottom-left
+    // corner (Echo's `arrow` path, pivot ~10.28,29.98).
+    final arrow1 = Path()
+      ..moveTo(p(12.7, 25.2).dx, p(12.7, 25.2).dy)
+      ..lineTo(p(7.9, 30).dx, p(7.9, 30).dy)
+      ..lineTo(p(12.6, 34.7).dx, p(12.6, 34.7).dy);
+    canvas.drawPath(arrow1, paint);
+
+    // Top-right arrowhead — points right, sitting on the top-right
+    // corner (Echo's `arrow2` path, mirrored 180° around the icon's
+    // center from arrow1).
+    final arrow2 = Path()
+      ..moveTo(p(27.3, 14.8).dx, p(27.3, 14.8).dy)
+      ..lineTo(p(32.1, 10).dx, p(32.1, 10).dy)
+      ..lineTo(p(27.4, 5.3).dx, p(27.4, 5.3).dy);
+    canvas.drawPath(arrow2, paint);
+
+    // ── Transition accent: a brief pulse on whichever arrowhead is the
+    // "active" side of the just-completed morph, plus the badge/strike
+    // for repeat-one/repeat-off. Purely additive — never removes or
+    // repositions the always-complete base shape drawn above, so even
+    // if this widget is rebuilt mid-animation-value there is no frame
+    // where the icon reads as broken.
+    final pulseT = Curves.easeOut.transform(t.clamp(0.0, 1.0));
+    if (pulseT < 1.0) {
+      final pulseOpacity = 1.0 - pulseT;
+      final glowPaint = Paint()
+        ..color = color.withAlpha((color.alpha * pulseOpacity * 0.5).round())
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeW * 1.8
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      canvas.drawPath(arrow1, glowPaint);
+      canvas.drawPath(arrow2, glowPaint);
     }
 
     // ── "1" badge (repeat-one only) — fades + slides up 10px, exactly
     // Echo's own group_3/path_1 timing (fast-out-slow-in, offset to the
     // tail end of the sequence).
-    if (mode == 'one' && badgeT > 0.001) {
-      final badgeEase = Curves.fastOutSlowIn.transform(badgeT);
+    if (mode == 'one') {
+      final badgeEase = Curves.fastOutSlowIn.transform(t.clamp(0.0, 1.0));
       final dy = (1 - badgeEase) * 2.5 * s;
       final badgePaint = Paint()
         ..color = color.withAlpha((color.alpha * badgeEase).round())
@@ -8705,9 +8712,10 @@ class _RepeatMorphPainter extends CustomPainter {
 
     // ── Diagonal strike (repeat-off only) — fades in across the whole
     // glyph, matching Echo's path_7.
-    if (mode == 'off' && lineT > 0.001) {
+    if (mode == 'off') {
+      final strikeT = t.clamp(0.0, 1.0);
       final strikePaint = Paint()
-        ..color = color.withAlpha((color.alpha * lineT).round())
+        ..color = color.withAlpha((color.alpha * strikeT).round())
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeW
         ..strokeCap = StrokeCap.round;
