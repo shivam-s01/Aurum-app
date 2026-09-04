@@ -48,7 +48,18 @@
                     <!-- Plain circle, same role as Echo's own "bg" -
                          a soft duplicate spinning underneath everything,
                          not the scalloped badge shape itself. -->
-                    <path android:pathData="M 12 2 C 9.349 2 6.803 3.055 4.929 4.929 C 3.055 6.803 2 9.349 2 12 C 2 14.651 3.055 17.197 4.929 19.071 C 6.803 20.945 9.349 22 12 22 C 14.651 22 17.197 20.945 19.071 19.071 C 20.945 17.197 22 14.651 22 12 C 22 9.349 20.945 6.803 19.071 4.929 C 17.197 3.055 14.651 2 12 2 Z">
+                    <!-- Circle radius 6.348 - deliberately kept BELOW
+                       the badge's minimum radius (6.683, the depth of
+                       its innermost scallop notch), with a ~5% safety
+                       margin, not just below its maximum radius (8.14,
+                       the outermost scallop tip). A radius between
+                       those two numbers (which an earlier version used)
+                       stays hidden at the tips but pokes out through
+                       the scallop valleys - confirmed by rendering the
+                       bg circle in isolation against the badge outline
+                       and finding it peeked through at two points
+                       before this correction. -->
+                    <path android:pathData="M 12 5.652 C 15.506 5.652 18.348 8.494 18.348 12.000 C 18.348 15.506 15.506 18.348 12.000 18.348 C 8.494 18.348 5.652 15.506 5.652 12.000 C 5.652 8.494 8.494 5.652 12.000 5.652 Z">
                         <aapt:attr name="android:fillColor">
                             <gradient
                                 android:centerX="7"
