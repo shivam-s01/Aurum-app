@@ -2,43 +2,32 @@
 <animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt">
     <!--
-      Aurum's OS-level animated splash icon — set directly as
-      android:windowSplashScreenAnimatedIcon in themes.xml, exactly the way
-      Echo Nightly's own art_splash_anim.xml is wired up (see Echo's
-      values/themes.xml: windowSplashScreenBackground + windowSplashScreenAnimatedIcon
-      + windowSplashScreenAnimationDuration + windowSplashScreenBehavior +
-      windowSplashScreenBrandingImage, all set together, no MainActivity-side
-      avoidance, no separate values-v31 override).
+      Aurum's OS-level animated splash icon. Timeline, stage count, group
+      nesting, durations, offsets and easings are copied directly from
+      Echo Nightly's own art_splash_anim.xml (2400ms total, wrapper at
+      0.6 scale, bg/ring/note_group/note four independently-timed
+      targets) - only the actual shapes are Aurum's own, traced from the
+      real logo PNG (36039.png). See art_splash_anim.xml (the static
+      version) for the trace/extraction method.
 
-      MOVED this comment block to AFTER the root <animated-vector> opening
-      tag (was before it, above the XML declaration's following line) —
-      Echo's own working file has NO leading comment before its root
-      element at all. AAPT2's resource compiler handles the aapt:attr
-      inline-drawable extraction for animated-vector specially (it has to
-      pull the nested <vector>...</vector> out into its own compiled
-      sub-resource), and that extraction path has had known fragility
-      around content positioned before the root element in some AGP/AAPT2
-      versions — worth eliminating as a variable since it costs nothing
-      to move, given the OS was falling back to its plain static
-      launcher-icon splash exactly as if this whole animated-icon
-      resource were failing to load/parse.
+      DELIBERATE DIFFERENCE FROM ECHO: Echo's own "note" target morphs
+      away from its play-triangle and then, at 1600ms, morphs BACK to
+      the play-triangle (so Echo's splash ends on the same icon it
+      started with - a decorative wobble, not a reveal). That reverse
+      morph is dropped here on purpose: the whole point of this splash
+      is to end on Aurum's real note, not snap back to the placeholder
+      triangle. Echo's "path_5"/"path_6" - two tiny decorative accent
+      marks specific to Echo's own play-icone artwork with no
+      equivalent in Aurum's logo - are dropped for the same reason:
+      they have nothing to attach to here.
 
-      Two vector paths, traced directly from Aurum's own scallop_ring.png
-      (outer scalloped-ring silhouette as a full closed shape, plus the
-      note glyph as its own solid path layered on top) — so this is
-      Aurum's real logo shape, not a generic music-note placeholder.
-      Colors are the real logo's own: ring is the pink-to-purple-to-blue
-      gradient, note is white — matching scallop_ring.png exactly, not
-      Echo Nightly's dark palette. Only the LAYERING technique matches
-      Echo's structure: ring_path and note are both solid layered
-      shapes on top of each other, not a transparent hole cutout.
-
-      Structure mirrors Echo's own <target> layout: a "ring" group that
-      rotates, a "note_group" that tilts independently (wrapping the
-      "note" path, which is what actually morphs), and a "bg" group
-      underneath that does a slow full rotation — same three moving
-      parts, same relative roles, just this app's own outline data and
-      colors.
+      Morph safety: the play-triangle below is NOT Echo's curved
+      triangle pathData - it's a from-scratch 19-point straight-line
+      polygon (M + 19 L's + Z) built to have the exact same command
+      count and type as Aurum's real note shape (also M + 19 L's + Z),
+      with each point manually corresponded to its counterpart on the
+      note. Verified by rendering interpolated in-between frames before
+      use - no self-intersection or zigzag.
     -->
     <aapt:attr name="android:drawable">
         <vector
@@ -48,115 +37,85 @@
             android:viewportWidth="24"
             android:viewportHeight="24">
             <group
-                android:name="bg"
                 android:pivotX="12"
-                android:pivotY="12">
-                <path
-                    android:pathData="M 11.72 0.39 L 11.22 0.50 L 10.44 0.94 L 10.00 1.50 L 9.28 2.11 L 9.00 2.22 L 7.78 2.06 L 6.94 2.11 L 5.83 2.61 L 5.06 3.39 L 4.61 4.28 L 4.50 4.78 L 4.50 6.22 L 4.33 6.56 L 4.00 6.89 L 3.17 7.39 L 2.44 8.22 L 2.11 9.00 L 2.06 10.22 L 2.44 11.33 L 3.06 12.06 L 3.33 12.67 L 3.28 13.28 L 2.83 14.33 L 2.83 15.50 L 3.06 16.17 L 3.39 16.72 L 4.39 17.61 L 4.78 17.78 L 5.50 17.89 L 5.94 18.11 L 6.22 18.39 L 6.83 19.67 L 7.61 20.33 L 8.72 20.72 L 9.78 20.72 L 11.22 21.72 L 11.56 21.83 L 12.44 21.89 L 13.22 21.61 L 14.39 20.72 L 15.56 20.72 L 16.72 20.28 L 17.44 19.61 L 18.06 18.33 L 18.28 18.11 L 18.72 17.89 L 19.44 17.78 L 20.06 17.50 L 20.94 16.61 L 21.33 15.72 L 21.44 14.83 L 21.33 14.17 L 20.94 13.33 L 20.89 12.67 L 21.11 12.11 L 21.61 11.56 L 22.06 10.67 L 22.17 9.44 L 22.00 8.67 L 21.39 7.67 L 20.72 7.11 L 20.17 6.83 L 19.83 6.50 L 19.67 6.11 L 19.67 4.56 L 19.33 3.61 L 18.78 2.89 L 18.28 2.50 L 17.17 2.06 L 16.22 2.06 L 15.50 2.22 L 15.00 2.17 L 14.67 2.00 L 14.11 1.33 L 13.33 0.67 L 12.78 0.44 Z M 12.56 6.28 L 16.50 8.78 L 16.61 9.00 L 16.61 10.67 L 16.39 10.94 L 16.06 11.00 L 13.78 9.67 L 13.67 9.78 L 13.67 14.22 L 13.44 15.06 L 13.17 15.56 L 12.28 16.39 L 11.44 16.72 L 10.50 16.78 L 9.89 16.61 L 9.11 16.17 L 8.56 15.56 L 8.22 14.94 L 8.06 14.44 L 8.06 13.33 L 8.22 12.83 L 8.61 12.17 L 9.17 11.61 L 9.67 11.28 L 10.39 11.06 L 11.28 11.06 L 11.67 11.17 L 11.83 11.11 L 11.83 6.67 L 12.06 6.33 Z"
-                    android:fillType="evenOdd"
-                    android:fillAlpha="0.45">
-                    <aapt:attr name="android:fillColor">
-                        <gradient
-                            android:centerX="7"
-                            android:centerY="7"
-                            android:gradientRadius="17"
-                            android:type="radial">
-                            <item android:color="#F0A7C6" android:offset="0" />
-                            <item android:color="#5C7FE0" android:offset="1" />
-                        </gradient>
-                    </aapt:attr>
-                </path>
-            </group>
-            <group
-                android:name="ring"
-                android:pivotX="12"
-                android:pivotY="12">
-                <!-- Real logo colors: pink-to-purple-to-blue gradient,
-                     traced directly from scallop_ring.png. No solid
-                     dark/black fill — that was a wrong detour toward
-                     Echo Nightly's own (differently-colored) icon. -->
-                <path
-                    android:name="ring_path"
-                    android:pathData="M 11.72 0.39 L 11.22 0.50 L 10.44 0.94 L 10.00 1.50 L 9.28 2.11 L 9.00 2.22 L 7.78 2.06 L 6.94 2.11 L 5.83 2.61 L 5.06 3.39 L 4.61 4.28 L 4.50 4.78 L 4.50 6.22 L 4.33 6.56 L 4.00 6.89 L 3.17 7.39 L 2.44 8.22 L 2.11 9.00 L 2.06 10.22 L 2.44 11.33 L 3.06 12.06 L 3.33 12.67 L 3.28 13.28 L 2.83 14.33 L 2.83 15.50 L 3.06 16.17 L 3.39 16.72 L 4.39 17.61 L 4.78 17.78 L 5.50 17.89 L 5.94 18.11 L 6.22 18.39 L 6.83 19.67 L 7.61 20.33 L 8.72 20.72 L 9.78 20.72 L 11.22 21.72 L 11.56 21.83 L 12.44 21.89 L 13.22 21.61 L 14.39 20.72 L 15.56 20.72 L 16.72 20.28 L 17.44 19.61 L 18.06 18.33 L 18.28 18.11 L 18.72 17.89 L 19.44 17.78 L 20.06 17.50 L 20.94 16.61 L 21.33 15.72 L 21.44 14.83 L 21.33 14.17 L 20.94 13.33 L 20.89 12.67 L 21.11 12.11 L 21.61 11.56 L 22.06 10.67 L 22.17 9.44 L 22.00 8.67 L 21.39 7.67 L 20.72 7.11 L 20.17 6.83 L 19.83 6.50 L 19.67 6.11 L 19.67 4.56 L 19.33 3.61 L 18.78 2.89 L 18.28 2.50 L 17.17 2.06 L 16.22 2.06 L 15.50 2.22 L 15.00 2.17 L 14.67 2.00 L 14.11 1.33 L 13.33 0.67 L 12.78 0.44 Z">
-                    <aapt:attr name="android:fillColor">
-                        <gradient
-                            android:startX="4"
-                            android:startY="4"
-                            android:endX="20"
-                            android:endY="20"
-                            android:type="linear">
-                            <item android:color="#F0A7C6" android:offset="0" />
-                            <item android:color="#8B7FD6" android:offset="0.5" />
-                            <item android:color="#5C7FE0" android:offset="1" />
-                        </gradient>
-                    </aapt:attr>
-                </path>
-            </group>
-            <group
-                android:name="note_group"
-                android:pivotX="12"
-                android:pivotY="12">
-                <!-- Real logo color: white note, matching
-                     scallop_ring.png exactly. Sits as a solid white
-                     glyph layered on top of ring_path (not a bgColor
-                     cutout hole) — same layering approach as before,
-                     just corrected to the real logo's actual colors
-                     instead of Echo Nightly's dark palette.
-
-                     NAMED "note" (not "note_path") to mirror Echo's own
-                     split: the outer group is named "play" and the path
-                     inside it "note". We mirror that structure: this
-                     outer group is "note_group" (the rotation/scale
-                     target below) and the path is "note" — though here
-                     "note" is only a static shape and has no <target>
-                     animation of its own (see the "Renders Aurum's real
-                     note shape directly" note below for why).
-
-                     Renders Aurum's real note shape directly, no morph
-                     source shape. (A pathData morph FROM Echo's
-                     play-triangle was tried here, but Echo's triangle
-                     uses M/L/C/C/C/L/C/C/C/L/C/C/C/Z (14 commands, with
-                     curves) while Aurum's real note is a 31-command,
-                     all-straight-line polygon traced from
-                     scallop_ring.png — AVD's pathData animation requires
-                     both ends of a morph to have the identical command
-                     sequence (same command letters, same order, same
-                     count), or the morph fails to animate cleanly.
-                     Forcing the triangle into a same-shaped 31-point
-                     polygon just to satisfy that constraint would mean
-                     abandoning its actual triangle silhouette, so the
-                     morph beat is dropped: the "icon A morphs into icon
-                     B" moment on this splash is carried entirely by the
-                     ring's rotation burst and this group's tilt+scale
-                     wobble below, both of which have no such
-                     constraint and already read as the reveal beat. -->
-                <path
-                    android:name="note"
-                    android:fillColor="#FFFFFF"
-                    android:pathData="M 12.56 6.28 L 16.50 8.78 L 16.61 9.00 L 16.61 10.67 L 16.39 10.94 L 16.06 11.00 L 13.78 9.67 L 13.67 9.78 L 13.67 14.22 L 13.44 15.06 L 13.17 15.56 L 12.28 16.39 L 11.44 16.72 L 10.50 16.78 L 9.89 16.61 L 9.11 16.17 L 8.56 15.56 L 8.22 14.94 L 8.06 14.44 L 8.06 13.33 L 8.22 12.83 L 8.61 12.17 L 9.17 11.61 L 9.67 11.28 L 10.39 11.06 L 11.28 11.06 L 11.67 11.17 L 11.83 11.11 L 11.83 6.67 L 12.06 6.33 Z" />
+                android:pivotY="12"
+                android:scaleX="0.6"
+                android:scaleY="0.6">
+                <group
+                    android:name="bg"
+                    android:pivotX="12"
+                    android:pivotY="12">
+                    <!-- Plain circle, same role as Echo's own "bg" -
+                         a soft duplicate spinning underneath everything,
+                         not the scalloped badge shape itself. -->
+                    <path android:pathData="M 12 2 C 9.349 2 6.803 3.055 4.929 4.929 C 3.055 6.803 2 9.349 2 12 C 2 14.651 3.055 17.197 4.929 19.071 C 6.803 20.945 9.349 22 12 22 C 14.651 22 17.197 20.945 19.071 19.071 C 20.945 17.197 22 14.651 22 12 C 22 9.349 20.945 6.803 19.071 4.929 C 17.197 3.055 14.651 2 12 2 Z">
+                        <aapt:attr name="android:fillColor">
+                            <gradient
+                                android:centerX="7"
+                                android:centerY="7"
+                                android:gradientRadius="16"
+                                android:type="radial">
+                                <item android:color="#F0A7C6" android:offset="0" />
+                                <item android:color="#5C7FE0" android:offset="1" />
+                            </gradient>
+                        </aapt:attr>
+                    </path>
+                </group>
+                <group
+                    android:name="note_group"
+                    android:pivotX="12"
+                    android:pivotY="12">
+                    <!-- Same role as Echo's "play" group: rotation +
+                         translateY wobble on the wrapper, independent
+                         of the pathData morph on the path inside it. -->
+                    <path
+                        android:name="note"
+                        android:fillColor="#16191C"
+                        android:pathData="M 9.750 8.750 L 10.536 9.232 L 11.321 9.714 L 12.107 10.196 L 12.893 10.679 L 13.679 11.161 L 14.464 11.643 L 15.250 12.125 L 14.333 12.688 L 13.417 13.250 L 12.500 13.812 L 11.583 14.375 L 10.667 14.938 L 9.750 15.500 L 9.750 14.375 L 9.750 13.250 L 9.750 12.125 L 9.750 11.000 L 9.750 9.875 Z" />
+                </group>
+                <group
+                    android:name="ring"
+                    android:pivotX="12"
+                    android:pivotY="12">
+                    <!-- Aurum's real scallop badge silhouette. -->
+                    <path
+                        android:name="ring_path"
+                        android:pathData="M 11.500 3.875 L 10.000 5.125 L 8.250 5.125 L 6.625 6.250 L 6.375 8.125 L 4.875 9.500 L 4.500 10.250 L 4.500 11.500 L 5.375 12.875 L 5.000 14.250 L 5.375 16.000 L 6.000 16.625 L 7.250 17.000 L 8.500 18.750 L 10.375 19.125 L 11.375 19.875 L 12.250 20.000 L 13.625 19.125 L 15.375 18.875 L 16.875 17.000 L 18.500 16.250 L 19.000 15.250 L 18.625 12.875 L 19.500 11.625 L 19.625 10.500 L 19.250 9.500 L 17.750 8.250 L 17.625 6.625 L 17.000 5.625 L 16.125 5.125 L 14.125 5.125 L 12.875 4.000 Z">
+                        <aapt:attr name="android:fillColor">
+                            <gradient
+                                android:startX="4"
+                                android:startY="4"
+                                android:endX="20"
+                                android:endY="20"
+                                android:type="linear">
+                                <item android:color="#F0A7C6" android:offset="0" />
+                                <item android:color="#8B7FD6" android:offset="0.5" />
+                                <item android:color="#5C7FE0" android:offset="1" />
+                            </gradient>
+                        </aapt:attr>
+                    </path>
+                </group>
             </group>
         </vector>
     </aapt:attr>
 
-    <!-- ring: two back-to-back 120° bursts, net 240° — identical
-         structure to Echo's own "ring" target (two objectAnimators,
-         0-1200ms and 1200-2400ms of the 900ms-visible window scaled to
-         this drawable's own animation duration below). -->
+    <!-- ring: identical timing to Echo's own "ring" target - two
+         back-to-back 1200ms bursts, net 240° rotation. -->
     <target android:name="ring">
         <aapt:attr name="android:animation">
             <set>
                 <objectAnimator
-                    android:duration="450"
+                    android:duration="1200"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="rotation"
                     android:valueFrom="0"
                     android:valueTo="120"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="450"
+                    android:duration="1200"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="rotation"
-                    android:startOffset="450"
+                    android:startOffset="1200"
                     android:valueFrom="120"
                     android:valueTo="240"
                     android:valueType="floatType" />
@@ -164,76 +123,142 @@
         </aapt:attr>
     </target>
 
-    <!-- note_group: tilt out, hold, tilt back — the wrapper group's own
-         rotation/scale, same role as Echo's "play" target (which
-         animates rotation+translateY on Echo's "play" GROUP, separately
-         from the "note" target's pathData on the path inside it). -->
+    <!-- note: play-triangle morphs into Aurum's real note shape.
+         Same start offset/duration as Echo's own first "note" morph
+         (200ms offset, 400ms duration) - but no reverse morph at
+         1600ms, since the goal is to land on and stay on the real
+         logo, not snap back to the triangle placeholder. -->
+    <target android:name="note">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="400"
+                android:interpolator="@android:interpolator/fast_out_slow_in"
+                android:propertyName="pathData"
+                android:startOffset="200"
+                android:valueFrom="M 9.750 8.750 L 10.536 9.232 L 11.321 9.714 L 12.107 10.196 L 12.893 10.679 L 13.679 11.161 L 14.464 11.643 L 15.250 12.125 L 14.333 12.688 L 13.417 13.250 L 12.500 13.812 L 11.583 14.375 L 10.667 14.938 L 9.750 15.500 L 9.750 14.375 L 9.750 13.250 L 9.750 12.125 L 9.750 11.000 L 9.750 9.875 Z"
+                android:valueTo="M 12.375 8.250 L 11.875 8.375 L 11.875 11.750 L 11.625 12.000 L 10.500 11.875 L 9.750 12.250 L 9.000 13.500 L 9.000 14.375 L 9.625 15.500 L 10.500 16.000 L 11.625 16.000 L 12.375 15.625 L 12.875 15.000 L 13.125 14.125 L 13.250 10.750 L 14.875 11.625 L 15.250 11.625 L 15.375 11.375 L 15.250 10.125 Z"
+                android:valueType="pathType" />
+        </aapt:attr>
+    </target>
+
+    <!-- note_group: same rotation+translateY wobble timing as Echo's
+         "play" target (400ms offset rotate out, hold, 1700ms offset
+         rotate back) - the triangle-shaped note tilts as it morphs,
+         then settles back level once it's the real note shape. -->
     <target android:name="note_group">
         <aapt:attr name="android:animation">
             <set>
                 <objectAnimator
-                    android:duration="250"
+                    android:duration="400"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="rotation"
-                    android:startOffset="150"
+                    android:startOffset="400"
                     android:valueFrom="0"
-                    android:valueTo="-16"
+                    android:valueTo="-52"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="200"
+                    android:duration="400"
+                    android:interpolator="@android:interpolator/fast_out_slow_in"
+                    android:propertyName="translateY"
+                    android:startOffset="400"
+                    android:valueFrom="0"
+                    android:valueTo="2"
+                    android:valueType="floatType" />
+                <objectAnimator
+                    android:duration="300"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="rotation"
-                    android:startOffset="640"
-                    android:valueFrom="-16"
+                    android:startOffset="1700"
+                    android:valueFrom="-52"
                     android:valueTo="0"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="200"
+                    android:duration="300"
+                    android:interpolator="@android:interpolator/fast_out_slow_in"
+                    android:propertyName="translateY"
+                    android:startOffset="1700"
+                    android:valueFrom="2"
+                    android:valueTo="0"
+                    android:valueType="floatType" />
+                <!-- scale-pulse, same role as Echo's "media" target -->
+                <objectAnimator
+                    android:duration="300"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleX"
-                    android:startOffset="260"
+                    android:startOffset="700"
                     android:valueFrom="1"
-                    android:valueTo="1.08"
+                    android:valueTo="1.05"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="200"
+                    android:duration="300"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleY"
-                    android:startOffset="260"
+                    android:startOffset="700"
                     android:valueFrom="1"
-                    android:valueTo="1.08"
+                    android:valueTo="1.05"
                     android:valueType="floatType" />
                 <objectAnimator
                     android:duration="200"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleX"
-                    android:startOffset="500"
-                    android:valueFrom="1.08"
+                    android:startOffset="1000"
+                    android:valueFrom="1.05"
                     android:valueTo="1"
                     android:valueType="floatType" />
                 <objectAnimator
                     android:duration="200"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleY"
-                    android:startOffset="500"
-                    android:valueFrom="1.08"
+                    android:startOffset="1000"
+                    android:valueFrom="1.05"
+                    android:valueTo="1"
+                    android:valueType="floatType" />
+                <objectAnimator
+                    android:duration="300"
+                    android:interpolator="@android:interpolator/fast_out_slow_in"
+                    android:propertyName="scaleY"
+                    android:startOffset="1700"
+                    android:valueFrom="1"
+                    android:valueTo="1.05"
+                    android:valueType="floatType" />
+                <objectAnimator
+                    android:duration="301"
+                    android:interpolator="@android:interpolator/fast_out_slow_in"
+                    android:propertyName="scaleX"
+                    android:startOffset="1700"
+                    android:valueFrom="1"
+                    android:valueTo="1.05"
+                    android:valueType="floatType" />
+                <objectAnimator
+                    android:duration="200"
+                    android:interpolator="@android:interpolator/fast_out_slow_in"
+                    android:propertyName="scaleX"
+                    android:startOffset="2000"
+                    android:valueFrom="1.05"
+                    android:valueTo="1"
+                    android:valueType="floatType" />
+                <objectAnimator
+                    android:duration="200"
+                    android:interpolator="@android:interpolator/fast_out_slow_in"
+                    android:propertyName="scaleY"
+                    android:startOffset="2000"
+                    android:valueFrom="1.05"
                     android:valueTo="1"
                     android:valueType="floatType" />
             </set>
         </aapt:attr>
     </target>
 
-    <!-- bg: slow continuous full turn underneath everything — same
-         role as Echo's "bg" target. -->
+    <!-- bg: same 2400ms full-turn spin as Echo's own "bg" target. -->
     <target android:name="bg">
         <aapt:attr name="android:animation">
             <set>
                 <objectAnimator
-                    android:duration="900"
-                    android:interpolator="@android:interpolator/linear"
+                    android:duration="2400"
+                    android:interpolator="@android:interpolator/anticipate_overshoot"
                     android:propertyName="rotation"
                     android:valueFrom="0"
-                    android:valueTo="135"
+                    android:valueTo="360"
                     android:valueType="floatType" />
             </set>
         </aapt:attr>
