@@ -28,6 +28,7 @@ import 'artist_screen.dart';
 import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_sheet.dart';
+import '../utils/aurum_immersive_header.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -50,11 +51,21 @@ class _AlbumScreenState extends State<AlbumScreen> {
   bool _loading = true;
   bool _shuffle = false;
   late String _artworkUrl = widget.artworkUrl;
+  // Falls back to a dark neutral glow until (if) the palette resolves —
+  // matches mix_screen.dart's/artist_screen.dart's fallback so all three
+  // detail screens look identical before their artwork decodes.
+  Color _glow = const Color(0xFF1A1630);
 
   @override
   void initState() {
     super.initState();
     _load();
+    _extractGlow(widget.artworkUrl);
+  }
+
+  Future<void> _extractGlow(String url) async {
+    final c = await extractImmersiveColor(url);
+    if (c != null && mounted) setState(() => _glow = c);
   }
 
   Future<void> _load() async {
@@ -72,6 +83,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
       if (result.headerArtworkUrl.isNotEmpty) _artworkUrl = result.headerArtworkUrl;
       _loading = false;
     });
+    if (result.headerArtworkUrl.isNotEmpty) _extractGlow(result.headerArtworkUrl);
   }
 
   /// Derives up to 3 distinct artist names across the album's songs —
@@ -109,30 +121,32 @@ class _AlbumScreenState extends State<AlbumScreen> {
     final year = _year;
 
     return Scaffold(
-      backgroundColor: AurumTheme.bgOf(context),
+      backgroundColor: immersiveScaffoldBg(context, _glow),
       // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
       // matching comment for the full reasoning.
       bottomNavigationBar: const MiniPlayerSlot(),
-      body: CustomScrollView(
+      body: Container(
+        color: immersiveScaffoldBg(context, _glow),
+        child: CustomScrollView(
         slivers: [
           SliverAppBar(
             pinned: true,
-            backgroundColor: AurumTheme.bgOf(context),
+            backgroundColor: immersiveScaffoldBg(context, _glow),
             elevation: 0,
             iconTheme: const IconThemeData(color: Colors.white),
             expandedHeight: 400,
             flexibleSpace: FlexibleSpaceBar(
-              background: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      AurumTheme.gold.withOpacity(0.16),
-                      AurumTheme.bgOf(context),
-                    ],
-                  ),
-                ),
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  DecoratedBox(
+                // Same short muted-glow scrim mix_screen.dart and
+                // artist_screen.dart use — this card-style header keeps
+                // its centered artwork treatment, but now carries the
+                // album art's own extracted color instead of a flat
+                // AurumTheme.gold tint, so all three detail screens read
+                // as one consistent, alive ecosystem.
+                decoration: immersiveHeaderScrim(_glow),
                 child: SafeArea(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(32, 56, 32, 0),
@@ -178,6 +192,26 @@ class _AlbumScreenState extends State<AlbumScreen> {
                     ),
                   ),
                 ),
+              ),
+                  // SimpMusic-style frosted glass strip fading in behind
+                  // the collapsed bar — see mix_screen.dart's matching
+                  // comment for why this is gated on expandRatio rather
+                  // than always-on.
+                  Builder(builder: (context) {
+                    final settings = context
+                        .dependOnInheritedWidgetOfExactType<
+                            FlexibleSpaceBarSettings>();
+                    return AurumGlassCollapseBar(
+                      glow: _glow,
+                      expandRatio: settings != null
+                          ? ((settings.currentExtent -
+                                      settings.minExtent) /
+                                  (settings.maxExtent - settings.minExtent))
+                              .clamp(0.0, 1.0)
+                          : 1.0,
+                    );
+                  }),
+                ],
               ),
             ),
           ),
@@ -381,6 +415,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
             ),
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
+        ),
       ),
     );
   }

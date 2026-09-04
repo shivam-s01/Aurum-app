@@ -21,8 +21,6 @@ import '../utils/aurum_transitions.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:palette_generator/palette_generator.dart';
 import '../models/song.dart';
 import '../services/api_service.dart';
 import '../providers/player_provider.dart';
@@ -41,6 +39,7 @@ import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../utils/aurum_immersive_header.dart';
 
 class MixScreen extends StatefulWidget {
   final String mixId;
@@ -104,21 +103,8 @@ class _MixScreenState extends State<MixScreen> {
   }
 
   Future<void> _extractGlow() async {
-    final url = widget.artworkUrl;
-    if (url.isEmpty || !url.startsWith('http')) return;
-    try {
-      final pg = await PaletteGenerator.fromImageProvider(
-        CachedNetworkImageProvider(url),
-        size: const Size(100, 100),
-      );
-      final c = pg.vibrantColor?.color ??
-          pg.lightVibrantColor?.color ??
-          pg.dominantColor?.color;
-      if (c != null && mounted) setState(() => _glow = c);
-    } catch (_) {
-      // Palette extraction is a cosmetic nicety — network hiccups or a
-      // decode failure just keep the neutral fallback glow above.
-    }
+    final c = await extractImmersiveColor(widget.artworkUrl);
+    if (c != null && mounted) setState(() => _glow = c);
   }
 
   /// Pull-to-refresh handler — only wired up when widget.enableRefresh
@@ -189,7 +175,9 @@ class _MixScreenState extends State<MixScreen> {
     // identical to before.
     final songs = _songs;
 
-    Widget body = CustomScrollView(
+    Widget body = Container(
+      color: immersiveScaffoldBg(context, _glow),
+      child: CustomScrollView(
         // PERF FIX (same class as home_screen.dart / artist_screen.dart /
         // library_screen.dart's matching fix): default Sliver cacheExtent
         // (250px) is too small once a full mix song list is loaded below
@@ -199,7 +187,7 @@ class _MixScreenState extends State<MixScreen> {
         slivers: [
           SliverAppBar(
             pinned: true,
-            backgroundColor: AurumTheme.bgOf(context),
+            backgroundColor: immersiveScaffoldBg(context, _glow),
             elevation: 0,
             iconTheme: const IconThemeData(color: Colors.white),
             // No leading/actions here — those are drawn as a floating
@@ -219,8 +207,8 @@ class _MixScreenState extends State<MixScreen> {
                 fit: StackFit.expand,
                 children: [
                   // Layer 1 — full-bleed artwork fills the entire header,
-                  // edge to edge, no card/frame — matches YT Music's
-                  // playlist header treatment exactly.
+                  // edge to edge, no card/frame — matches the reference
+                  // players' playlist/artist header treatment.
                   if (widget.artworkUrl.isNotEmpty)
                     Hero(
                       tag: 'mix_art_${widget.mixId}',
@@ -236,52 +224,47 @@ class _MixScreenState extends State<MixScreen> {
                     )
                   else
                     Container(
-                      color: AurumTheme.bgCardOf(context),
+                      color: _glow,
                       child: Center(
-                        // No-emoji requirement: uses Flutter's icon font
-                        // (a vector glyph, not a Unicode emoji character)
-                        // instead of rendering widget.emoji as text — this
-                        // fallback can never show an emoji regardless of
-                        // what any caller passes in.
                         child: Icon(
                           Icons.music_note_rounded,
                           size: 64,
-                          color: AurumTheme.textMutedOf(context),
+                          color: Colors.white.withOpacity(0.7),
                         ),
                       ),
                     ),
 
-                  // Layer 2 — bottom gradient scrim so the title stays
-                  // readable over any artwork, then a palette-tinted wash
-                  // for a bit of premium color instead of flat black.
-                  //
-                  // LIGHT-MODE FIX: this used to hand off straight from a
-                  // 60%-black scrim to AurumTheme.bgOf(context) — fine in
-                  // dark mode (that's already near-black) but in light
-                  // mode bgOf() is a warm off-white, so the header ended
-                  // in a jarring dark→cream seam right where the white
-                  // title/glass-pill chrome above still needs a dark
-                  // backdrop to read. Adding a near-opaque black stop
-                  // just before the handoff keeps the whole photo area
-                  // dark regardless of theme — the seam to the real
-                  // (light or dark) body color happens in one final
-                  // sliver-thin step instead of a visible jump.
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.10),
-                          _glow.withOpacity(0.18),
-                          Colors.black.withOpacity(0.60),
-                          Colors.black.withOpacity(0.92),
-                          AurumTheme.bgOf(context),
-                        ],
-                        stops: const [0.0, 0.35, 0.72, 0.92, 1.0],
-                      ),
-                    ),
-                  ),
+                  // Layer 2 — short scrim washing the artwork's own
+                  // extracted color through the photo. Kept short (not a
+                  // long fade trying to carry the color alone) because
+                  // the page background below (see immersiveScaffoldBg)
+                  // already carries the same tone the rest of the way
+                  // down — same split SimpMusic uses between its header
+                  // scrim and its whole-page palette background.
+                  DecoratedBox(decoration: immersiveHeaderScrim(_glow)),
+
+                  // Layer 2b — SimpMusic-style frosted glass strip that
+                  // fades in behind the collapsed bar as the header
+                  // shrinks (see AurumGlassCollapseBar). Reads
+                  // FlexibleSpaceBarSettings from this same
+                  // FlexibleSpaceBar, so it needs zero extra scroll
+                  // listening of its own. Sits above the scrim but below
+                  // the title block below it, so the title is never the
+                  // thing getting blurred.
+                  Builder(builder: (context) {
+                    final settings = context
+                        .dependOnInheritedWidgetOfExactType<
+                            FlexibleSpaceBarSettings>();
+                    return AurumGlassCollapseBar(
+                      glow: _glow,
+                      expandRatio: settings != null
+                          ? ((settings.currentExtent -
+                                      settings.minExtent) /
+                                  (settings.maxExtent - settings.minExtent))
+                              .clamp(0.0, 1.0)
+                          : 1.0,
+                    );
+                  }),
 
                   // Title + source + type line, centered over the
                   // artwork's lower half — YT Music-style stacked block.
@@ -568,7 +551,8 @@ class _MixScreenState extends State<MixScreen> {
             ),
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
-      );
+      ),
+    );
 
     // enableRefresh wraps the exact same scroll view in a
     // RefreshIndicator — CustomScrollView's physics already support the
@@ -585,7 +569,7 @@ class _MixScreenState extends State<MixScreen> {
     }
 
     return Scaffold(
-      backgroundColor: AurumTheme.bgOf(context),
+      backgroundColor: immersiveScaffoldBg(context, _glow),
       bottomNavigationBar: const MiniPlayerSlot(),
       body: body,
     );

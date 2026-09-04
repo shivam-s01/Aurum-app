@@ -64,6 +64,7 @@ import 'artist_screen.dart';
 import 'album_screen.dart';
 import 'mix_screen.dart';
 import '../widgets/aurum_focus_field.dart';
+import '../utils/aurum_immersive_header.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
 import '../utils/aurum_motion.dart';
@@ -584,6 +585,18 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   // ── Multi-select state ─────────────────────────────────────────────────
   bool _selecting = false;
   final Set<String> _selectedIds = {};
+  // Falls back to a dark neutral glow until (if) the palette resolves —
+  // matches mix_screen.dart's/artist_screen.dart's/album_screen.dart's
+  // fallback so every detail screen in the app, including a user's own
+  // local playlists here in Library, looks like one consistent ecosystem.
+  Color _glow = const Color(0xFF1A1630);
+  String? _glowExtractedFor;
+
+  void _onGlow(String key, Color c) {
+    if (_glowExtractedFor == key) return;
+    _glowExtractedFor = key;
+    if (mounted) setState(() => _glow = c);
+  }
 
   void _enterSelectMode(String firstSongId) {
     AurumHaptics.medium();
@@ -627,7 +640,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       // normal loaded Scaffold below, otherwise nav bar/mini player
       // vanish for as long as this state is shown.
       return Scaffold(
-        backgroundColor: AurumTheme.bgOf(context),
+        backgroundColor: immersiveScaffoldBg(context, _glow),
         bottomNavigationBar: const MiniPlayerSlot(),
         body: Center(
           child: Text(l10n.libraryPlaylistNotFound,
@@ -655,11 +668,13 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
         if (!didPop && _selecting) _exitSelectMode();
       },
       child: Scaffold(
-        backgroundColor: AurumTheme.bgOf(context),
+        backgroundColor: immersiveScaffoldBg(context, _glow),
         // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
         // matching comment for the full reasoning.
         bottomNavigationBar: const MiniPlayerSlot(),
-        body: CustomScrollView(
+        body: Container(
+          color: immersiveScaffoldBg(context, _glow),
+          child: CustomScrollView(
           physics: const BouncingScrollPhysics(),
           // PERF FIX (same class as home_screen.dart / artist_screen.dart's
           // matching fix): default Sliver cacheExtent is only 250 logical
@@ -696,7 +711,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               SliverAppBar(
                 expandedHeight: 300,
                 pinned: true,
-                backgroundColor: AurumTheme.bgOf(context),
+                backgroundColor: immersiveScaffoldBg(context, _glow),
                 leading: IconButton(
                   icon: Icon(Icons.arrow_back_ios_rounded,
                       color: AurumTheme.textSecondaryOf(context), size: 20),
@@ -710,7 +725,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   ),
                 ],
                 flexibleSpace: FlexibleSpaceBar(
-                  background: _PlaylistHeader(playlist: pl),
+                  background: _PlaylistHeader(playlist: pl, onGlow: _onGlow),
                   collapseMode: CollapseMode.pin,
                 ),
                 bottom: PreferredSize(
@@ -868,6 +883,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
 
             const SliverToBoxAdapter(child: SizedBox(height: 100)),
           ],
+          ),
         ),
       ),
     );
@@ -1131,9 +1147,44 @@ class _SelectModeAppBar extends StatelessWidget {
 // Playlist Header (large artwork + info)
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _PlaylistHeader extends StatelessWidget {
+class _PlaylistHeader extends StatefulWidget {
   final AurumPlaylist playlist;
-  const _PlaylistHeader({required this.playlist});
+  final void Function(String key, Color color)? onGlow;
+  const _PlaylistHeader({required this.playlist, this.onGlow});
+
+  @override
+  State<_PlaylistHeader> createState() => _PlaylistHeaderState();
+}
+
+class _PlaylistHeaderState extends State<_PlaylistHeader> {
+  Color _glow = const Color(0xFF1A1630);
+
+  @override
+  void initState() {
+    super.initState();
+    _extractGlow();
+  }
+
+  @override
+  void didUpdateWidget(_PlaylistHeader old) {
+    super.didUpdateWidget(old);
+    if (old.playlist.coverArt != widget.playlist.coverArt) _extractGlow();
+  }
+
+  Future<void> _extractGlow() async {
+    final art = widget.playlist.coverArt;
+    final url = (art != null && art.isNotEmpty)
+        ? art
+        : (widget.playlist.songs.isNotEmpty
+            ? widget.playlist.songs.first.artworkUrl
+            : '');
+    if (url.isEmpty) return;
+    final c = await extractImmersiveColor(url);
+    if (c != null && mounted) {
+      setState(() => _glow = c);
+      widget.onGlow?.call(url, c);
+    }
+  }
 
   // CHANGE ("ek option daal do playlist mai users kud se gallery se
   // playlist ka wallpaper chose kr sakhe ekdam production level"): opens
@@ -1179,7 +1230,7 @@ class _PlaylistHeader extends StatelessWidget {
                         fontWeight: FontWeight.w600)),
                 onTap: () => Navigator.pop(ctx, 'pick'),
               ),
-              if (playlist.hasCustomCover)
+              if (widget.playlist.hasCustomCover)
                 ListTile(
                   leading:
                       const Icon(Icons.restore_rounded, color: Colors.redAccent),
@@ -1208,16 +1259,16 @@ class _PlaylistHeader extends StatelessWidget {
         maxHeight: 1200,
       );
       if (picked != null) {
-        await provider.setCoverImage(playlist.id, picked.path);
+        await provider.setCoverImage(widget.playlist.id, picked.path);
       }
     } else if (action == 'remove') {
-      await provider.clearCoverImage(playlist.id);
+      await provider.clearCoverImage(widget.playlist.id);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasArt = playlist.coverArt != null && playlist.coverArt!.isEmpty == false;
+    final hasArt = widget.playlist.coverArt != null && widget.playlist.coverArt!.isEmpty == false;
 
     return GestureDetector(
       onTap: () => _changeCover(context),
@@ -1239,7 +1290,7 @@ class _PlaylistHeader extends StatelessWidget {
                       child: ImageFiltered(
                         imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                         child: AurumArtwork(
-                          url: playlist.coverArt!,
+                          url: widget.playlist.coverArt!,
                           size: double.infinity,
                           borderRadius: 0,
                           fadeIn: false,
@@ -1268,7 +1319,7 @@ class _PlaylistHeader extends StatelessWidget {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(18),
                           child: AurumArtwork(
-                            url: playlist.coverArt!,
+                            url: widget.playlist.coverArt!,
                             size: 190,
                             borderRadius: 18,
                           ),
@@ -1279,32 +1330,35 @@ class _PlaylistHeader extends StatelessWidget {
                 )
               : PlaylistColorCover(
                   artworkUrl:
-                      playlist.songs.isNotEmpty ? playlist.songs.first.artworkUrl : '',
+                      widget.playlist.songs.isNotEmpty ? widget.playlist.songs.first.artworkUrl : '',
                   size: double.infinity,
                   borderRadius: 0,
                   iconSize: 72,
                 ),
 
-          // ── Layer 2 — bottom gradient scrim so title/chrome stay
-          // readable over any artwork, same handoff MixScreen's header
-          // uses (near-opaque black just before the seam so light mode's
-          // warm-cream body color never creates a visible jump).
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withOpacity(0.05),
-                  Colors.black.withOpacity(0.15),
-                  Colors.black.withOpacity(0.55),
-                  Colors.black.withOpacity(0.90),
-                  AurumTheme.bgOf(context),
-                ],
-                stops: const [0.0, 0.30, 0.68, 0.90, 1.0],
-              ),
-            ),
-          ),
+          // ── Layer 2 — short scrim washing this cover's own extracted
+          // color through it — matches mix_screen.dart's/artist_screen
+          // .dart's/album_screen.dart's identical treatment, so a user's
+          // own local playlist here in Library reads as the exact same
+          // alive ecosystem as every curated/artist/album detail screen.
+          DecoratedBox(decoration: immersiveHeaderScrim(_glow)),
+
+          // ── SimpMusic-style frosted glass strip fading in behind the
+          // collapsed bar — see mix_screen.dart's matching comment. Same
+          // FlexibleSpaceBar this header is already the background of,
+          // so FlexibleSpaceBarSettings is reachable here directly.
+          Builder(builder: (context) {
+            final settings = context
+                .dependOnInheritedWidgetOfExactType<FlexibleSpaceBarSettings>();
+            return AurumGlassCollapseBar(
+              glow: _glow,
+              expandRatio: settings != null
+                  ? ((settings.currentExtent - settings.minExtent) /
+                          (settings.maxExtent - settings.minExtent))
+                      .clamp(0.0, 1.0)
+                  : 1.0,
+            );
+          }),
 
           // ── Edit affordance — small pill, bottom-right, signals the
           // whole header is tappable without needing a hint/tooltip.
@@ -1333,7 +1387,7 @@ class _PlaylistHeader extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  playlist.name,
+                  widget.playlist.name,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white,
@@ -1345,10 +1399,10 @@ class _PlaylistHeader extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (playlist.description.isNotEmpty) ...[
+                if (widget.playlist.description.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
-                    playlist.description,
+                    widget.playlist.description,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.85),
@@ -1363,8 +1417,8 @@ class _PlaylistHeader extends StatelessWidget {
                 ],
                 const SizedBox(height: 6),
                 Text(
-                  '${playlist.songCount} song${playlist.songCount == 1 ? '' : 's'}'
-                  '${playlist.totalDurationString.isNotEmpty ? ' • ${playlist.totalDurationString}' : ''}',
+                  '${widget.playlist.songCount} song${widget.playlist.songCount == 1 ? '' : 's'}'
+                  '${widget.playlist.totalDurationString.isNotEmpty ? ' • ${widget.playlist.totalDurationString}' : ''}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.75),

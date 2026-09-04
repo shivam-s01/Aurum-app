@@ -1,5 +1,6 @@
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:aurum_music/widgets/aurum_morph_loader.dart';
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ import '../providers/favorites_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../providers/premium_provider.dart';
 import '../services/sync_service.dart';
+import '../services/audio_prefs.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_motion.dart';
@@ -26,9 +28,18 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late AnimationController _fadeCtrl;
   late Animation<double> _fadeAnim;
+
+  // Ambient background — same lightweight gold-glow + drifting-particle
+  // treatment as PremiumScreen, reused here so the whole app's "premium"
+  // pages feel like one family instead of profile looking like a
+  // different, flatter screen. Gated on the same animations toggle for
+  // low-end devices (see PremiumScreen for why).
+  late final AnimationController _glowCtrl;
+  late final Animation<double> _glow;
+  late final AnimationController _particleCtrl;
 
   @override
   void initState() {
@@ -39,11 +50,49 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
     _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
     _fadeCtrl.forward();
+
+    WidgetsBinding.instance.addObserver(this);
+
+    final animsOn = AudioPrefs.enableAnimationsNotifier.value;
+
+    _glowCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    );
+    _glow = CurvedAnimation(parent: _glowCtrl, curve: Curves.easeInOutSine);
+
+    _particleCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 8000),
+    );
+
+    if (animsOn) {
+      _glowCtrl.repeat(reverse: true);
+      _particleCtrl.repeat();
+    } else {
+      _glowCtrl.value = 0.5;
+      _particleCtrl.value = 0.0;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (!AudioPrefs.enableAnimationsNotifier.value) return;
+      if (!_glowCtrl.isAnimating) _glowCtrl.repeat(reverse: true);
+      if (!_particleCtrl.isAnimating) _particleCtrl.repeat();
+    } else {
+      _glowCtrl.stop();
+      _particleCtrl.stop();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _fadeCtrl.dispose();
+    _glowCtrl.dispose();
+    _particleCtrl.dispose();
     super.dispose();
   }
 
@@ -51,7 +100,11 @@ class _ProfileScreenState extends State<ProfileScreen>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      backgroundColor: AurumTheme.bgOf(context),
+      // Was flat Color(0xFF060608) (near-pure-black) — switched to the
+      // app's real dark-theme background so profile matches the rest of
+      // Aurum's navy-violet dark surfaces instead of reading as its own
+      // separate, darker "AMOLED-black" screen.
+      backgroundColor: AurumTheme.darkBg,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -71,33 +124,113 @@ class _ProfileScreenState extends State<ProfileScreen>
         title: Text(l10n.prProfile,
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
       ),
-      body: FadeTransition(
-        opacity: _fadeAnim,
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              // ── Hero Header ──
-              const _ProfileHero(),
-
-              // ── Premium Benefits Card ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                child: _PremiumCard(),
+      body: Stack(
+        children: [
+          // ── Drifting gold particles (lightweight CustomPainter, 18 dots) ──
+          RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _particleCtrl,
+              builder: (_, __) => CustomPaint(
+                size: Size.infinite,
+                painter: _ProfileParticlePainter(_particleCtrl.value),
               ),
-
-              // ── Account / Sign-in Card ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                child: _AccountCard(),
-              ),
-
-              const SizedBox(height: 48),
-            ],
+            ),
           ),
-        ),
+          // ── Soft breathing glow at the top — kept very restrained (low
+          // peak opacity, wide soft radius) so it reads as ambient depth
+          // behind the hero photo, not a neon accent sitting on top of it. ──
+          AnimatedBuilder(
+            animation: _glow,
+            builder: (_, __) => Positioned(
+              top: -80,
+              left: 0,
+              right: 0,
+              child: Container(
+                height: 260,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    colors: [
+                      AurumTheme.gold.withOpacity(0.06 + _glow.value * 0.03),
+                      Colors.transparent,
+                    ],
+                    radius: 0.9,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          FadeTransition(
+            opacity: _fadeAnim,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  // ── Hero Header ──
+                  const _ProfileHero(),
+
+                  // ── Premium Benefits Card ──
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                    child: _PremiumCard(),
+                  ),
+
+                  // ── Account / Sign-in Card ──
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                    child: _AccountCard(),
+                  ),
+
+                  const SizedBox(height: 48),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ambient particle painter — identical lightweight approach to PremiumScreen's
+// _ParticlePainter: 18 fixed dots (seeded, so no per-frame allocation),
+// drifting slowly upward with a gentle sine-based twinkle.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ProfileParticlePainter extends CustomPainter {
+  final double t;
+  static final _rng = math.Random(42);
+  // 12 (not 18) — fewer, smaller, dimmer dots than PremiumScreen's paywall
+  // background. That screen is a one-off sales moment where a livelier
+  // effect is fine; profile is a screen people sit on, so it stays closer
+  // to "barely-there texture" than "effect" — professional, not neon.
+  static final _particles = List.generate(12, (i) => [
+    _rng.nextDouble(),
+    _rng.nextDouble(),
+    _rng.nextDouble(),
+    _rng.nextDouble(),
+    _rng.nextDouble(),
+  ]);
+  static final _paints = List.generate(12, (_) => Paint());
+
+  _ProfileParticlePainter(this.t);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (var i = 0; i < _particles.length; i++) {
+      final p = _particles[i];
+      final x = p[0] * size.width;
+      final y = ((p[1] + t * p[2] * 0.3) % 1.0) * size.height;
+      final radius = 0.6 + p[3] * 1.2;
+      final opacity = (0.03 + p[4] * 0.06) *
+          (0.5 + 0.5 * math.sin(t * math.pi * 2 * (0.5 + p[2])));
+
+      _paints[i].color = AurumTheme.gold.withOpacity(opacity);
+      canvas.drawCircle(Offset(x, y), radius, _paints[i]);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ProfileParticlePainter old) => old.t != t;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -272,7 +405,7 @@ class _ProfileHero extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1A1208), Color(0xFF2A1E00), Color(0xFF0D0D14)],
+          colors: [AurumTheme.darkBgElevated, AurumTheme.darkBgSurface, AurumTheme.darkBg],
         ),
       ),
     );

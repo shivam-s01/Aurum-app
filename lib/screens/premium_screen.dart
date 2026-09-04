@@ -241,7 +241,10 @@ class _PremiumScreenState extends State<PremiumScreen>
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFF060608),
+      // Was flat Color(0xFF060608) — now the app's real dark-theme surface
+      // so this paywall matches every other dark screen instead of reading
+      // as a separately-darker AMOLED-black page.
+      backgroundColor: AurumTheme.darkBg,
       body: Stack(
         children: [
           RepaintBoundary(
@@ -970,7 +973,7 @@ class _SuccessViewState extends State<_SuccessView>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      backgroundColor: const Color(0xFF060608),
+      backgroundColor: AurumTheme.darkBg,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(32),

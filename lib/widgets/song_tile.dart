@@ -585,20 +585,36 @@ class _GridOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // FIX ("options itna fika fika dead lag rahe hai" — checked in BOTH
+    // themes): the same near-1:1 tier gap exists in light mode too
+    // (lightBgElevated vs lightBg ≈ 1.03:1), so the light branch below was
+    // just as invisible as dark was before this fix. Bumped the light
+    // overlay from 3.5%→6% black (still a soft warm-paper tint, not a grey
+    // slab — "bahut jyda light na de" means visible depth without turning
+    // the whole sheet a different flat color) so buttons are legible on
+    // light theme exactly the way the dark-mode white-wash already is.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          // ECHO NIGHTLY MATCH: flat neutral surface, no per-action tint —
-          // see the call site's own comment for why every button now
-          // shares this same background/border instead of a rainbow of
-          // per-action accent colors.
-          color: AurumTheme.bgSurfaceOf(context),
+          color: isDark
+              ? Colors.white.withOpacity(0.06)
+              : Colors.black.withOpacity(0.06),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: AurumTheme.dividerOf(context),
-            width: 0.8,
+            color: isDark
+                ? Colors.white.withOpacity(0.10)
+                : Colors.black.withOpacity(0.12),
+            width: 1,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.18 : 0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,

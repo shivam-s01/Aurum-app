@@ -187,7 +187,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
           AurumStaggerItem(index: 0, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _sectionLabel(l10n.saTheme),
           _card(context, child: Column(children: [
-            _themeTile(context, tp, Icons.wallpaper_rounded, 'Dynamic Color',
+            _themeTile(context, tp, Icons.wallpaper_rounded, 'Dynamic Color (Android 12+)',
                 tp.dynamicDark != null
                     ? 'Matches your wallpaper (Material You)'
                     : 'Requires Android 12 or newer',

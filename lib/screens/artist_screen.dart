@@ -22,6 +22,7 @@ import '../utils/aurum_transitions.dart';
 import 'album_screen.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
+import '../utils/aurum_immersive_header.dart';
 
 class ArtistScreen extends StatefulWidget {
   /// Either a pre-resolved id — 'yt_<channelId>' or 'saavn_<id>' — or just
@@ -40,11 +41,23 @@ class _ArtistScreenState extends State<ArtistScreen> {
   Artist? _artist;
   bool _loading = true;
   bool _failed = false;
+  // Falls back to a dark neutral glow until (if) the palette resolves —
+  // matches mix_screen.dart's/album_screen.dart's fallback so all three
+  // detail screens look identical before their artwork/photo decodes.
+  Color _glow = const Color(0xFF1A1630);
+  String? _glowExtractedFor;
 
   @override
   void initState() {
     super.initState();
     _loadStreaming();
+  }
+
+  Future<void> _extractGlow(String imageUrl) async {
+    if (imageUrl.isEmpty || _glowExtractedFor == imageUrl) return;
+    _glowExtractedFor = imageUrl;
+    final c = await extractImmersiveColor(imageUrl);
+    if (c != null && mounted) setState(() => _glow = c);
   }
 
   // NOTE: this screen used to call ApiService.fetchArtist() (a single
@@ -92,6 +105,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
           _artist = artist;
           _loading = false;
         });
+        if (artist.imageUrl.isNotEmpty) _extractGlow(artist.imageUrl);
       });
       if (!mounted) return;
       if (!gotAny) setState(() { _loading = false; _failed = true; });
@@ -113,7 +127,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AurumTheme.bgOf(context),
+      backgroundColor: immersiveScaffoldBg(context, _glow),
       // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
       // matching comment for the full reasoning.
       bottomNavigationBar: const MiniPlayerSlot(),
@@ -172,7 +186,9 @@ class _ArtistScreenState extends State<ArtistScreen> {
     final followed = context.watch<FollowedArtistsProvider>();
     final isFollowing = followed.isFollowing(artist.id);
 
-    return CustomScrollView(
+    return Container(
+      color: immersiveScaffoldBg(context, _glow),
+      child: CustomScrollView(
       physics: const BouncingScrollPhysics(),
       // PERF FIX (album row + 100-song list jank, "makkhan" scrolling):
       // same root cause as home_screen.dart's CustomScrollView — default
@@ -187,7 +203,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
         SliverAppBar(
           expandedHeight: 380,
           pinned: true,
-          backgroundColor: AurumTheme.bgOf(context),
+          backgroundColor: immersiveScaffoldBg(context, _glow),
           elevation: 0,
           iconTheme: const IconThemeData(color: Colors.white),
           automaticallyImplyLeading: false,
@@ -198,28 +214,29 @@ class _ArtistScreenState extends State<ArtistScreen> {
                 // Full-bleed artist photo, edge to edge — no framing card,
                 // matching YT Music's artist banner treatment.
                 AurumArtwork(url: artist.imageUrl, size: 700, borderRadius: 0),
-                // LIGHT-MODE FIX: same reasoning as mix_screen.dart's
-                // header gradient — an extra near-opaque black stop
-                // right before the handoff to AurumTheme.bgOf(context)
-                // keeps the whole photo dark under the white name/text
-                // regardless of theme, instead of jumping straight into
-                // light mode's warm off-white background.
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.08),
-                        Colors.black.withOpacity(0.30),
-                        Colors.black.withOpacity(0.78),
-                        Colors.black.withOpacity(0.92),
-                        AurumTheme.bgOf(context),
-                      ],
-                      stops: const [0.0, 0.40, 0.72, 0.92, 1.0],
-                    ),
-                  ),
-                ),
+                // Short scrim washing the artist photo's own extracted
+                // color through it — matches mix_screen.dart's/
+                // album_screen.dart's identical treatment so all three
+                // detail screens share one consistent, alive header
+                // instead of this one being the flat black outlier.
+                DecoratedBox(decoration: immersiveHeaderScrim(_glow)),
+
+                // SimpMusic-style frosted glass strip fading in behind
+                // the collapsed bar as this header shrinks — see
+                // mix_screen.dart's matching comment for the reasoning.
+                Builder(builder: (context) {
+                  final settings = context
+                      .dependOnInheritedWidgetOfExactType<
+                          FlexibleSpaceBarSettings>();
+                  return AurumGlassCollapseBar(
+                    glow: _glow,
+                    expandRatio: settings != null
+                        ? ((settings.currentExtent - settings.minExtent) /
+                                (settings.maxExtent - settings.minExtent))
+                            .clamp(0.0, 1.0)
+                        : 1.0,
+                  );
+                }),
 
                 // Name + subscriber/listener count, centered — YT Music
                 // stacks these as one block under the channel name.
@@ -448,6 +465,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
         ] else
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
       ],
+      ),
     );
   }
 

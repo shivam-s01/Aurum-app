@@ -9,6 +9,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
@@ -16,6 +17,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.util.Log
 import android.widget.RemoteViews
+import androidx.palette.graphics.Palette
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,6 +53,12 @@ open class AurumWidgetProvider : AppWidgetProvider() {
 
         private var lastArtworkUrl: String? = null
         private var lastThumbBitmap: Bitmap? = null
+        // Dynamic-background color computed from the current artwork.
+        // Cached alongside lastThumbBitmap/lastArtworkUrl (same lifetime,
+        // same invalidation point) so a widget resize/reconfigure that
+        // re-renders without a song change reapplies the same tint
+        // instead of momentarily flashing back to the static fallback.
+        private var lastBgColor: Int? = null
 
         /**
          * Called from AurumMediaSessionService.onDestroy() so that once
@@ -66,6 +74,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
             // the native bitmap memory is freed immediately.
             lastThumbBitmap?.let { if (!it.isRecycled) it.recycle() }
             lastThumbBitmap = null
+            lastBgColor = null
         }
 
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -155,6 +164,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
             val artworkUri = metadata?.artworkUri?.toString()
             if (artworkUri != null && artworkUri == lastArtworkUrl && lastThumbBitmap != null) {
                 views.setImageViewBitmap(R.id.widget_artwork_thumb, lastThumbBitmap)
+                applyDynamicBackground(views, lastBgColor)
                 manager.updateAppWidget(id, views)
             } else {
                 // Song/artwork changed (or there's no cached bitmap yet) —
@@ -163,8 +173,13 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                 // showing whatever bitmap the widget host already had
                 // for it (the PREVIOUS song's artwork) until the new
                 // download finishes, which is exactly the "thumbnail
-                // doesn't change with the song" bug.
+                // doesn't change with the song" bug. Dynamic background
+                // gets the same treatment for the same reason — otherwise
+                // the OLD song's color would sit behind the NEW song's
+                // title/artist text until the new artwork's palette
+                // finishes computing.
                 views.setImageViewResource(R.id.widget_artwork_thumb, R.drawable.widget_thumb_mask)
+                applyDynamicBackground(views, null)
                 manager.updateAppWidget(id, views)
                 if (!artworkUri.isNullOrEmpty()) {
                     loadAndApplyThumbnail(context, manager, id, isCompact, artworkUri)
@@ -223,6 +238,17 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                     val thumb = withContext(Dispatchers.Default) {
                         roundedCrop(original, sizePx = 160, cornerRadiusPx = 22f)
                     }
+                    // Palette runs on the SAME downloaded bitmap, before it's
+                    // recycled below — no second network fetch or decode.
+                    // Already off the main thread (this whole block runs
+                    // inside withContext(Dispatchers.Default)/IO via the
+                    // launch above), and Palette.Builder.generate() (sync,
+                    // no listener) is itself just pixel math over a bitmap
+                    // already this small (inSampleSize=8'd in downloadBitmap),
+                    // so it's cheap enough to run inline here.
+                    val bgColor = withContext(Dispatchers.Default) {
+                        extractDominantColor(original)
+                    }
                     // LOW-END DEVICE FIX (2GB RAM target): `original` is
                     // fully consumed by roundedCrop() by this point (it
                     // only reads from it to build `square`/`scaled`
@@ -244,6 +270,7 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                     lastThumbBitmap?.let { if (!it.isRecycled) it.recycle() }
                     lastArtworkUrl = url
                     lastThumbBitmap = thumb
+                    lastBgColor = bgColor
 
                     val views = RemoteViews(
                         context.packageName,
@@ -264,11 +291,94 @@ open class AurumWidgetProvider : AppWidgetProvider() {
                     )
                     wirePendingIntents(context, views)
                     views.setImageViewBitmap(R.id.widget_artwork_thumb, thumb)
+                    applyDynamicBackground(views, bgColor)
                     manager.updateAppWidget(widgetId, views)
                 } catch (e: Throwable) {
                     Log.w(TAG, "Thumbnail load failed for $url: ${e.message}")
                 }
             }
+        }
+
+        /**
+         * Runs Palette over the already-downloaded artwork bitmap and picks
+         * one representative color to tint the widget background with.
+         *
+         * Vibrant-first, falling back through muted/dominant swatches:
+         * Palette's "dominant" swatch is literally the most common pixel
+         * color, which for album art is very often a near-black or
+         * near-white border/letterboxing — visually correct but useless as
+         * a background tint (everything would end up near-black). Vibrant
+         * (then LightVibrant/Muted/DarkMuted) approximates what Spotify/
+         * Apple Music actually show: a color that's clearly FROM the
+         * artwork without just being "whatever pixel there's most of".
+         * Falls back to null (caller keeps the static gradient) only if
+         * Palette finds nothing usable at all — a valid outcome for very
+         * flat/monochrome art, not an error.
+         */
+        private fun extractDominantColor(bitmap: Bitmap): Int? {
+            return try {
+                val palette = Palette.Builder(bitmap).maximumColorCount(16).generate()
+                val swatch = palette.vibrantSwatch
+                    ?: palette.lightVibrantSwatch
+                    ?: palette.mutedSwatch
+                    ?: palette.darkVibrantSwatch
+                    ?: palette.dominantSwatch
+                swatch?.rgb
+            } catch (e: Throwable) {
+                Log.w(TAG, "extractDominantColor failed: ${e.message}")
+                null
+            }
+        }
+
+        /**
+         * Applies (or clears) the artwork-derived tint on widget_dynamic_bg.
+         *
+         * Darkened the same way the in-app "now playing stage" backdrop
+         * treats its extracted color — text/controls sit directly on this
+         * background with no separate scrim layer here, so it has to stay
+         * dark enough for white text at full opacity to read clearly
+         * regardless of which swatch Palette picked.
+         */
+        private fun applyDynamicBackground(views: RemoteViews, color: Int?) {
+            if (color == null) {
+                views.setImageViewResource(R.id.widget_dynamic_bg, 0)
+                return
+            }
+            val darkened = darkenForBackground(color)
+            views.setImageViewBitmap(R.id.widget_dynamic_bg, solidRoundedBitmap(darkened))
+        }
+
+        /**
+         * Scales channels toward black rather than alpha-blending over a
+         * fixed color, so the hue survives (a blend would pull every color
+         * toward the same grey) while staying legible under white text —
+         * same approach as the in-app dynamic-backdrop darkening.
+         */
+        private fun darkenForBackground(color: Int, factor: Float = 0.55f): Int {
+            val r = (Color.red(color) * factor).toInt().coerceIn(0, 255)
+            val g = (Color.green(color) * factor).toInt().coerceIn(0, 255)
+            val b = (Color.blue(color) * factor).toInt().coerceIn(0, 255)
+            return Color.rgb(r, g, b)
+        }
+
+        /**
+         * A single solid-color bitmap, rounded to match widget_gradient_card/
+         * widget_background_fallback's own corner radius so the tint doesn't
+         * show square corners poking out from behind the rounded card.
+         *
+         * Deliberately tiny (48x48, scaled up by the ImageView) — this is a
+         * flat fill, not a photo, so there's no detail lost by not matching
+         * the widget's actual pixel size, and it keeps this bitmap far under
+         * the RemoteViews per-update memory budget alongside the artwork
+         * thumbnail (see loadBitmap's note on the ~20MB cap).
+         */
+        private fun solidRoundedBitmap(color: Int, sizePx: Int = 48, cornerRadiusPx: Float = 22f): Bitmap {
+            val output = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(output)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+            val rectF = RectF(0f, 0f, sizePx.toFloat(), sizePx.toFloat())
+            canvas.drawRoundRect(rectF, cornerRadiusPx, cornerRadiusPx, paint)
+            return output
         }
 
         private fun downloadBitmap(urlString: String): Bitmap? {

@@ -263,6 +263,13 @@ dependencies {
     // which Player implementation is "active" rather than rebuilding
     // separate playback logic for cast.
     implementation "androidx.media3:media3-cast:$media3Version"
+
+    // Palette: extracts a dominant color swatch from the already-downloaded
+    // widget artwork thumbnail (AurumWidgetProvider) so the widget
+    // background can tint itself per-song — no photo/blur bitmap, just a
+    // solid color computed from pixels already in memory. Tiny library
+    // (no transitive deps beyond androidx.core, already present).
+    implementation "androidx.palette:palette:1.0.0"
 }
 
 configurations.all {

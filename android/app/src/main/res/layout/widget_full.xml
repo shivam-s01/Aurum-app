@@ -11,10 +11,24 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- Base fallback fill — shown before any dynamic color has been
+         computed (cold start / no song), and is what widget_dynamic_bg
+         below is layered on top of. -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@drawable/widget_gradient_card"/>
+
+    <!-- Artwork-derived dynamic background. Solid-color ImageView, NOT a
+         blurred photo — set at runtime in AurumWidgetProvider via Palette
+         (vibrant-first swatch selection) on the same small thumbnail
+         already being downloaded for widget_artwork_thumb (no second
+         network fetch). Left blank (no src) until a color is computed,
+         so the static gradient above shows through until then. -->
+    <ImageView
+        android:id="@+id/widget_dynamic_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
 
     <LinearLayout
         android:id="@+id/widget_root_tap"

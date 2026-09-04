@@ -37,14 +37,22 @@ class AurumTheme {
   // low-but-perceptible saturation (~16%) so the cast reads as a
   // deliberate charcoal-violet surface rather than a color error, while
   // AMOLED below stays exactly the flat true-black it always was.
-  static const Color darkBg          = Color(0xFF08070A);
-  static const Color darkBgCard      = Color(0xFF100E13);
-  static const Color darkBgElevated  = Color(0xFF14121A);
-  static const Color darkBgSurface   = Color(0xFF1D1A23);
+  // hianime.at reference match ("complete dark na ho"): the user pointed
+  // at hianime's dark forum UI — a clearly-tinted navy-violet surface, not
+  // near-black. Previous darkBg (0xFF08070A) was only marginally lighter
+  // than pure black and read as flat/AMOLED-like at a glance. Retuned to
+  // sit visibly higher in lightness while keeping the same 258° brand hue,
+  // so "Dark" now reads as a deliberate navy surface the way hianime's does,
+  // and stays clearly distinct from the separate (still flat-black) AMOLED
+  // mode below.
+  static const Color darkBg          = Color(0xFF13121C);
+  static const Color darkBgCard      = Color(0xFF1B1927);
+  static const Color darkBgElevated  = Color(0xFF201E2E);
+  static const Color darkBgSurface   = Color(0xFF272433);
   static const Color darkTextPrimary = Color(0xFFF0EBD8);
   static const Color darkTextSecondary = Color(0xFF8A8A9A);
   static const Color darkTextMuted   = Color(0xFF4A4A5E);
-  static const Color darkDivider     = Color(0xFF231F2B);
+  static const Color darkDivider     = Color(0xFF2E2B3C);
 
   // ── AMOLED Theme ──
   static const Color amoledBg          = Color(0xFF000000);
