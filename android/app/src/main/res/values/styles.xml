@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Now goes through androidx.core.splashscreen's compat API instead
          of relying solely on the raw platform SplashScreen attributes —
          see MainActivity.kt's onCreate() for the installSplashScreen()
@@ -53,6 +53,13 @@
         <item name="windowSplashScreenBackground">@color/bgColor</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/art_splash_anim</item>
         <item name="windowSplashScreenAnimationDuration">900</item>
+        <!-- Matches Echo Nightly's own values/themes.xml exactly:
+             icon_preferred, gated to TIRAMISU (API 33)+ via targetApi,
+             same as Echo's own tools:targetApi="TIRAMISU" on this same
+             attribute. Below API 33 this item is simply ignored by the
+             platform (no crash, no fallback needed) — same as it is for
+             Echo on those same older API levels. -->
+        <item name="android:windowSplashScreenBehavior" tools:targetApi="TIRAMISU">icon_preferred</item>
         <item name="postSplashScreenTheme">@style/NormalTheme</item>
     </style>
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">

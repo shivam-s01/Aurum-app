@@ -24,14 +24,21 @@
       resource were failing to load/parse.
 
       Two vector paths, traced directly from Aurum's own scallop_ring.png
-      (outer scalloped-ring silhouette + the note-shaped hole punched out
-      of it via fillType="evenOdd") — so this is Aurum's real logo shape,
-      not a generic music-note placeholder.
+      (outer scalloped-ring silhouette as a full closed shape, plus the
+      note glyph as its own solid path layered on top) — so this is
+      Aurum's real logo shape, not a generic music-note placeholder.
+      Colors are the real logo's own: ring is the pink-to-purple-to-blue
+      gradient, note is white — matching scallop_ring.png exactly, not
+      Echo Nightly's dark palette. Only the LAYERING technique matches
+      Echo's structure: ring_path and note are both solid layered
+      shapes on top of each other, not a transparent hole cutout.
 
       Structure mirrors Echo's own <target> layout: a "ring" group that
-      rotates, a "note" group that tilts independently, and a "bg" group
+      rotates, a "note_group" that tilts independently (wrapping the
+      "note" path, which is what actually morphs), and a "bg" group
       underneath that does a slow full rotation — same three moving
-      parts, same relative roles, just this app's own outline data.
+      parts, same relative roles, just this app's own outline data and
+      colors.
     -->
     <aapt:attr name="android:drawable">
         <vector
@@ -64,10 +71,13 @@
                 android:name="ring"
                 android:pivotX="12"
                 android:pivotY="12">
+                <!-- Real logo colors: pink-to-purple-to-blue gradient,
+                     traced directly from scallop_ring.png. No solid
+                     dark/black fill — that was a wrong detour toward
+                     Echo Nightly's own (differently-colored) icon. -->
                 <path
                     android:name="ring_path"
-                    android:fillType="evenOdd"
-                    android:pathData="M 11.72 0.39 L 11.22 0.50 L 10.44 0.94 L 10.00 1.50 L 9.28 2.11 L 9.00 2.22 L 7.78 2.06 L 6.94 2.11 L 5.83 2.61 L 5.06 3.39 L 4.61 4.28 L 4.50 4.78 L 4.50 6.22 L 4.33 6.56 L 4.00 6.89 L 3.17 7.39 L 2.44 8.22 L 2.11 9.00 L 2.06 10.22 L 2.44 11.33 L 3.06 12.06 L 3.33 12.67 L 3.28 13.28 L 2.83 14.33 L 2.83 15.50 L 3.06 16.17 L 3.39 16.72 L 4.39 17.61 L 4.78 17.78 L 5.50 17.89 L 5.94 18.11 L 6.22 18.39 L 6.83 19.67 L 7.61 20.33 L 8.72 20.72 L 9.78 20.72 L 11.22 21.72 L 11.56 21.83 L 12.44 21.89 L 13.22 21.61 L 14.39 20.72 L 15.56 20.72 L 16.72 20.28 L 17.44 19.61 L 18.06 18.33 L 18.28 18.11 L 18.72 17.89 L 19.44 17.78 L 20.06 17.50 L 20.94 16.61 L 21.33 15.72 L 21.44 14.83 L 21.33 14.17 L 20.94 13.33 L 20.89 12.67 L 21.11 12.11 L 21.61 11.56 L 22.06 10.67 L 22.17 9.44 L 22.00 8.67 L 21.39 7.67 L 20.72 7.11 L 20.17 6.83 L 19.83 6.50 L 19.67 6.11 L 19.67 4.56 L 19.33 3.61 L 18.78 2.89 L 18.28 2.50 L 17.17 2.06 L 16.22 2.06 L 15.50 2.22 L 15.00 2.17 L 14.67 2.00 L 14.11 1.33 L 13.33 0.67 L 12.78 0.44 Z M 12.56 6.28 L 16.50 8.78 L 16.61 9.00 L 16.61 10.67 L 16.39 10.94 L 16.06 11.00 L 13.78 9.67 L 13.67 9.78 L 13.67 14.22 L 13.44 15.06 L 13.17 15.56 L 12.28 16.39 L 11.44 16.72 L 10.50 16.78 L 9.89 16.61 L 9.11 16.17 L 8.56 15.56 L 8.22 14.94 L 8.06 14.44 L 8.06 13.33 L 8.22 12.83 L 8.61 12.17 L 9.17 11.61 L 9.67 11.28 L 10.39 11.06 L 11.28 11.06 L 11.67 11.17 L 11.83 11.11 L 11.83 6.67 L 12.06 6.33 Z">
+                    android:pathData="M 11.72 0.39 L 11.22 0.50 L 10.44 0.94 L 10.00 1.50 L 9.28 2.11 L 9.00 2.22 L 7.78 2.06 L 6.94 2.11 L 5.83 2.61 L 5.06 3.39 L 4.61 4.28 L 4.50 4.78 L 4.50 6.22 L 4.33 6.56 L 4.00 6.89 L 3.17 7.39 L 2.44 8.22 L 2.11 9.00 L 2.06 10.22 L 2.44 11.33 L 3.06 12.06 L 3.33 12.67 L 3.28 13.28 L 2.83 14.33 L 2.83 15.50 L 3.06 16.17 L 3.39 16.72 L 4.39 17.61 L 4.78 17.78 L 5.50 17.89 L 5.94 18.11 L 6.22 18.39 L 6.83 19.67 L 7.61 20.33 L 8.72 20.72 L 9.78 20.72 L 11.22 21.72 L 11.56 21.83 L 12.44 21.89 L 13.22 21.61 L 14.39 20.72 L 15.56 20.72 L 16.72 20.28 L 17.44 19.61 L 18.06 18.33 L 18.28 18.11 L 18.72 17.89 L 19.44 17.78 L 20.06 17.50 L 20.94 16.61 L 21.33 15.72 L 21.44 14.83 L 21.33 14.17 L 20.94 13.33 L 20.89 12.67 L 21.11 12.11 L 21.61 11.56 L 22.06 10.67 L 22.17 9.44 L 22.00 8.67 L 21.39 7.67 L 20.72 7.11 L 20.17 6.83 L 19.83 6.50 L 19.67 6.11 L 19.67 4.56 L 19.33 3.61 L 18.78 2.89 L 18.28 2.50 L 17.17 2.06 L 16.22 2.06 L 15.50 2.22 L 15.00 2.17 L 14.67 2.00 L 14.11 1.33 L 13.33 0.67 L 12.78 0.44 Z">
                     <aapt:attr name="android:fillColor">
                         <gradient
                             android:startX="4"
@@ -83,18 +93,46 @@
                 </path>
             </group>
             <group
-                android:name="note"
+                android:name="note_group"
                 android:pivotX="12"
                 android:pivotY="12">
-                <!-- Rendered with the SAME splash background color, sitting
-                     exactly inside ring_path's evenOdd-punched hole above —
-                     visually this reads as "the hole", matching the PNG's
-                     actual transparent cutout, while still being a real
-                     filled shape that this group's rotation/scale
-                     animators can move independently from the ring. -->
+                <!-- Real logo color: white note, matching
+                     scallop_ring.png exactly. Sits as a solid white
+                     glyph layered on top of ring_path (not a bgColor
+                     cutout hole) — same layering approach as before,
+                     just corrected to the real logo's actual colors
+                     instead of Echo Nightly's dark palette.
+
+                     NAMED "note" (not "note_path") to mirror Echo's own
+                     split: the outer group is named "play" and the path
+                     inside it "note". We mirror that structure: this
+                     outer group is "note_group" (the rotation/scale
+                     target below) and the path is "note" — though here
+                     "note" is only a static shape and has no <target>
+                     animation of its own (see the "Renders Aurum's real
+                     note shape directly" note below for why).
+
+                     Renders Aurum's real note shape directly, no morph
+                     source shape. (A pathData morph FROM Echo's
+                     play-triangle was tried here, but Echo's triangle
+                     uses M/L/C/C/C/L/C/C/C/L/C/C/C/Z (14 commands, with
+                     curves) while Aurum's real note is a 31-command,
+                     all-straight-line polygon traced from
+                     scallop_ring.png — AVD's pathData animation requires
+                     both ends of a morph to have the identical command
+                     sequence (same command letters, same order, same
+                     count), or the morph fails to animate cleanly.
+                     Forcing the triangle into a same-shaped 31-point
+                     polygon just to satisfy that constraint would mean
+                     abandoning its actual triangle silhouette, so the
+                     morph beat is dropped: the "icon A morphs into icon
+                     B" moment on this splash is carried entirely by the
+                     ring's rotation burst and this group's tilt+scale
+                     wobble below, both of which have no such
+                     constraint and already read as the reveal beat. -->
                 <path
-                    android:name="note_path"
-                    android:fillColor="@color/bgColor"
+                    android:name="note"
+                    android:fillColor="#FFFFFF"
                     android:pathData="M 12.56 6.28 L 16.50 8.78 L 16.61 9.00 L 16.61 10.67 L 16.39 10.94 L 16.06 11.00 L 13.78 9.67 L 13.67 9.78 L 13.67 14.22 L 13.44 15.06 L 13.17 15.56 L 12.28 16.39 L 11.44 16.72 L 10.50 16.78 L 9.89 16.61 L 9.11 16.17 L 8.56 15.56 L 8.22 14.94 L 8.06 14.44 L 8.06 13.33 L 8.22 12.83 L 8.61 12.17 L 9.17 11.61 L 9.67 11.28 L 10.39 11.06 L 11.28 11.06 L 11.67 11.17 L 11.83 11.11 L 11.83 6.67 L 12.06 6.33 Z" />
             </group>
         </vector>
@@ -126,10 +164,11 @@
         </aapt:attr>
     </target>
 
-    <!-- note: tilt out, hold, tilt back — same role as Echo's
-         "play"/"note" targets (independent motion from the ring, on
-         its own overshoot-flavoured timing). -->
-    <target android:name="note">
+    <!-- note_group: tilt out, hold, tilt back — the wrapper group's own
+         rotation/scale, same role as Echo's "play" target (which
+         animates rotation+translateY on Echo's "play" GROUP, separately
+         from the "note" target's pathData on the path inside it). -->
+    <target android:name="note_group">
         <aapt:attr name="android:animation">
             <set>
                 <objectAnimator
