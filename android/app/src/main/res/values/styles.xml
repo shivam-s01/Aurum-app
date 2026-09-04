@@ -22,9 +22,34 @@
          (see postSplashScreenTheme below, which is what the Activity
          switches to immediately after), so this does not change the
          rest of the app's look, unlike changing NormalTheme's parent
-         would have. -->
+         would have.
+
+         REMOVED android:windowBackground from this theme (was
+         @drawable/launch_background) — this is the confirmed actual
+         root cause of the static-launcher-icon fallback surviving even
+         after adding the compat library. Android's own SplashScreen
+         migration docs state this explicitly: "If your existing splash
+         screen is implemented using a custom theme that overrides
+         android:windowBackground, the system replaces your custom
+         splash screen with a default Android system splash screen" —
+         that "default Android system splash screen" IS the bare
+         launcher icon on its adaptive-icon card, i.e. exactly the
+         screenshot this was fixing. LaunchTheme was carrying this
+         attribute over from before the SplashScreen migration (the
+         pre-Android-12 pattern, where a themed windowBackground WAS the
+         whole splash mechanism) — it was never removed when
+         windowSplashScreenBackground was added alongside it, so the
+         theme was simultaneously using both the legacy AND the new
+         splash mechanisms, which is exactly the documented trigger for
+         Android discarding the custom one. Confirmed Echo Nightly's own
+         working splash theme never sets android:windowBackground at
+         all. windowSplashScreenBackground below is sufficient on its
+         own for the splash's background color — a plain android:
+         windowBackground is only relevant to NormalTheme, for the
+         Activity's post-splash background (see NormalTheme below, and
+         MainActivity.kt's gray-flash-fix comment for why that one
+         still needs it). -->
     <style name="LaunchTheme" parent="Theme.SplashScreen">
-        <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="windowSplashScreenBackground">@color/bgColor</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/art_splash_anim</item>
         <item name="windowSplashScreenAnimationDuration">900</item>

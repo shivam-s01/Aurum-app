@@ -100,17 +100,16 @@ class MainActivity : FlutterFragmentActivity() {
         installSplashScreen()
 
         // FIX (gray/white screen flash on cold start, swipe-down full-player
-        // dismiss, and back-navigation): AndroidManifest.xml pins this
-        // Activity to LaunchTheme permanently — NormalTheme (correct dark
-        // windowBackground) was defined in styles.xml but never actually
-        // applied anywhere. LaunchTheme's static launch_background drawable
-        // was staying as the WINDOW's background for the Activity's entire
-        // life, not just the splash instant. Every time the Android window
-        // surface gets recreated/redrawn before Flutter's next frame is
-        // composited (cold start, and any full-screen surface change like a
-        // route transition or the full player's swipe-to-dismiss), the OS
-        // briefly shows that stale window background — which is what read
-        // as a gray flash. NOW HANDLED by postSplashScreenTheme above
+        // dismiss, and back-navigation): the Activity used to stay on
+        // LaunchTheme's windowBackground (a static launch_background
+        // drawable) for its entire life, not just the splash instant,
+        // because nothing ever switched it to NormalTheme's correct dark
+        // background. Every time the Android window surface got
+        // recreated/redrawn before Flutter's next frame was composited
+        // (cold start, and any full-screen surface change like a route
+        // transition or the full player's swipe-to-dismiss), the OS
+        // briefly showed that stale window background — which read as a
+        // gray flash. NOW HANDLED by postSplashScreenTheme above
         // (styles.xml) instead of a manual setTheme() call — same effect,
         // but timed and managed by the splash-screen library itself
         // rather than racing its own internal theme resolution.
