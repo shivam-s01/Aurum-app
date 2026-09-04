@@ -1,24 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Wired up exactly like Echo Nightly's own values/themes.xml
-         (windowSplashScreenBackground + windowSplashScreenAnimatedIcon +
-         windowSplashScreenAnimationDuration + windowSplashScreenBrandingImage,
-         all together, no MainActivity-side avoidance). See
-         art_splash_anim.xml's own doc comment for why the earlier
-         "leave the icon unset to dodge a MIUI bug" approach is what
-         was actually causing the static-icon-with-nothing-animating
-         symptom: leaving it unset didn't avoid an OS splash, it just
-         handed MIUI's OWN uncontrolled default splash the job instead,
-         for however long MIUI feels like keeping it up. Setting it
-         explicitly — Echo's approach — puts Aurum's actual animation in
-         that slot instead. -->
-    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+<resources>
+    <!-- Now goes through androidx.core.splashscreen's compat API instead
+         of relying solely on the raw platform SplashScreen attributes —
+         see MainActivity.kt's onCreate() for the installSplashScreen()
+         call, and build.gradle's core-splashscreen dependency comment,
+         for the full reasoning: the raw platform attributes (still set
+         below, unchanged — Theme.SplashScreen reads the same
+         windowSplashScreenAnimatedIcon etc. attribute names) were
+         confirmed correct and byte-identical to Echo Nightly's own
+         working values/themes.xml, but silently fell back to the bare
+         static launcher icon specifically on Realme UI 6.0 (Android 15)
+         while working on other devices. The compat library sits between
+         the theme and the platform API and can force a manually-drawn
+         fallback when the platform doesn't cooperate, giving the
+         animated icon a second path to actually render.
+
+         parent changed from a plain framework theme to Theme.SplashScreen
+         (required by the compat library — it looks for specific
+         attributes that only exist in its own theme hierarchy) — this
+         theme is ONLY ever active for the splash-screen instant itself
+         (see postSplashScreenTheme below, which is what the Activity
+         switches to immediately after), so this does not change the
+         rest of the app's look, unlike changing NormalTheme's parent
+         would have. -->
+    <style name="LaunchTheme" parent="Theme.SplashScreen">
         <item name="android:windowBackground">@drawable/launch_background</item>
-        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/bgColor</item>
-        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">@drawable/art_splash_anim</item>
-        <item name="android:windowSplashScreenAnimationDuration" tools:targetApi="s">900</item>
-        <item name="android:windowSplashScreenBrandingImage" tools:targetApi="s">@null</item>
-        <item name="android:windowSplashScreenBehavior" tools:targetApi="tiramisu">icon_preferred</item>
+        <item name="windowSplashScreenBackground">@color/bgColor</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/art_splash_anim</item>
+        <item name="windowSplashScreenAnimationDuration">900</item>
+        <item name="postSplashScreenTheme">@style/NormalTheme</item>
     </style>
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">@color/bgColor</item>

@@ -1,36 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Aurum's OS-level animated splash icon — set directly as
-  android:windowSplashScreenAnimatedIcon in themes.xml, exactly the way
-  Echo Nightly's own art_splash_anim.xml is wired up (see Echo's
-  values/themes.xml: windowSplashScreenBackground + windowSplashScreenAnimatedIcon
-  + windowSplashScreenAnimationDuration + windowSplashScreenBehavior +
-  windowSplashScreenBrandingImage, all set together, no MainActivity-side
-  avoidance, no separate values-v31 override). Aurum previously deliberately
-  left this attribute UNSET specifically to dodge a MIUI/OxygenOS bug where
-  setting an animated icon forces it onto a light "icon card" — but Echo's
-  own file sets this exact attribute with no such workaround, so the
-  MIUI card behavior is a property of what value you give the OS for
-  windowSplashScreenIconBackgroundColor (or leaving the OS to guess), not
-  of setting windowSplashScreenAnimatedIcon itself. Leaving it unset meant
-  MIUI fell back to ITS OWN default splash — the bare static launcher
-  icon sitting in a dark rounded-square card, with zero animation, for
-  the entire time before Flutter's first frame — which is exactly the
-  "nothing animates, kuch dikh hi nahi raha" symptom being fixed here.
-
-  Two vector paths, traced directly from Aurum's own scallop_ring.png
-  (outer scalloped-ring silhouette + the note-shaped hole punched out of
-  it via fillType="evenOdd") — so this is Aurum's real logo shape, not a
-  generic music-note placeholder. See splash_screen.dart's note_glyph.png
-  derivation for the same underlying trace method.
-
-  Structure mirrors Echo's own <target> layout: a "ring" group that
-  rotates, a "note" group that tilts independently, and a "bg" group
-  underneath that does a slow full rotation — same three moving parts,
-  same relative roles, just this app's own outline data.
--->
 <animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt">
+    <!--
+      Aurum's OS-level animated splash icon — set directly as
+      android:windowSplashScreenAnimatedIcon in themes.xml, exactly the way
+      Echo Nightly's own art_splash_anim.xml is wired up (see Echo's
+      values/themes.xml: windowSplashScreenBackground + windowSplashScreenAnimatedIcon
+      + windowSplashScreenAnimationDuration + windowSplashScreenBehavior +
+      windowSplashScreenBrandingImage, all set together, no MainActivity-side
+      avoidance, no separate values-v31 override).
+
+      MOVED this comment block to AFTER the root <animated-vector> opening
+      tag (was before it, above the XML declaration's following line) —
+      Echo's own working file has NO leading comment before its root
+      element at all. AAPT2's resource compiler handles the aapt:attr
+      inline-drawable extraction for animated-vector specially (it has to
+      pull the nested <vector>...</vector> out into its own compiled
+      sub-resource), and that extraction path has had known fragility
+      around content positioned before the root element in some AGP/AAPT2
+      versions — worth eliminating as a variable since it costs nothing
+      to move, given the OS was falling back to its plain static
+      launcher-icon splash exactly as if this whole animated-icon
+      resource were failing to load/parse.
+
+      Two vector paths, traced directly from Aurum's own scallop_ring.png
+      (outer scalloped-ring silhouette + the note-shaped hole punched out
+      of it via fillType="evenOdd") — so this is Aurum's real logo shape,
+      not a generic music-note placeholder.
+
+      Structure mirrors Echo's own <target> layout: a "ring" group that
+      rotates, a "note" group that tilts independently, and a "bg" group
+      underneath that does a slow full rotation — same three moving
+      parts, same relative roles, just this app's own outline data.
+    -->
     <aapt:attr name="android:drawable">
         <vector
             android:name="vector"

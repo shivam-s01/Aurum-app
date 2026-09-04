@@ -106,6 +106,25 @@ dependencies {
     // Cloudflare Workers (HTTP/2) which older OkHttp versions mishandle.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // androidx.core.splashscreen — the raw platform SplashScreen API
+    // (windowSplashScreenAnimatedIcon etc. in styles.xml) was silently
+    // falling back to the bare static launcher icon on Realme UI 6.0 /
+    // Android 15, even though the exact same theme attributes work
+    // correctly on Echo Nightly. The one confirmed structural
+    // difference: Echo's base theme parent is Material3/AppCompat-
+    // derived (Theme.Material3Expressive...DayNight...), Aurum's is a
+    // plain framework theme (android:style/Theme.Black.NoTitleBar —
+    // see the androidx.appcompat dependency below, added for the same
+    // "our theme isn't AppCompat-derived" reason). This compat library
+    // is Google's own normalization layer over the raw platform API,
+    // specifically meant to paper over exactly this kind of per-OEM/
+    // per-theme-family inconsistency — it detects when the platform API
+    // won't cooperate and falls back to a manually-drawn splash View
+    // instead, so the animated icon has a second path to actually reach
+    // the screen instead of only relying on the OEM to honor the theme
+    // attributes correctly.
+    implementation("androidx.core:core-splashscreen:1.0.1")
+
     // Media3 — required by AurumAudioEngine.kt / AurumMediaSessionService.kt
     // (Player, MediaItem, MediaSessionService, ExoPlayer, etc). Was missing
     // entirely, which is why the base class MediaSessionService couldn't be
