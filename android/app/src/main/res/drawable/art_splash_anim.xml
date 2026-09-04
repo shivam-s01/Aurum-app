@@ -28,22 +28,6 @@
       with each point manually corresponded to its counterpart on the
       note. Verified by rendering interpolated in-between frames before
       use - no self-intersection or zigzag.
-
-      TWO REAL BUGS FIXED after seeing this fail on a physical device:
-      1) Timeline was 2400ms total, but Android hard-caps
-         windowSplashScreenAnimationDuration at 1000ms (device screenshot
-         confirmed the icon just sat static/blank — most of this
-         timeline was being truncated before it could run). Every
-         duration and startOffset below has been rescaled by 0.375x
-         (900/2400) so the full sequence now finishes inside 900ms,
-         matching styles.xml's windowSplashScreenAnimationDuration=900.
-      2) note's fillColor was #16191C (near-black) against this app's
-         #050508 (near-black) splash background — zero contrast, so the
-         icon was invisible even during the sliver of time it did run.
-         Changed to white (#FFFFFF), matching the real logo's actual
-         white note in scallop_ring.png. (Echo's own #1d1d1b works fine
-         for them only because Echo's splash background resolves to
-         white, not black - opposite contrast situation.)
     -->
     <aapt:attr name="android:drawable">
         <vector
@@ -64,18 +48,7 @@
                     <!-- Plain circle, same role as Echo's own "bg" -
                          a soft duplicate spinning underneath everything,
                          not the scalloped badge shape itself. -->
-                    <!-- Circle radius 6.348 - deliberately kept BELOW
-                       the badge's minimum radius (6.683, the depth of
-                       its innermost scallop notch), with a ~5% safety
-                       margin, not just below its maximum radius (8.14,
-                       the outermost scallop tip). A radius between
-                       those two numbers (which an earlier version used)
-                       stays hidden at the tips but pokes out through
-                       the scallop valleys - confirmed by rendering the
-                       bg circle in isolation against the badge outline
-                       and finding it peeked through at two points
-                       before this correction. -->
-                    <path android:pathData="M 12 5.652 C 15.506 5.652 18.348 8.494 18.348 12.000 C 18.348 15.506 15.506 18.348 12.000 18.348 C 8.494 18.348 5.652 15.506 5.652 12.000 C 5.652 8.494 8.494 5.652 12.000 5.652 Z">
+                    <path android:pathData="M 12 2 C 9.349 2 6.803 3.055 4.929 4.929 C 3.055 6.803 2 9.349 2 12 C 2 14.651 3.055 17.197 4.929 19.071 C 6.803 20.945 9.349 22 12 22 C 14.651 22 17.197 20.945 19.071 19.071 C 20.945 17.197 22 14.651 22 12 C 22 9.349 20.945 6.803 19.071 4.929 C 17.197 3.055 14.651 2 12 2 Z">
                         <aapt:attr name="android:fillColor">
                             <gradient
                                 android:centerX="7"
@@ -95,21 +68,9 @@
                     <!-- Same role as Echo's "play" group: rotation +
                          translateY wobble on the wrapper, independent
                          of the pathData morph on the path inside it. -->
-                    <!-- Color fixed to white: the previous #16191C is a
-                         near-black that has essentially zero contrast
-                         against this app's splash background (#050508,
-                         also near-black) — confirmed by user screenshot
-                         showing the note invisible. Echo Nightly's own
-                         #1d1d1b note works fine because Echo's own splash
-                         background (amoled_bg) actually resolves to
-                         @color/white, not black — same near-black icon
-                         color, opposite (light) background. Aurum's real
-                         background is dark, so the note needs to be
-                         light, matching the real logo's own white note
-                         in scallop_ring.png. -->
                     <path
                         android:name="note"
-                        android:fillColor="#FFFFFF"
+                        android:fillColor="#16191C"
                         android:pathData="M 9.750 8.750 L 10.536 9.232 L 11.321 9.714 L 12.107 10.196 L 12.893 10.679 L 13.679 11.161 L 14.464 11.643 L 15.250 12.125 L 14.333 12.688 L 13.417 13.250 L 12.500 13.812 L 11.583 14.375 L 10.667 14.938 L 9.750 15.500 L 9.750 14.375 L 9.750 13.250 L 9.750 12.125 L 9.750 11.000 L 9.750 9.875 Z" />
                 </group>
                 <group
@@ -144,17 +105,17 @@
         <aapt:attr name="android:animation">
             <set>
                 <objectAnimator
-                    android:duration="450"
+                    android:duration="1200"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="rotation"
                     android:valueFrom="0"
                     android:valueTo="120"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="450"
+                    android:duration="1200"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="rotation"
-                    android:startOffset="450"
+                    android:startOffset="1200"
                     android:valueFrom="120"
                     android:valueTo="240"
                     android:valueType="floatType" />
@@ -170,10 +131,10 @@
     <target android:name="note">
         <aapt:attr name="android:animation">
             <objectAnimator
-                android:duration="150"
+                android:duration="400"
                 android:interpolator="@android:interpolator/fast_out_slow_in"
                 android:propertyName="pathData"
-                android:startOffset="75"
+                android:startOffset="200"
                 android:valueFrom="M 9.750 8.750 L 10.536 9.232 L 11.321 9.714 L 12.107 10.196 L 12.893 10.679 L 13.679 11.161 L 14.464 11.643 L 15.250 12.125 L 14.333 12.688 L 13.417 13.250 L 12.500 13.812 L 11.583 14.375 L 10.667 14.938 L 9.750 15.500 L 9.750 14.375 L 9.750 13.250 L 9.750 12.125 L 9.750 11.000 L 9.750 9.875 Z"
                 android:valueTo="M 12.375 8.250 L 11.875 8.375 L 11.875 11.750 L 11.625 12.000 L 10.500 11.875 L 9.750 12.250 L 9.000 13.500 L 9.000 14.375 L 9.625 15.500 L 10.500 16.000 L 11.625 16.000 L 12.375 15.625 L 12.875 15.000 L 13.125 14.125 L 13.250 10.750 L 14.875 11.625 L 15.250 11.625 L 15.375 11.375 L 15.250 10.125 Z"
                 android:valueType="pathType" />
@@ -188,99 +149,99 @@
         <aapt:attr name="android:animation">
             <set>
                 <objectAnimator
-                    android:duration="150"
+                    android:duration="400"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="rotation"
-                    android:startOffset="150"
+                    android:startOffset="400"
                     android:valueFrom="0"
                     android:valueTo="-52"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="150"
+                    android:duration="400"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="translateY"
-                    android:startOffset="150"
+                    android:startOffset="400"
                     android:valueFrom="0"
                     android:valueTo="2"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="112"
+                    android:duration="300"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="rotation"
-                    android:startOffset="638"
+                    android:startOffset="1700"
                     android:valueFrom="-52"
                     android:valueTo="0"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="112"
+                    android:duration="300"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="translateY"
-                    android:startOffset="638"
+                    android:startOffset="1700"
                     android:valueFrom="2"
                     android:valueTo="0"
                     android:valueType="floatType" />
                 <!-- scale-pulse, same role as Echo's "media" target -->
                 <objectAnimator
-                    android:duration="112"
+                    android:duration="300"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleX"
-                    android:startOffset="262"
+                    android:startOffset="700"
                     android:valueFrom="1"
                     android:valueTo="1.05"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="112"
+                    android:duration="300"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleY"
-                    android:startOffset="262"
+                    android:startOffset="700"
                     android:valueFrom="1"
                     android:valueTo="1.05"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="75"
+                    android:duration="200"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleX"
-                    android:startOffset="375"
+                    android:startOffset="1000"
                     android:valueFrom="1.05"
                     android:valueTo="1"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="75"
+                    android:duration="200"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleY"
-                    android:startOffset="375"
+                    android:startOffset="1000"
                     android:valueFrom="1.05"
                     android:valueTo="1"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="112"
+                    android:duration="300"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleY"
-                    android:startOffset="638"
+                    android:startOffset="1700"
                     android:valueFrom="1"
                     android:valueTo="1.05"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="113"
+                    android:duration="301"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleX"
-                    android:startOffset="638"
+                    android:startOffset="1700"
                     android:valueFrom="1"
                     android:valueTo="1.05"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="75"
+                    android:duration="200"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleX"
-                    android:startOffset="750"
+                    android:startOffset="2000"
                     android:valueFrom="1.05"
                     android:valueTo="1"
                     android:valueType="floatType" />
                 <objectAnimator
-                    android:duration="75"
+                    android:duration="200"
                     android:interpolator="@android:interpolator/fast_out_slow_in"
                     android:propertyName="scaleY"
-                    android:startOffset="750"
+                    android:startOffset="2000"
                     android:valueFrom="1.05"
                     android:valueTo="1"
                     android:valueType="floatType" />
@@ -288,14 +249,12 @@
         </aapt:attr>
     </target>
 
-    <!-- bg: compressed to 900ms (was 2400ms — see file header note on
-         why the whole timeline was rescaled by 0.375x). Same full-turn
-         spin role as Echo's own "bg" target. -->
+    <!-- bg: same 2400ms full-turn spin as Echo's own "bg" target. -->
     <target android:name="bg">
         <aapt:attr name="android:animation">
             <set>
                 <objectAnimator
-                    android:duration="900"
+                    android:duration="2400"
                     android:interpolator="@android:interpolator/anticipate_overshoot"
                     android:propertyName="rotation"
                     android:valueFrom="0"
