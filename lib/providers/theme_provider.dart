@@ -35,6 +35,11 @@ class ThemeProvider extends ChangeNotifier {
   /// 'Slim' | 'Thick' | 'Rounded' (default) — seek bar track/thumb size.
   String get playerSliderStyle => _playerSliderStyle;
 
+  /// 'Classic' (default, Astra-style full player) | 'Edge to Edge'
+  /// (full-bleed edge-to-edge sheet style) — which full player screen
+  /// opens when the user taps the mini player.
+  String get fullPlayerStyle => _fullPlayerStyle;
+
   // Latest system Material You schemes, pushed in from DynamicColorBuilder
   // in main.dart on every rebuild (they change live if the user changes
   // wallpaper while the app is open — no restart needed). Null on Android
