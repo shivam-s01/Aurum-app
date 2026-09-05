@@ -945,7 +945,7 @@ class _BottomIconRowState extends State<_BottomIconRow> {
     // jump mid-scroll if the underlying song happens to change while it's
     // open (matches the reference: the sheet carries the color of whatever
     // song was playing when it was opened).
-    final panel = _panel;
+    final panel = widget.panel;
     showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
