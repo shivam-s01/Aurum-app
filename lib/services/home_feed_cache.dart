@@ -363,4 +363,50 @@ class HomeFeedCache {
       return false;
     }
   }
+
+  // ── Home "Albums" row cache — same cold-start-instant / 6-hour
+  // background-refresh treatment as the playlists row above, keyed
+  // separately per mood for the same reason (a different mood's albums
+  // are a different result set, not a refinement of the same one). ──
+  static String _albumsKey(String mood) => 'home_album_cards_v1_$mood';
+  static String _albumsSavedAtKey(String mood) =>
+      'home_album_cards_saved_at_ms_$mood';
+
+  static Future<void> saveAlbumCards(
+      String mood, List<HomeAlbumCard> cards) async {
+    if (cards.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(cards.map((c) => c.toJson()).toList());
+      await prefs.setString(_albumsKey(mood), encoded);
+      await prefs.setInt(
+          _albumsSavedAtKey(mood), DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
+  static Future<List<HomeAlbumCard>> loadAlbumCards(String mood) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedAtMs = prefs.getInt(_albumsSavedAtKey(mood));
+      if (savedAtMs == null) return [];
+      final raw = prefs.getString(_albumsKey(mood));
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw) as List;
+      return decoded
+          .whereType<Map>()
+          .map((e) => HomeAlbumCard.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<bool> isAlbumsFresh(String mood) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return _isRecent(prefs.getInt(_albumsSavedAtKey(mood)));
+    } catch (_) {
+      return false;
+    }
+  }
 }

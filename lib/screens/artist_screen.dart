@@ -430,19 +430,17 @@ class _ArtistScreenState extends State<ArtistScreen> {
 
         if (artist.topSongs.isNotEmpty) ...[
           _sectionHeader(context, l10n.asPopular),
-          SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, i) => SongTile(
-                song: artist.topSongs[i],
-                queue: artist.topSongs,
-                index: i,
-                showIndex: true,
-                displayIndex: i + 1,
-                curatedQueue: true,
-              ),
-              childCount: artist.topSongs.length,
-            ),
-          ),
+          // FEATURE ("Top Songs ko Show all ke saath collapse karo, sirf
+          // top 5 dikhe pehle" — YT Music parity): YT Music's artist page
+          // never dumps the whole catalog inline — it shows a short
+          // "Popular" preview (5 tracks) with a "Show all" row that opens
+          // the complete list separately. _ArtistTopSongsSection below
+          // owns that expand/collapse state locally (a plain bool, no
+          // new provider needed) so this stays a simple visual toggle —
+          // the full `artist.topSongs` list this screen already fetched
+          // is what both the 5-song preview and the "Show all" expansion
+          // read from; nothing is re-fetched.
+          _ArtistTopSongsSection(songs: artist.topSongs, l10n: l10n),
         ],
 
         if (artist.topAlbums.isNotEmpty) ...[
@@ -453,6 +451,20 @@ class _ArtistScreenState extends State<ArtistScreen> {
         if (artist.singles.isNotEmpty) ...[
           _sectionHeader(context, l10n.asSingles),
           _albumGrid(context, artist.singles),
+        ],
+
+        // FEATURE ("Fans might also like" row — YT Music parity, "ekdam
+        // YouTube se data aaye ki awkward bhi na aaye"): artist.relatedArtists
+        // is ONLY ever populated from YT Music browse's own "Fans might
+        // also like" carousel (see _fetchArtistFromYtMusicBrowse's
+        // pageType-gated extraction) — never derived, searched, or
+        // guessed client-side. Empty for the Saavn-fallback path and any
+        // artist YT Music itself doesn't show this shelf for, so this row
+        // simply doesn't render rather than ever showing an invented or
+        // loosely-matched suggestion.
+        if (artist.relatedArtists.isNotEmpty) ...[
+          _sectionHeader(context, l10n.asFansAlsoLike),
+          _relatedArtistsRow(context, artist.relatedArtists),
         ],
 
         if (artist.bio.isNotEmpty) ...[
@@ -573,7 +585,68 @@ class _ArtistScreenState extends State<ArtistScreen> {
     );
   }
 
-  // PERF/BATTERY: extracted so the BackdropFilter can be skipped
+  Widget _relatedArtistsRow(BuildContext context, List<RelatedArtist> artists) {
+    return SliverToBoxAdapter(
+      child: SizedBox(
+        height: 168,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          // Same off-screen decode headroom as _albumGrid's cacheExtent —
+          // identical reasoning (smooth swipe on a low-end device).
+          cacheExtent: 500,
+          itemCount: artists.length,
+          itemBuilder: (context, i) {
+            final a = artists[i];
+            return RepaintBoundary(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: GestureDetector(
+                  onTap: () {
+                    AurumHaptics.light();
+                    // 'yt_' prefix matches Artist.id's own convention
+                    // (see _fetchArtistFromYtMusicBrowse's `'yt_$resolvedChannelId'`)
+                    // — RelatedArtist.id is the raw browse channelId, so
+                    // it needs the same prefix ArtistScreen/fetchArtist
+                    // expect everywhere else in the app.
+                    AurumDepthRoute.to(
+                      context,
+                      ArtistScreen(artistId: 'yt_${a.id}', artistName: a.name),
+                    );
+                  },
+                  child: SizedBox(
+                    width: 120,
+                    child: Column(
+                      children: [
+                        ClipOval(
+                          child: AurumArtwork(url: a.imageUrl, size: 120, borderRadius: 60),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          a.name,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AurumTheme.textPrimaryOf(context),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+
   // entirely (not just its output discarded) when this route isn't the
   // top of the Navigator stack — see the isTopRoute Builder above this
   // widget's call site. isTopRoute == false renders a flat translucent
@@ -602,6 +675,78 @@ class _ArtistScreenState extends State<ArtistScreen> {
     return BackdropFilter(
       filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
       child: pill,
+    );
+  }
+}
+
+/// FEATURE ("Top Songs ko Show all ke saath collapse karo" — YT Music
+/// parity): shows only the first 5 songs by default (YT Music's own
+/// "Popular" preview length), with a "Show all" row that expands to the
+/// full `songs` list in place. Purely a local UI toggle — `songs` is the
+/// same complete list ArtistScreen already fetched via fetchArtist(), so
+/// expanding never re-fetches or truncates data, it only changes how much
+/// of the already-fetched list is rendered.
+class _ArtistTopSongsSection extends StatefulWidget {
+  final List<Song> songs;
+  final AppLocalizations l10n;
+  const _ArtistTopSongsSection({required this.songs, required this.l10n});
+
+  @override
+  State<_ArtistTopSongsSection> createState() => _ArtistTopSongsSectionState();
+}
+
+class _ArtistTopSongsSectionState extends State<_ArtistTopSongsSection> {
+  static const int _previewCount = 5;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final songs = widget.songs;
+    final showToggle = songs.length > _previewCount;
+    final visibleCount = _expanded || !showToggle
+        ? songs.length
+        : _previewCount;
+
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, i) {
+          if (i < visibleCount) {
+            return SongTile(
+              song: songs[i],
+              queue: songs,
+              index: i,
+              showIndex: true,
+              displayIndex: i + 1,
+              curatedQueue: true,
+            );
+          }
+          // Final row: the "Show all" toggle itself.
+          return AurumPressable(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              child: Row(
+                children: [
+                  Text(
+                    _expanded ? widget.l10n.asShowLess : widget.l10n.asShowAll,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    _expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    color: AurumTheme.textPrimaryOf(context),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+        childCount: showToggle ? visibleCount + 1 : visibleCount,
+      ),
     );
   }
 }

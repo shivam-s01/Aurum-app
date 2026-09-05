@@ -234,4 +234,56 @@ class ThemeProvider extends ChangeNotifier {
         return base; // system default
     }
   }
+
+  // FIX ("home page font playlist mai kaam nahi kar raha" — the font
+  // picker in Settings only ever changed `ThemeData.textTheme`, via
+  // resolvedTextTheme() above, which is what `Theme.of(context).textTheme`
+  // reads. But the vast majority of Text widgets across the app —
+  // including every playlist/home card title — use a hand-written
+  // `const TextStyle(...)` instead of pulling from Theme.of(context)
+  // .textTheme, and a raw TextStyle with no explicit fontFamily does NOT
+  // inherit one from textTheme; it only inherits from
+  // `ThemeData.fontFamily` (the app-wide default family used to resolve
+  // ANY TextStyle that leaves fontFamily null), which nothing was ever
+  // setting. So changing the font in Settings visibly updated the few
+  // widgets that do read Theme.textTheme directly, while every hardcoded
+  // TextStyle screen (home_screen.dart alone has 37 of them) silently
+  // stayed on the system default font forever.
+  //
+  // Fix: expose the resolved GoogleFonts family name/fallback here so
+  // main.dart can also set them as ThemeData.fontFamily /
+  // fontFamilyFallback (see the .copyWith call in main.dart). That makes
+  // the chosen font the fallback for every TextStyle in the app that
+  // doesn't explicitly override fontFamily itself — including all the
+  // hardcoded playlist-card / home-screen TextStyles — with zero need to
+  // touch each of those call sites individually.
+  String? get resolvedFontFamily {
+    switch (_fontStyle) {
+      case 'Rounded':
+        return GoogleFonts.nunito().fontFamily;
+      case 'Mono':
+        return GoogleFonts.robotoMono().fontFamily;
+      case 'Sans':
+        return GoogleFonts.manrope().fontFamily;
+      case 'Serif':
+        return GoogleFonts.playfairDisplay().fontFamily;
+      default:
+        return null; // system default — don't override ThemeData.fontFamily
+    }
+  }
+
+  List<String>? get resolvedFontFamilyFallback {
+    switch (_fontStyle) {
+      case 'Rounded':
+        return GoogleFonts.nunito().fontFamilyFallback;
+      case 'Mono':
+        return GoogleFonts.robotoMono().fontFamilyFallback;
+      case 'Sans':
+        return GoogleFonts.manrope().fontFamilyFallback;
+      case 'Serif':
+        return GoogleFonts.playfairDisplay().fontFamilyFallback;
+      default:
+        return null;
+    }
+  }
 }

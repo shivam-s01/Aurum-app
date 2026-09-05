@@ -35,6 +35,7 @@ import '../providers/favorites_provider.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
 import '../utils/artwork_palette_cache.dart';
+import '../widgets/aurum_seek_bar.dart';
 import '../widgets/aurum_like_button.dart';
 import '../widgets/aurum_play_pause_icon.dart';
 import '../widgets/aurum_pressable.dart';
@@ -569,100 +570,56 @@ class _CircleIconButton extends StatelessWidget {
   }
 }
 
-class _ScrubBar extends StatefulWidget {
+// Thin wrapper around the shared AurumSeekBar (see widgets/aurum_seek_bar.dart)
+// so every "Player Slider Style" option (Slim/Thick/Rounded/Waveform) looks
+// and behaves EXACTLY like the classic full player — this used to be its own
+// hand-rolled Slider that ignored the setting entirely, so picking e.g.
+// "Waveform" only ever applied on the classic full player screen, never here.
+class _ScrubBar extends StatelessWidget {
   const _ScrubBar({required this.player, required this.accent});
   final PlayerProvider player;
   final Color accent;
 
   @override
-  State<_ScrubBar> createState() => _ScrubBarState();
-}
-
-class _ScrubBarState extends State<_ScrubBar> {
-  double? _dragValue;
-
-  String _fmt(Duration d) {
-    final m = d.inMinutes.remainder(60).toString();
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Selector<PlayerProvider, (Duration, Duration)>(
-      selector: (_, p) => (p.position, p.duration),
-      builder: (context, data, _) {
-        final (pos, dur) = data;
-        final total = dur.inMilliseconds == 0 ? 1 : dur.inMilliseconds;
-        final ratio = _dragValue ?? (pos.inMilliseconds / total).clamp(0.0, 1.0);
-        // Active track/thumb pick up the artwork's accent color (lifted
-        // toward white so it always reads clearly against the dark mesh)
-        // instead of plain white — same idea as ArchiveTune's palette-tinted
-        // player chrome, applied to the scrub bar specifically.
-        final tint = Color.lerp(widget.accent, Colors.white, 0.35)!;
-        return Column(
+    // Active track/thumb pick up the artwork's accent color (lifted toward
+    // white so it always reads clearly against the dark mesh) — same tint
+    // logic the old implementation used, now just fed into AurumSeekBar.
+    final tint = Color.lerp(accent, Colors.white, 0.35)!;
+    return AurumSeekBar(
+      player: player,
+      hPad: 4,
+      activeColor: tint,
+      inactiveColor: Colors.white.withOpacity(0.22),
+      timeColor: Colors.white.withOpacity(0.75),
+      // Center codec-style pill — same slot the ArchiveTune reference fills
+      // with "OPUS"; this app doesn't expose a codec badge, so it's
+      // relabeled to the app's own name as a simple center brand mark
+      // instead of leaving the slot empty (which would put the two time
+      // labels far apart with nothing to visually anchor the middle).
+      centerLabel: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 5,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
-                overlayColor: tint.withOpacity(0.2),
-                activeTrackColor: tint,
-                inactiveTrackColor: Colors.white.withOpacity(0.22),
-                thumbColor: tint,
-              ),
-              child: Slider(
-                value: ratio,
-                onChanged: (v) => setState(() => _dragValue = v),
-                onChangeEnd: (v) {
-                  widget.player.seek(v);
-                  setState(() => _dragValue = null);
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(_fmt(pos), style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12)),
-                  // Center codec-style pill — same slot the ArchiveTune
-                  // reference fills with "OPUS"; this app doesn't expose a
-                  // codec badge, so it's relabeled to the app's own name
-                  // as a simple center brand mark instead of leaving the
-                  // slot empty (which would put the two time labels far
-                  // apart with nothing to visually anchor the middle).
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.graphic_eq_rounded, color: Colors.white.withOpacity(0.85), size: 13),
-                        const SizedBox(width: 5),
-                        Text(
-                          'Astra',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.85),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Text(_fmt(dur), style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12)),
-                ],
+            Icon(Icons.graphic_eq_rounded, color: Colors.white.withOpacity(0.85), size: 13),
+            const SizedBox(width: 5),
+            Text(
+              'Astra',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.85),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3,
               ),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 }

@@ -26,6 +26,7 @@ import '../widgets/aurum_scroll_nudge.dart';
 import '../widgets/aurum_stage_backdrop.dart';
 import '../widgets/faded_horizontal_list.dart';
 import '../widgets/song_tile.dart';
+import 'album_screen.dart';
 import '../main.dart' show aurumRouteObserver;
 import '../widgets/aurum_loader.dart';
 import '../widgets/aurum_morph_loader.dart';
@@ -1037,6 +1038,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   // ── Playlists For You (real YT Music) ──
                   SliverToBoxAdapter(
                     child: _YtPlaylistsForYouSection(refreshKey: _playlistRefreshKey),
+                  ),
+                  // ── Albums For You (real YT Music, YouTube-only —
+                  // no Saavn leg, see fetchYtMusicHomeAlbums/
+                  // searchAlbumsYtOnly). Independent of the playlists
+                  // row's mood chips (always the default/global mood)
+                  // rather than sharing that row's private _selectedMood
+                  // state, which isn't exposed outside that widget. ──
+                  SliverToBoxAdapter(
+                    child: _YtAlbumsForYouSection(
+                      refreshKey: _playlistRefreshKey,
+                      mood: _kMoodAll,
+                    ),
                   ),
                   // ── Themed playlist shelves (full YT Music-style
                   // playlist layout — Bollywood/90s/Party/etc, each its
@@ -3476,6 +3489,207 @@ class _YtPlaylistsForYouSectionState
   }
 }
 
+// FEATURE ("home page pe naya Albums row, ekdam YouTube Music InnerTube
+// ka data") — same cold-start-cache pattern as _YtPlaylistsForYouSection
+// just above, but backed by fetchYtMusicHomeAlbums (searchAlbumsYtOnly
+// under the hood — no Saavn leg) and tapping a card opens AlbumScreen
+// instead of MixScreen. `mood` is passed in from the parent screen
+// (currently always _kMoodAll — see the SliverToBoxAdapter call site)
+// rather than reading _YtPlaylistsForYouSectionState's own private
+// _selectedMood, since that field isn't exposed outside that widget;
+// wiring the two rows to the same live mood selection would need lifting
+// that state up to the shared parent, which this fix deliberately keeps
+// out of scope to avoid touching the existing playlists row's state.
+class _YtAlbumsForYouSection extends StatefulWidget {
+  final int refreshKey;
+  final String mood; // shares _YtPlaylistsForYouSection's _selectedMood
+  const _YtAlbumsForYouSection({this.refreshKey = 0, required this.mood});
+
+  @override
+  State<_YtAlbumsForYouSection> createState() => _YtAlbumsForYouSectionState();
+}
+
+class _YtAlbumsForYouSectionState extends State<_YtAlbumsForYouSection> {
+  List<HomeAlbumCard>? _cards;
+  bool _failed = false;
+  bool _everLoadedOnce = false;
+  late final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _hydrateFromCache();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_YtAlbumsForYouSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Same triggers as the playlists row: pull-to-refresh (refreshKey)
+    // or a mood switch (mood, shared from the playlists row's chips)
+    // both mean this shelf's current cards no longer match what should
+    // be shown, so refetch exactly like a fresh mount would.
+    if (oldWidget.refreshKey != widget.refreshKey || oldWidget.mood != widget.mood) {
+      setState(() {
+        _cards = null;
+        _failed = false;
+      });
+      _load();
+    }
+  }
+
+  Future<void> _hydrateFromCache() async {
+    final cached = await HomeFeedCache.loadAlbumCards(widget.mood);
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() {
+        _cards = cached;
+        _everLoadedOnce = true;
+      });
+    } else {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    try {
+      final cards = await ApiService.fetchYtMusicHomeAlbums(
+        limit: 10,
+        mood: widget.mood == _kMoodAll ? null : widget.mood,
+      ).timeout(const Duration(seconds: 12));
+      if (!mounted) return;
+      if (cards.isNotEmpty) {
+        unawaited(HomeFeedCache.saveAlbumCards(widget.mood, cards));
+      }
+      if (cards.isEmpty) {
+        setState(() => _failed = true);
+      } else {
+        setState(() {
+          _cards = cards;
+          _failed = false;
+          _everLoadedOnce = true;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Same no-content-and-nothing-coming skip as the playlists row.
+    if (_failed && _cards == null && !_everLoadedOnce) {
+      return const SizedBox.shrink();
+    }
+
+    final l10n = AppLocalizations.of(context)!;
+    final cards = _cards;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l10n.homeAlbumsForYou,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          FadedHorizontalList(
+            height: 130,
+            controller: _scrollController,
+            child: cards == null
+                ? (_failed
+                    ? _YtPlaylistsForYouRetry(onRetry: _load)
+                    : _YtPlaylistsForYouSkeleton(
+                        scrollController: _scrollController))
+                : ListView.builder(
+                    controller: _scrollController,
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    cacheExtent: 600,
+                    padding: const EdgeInsets.only(right: 12),
+                    itemCount: cards.length,
+                    itemBuilder: (_, i) => _HomeAlbumCardWidget(
+                      key: ValueKey(
+                          '${cards[i].albumId}_${widget.refreshKey}_${widget.mood}'),
+                      card: cards[i],
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeAlbumCardWidget extends StatelessWidget {
+  final HomeAlbumCard card;
+  const _HomeAlbumCardWidget({super.key, required this.card});
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: () {
+          AurumHaptics.light();
+          AurumDepthRoute.to(
+            context,
+            AlbumScreen(
+              albumId: card.albumId,
+              albumName: card.title,
+              artworkUrl: card.artworkUrl,
+            ),
+          );
+        },
+        child: SizedBox(
+          width: 130,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: AurumArtwork(url: card.artworkUrl, size: 130, borderRadius: 10),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                card.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (card.artist.isNotEmpty)
+                Text(
+                  card.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AurumTheme.textSecondaryOf(context),
+                    fontSize: 12,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // THEMED PLAYLIST SHELVES — YT Music / "ArchiveTune"-style full playlist
 // layout: several stacked shelves, each with its own small kicker line +
@@ -3902,15 +4116,17 @@ class _YtHomePlaylistCardWidgetState
         mixName: widget.card.title,
         artworkUrl: widget.card.artworkUrl,
         emoji: '', // no-emoji requirement — MixScreen renders an Icon fallback now
+        // FIX ("pull to refresh na ho, songs scroll pe hi aa jaaye"):
+        // this card used to open with enableRefresh: true, which put a
+        // RefreshIndicator on the playlist and required a manual
+        // pull-down gesture to fetch more songs. Requirement now is that
+        // every song is just already there / loads in as you scroll —
+        // no separate refresh action needed. All songs for the card are
+        // already fully resolved by fetchYtMusicHomePlaylists() before
+        // this widget ever exists, so simply not opting into refresh
+        // mode here means MixScreen shows the complete list up front via
+        // its normal scroll view — no gesture required.
         songs: widget.card.songs,
-        // Only this call site (the "Playlists For You" card tap) turns
-        // pull-to-refresh on — the other 2 MixScreen pushes in this
-        // file and the one in library_screen.dart don't pass this, so
-        // they're completely unaffected. refreshSeed uses the card's
-        // own title so a refresh pulls more songs matching that
-        // specific category rather than a generic query.
-        enableRefresh: true,
-        refreshSeed: widget.card.title,
       ),
     );
   }

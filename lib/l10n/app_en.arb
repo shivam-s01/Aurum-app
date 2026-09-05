@@ -61,6 +61,7 @@
   "mixPullForMore": "Pull down for more songs",
   "homeMoodAll": "All",
   "homePlaylistsForYou": "Playlists for You",
+  "homeAlbumsForYou": "Albums for You",
   "homeAfternoonPicks": "Afternoon Picks",
   "homeBollywoodMix": "Bollywood Mix",
   "homeDevotional": "Devotional",
@@ -887,6 +888,9 @@
   "asAlbums": "Albums",
   "asSingles": "Singles",
   "asAbout": "About",
+  "asFansAlsoLike": "Fans might also like",
+  "asShowAll": "Show all",
+  "asShowLess": "Show less",
   "@asCouldntLoad": {
     "placeholders": {
       "name": {

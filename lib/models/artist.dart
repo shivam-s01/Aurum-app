@@ -20,6 +20,23 @@ class ArtistAlbum {
   });
 }
 
+/// A simplified "related artist" entry — for the "Fans might also like"
+/// row. Always sourced from YouTube Music's own related-artists carousel
+/// on the browse response (never guessed/derived client-side), so it only
+/// ever contains artists YouTube itself considers genuinely related to
+/// this one.
+class RelatedArtist {
+  final String id; // channelId, so tapping opens ArtistScreen the normal way
+  final String name;
+  final String imageUrl;
+
+  RelatedArtist({
+    required this.id,
+    required this.name,
+    required this.imageUrl,
+  });
+}
+
 class Artist {
   final String id;
   final String name;
@@ -39,6 +56,13 @@ class Artist {
   // NEW: wide channel-banner image (YouTube channels only). Null for
   // Saavn-sourced profiles — UI falls back to imageUrl-only layout when null.
   final String? bannerUrl;
+  // NEW ("Fans might also like" — YT Music parity): populated only from
+  // YT Music browse's own "Fans might also like" carousel (see
+  // _fetchArtistFromYtMusicBrowse) — empty for every other path
+  // (uploads-walk merge, Saavn fallback), never backfilled with a guess,
+  // so ArtistScreen simply hides the row rather than showing something
+  // awkward/unrelated when this is empty.
+  final List<RelatedArtist> relatedArtists;
 
   Artist({
     required this.id,
@@ -52,5 +76,6 @@ class Artist {
     required this.singles,
     this.source = ArtistSource.youtube,
     this.bannerUrl,
+    this.relatedArtists = const [],
   });
 }

@@ -359,6 +359,42 @@ class YtHomePlaylistCard {
       );
 }
 
+// FEATURE ("home page pe naya Albums row, ekdam YouTube Music InnerTube ka
+// data") — one card per real album (BrowseAlbum, resolved via
+// searchAlbumsYtOnly so this row is exclusively InnerTube-sourced, no
+// Saavn mixed in). Deliberately lightweight: unlike YtHomePlaylistCard,
+// this does NOT carry the album's song list — an album's tracks are only
+// ever loaded once someone actually opens it (AlbumScreen's own
+// fetchAlbumSongs call, same as tapping an album anywhere else in the
+// app), so scrolling past a row of album cards on Home never triggers a
+// burst of per-album track fetches it doesn't need yet.
+class HomeAlbumCard {
+  final String albumId; // BrowseAlbum.collectionId — MPRE-prefixed browseId
+  final String title;
+  final String artist;
+  final String artworkUrl;
+  const HomeAlbumCard({
+    required this.albumId,
+    required this.title,
+    required this.artist,
+    required this.artworkUrl,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'albumId': albumId,
+        'title': title,
+        'artist': artist,
+        'artworkUrl': artworkUrl,
+      };
+
+  factory HomeAlbumCard.fromJson(Map<String, dynamic> json) => HomeAlbumCard(
+        albumId: json['albumId'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        artist: json['artist'] as String? ?? '',
+        artworkUrl: json['artworkUrl'] as String? ?? '',
+      );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // MOOD CHIPS for the "Playlists For You" row. Each id maps to a plain
 // YT Music search query (see _kMoodSearchQuery below) — no Worker-side
@@ -3942,6 +3978,71 @@ class ApiService {
     return _searchYtMusicDirectRaw(query, limit, filterParam: _ytmSongsFilterParam);
   }
 
+  // FIX ("artist page pe bahut kam songs — 5-30 hi aate hain, 100 nahi"):
+  // root cause traced to here. _searchYtMusicDirectRaw only ever sent ONE
+  // InnerTube `search` request and returned whatever came back in that
+  // single response — YT Music's search endpoint, same as the real
+  // website, only returns roughly ~20 items per page for the Songs shelf
+  // with no way to get more from that one call. Raising the `limit`
+  // parameter (even to the artist top-up's requested 1000/2000) changed
+  // NOTHING, because `limit` was only ever a client-side cap on top of an
+  // already-small single page — never something that made YouTube return
+  // MORE. That capped every caller of _searchYtMusicDirect (the artist
+  // page's Stage 3 top-up AND its uploads-walk fallback) at ~20 songs no
+  // matter what count they asked for, which is exactly the "5-30" symptom
+  // for any artist whose uploads-walk (Stage 2) also came back thin (e.g.
+  // an auto-generated "Topic" channel with no real Uploads tab — see
+  // _fetchArtistFromYoutube's own doc comment on that failure mode).
+  //
+  // Fix: paginate for real, using the same continuation-token mechanism
+  // YT Music's own web client uses to fetch subsequent pages of a search
+  // — each response's musicShelfRenderer carries a `continuations` block
+  // with a token; feeding that token back into a second POST (this time
+  // to the `search` endpoint's continuation form) returns the NEXT ~20,
+  // and so on, exactly like scrolling further down a real YT Music search
+  // results page. Loops until `limit` is reached, a response carries no
+  // further continuation (real end of results), or a small safety cap on
+  // page count is hit (so a pathological/empty-continuation loop can
+  // never hang this).
+  static Future<List<Song>> _searchYtMusicDirectPaginated(
+    String query,
+    int limit, {
+    String? filterParam,
+  }) async {
+    final out = <Song>[];
+    final seenIds = <String>{};
+    void addUnique(List<Song> songs) {
+      for (final s in songs) {
+        if (out.length >= limit) return;
+        if (seenIds.add(s.id)) out.add(s);
+      }
+    }
+
+    String? continuationToken;
+    const maxPages = 15; // ~15 x ~20 = up to ~300 real songs per query
+    for (var page = 0; page < maxPages; page++) {
+      if (out.length >= limit) break;
+      final Map<String, dynamic> result;
+      try {
+        result = await _searchYtMusicDirectRawWithContinuation(
+          query,
+          limit,
+          filterParam: filterParam,
+          continuationToken: continuationToken,
+        ).timeout(const Duration(seconds: 8));
+      } catch (e) {
+        _log('[_searchYtMusicDirectPaginated] page $page failed: $e');
+        break;
+      }
+      final songs = result['songs'] as List<Song>;
+      if (songs.isEmpty) break;
+      addUnique(songs);
+      continuationToken = result['continuation'] as String?;
+      if (continuationToken == null || continuationToken.isEmpty) break;
+    }
+    return out;
+  }
+
   // FIX (2026-08-14 — "Podcast bhi ekdam perfect aana chahiye"):
   // _ytmSongsFilterParam locks every direct YT Music search to the
   // "Songs" shelf ONLY — the exact same restriction as tapping the
@@ -3967,9 +4068,46 @@ class ApiService {
     int limit, {
     required String? filterParam,
   }) async {
-    final uri = Uri.parse(
-      'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
+    final result = await _searchYtMusicDirectRawWithContinuation(
+      query,
+      limit,
+      filterParam: filterParam,
+      continuationToken: null,
     );
+    return result['songs'] as List<Song>;
+  }
+
+  // Same request _searchYtMusicDirectRaw always made, extended to
+  // optionally continue a previous search page via YT Music's own
+  // continuation token, and to hand back the token for the NEXT page
+  // alongside this page's songs (see _searchYtMusicDirectPaginated above
+  // for why this exists — the plain non-continuation form silently
+  // topped out around ~20 results with no way to fetch more).
+  static Future<Map<String, dynamic>> _searchYtMusicDirectRawWithContinuation(
+    String query,
+    int limit, {
+    required String? filterParam,
+    required String? continuationToken,
+  }) async {
+    // NOTE: InnerTube's continuation shape isn't 1:1 documented for the
+    // WEB_REMIX search endpoint specifically — sends the token BOTH ways
+    // (ctoken/continuation query params, same as browse-continuation
+    // calls, AND a `continuation` body field, the shape some InnerTube
+    // endpoints expect instead) so this works regardless of which one
+    // this endpoint actually reads. If YouTube changes/rejects this
+    // later, _searchYtMusicDirectPaginated's loop simply gets an empty
+    // `songs` list back and stops (see its `if (songs.isEmpty) break`) —
+    // it never throws or breaks the artist page, it just falls back to
+    // whatever Stage 1/Stage 2 already found.
+    final uri = continuationToken == null
+        ? Uri.parse(
+            'https://music.youtube.com/youtubei/v1/search?key=$_ytmApiKey&prettyPrint=false',
+          )
+        : Uri.parse(
+            'https://music.youtube.com/youtubei/v1/search'
+            '?key=$_ytmApiKey&prettyPrint=false&ctoken=$continuationToken'
+            '&continuation=$continuationToken&type=next',
+          );
     final resp = await _client.post(
       uri,
       headers: {
@@ -3988,19 +4126,20 @@ class ApiService {
             'gl': 'IN',
           },
         },
-        'query': query,
-        if (filterParam != null) 'params': filterParam,
+        if (continuationToken == null) 'query': query,
+        if (continuationToken == null && filterParam != null) 'params': filterParam,
+        if (continuationToken != null) 'continuation': continuationToken,
       }),
     );
-    if (resp.statusCode != 200) return [];
+    if (resp.statusCode != 200) return {'songs': <Song>[], 'continuation': null};
     final dynamic decoded = jsonDecode(resp.body);
     // Defensive: YouTube can occasionally return a non-object body (an
     // error string/array, or a consent/interstitial page) even with a 200
     // status. Only proceed if it's the Map shape the parser expects —
     // anything else degrades to "no results" instead of the parser's
     // dynamic indexing throwing on an unexpected type.
-    if (decoded is! Map) return [];
-    return _parseYtMusicDirectSearch(decoded, limit);
+    if (decoded is! Map) return {'songs': <Song>[], 'continuation': null};
+    return _parseYtMusicDirectSearchWithContinuation(decoded, limit);
   }
 
   /// Mirrors worker.js's parseYtMusicSearch() field-for-field — same
@@ -4009,7 +4148,19 @@ class ApiService {
   /// duration extraction — so results from this path are indistinguishable
   /// from the worker's.
   static List<Song> _parseYtMusicDirectSearch(dynamic json, int limit) {
+    return _parseYtMusicDirectSearchWithContinuation(json, limit)['songs'] as List<Song>;
+  }
+
+  // Same walk as _parseYtMusicDirectSearch, plus extracting the shelf's
+  // own `continuations` token (when present) so the caller can request
+  // the next page instead of stopping at whatever this one response
+  // happened to contain — see _searchYtMusicDirectPaginated's doc comment
+  // for why this matters (single-page search was the actual cause of the
+  // artist page's "5-30 songs only" bug).
+  static Map<String, dynamic> _parseYtMusicDirectSearchWithContinuation(
+      dynamic json, int limit) {
     final out = <Song>[];
+    String? nextContinuation;
     try {
       final shelves = <dynamic>[];
       final tabs = json?['contents']?['tabbedSearchResultsRenderer']?['tabs']
@@ -4035,8 +4186,27 @@ class ApiService {
           }
         }
       }
+      // A `continuation`-request response wraps its shelf differently —
+      // under continuationContents instead of contents/tabs — so also
+      // check that shape when the normal tabbed walk above finds nothing
+      // (this is the shape every page AFTER the first one actually uses).
+      if (shelves.isEmpty) {
+        final continuationShelf = json?['continuationContents']
+            ?['musicShelfContinuation'];
+        if (continuationShelf != null) shelves.add(continuationShelf);
+      }
 
       for (final shelf in shelves) {
+        // Continuation token for the NEXT page, if any — present on
+        // whichever shelf we actually pulled results from.
+        final continuations = shelf?['continuations'] as List? ?? const [];
+        if (continuations.isNotEmpty) {
+          final token = continuations
+              .first?['nextContinuationData']?['continuation']
+              ?.toString();
+          if (token != null && token.isNotEmpty) nextContinuation = token;
+        }
+
         final items = shelf?['contents'] as List? ?? const [];
         for (final item in items) {
           final r = item?['musicResponsiveListItemRenderer'];
@@ -4142,13 +4312,15 @@ class ApiService {
             viewCount: 1000000,
             artistChannelId: firstArtistChannelId.isNotEmpty ? firstArtistChannelId : null,
           ));
-          if (out.length >= limit) return out;
+          if (out.length >= limit) {
+            return {'songs': out, 'continuation': nextContinuation};
+          }
         }
       }
     } catch (e) {
-      _log('[_parseYtMusicDirectSearch] parse error: $e');
+      _log('[_parseYtMusicDirectSearchWithContinuation] parse error: $e');
     }
-    return out;
+    return {'songs': out, 'continuation': nextContinuation};
   }
 
   // Calls the Worker's YT Music search proxy and maps its clean JSON
@@ -4460,6 +4632,42 @@ class ApiService {
     }
 
     return cards;
+  }
+
+  // FEATURE ("home page pe naya Albums row" — YT Music-only, "no other
+  // source" requirement): pulls real albums via searchAlbumsYtOnly, using
+  // the SAME mood-seed queries the playlists row already uses (top hits/
+  // trending/bollywood/etc. — see _kMoodSubQueries) so the Albums row
+  // surfaces genuinely relevant, currently-popular albums rather than a
+  // single generic "top albums" query. Each seed query resolves to
+  // whichever albums InnerTube's own album-search returns for it — nothing
+  // here is curated/guessed, only what YouTube Music itself returns.
+  static Future<List<HomeAlbumCard>> fetchYtMusicHomeAlbums({
+    int limit = 8,
+    String? mood,
+  }) async {
+    final subQueries = _kMoodSubQueries[mood] ?? _kMoodSubQueries[null]!;
+
+    final cardFutures = subQueries.take(limit).map((sub) async {
+      final albums = await searchAlbumsYtOnly(sub.query, limit: 1);
+      if (albums.isEmpty) return null;
+      final a = albums.first;
+      if (a.collectionId.isEmpty || a.name.isEmpty) return null;
+      return HomeAlbumCard(
+        albumId: a.collectionId,
+        title: a.name,
+        artist: a.artist,
+        artworkUrl: a.artworkUrl,
+      );
+    });
+
+    final results = await Future.wait(cardFutures);
+    final cards = results.whereType<HomeAlbumCard>().toList();
+    // Same collectionId can legitimately win for two different mood
+    // seeds (e.g. "trending" and "new releases" landing on the same
+    // chart-topping album) — dedupe by id so the row never repeats a card.
+    final seenIds = <String>{};
+    return cards.where((c) => seenIds.add(c.albumId)).toList();
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -6841,6 +7049,27 @@ class ApiService {
     ]);
   }
 
+  // FEATURE ("home page pe Albums row, ekdam YouTube Music InnerTube ka
+  // data" — explicit requirement that home page content stay YouTube-only,
+  // no Saavn mixed in): same underlying InnerTube album search as
+  // searchAlbums() above, but WITHOUT the Saavn race leg — this is the
+  // one the home page's Albums row calls, so a slow/unavailable YT leg can
+  // never silently resolve to a Saavn result on the home screen the way
+  // the general-purpose searchAlbums() is allowed to elsewhere (search
+  // tab, library import) where mixing sources is fine. Still races the
+  // filtered and unfiltered InnerTube attempts against each other (same
+  // "don't wait on the slower of two YT-only legs" behavior), just drops
+  // the third, non-YouTube leg entirely.
+  static Future<List<BrowseAlbum>> searchAlbumsYtOnly(String query, {int limit = 12}) async {
+    if (query.trim().isEmpty) return const [];
+    return _firstNonEmptyAlbums([
+      _searchAlbumsAttempt(query, limit,
+          useAlbumFilter: true, timeout: const Duration(seconds: 4)),
+      _searchAlbumsAttempt(query, limit,
+          useAlbumFilter: false, timeout: const Duration(seconds: 4)),
+    ]);
+  }
+
   /// Races several album-search futures and completes with the FIRST one
   /// that resolves to a non-empty list — same "don't wait on the slowest
   /// failing leg" behavior as _firstNonEmptyArtists above.
@@ -7155,8 +7384,20 @@ class ApiService {
     // doc comment for the full reasoning.
     if (browseArtist.name.isNotEmpty) {
       try {
-        final extra = await _searchYtMusicDirect(browseArtist.name, songCount * 2)
-            .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
+        // FIX ("5-30 songs hi aa rahe the, 100 nahi" — see
+        // _searchYtMusicDirectPaginated's doc comment): was
+        // _searchYtMusicDirect, a SINGLE un-paginated InnerTube search
+        // request capped at ~20 real results no matter what count was
+        // asked for. Swapped to the paginated version, which walks
+        // continuation tokens the same way YT Music's own web client
+        // does to actually reach songCount instead of silently topping
+        // out at one page. Timeout raised accordingly — a real multi-
+        // page walk needs more room than a single request did.
+        final extra = await _searchYtMusicDirectPaginated(
+          browseArtist.name,
+          songCount * 2,
+          filterParam: _ytmSongsFilterParam,
+        ).timeout(const Duration(seconds: 45), onTimeout: () => <Song>[]);
         final filtered = extra.where((s) {
           if (RecommendationEngine.isNonMusicContent(s)) return false;
           if (s.artistChannelId != null) return s.artistChannelId == channelId;
@@ -7293,8 +7534,13 @@ class ApiService {
           // two-tier check used elsewhere) closes that gap.
           if (mergedSongs.length < songCount && browseArtist.name.isNotEmpty) {
             try {
-              final extra = await _searchYtMusicDirect(browseArtist.name, songCount * 2)
-                  .timeout(const Duration(seconds: 8), onTimeout: () => <Song>[]);
+              // Same paginated-search fix as fetchArtistStreaming's
+              // Stage 3 above — see that call site's doc comment.
+              final extra = await _searchYtMusicDirectPaginated(
+                browseArtist.name,
+                songCount * 2,
+                filterParam: _ytmSongsFilterParam,
+              ).timeout(const Duration(seconds: 45), onTimeout: () => <Song>[]);
               final matched = extra.where((s) {
                 if (s.artistChannelId != null) return s.artistChannelId == channelId;
                 return s.artist.trim().toLowerCase() == browseArtist.name.trim().toLowerCase();
@@ -7679,6 +7925,76 @@ class ApiService {
         collectReleaseCards(carousel['contents'], isSingles);
       }
 
+      // ── "Fans might also like" — YT Music's own related-artists
+      // carousel, never derived/guessed client-side. Same
+      // musicCarouselShelfRenderer -> musicTwoRowItemRenderer shape as
+      // Albums/Singles above, but distinguished from an album/single card
+      // by its navigation endpoint: an artist card's title run points at
+      // browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig
+      // .pageType == "MUSIC_PAGE_TYPE_ARTIST" (an artist channelId,
+      // "UC..."), where an album/single card's title run points at an
+      // MPRE-prefixed album browseId with no such pageType at all. Gating
+      // on this pageType (rather than just "browseId doesn't start with
+      // MPRE") is deliberate — it's YouTube's own explicit signal for
+      // "this card is an artist", not an inference from what the id isn't.
+      // Header-title match ("fans might also like"/"fans also like" —
+      // YT Music has used slightly different copy across versions) is
+      // still required too, so a differently-shaped carousel can never
+      // leak into this row even if some future shelf also happened to
+      // use artist-typed cards for another purpose.
+      final relatedArtists = <RelatedArtist>[];
+      final seenRelatedIds = <String>{};
+      for (final carousel in _findRenderers(decoded, 'musicCarouselShelfRenderer')) {
+        final headerRendererForCarousel =
+            (carousel['header']?['musicCarouselShelfBasicHeaderRenderer'] as Map?)
+                ?.cast<String, dynamic>();
+        final headerTitleRuns =
+            (headerRendererForCarousel?['title']?['runs'] as List?) ?? const [];
+        final headerTitle = headerTitleRuns
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .join()
+            .toLowerCase();
+        if (!headerTitle.contains('fans might also like') &&
+            !headerTitle.contains('fans also like')) {
+          continue;
+        }
+        for (final card in _findRenderers(carousel['contents'], 'musicTwoRowItemRenderer')) {
+          final cardTitleRuns = (card['title']?['runs'] as List?) ?? const [];
+          final cardTitle = cardTitleRuns
+              .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+              .join()
+              .trim();
+          if (cardTitle.isEmpty || cardTitleRuns.isEmpty) continue;
+          final titleNav = ((cardTitleRuns.first as Map)['navigationEndpoint']
+                  as Map?)
+              ?.cast<String, dynamic>();
+          final browseEndpoint =
+              (titleNav?['browseEndpoint'] as Map?)?.cast<String, dynamic>();
+          final pageType = (browseEndpoint
+                      ?['browseEndpointContextSupportedConfigs']
+                  ?['browseEndpointContextMusicConfig']?['pageType'] ??
+              '').toString();
+          if (pageType != 'MUSIC_PAGE_TYPE_ARTIST') continue; // not an artist card — skip
+          final relatedId = (browseEndpoint?['browseId'] ?? '').toString();
+          if (relatedId.isEmpty || !seenRelatedIds.add(relatedId)) continue;
+          final cardThumbs = (card['thumbnailRenderer']?['musicThumbnailRenderer']
+                      ?['thumbnail']?['thumbnails'] as List?) ??
+              const [];
+          String cardArt = '';
+          if (cardThumbs.isNotEmpty) {
+            final rawUrl = (cardThumbs.last['url'] ?? '').toString();
+            cardArt = rawUrl.isNotEmpty
+                ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500')
+                : '';
+          }
+          relatedArtists.add(RelatedArtist(
+            id: relatedId,
+            name: _cleanText(cardTitle),
+            imageUrl: cardArt,
+          ));
+        }
+      }
+
       return Artist(
         id: 'yt_$resolvedChannelId',
         name: name,
@@ -7691,6 +8007,7 @@ class ApiService {
         singles: singles,
         source: ArtistSource.youtube,
         bannerUrl: bannerUrl,
+        relatedArtists: relatedArtists,
       );
     } catch (e) {
       _log('[_fetchArtistFromYtMusicBrowse] failed for channelId=$channelId: $e');
@@ -7940,7 +8257,20 @@ class ApiService {
       // being a last-resort replacement for a totally empty list.
       if (topSongs.length < songCount && cleanName.isNotEmpty) {
         try {
-          final fallbackResults = await _searchYtMusicDirect(cleanName, songCount * 2);
+          // FIX ("5-30 songs hi aa rahe the" — this is the exact fallback
+          // that fires for a "Topic" auto-channel whose Uploads tab
+          // doesn't exist, which is the most common real-world reason the
+          // uploads walk above comes back thin/empty. It was calling the
+          // single-page _searchYtMusicDirect (~20-result ceiling
+          // regardless of the songCount*2 requested) — swapped to the
+          // continuation-paginated version so this fallback can actually
+          // reach songCount. See _searchYtMusicDirectPaginated's doc
+          // comment for the full root-cause explanation.
+          final fallbackResults = await _searchYtMusicDirectPaginated(
+            cleanName,
+            songCount * 2,
+            filterParam: _ytmSongsFilterParam,
+          ).timeout(const Duration(seconds: 45), onTimeout: () => <Song>[]);
           final matched = fallbackResults.where((s) {
             if (s.artistChannelId != null) return s.artistChannelId == channelId;
             return s.artist.trim().toLowerCase() == cleanName.toLowerCase();

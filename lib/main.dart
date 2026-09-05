@@ -481,11 +481,21 @@ class AurumApp extends StatelessWidget {
                   ? AurumTheme.amoledTheme
                   : AurumTheme.darkTheme);
 
+          // FIX ("home page font playlist mai kaam nahi kar raha"): also
+          // set ThemeData.fontFamily/fontFamilyFallback, not just
+          // textTheme — see the doc comment on resolvedFontFamily in
+          // theme_provider.dart for why textTheme alone left every
+          // hardcoded `const TextStyle(...)` screen (home_screen.dart's
+          // playlist cards included) stuck on the system font.
           final lightTheme = baseLight.copyWith(
             textTheme: themeProvider.resolvedTextTheme(baseLight.textTheme),
+            fontFamily: themeProvider.resolvedFontFamily,
+            fontFamilyFallback: themeProvider.resolvedFontFamilyFallback,
           );
           final darkTheme = baseDark.copyWith(
             textTheme: themeProvider.resolvedTextTheme(baseDark.textTheme),
+            fontFamily: themeProvider.resolvedFontFamily,
+            fontFamilyFallback: themeProvider.resolvedFontFamilyFallback,
           );
 
           return MaterialApp(
