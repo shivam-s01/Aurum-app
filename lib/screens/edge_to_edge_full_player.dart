@@ -128,18 +128,18 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
   }
 
   _PanelPalette _paletteFrom(ArtworkPalette p) {
-    // Anchor everything on vibrant/lightVibrant (the actually-colorful
-    // swatches) rather than `dominant`, which on a poster/photo cover can
-    // just as easily land on a background sky, skin tone, or neutral —
-    // nothing close to the rich thematic color (e.g. the poster's red)
-    // that should be driving the mesh. `darkMuted` is kept only as the
-    // deepest anchor for the bottom stop, same role the Kotlin extractor
-    // gives its darkMutedSwatch.
-    // `vibrant` already carries its own fallback chain in
-    // artwork_palette_cache.dart (vibrant → lightVibrant → dominant), so
-    // it's always a usable, real color here — no extra null/zero check
-    // needed.
-    final hueSource = p.vibrant;
+    // Anchor on the top-ranked color from PlayerColorExtractor —
+    // ArchiveTune's own population*vibrancyBonus-weighted winner (see
+    // player_color_extractor.dart, ported 1:1 from PlayerColorExtractor.kt)
+    // — instead of unconditionally using `vibrant`. On any given artwork
+    // crop the winning swatch might be dominant, muted, or darkVibrant
+    // rather than vibrant; hardcoding `vibrant` here is exactly why this
+    // app's mesh color could disagree with ArchiveTune's own player for
+    // the *same* artwork. Falls back to the old vibrant-chain only if
+    // gradientColors somehow came back empty (shouldn't happen — the
+    // extractor always returns at least one color).
+    final hueSource =
+        p.gradientColors.isNotEmpty ? p.gradientColors.first : p.vibrant;
 
     final top = ensureContrastSafe(
       _boostColor(
@@ -338,43 +338,38 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
                             ),
                           ),
 
-                          // ── Glass blend zone: art and panel now merge
-                          // into one continuous surface instead of a hard
-                          // cut. Two stacked effects, both anchored just
-                          // above the art/panel boundary and fading
-                          // upward into nothing:
-                          //   1) a real optical blur (BackdropFilter) over
-                          //      the art itself, growing stronger toward
-                          //      the bottom — this is the "haze/dhundhla"
-                          //      frosted-glass look, not just a color fade.
-                          //   2) the panel's own top color, semi-
-                          //      transparent up top and solidifying into
-                          //      the panel below, so the mesh's hue visibly
-                          //      bleeds upward onto the artwork instead of
-                          //      the two areas reading as separate blocks.
+                          // ── Blend zone: art and panel merge into one
+                          // continuous surface via a pure color fade — no
+                          // optical blur (BackdropFilter removed; it was
+                          // smearing busy/high-detail artwork into an
+                          // awkward muddy band right at the seam). Tall,
+                          // gradual 6-stop fade (mirrors ArchiveTune's own
+                          // scrim: art stays crisp almost all the way down,
+                          // then eases into the panel color with no visible
+                          // edge/line) — starts nearly invisible, ends
+                          // exactly on _panel.top so there's zero color
+                          // jump at the artHeight boundary where the solid
+                          // mesh panel picks up.
                           Positioned(
-                            top: artHeight - 190,
+                            top: artHeight - 280,
                             left: 0,
                             right: 0,
-                            height: 190,
+                            height: 280,
                             child: IgnorePointer(
-                              child: ClipRect(
-                                child: BackdropFilter(
-                                  filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
-                                        colors: [
-                                          Colors.transparent,
-                                          Colors.transparent,
-                                          _panel.top.withOpacity(0.55),
-                                          _panel.top,
-                                        ],
-                                        stops: const [0.0, 0.25, 0.75, 1.0],
-                                      ),
-                                    ),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.transparent,
+                                      _panel.top.withOpacity(0.06),
+                                      _panel.top.withOpacity(0.20),
+                                      _panel.top.withOpacity(0.45),
+                                      _panel.top.withOpacity(0.78),
+                                      _panel.top,
+                                    ],
+                                    stops: const [0.0, 0.35, 0.55, 0.72, 0.87, 1.0],
                                   ),
                                 ),
                               ),
@@ -701,43 +696,32 @@ class _TransportRow extends StatelessWidget {
                 player.skipPrev();
               },
             ),
-            // Play/pause: reference uses a small thin-outline circle (no
-            // fill, no shadow) rather than a big solid white disc — the
-            // artwork-derived glow now lives in the ring stroke color
-            // instead of a drop shadow, so it still visually "belongs" to
-            // the current cover without competing with the mesh panel.
-            TweenAnimationBuilder<Color?>(
-              key: ValueKey('play_glow_${accent.value}'),
-              tween: ColorTween(begin: prevAccent, end: accent),
-              duration: const Duration(milliseconds: 500),
-              builder: (context, animatedAccent, _) {
-                final ringColor = Color.lerp(animatedAccent ?? accent, Colors.white, 0.55)!;
-                return GestureDetector(
-                  onTap: () {
-                    AurumHaptics.medium();
-                    player.togglePlay();
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 500),
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: ringColor.withOpacity(0.9), width: 2),
-                    ),
-                    alignment: Alignment.center,
-                    child: isLoading
-                        ? const Padding(
-                            padding: EdgeInsets.all(15),
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.2,
-                              valueColor: AlwaysStoppedAnimation(Colors.white),
-                            ),
-                          )
-                        : AurumPlayPauseIcon(isPlaying: isPlaying, color: Colors.white, size: 26),
-                  ),
-                );
+            // Play/pause: reference (ArchiveTune) shows the bare morphing
+            // glyph directly in the row — no circle, no ring, no border —
+            // sitting flush alongside the rewind/forward icons as one
+            // clean set of three. Matches that exactly now: just the icon,
+            // slightly larger since there's no ring to frame it anymore.
+            GestureDetector(
+              onTap: () {
+                AurumHaptics.medium();
+                player.togglePlay();
               },
+              child: SizedBox(
+                width: 56,
+                height: 56,
+                child: Center(
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 26,
+                          height: 26,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            valueColor: AlwaysStoppedAnimation(Colors.white),
+                          ),
+                        )
+                      : AurumPlayPauseIcon(isPlaying: isPlaying, color: Colors.white, size: 34),
+                ),
+              ),
             ),
             // Double-chevron fast-forward — matches the reference's "▶▶".
             IconButton(
@@ -956,22 +940,43 @@ class _BottomIconRowState extends State<_BottomIconRow> {
 
   void _openQueueSheet(BuildContext context) {
     AurumHaptics.light();
+    final song = context.read<PlayerProvider>().currentSong;
+    // Snapshot the panel palette at open-time so the sheet's tint doesn't
+    // jump mid-scroll if the underlying song happens to change while it's
+    // open (matches the reference: the sheet carries the color of whatever
+    // song was playing when it was opened).
+    final panel = _panel;
     showAurumModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       barrierColor: Colors.black.withAlpha(150),
       builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.4,
-        maxChildSize: 0.92,
+        initialChildSize: 0.82,
+        minChildSize: 0.5,
+        maxChildSize: 0.94,
         expand: false,
-        builder: (context, scrollController) => Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF141414),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        builder: (context, scrollController) => ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: DecoratedBox(
+            // Artwork-palette-tinted background — same top/mid/bottom mesh
+            // the player itself is showing, so the sheet reads as a
+            // continuation of the current song's color rather than a
+            // separate flat-grey surface. Matches the reference exactly.
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [panel.top, panel.mid, panel.bottom],
+                stops: const [0.0, 0.5, 1.0],
+              ),
+            ),
+            child: _EdgeToEdgeQueueSheetBody(
+              scrollController: scrollController,
+              currentSong: song,
+              panel: panel,
+            ),
           ),
-          child: const _EdgeToEdgeQueueList(),
         ),
       ),
     );
@@ -1204,51 +1209,429 @@ class _EdgeToEdgeImmersiveLyricsState extends State<_EdgeToEdgeImmersiveLyrics>
 
 /// Minimal, self-contained queue list for the Edge to Edge sheet — avoids
 /// depending on full_player_screen.dart's private _QueuePage.
-class _EdgeToEdgeQueueList extends StatelessWidget {
-  const _EdgeToEdgeQueueList();
+/// Full "Up Next" sheet body — header (artwork + title/artist + favorite),
+/// action row (lock/menu/delete + song count & total duration), a 3-button
+/// mode row (shuffle / move-mode toggle / repeat), a "Continue Playing"
+/// section header, then the reorderable queue itself. Every control here is
+/// wired to real PlayerProvider/FavoritesProvider state — nothing is
+/// decorative filler copied from the reference screenshot without a real
+/// action behind it.
+class _EdgeToEdgeQueueSheetBody extends StatefulWidget {
+  const _EdgeToEdgeQueueSheetBody({
+    required this.scrollController,
+    required this.currentSong,
+    required this.panel,
+  });
+
+  final ScrollController scrollController;
+  final Song? currentSong;
+  final _PanelPalette panel;
+
+  @override
+  State<_EdgeToEdgeQueueSheetBody> createState() => _EdgeToEdgeQueueSheetBodyState();
+}
+
+class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
+  // Lock icon in the reference toggles whether rows can be dragged to
+  // reorder at all — starts locked (matches the reference's default
+  // padlock-closed state) so an accidental touch on the drag handle
+  // doesn't reorder the queue.
+  bool _reorderLocked = true;
+
+  String _totalDuration(List<Song> queue) {
+    final totalSeconds = queue.fold<int>(0, (sum, s) => sum + (s.duration ?? 0));
+    final h = totalSeconds ~/ 3600;
+    final m = (totalSeconds % 3600) ~/ 60;
+    final s = totalSeconds % 60;
+    if (h > 0) return '${h}h ${m}m ${s}s';
+    return '${m}m ${s}s';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final song = widget.currentSong;
+    final panel = widget.panel;
     return Selector<PlayerProvider, ({List<Song> queue, int? current})>(
       selector: (_, p) => (queue: p.queue, current: p.currentIndex),
       builder: (context, data, _) {
         final queue = data.queue;
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          itemCount: queue.length,
-          itemBuilder: (context, i) {
-            final s = queue[i];
-            final isCurrent = i == data.current;
-            return ListTile(
-              onTap: () => context.read<PlayerProvider>().skipToIndex(i),
-              leading: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: CachedNetworkImage(
-                  imageUrl: s.artworkUrl,
-                  width: 44,
-                  height: 44,
-                  fit: BoxFit.cover,
+        return Column(
+          children: [
+            const SizedBox(height: 10),
+            // ── Drag handle ──
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.35),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 18),
+            // ── Header: artwork + title/artist + favorite ──
+            if (song != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: song.artworkUrl.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: song.artworkUrl,
+                              width: 64,
+                              height: 64,
+                              fit: BoxFit.cover,
+                            )
+                          : Container(width: 64, height: 64, color: AurumTheme.darkBgElevated),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            song.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            song.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 15),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Selector<FavoritesProvider, bool>(
+                      selector: (_, f) => f.isFavorite(song.id),
+                      builder: (context, isFav, _) => IconButton(
+                        icon: Icon(
+                          isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                          color: Colors.white,
+                          size: 26,
+                        ),
+                        onPressed: () {
+                          AurumHaptics.light();
+                          context.read<FavoritesProvider>().toggleFavorite(song);
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              title: Text(
-                s.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: isCurrent ? AurumTheme.gold : Colors.white,
-                  fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+            const SizedBox(height: 18),
+            // ── Action row: lock / overflow / delete-queue + song count & duration ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                height: 52,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(26),
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        _reorderLocked ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      onPressed: () {
+                        AurumHaptics.light();
+                        setState(() => _reorderLocked = !_reorderLocked);
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 20),
+                      onPressed: () {
+                        if (song != null) {
+                          showAurumFullPlayerOptionsSheet(context, song, accentColor: panel.glow);
+                        }
+                      },
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.delete_outline_rounded, color: Colors.white.withOpacity(0.75), size: 20),
+                      onPressed: queue.isEmpty
+                          ? null
+                          : () async {
+                              AurumHaptics.medium();
+                              // Clears every queued item except the one
+                              // currently playing, mirroring the reference's
+                              // trash icon (clear Up Next, not stop
+                              // playback).
+                              //
+                              // FIX: this used to loop over a captured
+                              // `data.current` index taken once before the
+                              // loop started. removeFromQueue() shifts
+                              // _currentIndex internally every time it
+                              // removes an item that sits before the
+                              // current song — so after even one removal,
+                              // the stale `data.current` no longer pointed
+                              // at the actually-playing song, and a
+                              // subsequent iteration could delete the
+                              // wrong item, including the song currently
+                              // playing. Re-reading the live queue/current
+                              // song by identity on every iteration instead
+                              // of trusting a snapshot index avoids that
+                              // entirely.
+                              final player = context.read<PlayerProvider>();
+                              final playingSong = player.currentSong;
+                              for (var i = player.queue.length - 1; i >= 0; i--) {
+                                if (!identical(player.queue[i], playingSong)) {
+                                  await player.removeFromQueue(i);
+                                }
+                              }
+                            },
+                    ),
+                    const Spacer(),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 16),
+                      child: Text(
+                        '${queue.length} songs  •  ${_totalDuration(queue)}',
+                        style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 13),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              subtitle: Text(
-                s.artist,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 12),
+            ),
+            const SizedBox(height: 14),
+            // ── Mode row: shuffle / reorder-mode toggle / repeat ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Selector<PlayerProvider, (bool, LoopMode)>(
+                selector: (_, p) => (p.shuffle, p.loopMode),
+                builder: (context, data2, _) {
+                  final (shuffleOn, loop) = data2;
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: _QueueModeButton(
+                          icon: Icons.shuffle_rounded,
+                          active: shuffleOn,
+                          panel: panel,
+                          onTap: () {
+                            AurumHaptics.light();
+                            context.read<PlayerProvider>().toggleShuffle();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _QueueModeButton(
+                          icon: Icons.swap_vert_rounded,
+                          active: !_reorderLocked,
+                          panel: panel,
+                          onTap: () {
+                            AurumHaptics.light();
+                            setState(() => _reorderLocked = !_reorderLocked);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _QueueModeButton(
+                          icon: loop == LoopMode.one
+                              ? Icons.repeat_one_rounded
+                              : Icons.all_inclusive_rounded,
+                          active: loop != LoopMode.off,
+                          panel: panel,
+                          onTap: () {
+                            AurumHaptics.light();
+                            context.read<PlayerProvider>().toggleLoop();
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
-            );
-          },
+            ),
+            const SizedBox(height: 22),
+            // ── "Continue Playing" section header ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Continue Playing',
+                    style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Autoplaying similar music',
+                    style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Divider(color: Colors.white.withOpacity(0.12), height: 1),
+            // ── Reorderable queue ──
+            Expanded(
+              child: queue.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Queue is empty',
+                        style: TextStyle(color: Colors.white.withOpacity(0.5)),
+                      ),
+                    )
+                  : ReorderableListView.builder(
+                      scrollController: widget.scrollController,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      buildDefaultDragHandles: false,
+                      itemCount: queue.length,
+                      onReorder: (oldIndex, newIndex) {
+                        if (_reorderLocked) return;
+                        AurumHaptics.light();
+                        if (newIndex > oldIndex) newIndex -= 1;
+                        context.read<PlayerProvider>().moveQueueItem(oldIndex, newIndex);
+                      },
+                      itemBuilder: (context, i) {
+                        final s = queue[i];
+                        final isCurrent = i == data.current;
+                        return Container(
+                          // FIX: keying by index (`queue_${s.id}_$i`) gave
+                          // every item a NEW key on every reorder (since its
+                          // index changed), which defeats the whole point of
+                          // ReorderableListView's key-based item tracking —
+                          // it uses the key to know which visual item is
+                          // "the same one" moving to a new slot vs a
+                          // genuinely new item, and a key that always
+                          // changes on reorder produces wrong/glitchy drag
+                          // animations, and outright duplicate-key crashes
+                          // the moment the same song appears twice in the
+                          // queue (two Up Next entries would share both id
+                          // AND index-independent identity otherwise).
+                          // identityHashCode is stable per Song *instance*
+                          // (Song has no == override, so two queue entries
+                          // for the same song are still distinct objects)
+                          // and doesn't change when the list is reordered —
+                          // exactly what ReorderableListView needs.
+                          key: ValueKey(identityHashCode(s)),
+                          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isCurrent ? panel.glow.withOpacity(0.32) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: s.artworkUrl.isNotEmpty
+                                    ? CachedNetworkImage(
+                                        imageUrl: s.artworkUrl,
+                                        width: 52,
+                                        height: 52,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : Container(width: 52, height: 52, color: AurumTheme.darkBgElevated),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    AurumHaptics.light();
+                                    context.read<PlayerProvider>().skipToIndex(i);
+                                  },
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        s.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        '${s.artist} • ${s.durationString}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 18),
+                                onPressed: () => showAurumFullPlayerOptionsSheet(
+                                  context,
+                                  s,
+                                  accentColor: panel.glow,
+                                ),
+                              ),
+                              // Drag handle — only actually draggable when
+                              // unlocked, matching the reference's lock icon
+                              // gating whether the "=" handles do anything.
+                              ReorderableDragStartListener(
+                                index: i,
+                                enabled: !_reorderLocked,
+                                child: Icon(
+                                  Icons.drag_handle_rounded,
+                                  color: Colors.white.withOpacity(_reorderLocked ? 0.25 : 0.85),
+                                  size: 22,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         );
       },
+    );
+  }
+}
+
+class _QueueModeButton extends StatelessWidget {
+  const _QueueModeButton({
+    required this.icon,
+    required this.active,
+    required this.panel,
+    required this.onTap,
+  });
+  final IconData icon;
+  final bool active;
+  final _PanelPalette panel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 52,
+        decoration: BoxDecoration(
+          color: active ? panel.glow.withOpacity(0.38) : Colors.white.withOpacity(0.10),
+          borderRadius: BorderRadius.circular(26),
+        ),
+        alignment: Alignment.center,
+        child: Icon(icon, color: Colors.white, size: 22),
+      ),
     );
   }
 }

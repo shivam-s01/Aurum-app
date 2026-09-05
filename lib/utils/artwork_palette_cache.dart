@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
+import 'player_color_extractor.dart';
 
 // FIX ("white/flat flash much worse on device/local song play than on
 // streamed songs"): every entry point below used to gate on
@@ -105,11 +106,22 @@ class ArtworkPalette {
   final Color darkMuted;
   final Color lightVibrant;
 
+  /// Full ranked gradient color list from PlayerColorExtractor
+  /// (ArchiveTune's exact population/vibrancy-weighted algorithm — see
+  /// player_color_extractor.dart) — up to 6 colors, ranked strongest
+  /// first. This is what full-player screens should actually build their
+  /// mesh gradient from, since it reproduces ArchiveTune's swatch choice
+  /// (which isn't always literally "vibrant") rather than always using
+  /// the [vibrant] field below. The four named fields are kept only for
+  /// existing call sites that haven't migrated to [gradientColors] yet.
+  final List<Color> gradientColors;
+
   const ArtworkPalette({
     required this.vibrant,
     required this.dominant,
     required this.darkMuted,
     required this.lightVibrant,
+    this.gradientColors = const [],
   });
 }
 
@@ -298,6 +310,19 @@ class ArtworkPaletteCache {
         size: const Size(40, 40),
         maximumColorCount: 12,
       ).timeout(const Duration(milliseconds: 1200));
+
+      // Same population/vibrancy-weighted ranking ArchiveTune's
+      // PlayerColorExtractor.kt uses — this is what actually decides
+      // "which swatch wins" (often not literally the vibrant one), so it
+      // has to run before the four legacy fields below are filled in.
+      final gradientColors = PlayerColorExtractor.extractGradientColors(
+        pg,
+        fallbackColor: const Color(0xFF1A1630),
+      );
+      final ranked = gradientColors.isNotEmpty
+          ? gradientColors
+          : const [Color(0xFF1A1630)];
+
       return ArtworkPalette(
         vibrant: pg.vibrantColor?.color ??
             pg.lightVibrantColor?.color ??
@@ -313,6 +338,7 @@ class ArtworkPaletteCache {
             pg.vibrantColor?.color ??
             pg.lightMutedColor?.color ??
             const Color(0xFF1A1630),
+        gradientColors: ranked,
       );
     } catch (_) {
       return null;
