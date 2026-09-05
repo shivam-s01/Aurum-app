@@ -4267,9 +4267,12 @@ class ApiService {
               ?['tabs'] as List?) ??
           const [];
       final firstTab = tabs.isNotEmpty ? tabs.first : null;
-      final sections = (firstTab is Map
-              ? firstTab['tabRenderer']?['content']?['sectionListRenderer']
-                  ?['contents'] as List?
+      final tabRenderer = firstTab is Map ? firstTab['tabRenderer'] : null;
+      final tabContent = tabRenderer is Map ? tabRenderer['content'] : null;
+      final sectionListRenderer =
+          tabContent is Map ? tabContent['sectionListRenderer'] : null;
+      final sections = (sectionListRenderer is Map
+              ? sectionListRenderer['contents'] as List?
               : null) ??
           const [];
 
@@ -4516,9 +4519,12 @@ class ApiService {
               ?['tabs'] as List?) ??
           const [];
       final firstTab = tabs.isNotEmpty ? tabs.first : null;
-      final sections = (firstTab is Map
-              ? firstTab['tabRenderer']?['content']?['sectionListRenderer']
-                  ?['contents'] as List?
+      final tabRenderer = firstTab is Map ? firstTab['tabRenderer'] : null;
+      final tabContent = tabRenderer is Map ? tabRenderer['content'] : null;
+      final sectionListRenderer =
+          tabContent is Map ? tabContent['sectionListRenderer'] : null;
+      final sections = (sectionListRenderer is Map
+              ? sectionListRenderer['contents'] as List?
               : null) ??
           const [];
 
