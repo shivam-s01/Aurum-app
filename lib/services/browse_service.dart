@@ -715,6 +715,54 @@ class BrowseService {
     return true;
   }
 
+  // Noise words that ride along on almost every YT music upload title but
+  // aren't part of the actual song/movie name — "Namo Namo - Full Video
+  // Song | Bahubali" needs to become "Namo Namo Bahubali" before it's any
+  // use as a search query for OTHER songs from the same album/movie.
+  // Left untouched: the words themselves, only stripped when they appear
+  // as a title fragment (case-insensitive), so a genuine song titled e.g.
+  // "Lyrical" (unlikely, but not our call to assume) isn't silently eaten
+  // mid-word — \b keeps matches on whole words only.
+  static final RegExp _albumTitleNoise = RegExp(
+    r'\b(full\s*(video)?\s*song|official\s*(video|audio|music\s*video)?|'
+    r'lyrical\s*video?|lyric\s*video?|audio\s*(song)?|video\s*song|'
+    r'hd|4k|new|latest|title\s*track)\b',
+    caseSensitive: false,
+  );
+
+  // FIX ("YouTube album card khol ke sirf 1 hi song aata hai"): albumTitle
+  // yahan asal me ek SPECIFIC VIDEO ka raw title hota hai (channel-grouping
+  // ke liye v.title use hota hai — see _ytAlbumFallback above), e.g.
+  // "Namo Namo - Full Video Song | Bahubali | Prabhas". Query banti thi
+  // '$albumTitle all songs' — poora noisy title + "all songs" — jo YouTube
+  // pe sirf usi ek video se (near-exact) match karta hai, kyunki koi doosra
+  // upload us poore vaakya se match nahi karta. Ab: pehle title se noise
+  // (Full Video Song/Official/Lyrical/etc.) hata ke chhota "core" naam
+  // nikalte hain — ismein aksar movie/album ka naam bhi bacha rehta hai
+  // (pipe/dash ke baad wala hissa) — aur usi se '<core> songs' query
+  // banate hain, jo channel/movie ke doosre songs bhi surface karti hai.
+  static String _albumSearchQuery(String rawTitle, String collectionId) {
+    // Prefer whatever comes after the first "|" or "-" separator — that's
+    // usually the movie/album name on these uploads (e.g.
+    // "Namo Namo - Full Video Song | Bahubali" -> "Bahubali"), which makes
+    // a far better "give me other songs from this" query than the leading
+    // song title does.
+    final parts = rawTitle.split(RegExp(r'[|]'));
+    String candidate = parts.length > 1 ? parts.last : rawTitle;
+    candidate = candidate.replaceAll(_albumTitleNoise, ' ');
+    // Strip leftover punctuation/separators and collapse whitespace.
+    candidate = candidate
+        .replaceAll(RegExp(r'[\-_()\[\]:]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (candidate.length < 3) {
+      // Cleaning left nothing usable — fall back to the channel name,
+      // which at minimum returns that channel's other uploads.
+      candidate = collectionId;
+    }
+    return '$candidate songs';
+  }
+
   // Fetch tracks for a Browse album card.
   // FIX ("thumbnail click karo toh alag song aata hai"): pehle collectionId
   // (jo actually channel name hai — e.g. "T-Series") se '$collectionId songs'
@@ -723,14 +771,20 @@ class BrowseService {
   static Future<List<BrowseTrack>> albumTracks(
     String collectionId, {
     bool isFromYoutube = true,
-    String? albumTitle, // album/movie name — specific query ke liye
+    String? albumTitle, // album/movie name (raw video title) — cleaned below
   }) async {
-    // albumTitle mile toh specific query: "Movie Name full album songs"
-    // nahi mila toh channel name se best effort
     final query = (albumTitle != null && albumTitle.isNotEmpty)
-        ? '$albumTitle all songs'  // specific movie/album ke saare songs
+        ? _albumSearchQuery(albumTitle, collectionId)
         : '$collectionId songs';
-    return _ytTracksFor(query);
+    final tracks = await _ytTracksFor(query);
+    // Cleaned query still came back thin (e.g. a one-off indie upload with
+    // no real "album" behind it) — retry against the channel itself so the
+    // user gets that channel's other songs instead of a near-empty list.
+    if (tracks.length <= 1 && collectionId.isNotEmpty) {
+      final channelTracks = await _ytTracksFor('$collectionId songs');
+      if (channelTracks.length > tracks.length) return channelTracks;
+    }
+    return tracks;
   }
 
   // Fetch the complete song catalog for a Browse artist chip.

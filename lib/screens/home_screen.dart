@@ -1036,6 +1036,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   SliverToBoxAdapter(
                     child: _YtPlaylistsForYouSection(refreshKey: _playlistRefreshKey),
                   ),
+                  // ── Themed playlist shelves (full YT Music-style
+                  // playlist layout — Bollywood/90s/Party/etc, each its
+                  // own titled shelf) ──
+                  SliverToBoxAdapter(
+                    child: _ThemedPlaylistShelvesSection(refreshKey: _playlistRefreshKey),
+                  ),
                   // ── Song sections, with the Artist Strip injected at the
                   // midpoint — YT Music and Spotify both surface a "Popular
                   // artists" row roughly halfway down the home feed, never
@@ -3463,6 +3469,253 @@ class _YtPlaylistsForYouSectionState
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THEMED PLAYLIST SHELVES — YT Music / "ArchiveTune"-style full playlist
+// layout: several stacked shelves, each with its own small kicker line +
+// bold title (e.g. "THROWBACK TO THE OG ERAS OF MUSIC" / "Brb, Being
+// Nostalgic!"), followed by a horizontal row of real playlist cards.
+//
+// FEATURE ("complete youtube music jaisa layout sirf playlist"): the
+// existing "Playlists For You" section above is a single row behind mood
+// chips — switching mood REPLACES the row rather than showing multiple
+// themed rows at once, which is why Home never looked like YT Music's
+// multi-shelf playlist page. This section adds that multi-shelf layout
+// as an ADDITIONAL block (doesn't touch _YtPlaylistsForYouSection above
+// at all) by fetching several FIXED moods in parallel — each mood's own
+// ApiService.fetchYtMusicHomePlaylists() call, each with its own
+// HomeFeedCache entry (mood-keyed, already built for exactly this) — and
+// rendering each as its own titled shelf, reusing the exact same
+// _YtHomePlaylistCardWidget card design already used above so visuals
+// stay consistent with the rest of Home.
+class _ThemedPlaylistShelvesSection extends StatelessWidget {
+  final int refreshKey;
+  const _ThemedPlaylistShelvesSection({this.refreshKey = 0});
+
+  // Fixed shelf lineup + editorial copy. Mood ids must be valid keys in
+  // ApiService's _kMoodSubQueries map (see kHomeMoodChips for the full
+  // list) — reusing those moods means every shelf is backed by the same
+  // already-quality-filtered, already-deduped query set the mood-chip row
+  // above uses, no new query design needed.
+  static const List<_ThemeShelfSpec> _shelves = [
+    _ThemeShelfSpec(
+      mood: 'bollywood',
+      kicker: 'MUSIC THAT\'S HOT AND HAPPENING',
+      title: 'India\'s Biggest Hits',
+    ),
+    _ThemeShelfSpec(
+      mood: 'nineties',
+      kicker: 'THROWBACK TO THE OG ERAS OF MUSIC',
+      title: 'Brb, Being Nostalgic!',
+    ),
+    _ThemeShelfSpec(
+      mood: 'party',
+      kicker: 'TURN IT UP AND LET GO',
+      title: 'Party Mode: On',
+    ),
+    _ThemeShelfSpec(
+      mood: 'romantic',
+      kicker: 'FOR THE HOPELESS ROMANTICS',
+      title: 'Love Is In The Air',
+    ),
+    _ThemeShelfSpec(
+      mood: 'relax',
+      kicker: 'SLOW DOWN, BREATHE, REPEAT',
+      title: 'Chill Out Zone',
+    ),
+    _ThemeShelfSpec(
+      mood: 'sad',
+      kicker: 'FOR WHEN THE FEELS HIT HARD',
+      title: 'Grab The Tissues',
+    ),
+    _ThemeShelfSpec(
+      mood: 'workout',
+      kicker: 'PUSH THROUGH THE LAST REP',
+      title: 'Sweat It Out',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: _shelves
+          .map((spec) => _ThemedPlaylistShelf(
+                key: ValueKey('shelf_${spec.mood}_$refreshKey'),
+                spec: spec,
+                refreshKey: refreshKey,
+              ))
+          .toList(),
+    );
+  }
+}
+
+class _ThemeShelfSpec {
+  final String mood;
+  final String kicker;
+  final String title;
+  const _ThemeShelfSpec({
+    required this.mood,
+    required this.kicker,
+    required this.title,
+  });
+}
+
+class _ThemedPlaylistShelf extends StatefulWidget {
+  final _ThemeShelfSpec spec;
+  final int refreshKey;
+  const _ThemedPlaylistShelf({super.key, required this.spec, this.refreshKey = 0});
+
+  @override
+  State<_ThemedPlaylistShelf> createState() => _ThemedPlaylistShelfState();
+}
+
+class _ThemedPlaylistShelfState extends State<_ThemedPlaylistShelf> {
+  List<YtHomePlaylistCard>? _cards;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hydrateFromCache();
+  }
+
+  @override
+  void didUpdateWidget(_ThemedPlaylistShelf oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Pull-to-refresh bumps refreshKey — refetch this shelf too, same
+    // trigger _YtPlaylistsForYouSection already reacts to.
+    if (oldWidget.refreshKey != widget.refreshKey) {
+      setState(() {
+        _cards = null;
+        _failed = false;
+      });
+      _load();
+    }
+  }
+
+  Future<void> _hydrateFromCache() async {
+    // Same mood-keyed cache the "Playlists For You" row already uses —
+    // each shelf's mood is its own independent cache entry, so this
+    // section and the row above never fight over the same key.
+    final cached = await HomeFeedCache.loadPlaylistCards(widget.spec.mood);
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() => _cards = cached);
+    } else {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    try {
+      final cards = await ApiService.fetchYtMusicHomePlaylists(
+        limit: 8,
+        mood: widget.spec.mood,
+      ).timeout(const Duration(seconds: 12));
+      if (!mounted) return;
+      if (cards.isNotEmpty) {
+        unawaited(HomeFeedCache.savePlaylistCards(widget.spec.mood, cards));
+        setState(() {
+          _cards = cards;
+          _failed = false;
+        });
+      } else {
+        setState(() => _failed = true);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Nothing loaded and nothing coming — skip this one shelf entirely
+    // rather than leaving an empty-but-titled block on screen. Other
+    // shelves are unaffected since each is fetched independently.
+    if (_cards == null && _failed) return const SizedBox.shrink();
+
+    final cards = _cards;
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 16, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.spec.kicker,
+            style: TextStyle(
+              color: AurumTheme.textSecondaryOf(context),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.6,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            widget.spec.title,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 130,
+            child: cards == null
+                ? _ThemedShelfSkeleton()
+                : ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    cacheExtent: 600,
+                    padding: const EdgeInsets.only(right: 12),
+                    itemCount: cards.length,
+                    itemBuilder: (_, i) => _YtHomePlaylistCardWidget(
+                      key: ValueKey(
+                          '${widget.spec.mood}_${cards[i].id}_${widget.refreshKey}'),
+                      card: cards[i],
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Lightweight shimmer placeholder for a themed shelf while its cards load
+// — same visual language (rounded rect cards) as _YtPlaylistsForYouSkeleton
+// so a loading shelf doesn't look visually inconsistent with a loaded one.
+class _ThemedShelfSkeleton extends StatelessWidget {
+  const _ThemedShelfSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: AurumTheme.bgCardOf(context),
+      highlightColor: AurumTheme.bgCardOf(context).withOpacity(0.5),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(right: 12),
+        itemCount: 4,
+        itemBuilder: (_, __) => Container(
+          width: 130,
+          margin: const EdgeInsets.only(right: 12),
+          decoration: BoxDecoration(
+            color: AurumTheme.bgCardOf(context),
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
       ),
     );
   }

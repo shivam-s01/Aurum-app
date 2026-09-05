@@ -293,6 +293,20 @@ class _MoodSubQuery {
   const _MoodSubQuery(this.id, this.title, this.query);
 }
 
+// Pre-resolve metadata for a discovered real YouTube playlist — see
+// _searchRealPlaylists/_realPlaylistCard above. Not the final card yet
+// (no songs resolved), just enough to try importing it.
+class _RealPlaylistCandidate {
+  final String id;
+  final String author;
+  final String artworkUrl;
+  const _RealPlaylistCandidate({
+    required this.id,
+    required this.author,
+    required this.artworkUrl,
+  });
+}
+
 // Lightweight card for the home screen's "Playlists For You" row.
 // REDESIGNED (2026-08-14 — "faltu ka kya karna hai, ekdam simple
 // playlist jaisa"): this used to wrap a YT Music PLAYLIST id — tapping
@@ -885,8 +899,19 @@ class ApiService {
     _PoolEntry('new music hindi bollywood',                      'New Music'),
     _PoolEntry('top charts bollywood songs',                     'Top Charts'),
     _PoolEntry('hidden gems bollywood underrated songs',         'Discovery'),
-    _PoolEntry('top bollywood albums 2025 2026',                 'Top Albums'),
-    _PoolEntry('best bollywood playlists hits',                  'Fan Favorites'),
+    // FIX ("Top Albums row mein sirf 1 hi song aata hai"): the old query
+    // text — 'top bollywood albums 2025 2026' / 'best bollywood playlists
+    // hits' — reads like a request for a COMPILATION video, not individual
+    // songs, so YouTube's results were dominated by jukebox/non-stop-style
+    // uploads ("Top Bollywood Hits 2025 Jukebox", "Best Album Songs 2026
+    // Non-Stop"). Those titles are near-identical to each other, so
+    // isSameSongSmart's dedup correctly collapsed them all down to a
+    // single survivor — this row was never actually broken, it was asking
+    // for the wrong kind of video. Rephrased to ask for individual new
+    // movie-album songs / hit playlist songs instead, matching the shape
+    // every other working pool query already uses.
+    _PoolEntry('new bollywood movie album songs 2025 2026',      'Top Albums'),
+    _PoolEntry('best bollywood hit songs playlist',              'Fan Favorites'),
     // ── Eras ──────────────────────────────────────────────────────────────
     _PoolEntry('90s bollywood superhits original',              '90s Bollywood'),
     _PoolEntry('2000s bollywood original songs',                '2000s Bollywood'),
@@ -4375,7 +4400,17 @@ class ApiService {
   }) async {
     final subQueries = _kMoodSubQueries[mood] ?? _kMoodSubQueries[null]!;
     final exclude = (excludeIds ?? const []).toSet();
-    const songsPerCard = 30;
+    // FIX ("100 songs ke sath playlist khulni chahiye"): was capped at 30
+    // regardless of source. Real playlists (the _realPlaylistCard path
+    // below) genuinely have 100+ tracks — 30 was throwing away real
+    // catalog depth for no reason. Raised to 100 so a real playlist opens
+    // with its actual size. Honest caveat: the search-based FALLBACK path
+    // (_raceSongSources) is a single-page search race, not a deep
+    // multi-page fetch — for a niche sub-query it may still land under
+    // 100 after quality/dedup filtering, same as it always could. This
+    // change removes the artificial 30-cap; it doesn't manufacture songs
+    // a query doesn't actually have.
+    const songsPerCard = 100;
     // See _raceSongSources' isPodcastQuery doc comment: the Podcasts
     // mood needs a different race shape (skip Saavn, skip the
     // Songs-only YT filter) since podcast episodes are structurally
@@ -4383,6 +4418,16 @@ class ApiService {
     final isPodcastMood = mood == 'podcasts';
 
     final cardFutures = subQueries.take(limit).map((sub) async {
+      // FEATURE ("real YouTube playlist import, sirf random songs nahi"):
+      // try to back this card with a REAL, currently-live YouTube
+      // playlist first — a genuine editorial/label playlist someone
+      // actually curated, not just a same-topic song search. Podcasts
+      // stay on the song-search path (a "podcast playlist" concept
+      // doesn't map cleanly the same way).
+      if (!isPodcastMood) {
+        final real = await _realPlaylistCard(sub, mood, exclude, songsPerCard);
+        if (real != null) return real;
+      }
       final songs = await _raceSongSources(
         sub.query,
         limit: songsPerCard + exclude.length,
@@ -4415,6 +4460,131 @@ class ApiService {
     }
 
     return cards;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // REAL PLAYLIST DISCOVERY + RESOLVE ("real YouTube playlist import
+  // chahiye" — not a song-search dressed up as a card).
+  //
+  // WHY THE OLD real-playlist-id approach failed ("Couldn't import that
+  // playlist"): that flow took a USER-PASTED playlist link/id — which
+  // could be private, region-locked, deleted, or a "Mix"/"Radio" id
+  // (RD.../UL.../LM... — see _isYtMixPlaylistId) that YouTube generates
+  // on the fly with no stable tracklist to import at all. There was no
+  // way to know in advance whether a given pasted id would work.
+  //
+  // This is different: the id is never guessed or user-supplied. It's
+  // DISCOVERED live via YouTube's own playlist search (SearchClient with
+  // TypeFilters.playlist) — so by construction it's a real, currently-
+  // existing, publicly-listed playlist at the moment we look it up. Mix/
+  // Radio ids are structurally excluded (search never returns those as
+  // playlist results — only real uploaded/curated playlists are). If the
+  // top candidate still somehow fails to resolve (deleted between search
+  // and fetch, empty, whatever), the next candidate is tried; if EVERY
+  // candidate fails, this returns null and the caller falls back to the
+  // existing song-search card — so a shelf can never end up broken or
+  // empty because of this, only ever as good as before or better.
+  //
+  // Resolving the winning id reuses fetchYtPlaylistSongs() as-is — same
+  // Worker-race-vs-explode_dart path, same retry, same quality filtering
+  // every other real playlist import in this app already goes through.
+  static Future<YtHomePlaylistCard?> _realPlaylistCard(
+    _MoodSubQuery sub,
+    String? mood,
+    Set<String> exclude,
+    int songsPerCard,
+  ) async {
+    try {
+      final candidates = await _searchRealPlaylists(sub.query, take: 5);
+      if (candidates.isEmpty) return null;
+
+      for (final candidate in candidates) {
+        try {
+          final songs = await fetchYtPlaylistSongs(
+            candidate.id,
+            limit: songsPerCard + exclude.length + 20,
+          ).timeout(const Duration(seconds: 10));
+          final cleaned = songs.where((s) => s.id.isNotEmpty).toList();
+          final fresh = cleaned.where((s) => !exclude.contains(s.id)).toList();
+          final finalSongs =
+              (fresh.length >= 10 ? fresh : cleaned).take(songsPerCard).toList();
+          // Require a real minimum count — a "playlist" with only 2-3
+          // songs left after cleaning isn't a usable shelf card, try
+          // the next candidate instead of accepting a thin result.
+          if (finalSongs.length < 10) continue;
+          return YtHomePlaylistCard(
+            id: 'realpl_${mood ?? "all"}_${sub.id}_${candidate.id}',
+            title: sub.title,
+            subtitle: candidate.author.isNotEmpty ? candidate.author : 'Playlist',
+            artworkUrl: candidate.artworkUrl.isNotEmpty
+                ? candidate.artworkUrl
+                : finalSongs
+                    .firstWhere((s) => s.artworkUrl.isNotEmpty,
+                        orElse: () => finalSongs.first)
+                    .artworkUrl,
+            songs: finalSongs,
+          );
+        } catch (_) {
+          // This specific candidate failed to resolve — try the next
+          // one rather than giving up on the whole shelf.
+          continue;
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Playlists with fewer videos than this aren't worth surfacing as a
+  // shelf card — same reasoning as every other quality floor in this
+  // file (thin results look unfinished/spammy, not "official").
+  static const int _kMinPlaylistVideoCount = 15;
+
+  static Future<List<_RealPlaylistCandidate>> _searchRealPlaylists(
+    String query, {
+    int take = 5,
+  }) async {
+    try {
+      final searchFuture = _yt.search.searchContent(
+        query,
+        filter: TypeFilters.playlist,
+      );
+      final results = await searchFuture.timeout(
+        const Duration(seconds: 8),
+      );
+      final list = results.toList();
+
+      final candidates = list
+          .whereType<SearchPlaylist>()
+          .where((p) => p.id.value.isNotEmpty)
+          // Mix/Radio ids never actually come back from a playlist
+          // SEARCH (only from watch-page "up next" endpoints), but the
+          // check costs nothing and removes any doubt.
+          .where((p) => !_isYtMixPlaylistId(p.id.value))
+          .where((p) => !RecommendationEngine.isLowQualityUpload(p.title))
+          // A playlist with only a handful of videos isn't a real "Top
+          // Hits"-style shelf card — skip thin ones so the ones that do
+          // get picked feel substantial, same reasoning as the
+          // song-search path's own quality floor.
+          .where((p) {
+            final count = p.videoCount;
+            return count == null || count >= _kMinPlaylistVideoCount;
+          })
+          .map((p) => _RealPlaylistCandidate(
+                id: p.id.value,
+                author: _cleanText(p.author ?? ''),
+                artworkUrl: _bestThumbnail(p.thumbnails),
+              ))
+          .take(take)
+          .toList();
+      return candidates;
+    } catch (_) {
+      // Any shape mismatch/parse failure/network error here just means
+      // "no real playlist found" — never lets a discovery-layer problem
+      // surface as anything worse than falling back to song-search.
+      return const [];
+    }
   }
 
   // First-non-empty-wins race across independent sources: the Worker's
