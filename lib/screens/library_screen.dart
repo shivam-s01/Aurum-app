@@ -65,6 +65,7 @@ import 'album_screen.dart';
 import 'mix_screen.dart';
 import '../widgets/aurum_focus_field.dart';
 import '../utils/aurum_immersive_header.dart';
+import '../utils/artwork_palette_cache.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
 import '../utils/aurum_motion.dart';
@@ -1180,9 +1181,17 @@ class _PlaylistHeaderState extends State<_PlaylistHeader> {
             : '');
     if (url.isEmpty) return;
     final c = await extractImmersiveColor(url);
+    // Same contrast-safety clamp as mix_screen.dart's matching fix —
+    // applied here (not in _onGlow above) so both this header's own
+    // _glow AND the value handed up to the parent screen's background
+    // via widget.onGlow are already the safe, clamped color.
     if (c != null && mounted) {
-      setState(() => _glow = c);
-      widget.onGlow?.call(url, c);
+      final safe = ensureContrastSafe(
+        c,
+        isLight: Theme.of(context).brightness == Brightness.light,
+      );
+      setState(() => _glow = safe);
+      widget.onGlow?.call(url, safe);
     }
   }
 
@@ -1776,6 +1785,17 @@ class _PlaylistCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // FIX ("artwork open hote hi turant catch le, time na le"): pre-warm
+    // this playlist's glow color the moment its card is on screen in the
+    // list, same idea as Full Player warming the next queued song's
+    // palette while the current one plays. The no-custom-cover path
+    // below (PlaylistColorCover) already warms itself via its own
+    // getFast()/get() calls — this covers the other half: playlists WITH
+    // a coverArt image, whose detail-screen glow previously only started
+        // extracting the moment the header itself first built.
+    if (playlist.coverArt != null && playlist.coverArt!.isNotEmpty) {
+      ArtworkPaletteCache.warm(playlist.coverArt!);
+    }
     return AurumPressable(
       onTap: () => AurumDepthRoute.to(
         context,

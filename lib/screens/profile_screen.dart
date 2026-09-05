@@ -100,11 +100,11 @@ class _ProfileScreenState extends State<ProfileScreen>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      // Was flat Color(0xFF060608) (near-pure-black) — switched to the
-      // app's real dark-theme background so profile matches the rest of
-      // Aurum's navy-violet dark surfaces instead of reading as its own
-      // separate, darker "AMOLED-black" screen.
-      backgroundColor: AurumTheme.darkBg,
+      // FIX ("profile screen theme se catch nahi ho raha"): same root
+      // cause as premium_screen.dart — AurumTheme.darkBg is a fixed
+      // dark-mode constant, so this screen ignored Light/AMOLED entirely.
+      // bgOf(context) follows the user's actual theme setting instead.
+      backgroundColor: AurumTheme.bgOf(context),
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -271,11 +271,11 @@ class _ProfileHero extends StatelessWidget {
                   // 310px hero while the Google profile photo is still
                   // downloading. Reusing the themed gradient background
                   // keeps this looking intentional instead of broken.
-                  placeholder: (_, __) => _gradientBg(),
-                  errorWidget: (_, __, ___) => _gradientBg(),
+                  placeholder: (_, __) => _gradientBg(context),
+                  errorWidget: (_, __, ___) => _gradientBg(context),
                 ),
               )
-            : _gradientBg(),
+            : _gradientBg(context),
 
         // ── Scrim ──
         Container(
@@ -399,13 +399,26 @@ class _ProfileHero extends StatelessWidget {
     );
   }
 
-  Widget _gradientBg() {
+  Widget _gradientBg(BuildContext context) {
+    // FIX ("profile screen theme se catch nahi ho raha"): these three
+    // were fixed dark-mode constants (darkBgElevated/darkBgSurface/
+    // darkBg) baked into a const BoxDecoration — always the same navy-
+    // violet gradient no matter what theme the user actually has
+    // selected. Swapped for the context-aware bgCardOf/bgElevatedOf/
+    // bgOf trio (same helpers Scaffold.backgroundColor above now uses)
+    // so this placeholder/fallback gradient follows Light/Dark/AMOLED
+    // too, instead of being the one remaining spot on this screen that
+    // silently ignored the setting.
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [AurumTheme.darkBgElevated, AurumTheme.darkBgSurface, AurumTheme.darkBg],
+          colors: [
+            AurumTheme.bgElevatedOf(context),
+            AurumTheme.bgCardOf(context),
+            AurumTheme.bgOf(context),
+          ],
         ),
       ),
     );

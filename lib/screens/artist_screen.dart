@@ -23,6 +23,7 @@ import 'album_screen.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_immersive_header.dart';
+import '../utils/artwork_palette_cache.dart';
 
 class ArtistScreen extends StatefulWidget {
   /// Either a pre-resolved id — 'yt_<channelId>' or 'saavn_<id>' — or just
@@ -57,7 +58,14 @@ class _ArtistScreenState extends State<ArtistScreen> {
     if (imageUrl.isEmpty || _glowExtractedFor == imageUrl) return;
     _glowExtractedFor = imageUrl;
     final c = await extractImmersiveColor(imageUrl);
-    if (c != null && mounted) setState(() => _glow = c);
+    // Same contrast-safety clamp as mix_screen.dart's matching fix.
+    if (c != null && mounted) {
+      final safe = ensureContrastSafe(
+        c,
+        isLight: Theme.of(context).brightness == Brightness.light,
+      );
+      setState(() => _glow = safe);
+    }
   }
 
   // NOTE: this screen used to call ApiService.fetchArtist() (a single

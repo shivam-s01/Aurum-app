@@ -241,10 +241,16 @@ class _PremiumScreenState extends State<PremiumScreen>
     }
 
     return Scaffold(
-      // Was flat Color(0xFF060608) — now the app's real dark-theme surface
-      // so this paywall matches every other dark screen instead of reading
-      // as a separately-darker AMOLED-black page.
-      backgroundColor: AurumTheme.darkBg,
+      // FIX ("premium screen theme se catch nahi ho raha"): this was
+      // AurumTheme.darkBg — a fixed dark-mode constant — so switching to
+      // Light or AMOLED in Settings had zero effect on this screen; it
+      // stayed the same dark violet regardless of the user's actual
+      // theme choice. bgOf(context) reads the live
+      // Theme.of(context).scaffoldBackgroundColor instead, so this
+      // screen now follows Light/Dark/AMOLED exactly like every other
+      // screen in the app (mix/album/artist/library all already use
+      // this same helper).
+      backgroundColor: AurumTheme.bgOf(context),
       body: Stack(
         children: [
           RepaintBoundary(
@@ -973,7 +979,8 @@ class _SuccessViewState extends State<_SuccessView>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      backgroundColor: AurumTheme.darkBg,
+      // Same theme-awareness fix as the paywall build() above.
+      backgroundColor: AurumTheme.bgOf(context),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(32),

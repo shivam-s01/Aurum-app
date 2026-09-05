@@ -40,6 +40,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
 import '../utils/aurum_immersive_header.dart';
+import '../utils/artwork_palette_cache.dart';
 
 class MixScreen extends StatefulWidget {
   final String mixId;
@@ -104,7 +105,20 @@ class _MixScreenState extends State<MixScreen> {
 
   Future<void> _extractGlow() async {
     final c = await extractImmersiveColor(widget.artworkUrl);
-    if (c != null && mounted) setState(() => _glow = c);
+    // CHANGE ("aankhon pe effect na kare ekdam beautiful rahe"): clamps
+    // an occasional too-bright/oversaturated extracted swatch (rare for
+    // a muted swatch specifically, but a neon/pastel cover can still
+    // produce one) into the same safe luminance range Full Player's
+    // background already enforces, so text/icons drawn over this glow
+    // stay readable and the wash never reads as harsh regardless of
+    // which theme mode is active.
+    if (c != null && mounted) {
+      final safe = ensureContrastSafe(
+        c,
+        isLight: Theme.of(context).brightness == Brightness.light,
+      );
+      setState(() => _glow = safe);
+    }
   }
 
   /// Pull-to-refresh handler — only wired up when widget.enableRefresh

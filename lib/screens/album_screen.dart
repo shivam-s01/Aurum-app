@@ -29,6 +29,7 @@ import 'full_player_screen.dart' show shareSong;
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_sheet.dart';
 import '../utils/aurum_immersive_header.dart';
+import '../utils/artwork_palette_cache.dart';
 
 class AlbumScreen extends StatefulWidget {
   final String albumId;
@@ -65,7 +66,14 @@ class _AlbumScreenState extends State<AlbumScreen> {
 
   Future<void> _extractGlow(String url) async {
     final c = await extractImmersiveColor(url);
-    if (c != null && mounted) setState(() => _glow = c);
+    // Same contrast-safety clamp as mix_screen.dart's matching fix.
+    if (c != null && mounted) {
+      final safe = ensureContrastSafe(
+        c,
+        isLight: Theme.of(context).brightness == Brightness.light,
+      );
+      setState(() => _glow = safe);
+    }
   }
 
   Future<void> _load() async {

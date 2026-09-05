@@ -23,39 +23,66 @@
 
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:palette_generator/palette_generator.dart';
 import '../theme/aurum_theme.dart';
+import 'artwork_palette_cache.dart';
 
 /// Extracts a single "immersive background" color from an artwork URL.
 ///
+/// FIX ("artwork khulte hi turant catch le, 1-2 sec ka flash na ho"):
+/// this used to call PaletteGenerator directly, uncached, on every single
+/// screen entry — no `peek()`, no fast approximation, no timeout, and (like
+/// artwork_palette_cache.dart's own history) it only recognized http(s)
+/// URLs, silently doing nothing for a local/content:// song's art. That
+/// meant a full ~1s+ decode+quantize EVERY time this screen opened, even
+/// for artwork already extracted elsewhere in the app (Full Player, a
+/// playlist card) two seconds earlier.
+///
+/// Routing through the same [ArtworkPaletteCache] Full Player and
+/// PlaylistColorCover already use fixes all of that in one move: an
+/// already-seen artwork resolves from [ArtworkPaletteCache.peek] instantly
+/// (same frame, no async gap at all), a first-ever look gets the ~16x16
+/// fast pass in well under 100ms instead of a full decode, content://
+/// and local file art now actually extracts instead of silently no-op'ing,
+/// and every cache entry is shared across every screen — so by the time a
+/// user backs out of a mix screen into an album screen showing the same
+/// artwork, that screen's first frame is already the real color, not the
+/// fallback.
+///
 /// Prefers muted/soft swatches over the loud vibrant one — matches the
 /// premium, slightly-desaturated look of the reference players instead of
-/// clashing with pastel/soft cover art. Falls back through progressively
-/// safer swatches, then to [fallback], so a network hiccup or a totally
-/// flat-color artwork never leaves the caller with a broken/null color.
+/// clashing with pastel/soft cover art.
 Future<Color?> extractImmersiveColor(
   String artworkUrl, {
   Color fallback = const Color(0xFF1A1630),
 }) async {
-  if (artworkUrl.isEmpty || !artworkUrl.startsWith('http')) return null;
-  try {
-    final pg = await PaletteGenerator.fromImageProvider(
-      CachedNetworkImageProvider(artworkUrl),
-      size: const Size(50, 50),
-      maximumColorCount: 8,
-    );
-    final c = pg.mutedColor?.color ??
-        pg.darkMutedColor?.color ??
-        pg.lightMutedColor?.color ??
-        pg.dominantColor?.color ??
-        pg.vibrantColor?.color;
-    return c;
-  } catch (_) {
-    // Cosmetic nicety only — caller keeps its neutral fallback glow.
-    return null;
-  }
+  if (artworkUrl.isEmpty) return null;
+
+  // Instant path: this exact artwork was already extracted anywhere else
+  // in the app (Full Player, a playlist card, another detail screen) —
+  // resolves synchronously, so the very first frame can already show the
+  // real color instead of the flat fallback.
+  final cached = ArtworkPaletteCache.peek(artworkUrl);
+  if (cached != null) return _pickMuted(cached);
+
+  // First-ever look at this artwork: kick off the accurate extraction
+  // (which caches itself for every future call/screen) but don't make
+  // the caller wait 1.2s for it — race it against the ~16x16 fast pass,
+  // which typically resolves in well under 100ms, and take whichever
+  // finishes first. Either way the accurate one keeps running and will
+  // update the cache for the next screen/replay regardless of which arm
+  // of this race wins.
+  final accurateFuture = ArtworkPaletteCache.get(artworkUrl);
+  final fast = await ArtworkPaletteCache.getFast(artworkUrl);
+  if (fast != null) return _pickMuted(fast);
+
+  // No fast approximation available (e.g. unrecognized URL shape) — fall
+  // through to waiting on the accurate extraction, which itself has its
+  // own internal 1.2s timeout and never throws.
+  final accurate = await accurateFuture;
+  return _pickMuted(accurate);
 }
+
+Color _pickMuted(ArtworkPalette p) => p.darkMuted;
 
 /// The scrim that sits directly under full-bleed header artwork, washing
 /// the photo in [glow] top-to-bottom with NO black band — the page
@@ -127,26 +154,38 @@ class AurumGlassCollapseBar extends StatelessWidget {
     this.barHeight = kToolbarHeight,
   });
 
+  // CHANGE ("hamesha halka glass dikhe, simpmusic jaisa"): SimpMusic's
+  // Haze bar isn't scroll-gated at all — it's a permanently-transparent
+  // container with hazeEffect() always active, so the bar reads as
+  // faintly glassy even at the very top of a fully expanded header, then
+  // visibly strengthens once real content scrolls behind it. A hard 0.0
+  // floor (the old behavior) meant zero glass the instant a screen
+  // opened — correct for "cheapest possible frame while expanded," but
+  // not the always-on glass look being asked for here.
+  //
+  // _minStrength is that floor: never fully off, always ramping up to
+  // full strength by the time the header finishes collapsing. Softer
+  // than full strength at rest so it still reads as "expanded, but with
+  // a glass hint" rather than "already collapsed."
+  static const double _minStrength = 0.22;
+
   @override
   Widget build(BuildContext context) {
-    // expandRatio: 1.0 = fully expanded (artwork showing, no glass at all),
-    // 0.0 = fully collapsed (bar pinned, glass at full strength). Clamp
+    // expandRatio: 1.0 = fully expanded, 0.0 = fully collapsed. Clamp
     // defends against the tiny overshoot Flutter's FlexibleSpaceBar can
     // report mid-scroll-physics-bounce.
-    final collapse = (1.0 - expandRatio).clamp(0.0, 1.0);
-    if (collapse <= 0.0) {
-      // Cheapest possible frame while fully expanded: no BackdropFilter,
-      // no compositing layer at all.
-      return const SizedBox.shrink();
-    }
+    final collapseRaw = (1.0 - expandRatio).clamp(0.0, 1.0);
+    // Remap so 0.0 collapse -> _minStrength (not 0), 1.0 collapse -> 1.0,
+    // linearly in between — the floor, not a separate on/off switch.
+    final strength = _minStrength + (1.0 - _minStrength) * collapseRaw;
     return IgnorePointer(
       child: Opacity(
-        opacity: collapse,
+        opacity: strength,
         child: ClipRect(
           child: BackdropFilter(
             filter: ImageFilter.blur(
-              sigmaX: 18 * collapse,
-              sigmaY: 18 * collapse,
+              sigmaX: 18 * strength,
+              sigmaY: 18 * strength,
             ),
             child: Container(
               height: barHeight + MediaQuery.of(context).padding.top,
