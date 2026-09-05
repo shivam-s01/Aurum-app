@@ -2857,7 +2857,7 @@ class _SongInfo extends StatelessWidget {
 // with a glow-aura loading transition (the "Gemini-style" morph the user
 // asked for) — album art fades out through a soft accent-colored glow
 // pulse, settling into a calm, static (non-glowing) lyrics screen once
-// the transition completes. Reuses _LyricsPage for the actual lyrics
+// the transition completes. Reuses AurumLyricsPage for the actual lyrics
 // content/fetch/scroll/sync logic rather than duplicating it — that
 // widget is already fully self-contained (watches PlayerProvider,
 // fetches, romanizes Devanagari, tracks the active line) so it drops in
@@ -3273,7 +3273,7 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                           ),
                         ),
                       ),
-                    // Incoming lyrics content — reuses _LyricsPage as-is
+                    // Incoming lyrics content — reuses AurumLyricsPage as-is
                     // (self-contained fetch/sync/scroll), eased inward
                     // (scale 0.97→1.0) as it's released from the glow so
                     // the swap reads as one continuous morph rather than
@@ -3304,7 +3304,7 @@ class _ImmersiveLyricsOverlayState extends State<_ImmersiveLyricsOverlay> {
                                   borderRadius: BorderRadius.circular(2),
                                 ),
                               ),
-                              const Expanded(child: _LyricsPage()),
+                              const Expanded(child: AurumLyricsPage()),
                             ],
                           ),
                         ),
@@ -5798,7 +5798,7 @@ class _PremiumContentPanelState extends State<_PremiumContentPanel>
       case 0:
         return const _QueuePage();
       case 1:
-        return const _LyricsPage();
+        return const AurumLyricsPage();
       case 2:
         return const _InfoPage();
       default:
@@ -6611,14 +6611,14 @@ class _QueueQuickActionsSheet extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Lyrics Page
 // ─────────────────────────────────────────────────────────────────────────────
-class _LyricsPage extends StatefulWidget {
-  const _LyricsPage();
+class AurumLyricsPage extends StatefulWidget {
+  const AurumLyricsPage({super.key});
 
   @override
-  State<_LyricsPage> createState() => _LyricsPageState();
+  State<AurumLyricsPage> createState() => _LyricsPageState();
 }
 
-class _LyricsPageState extends State<_LyricsPage> {
+class _LyricsPageState extends State<AurumLyricsPage> {
   LyricsResult? _result;
   bool _loading = true;
   bool _notFound = false;
