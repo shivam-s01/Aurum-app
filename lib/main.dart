@@ -482,21 +482,46 @@ class AurumApp extends StatelessWidget {
                   : AurumTheme.darkTheme);
 
           // FIX ("home page font playlist mai kaam nahi kar raha"): also
-          // set ThemeData.fontFamily/fontFamilyFallback, not just
-          // textTheme — see the doc comment on resolvedFontFamily in
-          // theme_provider.dart for why textTheme alone left every
-          // hardcoded `const TextStyle(...)` screen (home_screen.dart's
-          // playlist cards included) stuck on the system font.
-          final lightTheme = baseLight.copyWith(
-            textTheme: themeProvider.resolvedTextTheme(baseLight.textTheme),
-            fontFamily: themeProvider.resolvedFontFamily,
-            fontFamilyFallback: themeProvider.resolvedFontFamilyFallback,
-          );
-          final darkTheme = baseDark.copyWith(
-            textTheme: themeProvider.resolvedTextTheme(baseDark.textTheme),
-            fontFamily: themeProvider.resolvedFontFamily,
-            fontFamilyFallback: themeProvider.resolvedFontFamilyFallback,
-          );
+          // apply the font family across every TextStyle in textTheme, not
+          // just via GoogleFonts.xTextTheme() — see the doc comment on
+          // resolvedFontFamily in theme_provider.dart for why textTheme
+          // alone left every hardcoded `const TextStyle(...)` screen
+          // (home_screen.dart's playlist cards included) stuck on the
+          // system font.
+          //
+          // FIX (build error: "The named parameter 'fontFamily' isn't
+          // defined" / "'fontFamilyFallback' isn't defined" —
+          // undefined_named_parameter on lib/main.dart:492-498): the
+          // previous version of this fix called
+          // `baseLight.copyWith(fontFamily: ..., fontFamilyFallback: ...)`.
+          // ThemeData.copyWith() has no such parameters — fontFamily /
+          // fontFamilyFallback only exist on ThemeData's own default
+          // constructor, not on copyWith(). That's not a typo-level
+          // mistake either; Flutter's ThemeData intentionally omits them
+          // from copyWith() because they're meant to be consumed into
+          // textTheme up front, not stored/re-applied as loose top-level
+          // fields later. TextTheme.apply(fontFamily: ...) is the
+          // supported way to push a family onto every style in a
+          // TextTheme after the fact, so that's what resolvedFontFamily is
+          // folded into here instead, ONLY when a family is actually
+          // selected — when it's null (system-default font style), the
+          // resolved textTheme is used as-is, since apply(fontFamily:
+          // null) would be a no-op anyway and skipping it avoids any
+          // unnecessary TextTheme rebuild on the common default path.
+          final resolvedFamily = themeProvider.resolvedFontFamily;
+          final resolvedFallback = themeProvider.resolvedFontFamilyFallback;
+
+          var lightTextTheme = themeProvider.resolvedTextTheme(baseLight.textTheme);
+          var darkTextTheme = themeProvider.resolvedTextTheme(baseDark.textTheme);
+          if (resolvedFamily != null) {
+            lightTextTheme = lightTextTheme.apply(
+                fontFamily: resolvedFamily, fontFamilyFallback: resolvedFallback);
+            darkTextTheme = darkTextTheme.apply(
+                fontFamily: resolvedFamily, fontFamilyFallback: resolvedFallback);
+          }
+
+          final lightTheme = baseLight.copyWith(textTheme: lightTextTheme);
+          final darkTheme = baseDark.copyWith(textTheme: darkTextTheme);
 
           return MaterialApp(
             navigatorKey: navigatorKey,
