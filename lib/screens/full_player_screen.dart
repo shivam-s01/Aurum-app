@@ -4652,6 +4652,27 @@ void shareSong(BuildContext context, Song song) {
 
 /// Opens the existing premium Sleep Timer sheet (built for Settings → Player)
 /// from anywhere a [PlayerProvider] is available, e.g. the Full Player screen.
+void showAurumFullPlayerOptionsSheet(
+  BuildContext context,
+  Song song, {
+  Color? accentColor,
+}) {
+  final player = context.read<PlayerProvider>();
+  AurumHaptics.light();
+  showAurumModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    barrierColor: Colors.black.withAlpha(150),
+    builder: (_) => _PremiumOptionsSheet(
+      song: song,
+      player: player,
+      accentColor: accentColor ?? AurumTheme.gold,
+      rootContext: context,
+    ),
+  );
+}
+
 void showSleepTimerForSong(BuildContext context, PlayerProvider player) {
   final handler = player.handler;
   bool finishSong = false;
