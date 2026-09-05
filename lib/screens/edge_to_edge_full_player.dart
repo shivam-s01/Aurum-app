@@ -32,6 +32,7 @@ import '../providers/player_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../models/song.dart';
 import '../theme/aurum_theme.dart';
+import '../utils/artwork_palette_cache.dart';
 import '../widgets/aurum_like_button.dart';
 import '../widgets/aurum_play_pause_icon.dart';
 import '../widgets/aurum_pressable.dart';
@@ -53,6 +54,14 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
   double _dragY = 0;
   bool _dragging = false;
 
+  // Song-specific solid panel color — extracted from the current
+  // artwork's palette (same ArtworkPaletteCache the Card layout's "Solid"
+  // background style uses), contrast-clamped for white text/icons on top.
+  // Starts as a safe dark neutral before the first extraction resolves,
+  // then updates per-song via _loadPaletteFor().
+  Color _panelColor = const Color(0xFF1C1C1E);
+  String? _paletteUrl;
+
   static const double _dismissThreshold = 140;
 
   void _handleDragUpdate(DragUpdateDetails d) {
@@ -71,6 +80,25 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
     setState(() {
       _dragging = false;
       _dragY = 0;
+    });
+  }
+
+  void _loadPaletteFor(String url) {
+    if (url.isEmpty || url == _paletteUrl) return;
+    _paletteUrl = url;
+
+    // Cache hit — apply instantly, no flash of the fallback color.
+    final cached = ArtworkPaletteCache.peek(url);
+    if (cached != null) {
+      final safe = ensureContrastSafe(cached.darkMuted, isLight: false);
+      if (mounted) setState(() => _panelColor = safe);
+      return;
+    }
+
+    ArtworkPaletteCache.get(url).then((palette) {
+      if (!mounted || _paletteUrl != url) return;
+      final safe = ensureContrastSafe(palette.darkMuted, isLight: false);
+      setState(() => _panelColor = safe);
     });
   }
 
@@ -96,6 +124,8 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
           return const SizedBox.shrink();
         }
 
+        _loadPaletteFor(song.artworkUrl);
+
         final scale = (1 - (_dragY / 1400)).clamp(0.9, 1.0);
         final opacity = (1 - (_dragY / 500)).clamp(0.35, 1.0);
 
@@ -113,67 +143,95 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
                 transformAlignment: Alignment.center,
                 child: Opacity(
                   opacity: opacity,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      // ── Full-bleed artwork (the background IS the art) ──
-                      Positioned.fill(
-                        child: Hero(
-                          tag: 'aurum_art_${song.id}',
-                          child: song.artworkUrl.isNotEmpty
-                              ? CachedNetworkImage(
-                                  imageUrl: song.artworkUrl,
-                                  fit: BoxFit.cover,
-                                  fadeInDuration: const Duration(milliseconds: 220),
-                                  errorWidget: (_, __, ___) => Container(color: AurumTheme.darkBgElevated),
-                                )
-                              : Container(color: AurumTheme.darkBgElevated),
-                        ),
-                      ),
-
-                      // ── Bottom scrim so text/controls stay legible ──
-                      Positioned.fill(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              stops: const [0.0, 0.45, 0.68, 1.0],
-                              colors: [
-                                Colors.black.withOpacity(0.0),
-                                Colors.black.withOpacity(0.0),
-                                Colors.black.withOpacity(0.55),
-                                Colors.black.withOpacity(0.88),
-                              ],
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      // Reference design: artwork fills roughly the top
+                      // ~58% of the screen, then a FLAT solid panel (not a
+                      // gradient fade) takes over for title/controls —
+                      // matching the "Jaiye Sajana" reference exactly,
+                      // where the grey panel has zero artwork bleed-through.
+                      final artHeight = constraints.maxHeight * 0.58;
+                      return Stack(
+                        children: [
+                          // ── Artwork: fixed-height top section ──
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: artHeight,
+                            child: Hero(
+                              tag: 'aurum_art_${song.id}',
+                              child: song.artworkUrl.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: song.artworkUrl,
+                                      fit: BoxFit.cover,
+                                      fadeInDuration: const Duration(milliseconds: 220),
+                                      errorWidget: (_, __, ___) =>
+                                          Container(color: AurumTheme.darkBgElevated),
+                                    )
+                                  : Container(color: AurumTheme.darkBgElevated),
                             ),
                           ),
-                        ),
-                      ),
 
-                      // ── Foreground content ──
-                      SafeArea(
-                        top: false,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              const Spacer(),
-                              _TitleRow(song: song),
-                              const SizedBox(height: 18),
-                              _ScrubBar(player: player),
-                              const SizedBox(height: 6),
-                              _TransportRow(player: player),
-                              const SizedBox(height: 10),
-                              _VolumeRow(player: player),
-                              const SizedBox(height: 18),
-                              _BottomIconRow(player: player, song: song),
-                              const SizedBox(height: 12),
-                            ],
+                          // ── Solid flat panel: bottom section, no
+                          // gradient, no artwork bleed-through ──
+                          Positioned(
+                            top: artHeight,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(color: _panelColor),
+                            ),
                           ),
-                        ),
-                      ),
-                    ],
+
+                          // ── Short blend seam where art meets the panel,
+                          // so the transition isn't a hard visible line ──
+                          Positioned(
+                            top: artHeight - 28,
+                            left: 0,
+                            right: 0,
+                            height: 28,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    _panelColor.withOpacity(0.0),
+                                    _panelColor,
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          // ── Foreground content ──
+                          SafeArea(
+                            top: false,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 26),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  const Spacer(),
+                                  _TitleRow(song: song),
+                                  const SizedBox(height: 32),
+                                  _ScrubBar(player: player),
+                                  const SizedBox(height: 16),
+                                  _TransportRow(player: player),
+                                  const SizedBox(height: 26),
+                                  _VolumeRow(player: player),
+                                  const SizedBox(height: 32),
+                                  _BottomIconRow(player: player, song: song),
+                                  const SizedBox(height: 20),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
@@ -211,7 +269,7 @@ class _TitleRow extends StatelessWidget {
                       height: 1.15,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
                   Text(
                     song.artist,
                     maxLines: 1,
@@ -225,7 +283,7 @@ class _TitleRow extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 18),
             _CircleIconButton(
               icon: Icons.more_vert_rounded,
               onTap: () => showAurumFullPlayerOptionsSheet(
@@ -234,7 +292,7 @@ class _TitleRow extends StatelessWidget {
                 accentColor: AurumTheme.gold,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 14),
             Container(
               width: 44,
               height: 44,
@@ -309,11 +367,11 @@ class _ScrubBarState extends State<_ScrubBar> {
           children: [
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                trackHeight: 4,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                trackHeight: 5,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
                 activeTrackColor: Colors.white,
-                inactiveTrackColor: Colors.white.withOpacity(0.28),
+                inactiveTrackColor: Colors.white.withOpacity(0.32),
                 thumbColor: Colors.white,
               ),
               child: Slider(
@@ -356,7 +414,7 @@ class _TransportRow extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             IconButton(
-              iconSize: 34,
+              iconSize: 38,
               icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
               onPressed: () {
                 AurumHaptics.light();
@@ -368,22 +426,34 @@ class _TransportRow extends StatelessWidget {
                 AurumHaptics.medium();
                 player.togglePlay();
               },
-              child: SizedBox(
-                width: 56,
-                height: 56,
+              child: Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.35),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                alignment: Alignment.center,
                 child: isLoading
                     ? const Padding(
-                        padding: EdgeInsets.all(14),
+                        padding: EdgeInsets.all(22),
                         child: CircularProgressIndicator(
-                          strokeWidth: 2.4,
-                          valueColor: AlwaysStoppedAnimation(Colors.white),
+                          strokeWidth: 2.6,
+                          valueColor: AlwaysStoppedAnimation(Colors.black87),
                         ),
                       )
-                    : AurumPlayPauseIcon(isPlaying: isPlaying, color: Colors.white, size: 56),
+                    : AurumPlayPauseIcon(isPlaying: isPlaying, color: Colors.black87, size: 40),
               ),
             ),
             IconButton(
-              iconSize: 34,
+              iconSize: 38,
               icon: const Icon(Icons.skip_next_rounded, color: Colors.white),
               onPressed: () {
                 AurumHaptics.light();
@@ -409,6 +479,7 @@ class _VolumeRowState extends State<_VolumeRow> {
   int _level = 0;
   int _max = 15;
   bool _loaded = false;
+  int? _fadeGen; // increments to cancel an in-flight fade if user interacts again
 
   @override
   void initState() {
@@ -432,9 +503,35 @@ class _VolumeRowState extends State<_VolumeRow> {
   }
 
   void _onChanged(double v) {
+    _fadeGen = (_fadeGen ?? 0) + 1; // cancel any in-progress fade
     final level = v.round();
     setState(() => _level = level);
     widget.player.engine.setMediaVolume(level);
+  }
+
+  /// Tapping the mute icon: smoothly steps volume down to 0, one tick at
+  /// a time, instead of an instant jump — reads as a deliberate "fade
+  /// out" rather than a hard cut.
+  Future<void> _fadeToMute() async {
+    final gen = (_fadeGen ?? 0) + 1;
+    _fadeGen = gen;
+    AurumHaptics.light();
+    var v = _level;
+    while (v > 0 && _fadeGen == gen && mounted) {
+      v = (v - 1).clamp(0, _max);
+      setState(() => _level = v);
+      widget.player.engine.setMediaVolume(v);
+      await Future.delayed(const Duration(milliseconds: 35));
+    }
+  }
+
+  /// Tapping the speaker/max icon: jumps straight to full volume — no
+  /// fade, immediate.
+  void _jumpToMax() {
+    _fadeGen = (_fadeGen ?? 0) + 1; // cancel any in-progress fade
+    AurumHaptics.light();
+    setState(() => _level = _max);
+    widget.player.engine.setMediaVolume(_max);
   }
 
   @override
@@ -442,7 +539,18 @@ class _VolumeRowState extends State<_VolumeRow> {
     if (!_loaded) return const SizedBox(height: 20);
     return Row(
       children: [
-        Icon(Icons.volume_mute_rounded, color: Colors.white.withOpacity(0.7), size: 20),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _fadeToMute,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              _level == 0 ? Icons.volume_off_rounded : Icons.volume_mute_rounded,
+              color: Colors.white.withOpacity(0.7),
+              size: 20,
+            ),
+          ),
+        ),
         Expanded(
           child: SliderTheme(
             data: SliderTheme.of(context).copyWith(
@@ -461,7 +569,14 @@ class _VolumeRowState extends State<_VolumeRow> {
             ),
           ),
         ),
-        Icon(Icons.volume_up_rounded, color: Colors.white.withOpacity(0.7), size: 20),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _jumpToMax,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(Icons.volume_up_rounded, color: Colors.white.withOpacity(0.7), size: 20),
+          ),
+        ),
       ],
     );
   }
@@ -508,10 +623,12 @@ class _BottomIconRowState extends State<_BottomIconRow> {
               icon: const Icon(Icons.reorder_rounded, color: Colors.white, size: 24),
               onPressed: () => _openQueueSheet(context),
             ),
+            const SizedBox(width: 6),
             IconButton(
               icon: const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 22),
               onPressed: () => _openLyricsSheet(context),
             ),
+            const SizedBox(width: 6),
             IconButton(
               icon: Icon(
                 sleepActive ? Icons.bedtime_rounded : Icons.dark_mode_outlined,
