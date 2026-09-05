@@ -4573,7 +4573,7 @@ class ApiService {
           })
           .map((p) => _RealPlaylistCandidate(
                 id: p.id.value,
-                author: _cleanText(p.author ?? ''),
+                author: '',
                 artworkUrl: _bestThumbnail(p.thumbnails),
               ))
           .take(take)
