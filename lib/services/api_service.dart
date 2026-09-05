@@ -395,6 +395,35 @@ class HomeAlbumCard {
       );
 }
 
+// One card inside a real InnerTube home shelf (see fetchRealHomeShelves
+// above) — either a real album or a real community playlist, exactly as
+// YouTube Music's own homepage would show it. browseId is opaque here;
+// the caller (home_screen.dart) decides what to do with it based on
+// isAlbum (open AlbumScreen vs. resolve+open as a playlist).
+class HomeShelfItem {
+  final String browseId;
+  final String title;
+  final String subtitle;
+  final String artworkUrl;
+  final bool isAlbum;
+  const HomeShelfItem({
+    required this.browseId,
+    required this.title,
+    required this.subtitle,
+    required this.artworkUrl,
+    required this.isAlbum,
+  });
+}
+
+// One real InnerTube home shelf — a title (e.g. "New releases",
+// "Trending community playlists", exactly as YT Music itself titles it —
+// never invented/translated here) plus its cards.
+class HomeShelf {
+  final String title;
+  final List<HomeShelfItem> items;
+  const HomeShelf({required this.title, required this.items});
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // MOOD CHIPS for the "Playlists For You" row. Each id maps to a plain
 // YT Music search query (see _kMoodSearchQuery below) — no Worker-side
@@ -3960,6 +3989,575 @@ class ApiService {
       return null;
     }
   }
+
+  // Same InnerTube `browse` endpoint as _ytmBrowseRaw, but for following a
+  // continuation token (see _fetchFullTopSongsPlaylist doc below) instead
+  // of an initial browseId — InnerTube expects `continuation` as a
+  // top-level request field with NO `browseId`/`context.client` wrapper
+  // change otherwise, verified by hand against the real continuation
+  // token captured off Arijit Singh's Top Songs playlist (2026-09-06).
+  static Future<Map<String, dynamic>?> _ytmBrowseContinuationRaw(
+    String continuationToken, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    try {
+      final uri = Uri.parse(
+        'https://music.youtube.com/youtubei/v1/browse?key=$_ytmApiKey&prettyPrint=false',
+      );
+      final resp = await _client.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Origin': 'https://music.youtube.com',
+          'Referer': 'https://music.youtube.com/',
+        },
+        body: jsonEncode({
+          'context': {
+            'client': {
+              'clientName': 'WEB_REMIX',
+              'clientVersion': _ytmClientVersion,
+              'hl': 'en',
+              'gl': 'IN',
+            },
+          },
+          'continuation': continuationToken,
+        }),
+      ).timeout(timeout);
+      if (resp.statusCode != 200) return null;
+      final decoded = jsonDecode(resp.body);
+      return decoded is Map ? decoded.cast<String, dynamic>() : null;
+    } catch (e) {
+      _log('[_ytmBrowseContinuationRaw] error: $e');
+      return null;
+    }
+  }
+
+  // FIX ("artist ke songs sirf 20-28 tak hi aate hai, complete real
+  // InnerTube catalog chahiye" — root cause + fix, 2026-09-06): fetches an
+  // artist's REAL, COMPLETE "Top songs" playlist (the VL-prefixed
+  // browseId off that shelf's "Show all" bottomEndpoint — see call site
+  // above) instead of relying on the artist page's own capped inline
+  // preview. Verified by hand: a single browse call on that playlist id
+  // returned 100 real unique songs (musicResponsiveListItemRenderer,
+  // playlistItemData.videoId) plus a continuationItemRenderer carrying a
+  // CONTINUATION_REQUEST_TYPE_BROWSE token for page 2+ — so artists with
+  // more than 100 real songs need that token followed, not just one call.
+  //
+  // Mutates `topSongs`/`seenVideoIds` in place (both already populated
+  // with the inline-preview rows by the caller) rather than returning a
+  // new list, so de-dup against the preview rows the caller already found
+  // is automatic and doesn't need a second merge pass afterward.
+  static Future<void> _fetchFullTopSongsPlaylist(
+    String playlistBrowseId, {
+    required int targetCount,
+    required String fallbackArtistName,
+    required String resolvedChannelId,
+    required List<Song> topSongs,
+    required Set<String> seenVideoIds,
+    Duration timeout = const Duration(seconds: 8),
+    // Hard ceiling on continuation hops regardless of targetCount, so a
+    // misbehaving/never-ending token chain can't loop indefinitely — 10
+    // hops already covers targetCount up to ~1000 at 100/page, matching
+    // every caller's actual songCount today.
+    int maxContinuations = 10,
+  }) async {
+    Map<String, dynamic>? data = await _ytmBrowseRaw(playlistBrowseId, timeout: timeout);
+    var hops = 0;
+
+    while (data != null && topSongs.length < targetCount && hops <= maxContinuations) {
+      for (final item in _findRenderers(data, 'musicResponsiveListItemRenderer')) {
+        if (topSongs.length >= targetCount) break;
+        final videoId = (item['playlistItemData']?['videoId'] ?? '').toString();
+        if (videoId.isEmpty || !seenVideoIds.add(videoId)) continue;
+
+        final title = _flexColumnText(item, 0);
+        if (title.isEmpty) continue;
+
+        final artistRuns = _artistRunsInSubtitle(item);
+        final artistName =
+            artistRuns.isNotEmpty ? artistRuns.first.name : fallbackArtistName;
+
+        final thumbs = (item['thumbnail']?['musicThumbnailRenderer']
+                    ?['thumbnail']?['thumbnails'] as List?) ??
+            const [];
+        String artworkUrl = '';
+        if (thumbs.isNotEmpty) {
+          final rawUrl = (thumbs.last['url'] ?? '').toString();
+          artworkUrl = rawUrl.isNotEmpty
+              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500')
+              : '';
+        }
+
+        final flexColumns = (item['flexColumns'] as List?) ?? const [];
+        int? duration;
+        if (flexColumns.isNotEmpty) {
+          final lastColRuns = (flexColumns.last
+                      ?['musicResponsiveListItemFlexColumnRenderer']?['text']
+                  ?['runs'] as List?) ??
+              const [];
+          final lastColText = lastColRuns
+              .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+              .join()
+              .trim();
+          duration = _parseDurationText(lastColText);
+        }
+
+        final song = Song(
+          id: videoId,
+          title: _cleanText(title),
+          artist: _cleanText(artistName, collapseJukeboxTitle: false),
+          album: '',
+          artworkUrl: artworkUrl,
+          streamUrl: null,
+          duration: duration,
+          source: SongSource.youtube,
+          viewCount: 1000000,
+          artistChannelId: resolvedChannelId,
+        );
+        if (RecommendationEngine.isNonMusicContent(song)) continue;
+        topSongs.add(song);
+      }
+
+      if (topSongs.length >= targetCount) break;
+
+      String? nextToken;
+      for (final cont in _findRenderers(data, 'continuationItemRenderer')) {
+        final token = (cont['continuationEndpoint']?['continuationCommand']
+                ?['token'] ??
+            '')
+            .toString();
+        if (token.isNotEmpty) {
+          nextToken = token;
+          break;
+        }
+      }
+      if (nextToken == null) break; // Real end of the artist's catalog.
+
+      hops++;
+      data = await _ytmBrowseContinuationRaw(nextToken, timeout: timeout);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // REAL InnerTube HOME FEED ("ekdam InnerTube jaisa, ekdam YouTube
+  // level" — no more search-query-dressed-as-a-shelf).
+  //
+  // WHAT THIS REPLACES: fetchYtMusicHomePlaylists/fetchYtMusicHomeAlbums'
+  // default ("All"/null mood) path used to run plain text searches like
+  // "top hits global playlist" or "trending songs now" (see
+  // _kMoodSubQueries[null]) and dress up whatever random video won that
+  // search as a home card. That's why unrelated junk (a random gym-mix
+  // upload, an unrelated artist's song) could show up on Home — it was
+  // never actually YouTube Music's home feed, just a search result
+  // wearing a playlist card's clothes.
+  //
+  // WHAT THIS DOES INSTEAD: calls InnerTube's own `browse` endpoint with
+  // browseId "FEmusic_home" — the exact request music.youtube.com's own
+  // web client makes to render its homepage. Verified by hand (real
+  // captured response, 2026-09-06) to return, when called anonymously
+  // (no auth cookies — this is a plain phone-side call, no Worker, no
+  // login):
+  //   contents.singleColumnBrowseResultsRenderer.tabs[0].tabRenderer
+  //     .content.sectionListRenderer.contents[] — each one of:
+  //     - musicCarouselShelfRenderer  (the shelves we want)
+  //     - musicTastebuilderShelfRenderer (an onboarding "tell us which
+  //       artists you like" prompt card, not content — always skipped)
+  // Each musicCarouselShelfRenderer has a header title (e.g. "New
+  // releases", "Trending community playlists") and a contents[] list of
+  // musicTwoRowItemRenderer, each with title/subtitle runs, a thumbnail,
+  // and a navigationEndpoint.browseEndpoint whose browseId is either an
+  // album (MPREb_-prefixed, pageType MUSIC_PAGE_TYPE_ALBUM) or a
+  // playlist (VL-prefixed, pageType MUSIC_PAGE_TYPE_PLAYLIST) — never a
+  // bare playable song (no watchEndpoint appears anywhere in the
+  // anonymous response; that only shows up in a logged-in/personalized
+  // "Quick picks" shelf, which requires real account auth cookies this
+  // app does not have — a real, larger feature, not this fix's scope).
+  //
+  // NO WORKER DEPENDENCY BY DESIGN ("worker down ho jaye tb bhi"): same
+  // reasoning as _ytmBrowseRaw/_ytmSearchRaw above — a direct phone-side
+  // POST to music.youtube.com, so Home's real-shelf data keeps working
+  // even if the Cloudflare Worker is unreachable.
+  static Future<Map<String, dynamic>?> _ytmHomeRaw({
+    Duration timeout = const Duration(seconds: 8),
+  }) =>
+      _ytmBrowseRaw('FEmusic_home', timeout: timeout);
+
+  // One musicTwoRowItemRenderer -> a lightweight (browseId, title,
+  // subtitle, artworkUrl, pageType) tuple. Returns null for anything
+  // that doesn't look like a real, navigable album/playlist card (e.g.
+  // malformed/partial renderer) rather than surfacing a broken card.
+  static ({
+    String browseId,
+    String title,
+    String subtitle,
+    String artworkUrl,
+    String pageType,
+  })? _parseHomeTwoRowItem(Map<String, dynamic> item) {
+    final r = item['musicTwoRowItemRenderer'];
+    if (r is! Map) return null;
+    final titleRuns = (r['title']?['runs'] as List?) ?? const [];
+    if (titleRuns.isEmpty) return null;
+    final title = _cleanHomeText((titleRuns.first['text'] ?? '').toString());
+    if (title.isEmpty) return null;
+
+    final nav = titleRuns.first['navigationEndpoint'];
+    final browseEndpoint = nav is Map ? nav['browseEndpoint'] : null;
+    if (browseEndpoint is! Map) return null;
+    final browseId = (browseEndpoint['browseId'] ?? '').toString();
+    if (browseId.isEmpty) return null;
+    final pageType = (browseEndpoint['browseEndpointContextSupportedConfigs']
+                ?['browseEndpointContextMusicConfig']?['pageType'] ??
+            '')
+        .toString();
+
+    final subtitleRuns = (r['subtitle']?['runs'] as List?) ?? const [];
+    final subtitle = _cleanHomeText(
+        subtitleRuns.map((run) => (run['text'] ?? '').toString()).join());
+
+    final thumbs = (r['thumbnailRenderer']?['musicThumbnailRenderer']
+            ?['thumbnail']?['thumbnails'] as List?) ??
+        const [];
+    String artworkUrl = '';
+    if (thumbs.isNotEmpty) {
+      // thumbnails[] is ordered smallest-first — take the largest.
+      artworkUrl = (thumbs.last['url'] ?? '').toString();
+    }
+
+    return (
+      browseId: browseId,
+      title: title,
+      subtitle: subtitle,
+      artworkUrl: _hqArtworkGeneric(artworkUrl),
+      pageType: pageType,
+    );
+  }
+
+  // Local HTML-entity cleanup for home-feed title/subtitle text — same
+  // replacements used elsewhere in this file (see the two other
+  // '&amp;'/'&quot;' spots), kept as its own small helper here rather
+  // than calling a shared _clean() that doesn't exist in this file.
+  static String _cleanHomeText(String s) => s
+      .replaceAll('&amp;', '&')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#039;', "'")
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>');
+
+  // yt3.googleusercontent.com thumbnails already come reasonably large
+  // (up to =w544-h544 in the captured response) and don't use Saavn's
+  // 150x150/50x50 URL-suffix convention, so _hqArtwork (Saavn-specific
+  // string replace) doesn't apply here — this is a thin pass-through
+  // kept as its own named function so a future real upscale rule has an
+  // obvious single place to live, without implying today's URLs need one.
+  static String _hqArtworkGeneric(String url) => url;
+
+  /// A real (title, subtitle, artworkUrl, browseId, isAlbum) shelf item
+  /// straight from InnerTube's own home feed — see _ytmHomeRaw doc above.
+  /// Deliberately does NOT carry a resolved song list (unlike
+  /// YtHomePlaylistCard) — same lazy-load reasoning as HomeAlbumCard:
+  /// only fetch an album/playlist's actual tracks once the user taps it.
+  static Future<List<HomeShelf>> fetchRealHomeShelves({
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final data = await _ytmHomeRaw(timeout: timeout);
+    if (data == null) return const [];
+    try {
+      final tabs = (data['contents']?['singleColumnBrowseResultsRenderer']
+              ?['tabs'] as List?) ??
+          const [];
+      final firstTab = tabs.isNotEmpty ? tabs.first : null;
+      final sections = (firstTab is Map
+              ? firstTab['tabRenderer']?['content']?['sectionListRenderer']
+                  ?['contents'] as List?
+              : null) ??
+          const [];
+
+      final shelves = <HomeShelf>[];
+      for (final section in sections) {
+        if (section is! Map) continue;
+        final shelf = section['musicCarouselShelfRenderer'];
+        // musicTastebuilderShelfRenderer (an onboarding prompt, not
+        // content — see doc comment above) and anything else
+        // unrecognized are silently skipped, never shown as an empty
+        // or broken row.
+        if (shelf is! Map) continue;
+
+        final titleRuns = (shelf['header']
+                    ?['musicCarouselShelfBasicHeaderRenderer']?['title']
+                ?['runs'] as List?) ??
+            const [];
+        final shelfTitle = titleRuns.isNotEmpty
+            ? _cleanHomeText((titleRuns.first['text'] ?? '').toString())
+            : '';
+        if (shelfTitle.isEmpty) continue;
+
+        final items = (shelf['contents'] as List?) ?? const [];
+        final parsed = <HomeShelfItem>[];
+        for (final raw in items) {
+          if (raw is! Map<String, dynamic>) continue;
+          final it = _parseHomeTwoRowItem(raw);
+          if (it == null || it.artworkUrl.isEmpty) continue;
+          parsed.add(HomeShelfItem(
+            browseId: it.browseId,
+            title: it.title,
+            subtitle: it.subtitle,
+            artworkUrl: it.artworkUrl,
+            isAlbum: it.pageType == 'MUSIC_PAGE_TYPE_ALBUM',
+          ));
+        }
+        if (parsed.isEmpty) continue;
+
+        shelves.add(HomeShelf(title: shelfTitle, items: parsed));
+      }
+      return shelves;
+    } catch (e) {
+      _log('[fetchRealHomeShelves] parse error: $e');
+      return const [];
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // "YOU MIGHT ALSO LIKE" (real per-song InnerTube recommendation, not a
+  // generic home-level feature — see HANDOFF notes: YT Music itself only
+  // has this per-song, under the "Related" tab of a song's `next`
+  // response, browseId format MPTR...).
+  //
+  // Two-step, both anonymous/no-Worker (same phone-direct reasoning as
+  // _ytmHomeRaw above):
+  //   1. `next` with the current videoId -> read the "Related" tab's
+  //      tabRenderer.endpoint.browseEndpoint.browseId (an MPTR... id).
+  //      Verified by hand (real captured response, 2026-09-06): the
+  //      "Up next"/"Lyrics"/"Comments"/"Related" tabs always come back in
+  //      that order, Related always last, its tab has no inline content
+  //      of its own — only the browseId to fetch step 2 with.
+  //   2. `browse` with that MPTR... browseId -> a single
+  //      musicCarouselShelfRenderer titled literally "You might also
+  //      like", contents[] of musicResponsiveListItemRenderer (NOT
+  //      musicTwoRowItemRenderer — a different renderer shape, see
+  //      _parseRelatedListItem below), each a real playable song with
+  //      its own videoId (playlistItemData.videoId), never an
+  //      album/playlist-only card.
+  static Future<String?> _fetchRelatedBrowseId(
+    String videoId, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    try {
+      final uri = Uri.parse(
+        'https://music.youtube.com/youtubei/v1/next?key=$_ytmApiKey&prettyPrint=false',
+      );
+      final resp = await _client.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Origin': 'https://music.youtube.com',
+          'Referer': 'https://music.youtube.com/',
+        },
+        body: jsonEncode({
+          'context': {
+            'client': {
+              'clientName': 'WEB_REMIX',
+              'clientVersion': _ytmClientVersion,
+              'hl': 'en',
+              'gl': 'IN',
+            },
+          },
+          'videoId': videoId,
+        }),
+      ).timeout(timeout);
+      if (resp.statusCode != 200) return null;
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map) return null;
+
+      final tabs = (decoded['contents']?['singleColumnMusicWatchNextResultsRenderer']
+              ?['tabbedRenderer']?['watchNextTabbedResultsRenderer']?['tabs']
+          as List?) ??
+          const [];
+      for (final tab in tabs) {
+        if (tab is! Map) continue;
+        final tr = tab['tabRenderer'];
+        if (tr is! Map) continue;
+        if ((tr['title'] ?? '').toString() != 'Related') continue;
+        final browseId =
+            (tr['endpoint']?['browseEndpoint']?['browseId'] ?? '').toString();
+        return browseId.isEmpty ? null : browseId;
+      }
+      return null;
+    } catch (e) {
+      _log('[_fetchRelatedBrowseId] error for "$videoId": $e');
+      return null;
+    }
+  }
+
+  // One musicResponsiveListItemRenderer -> a playable related-song tuple.
+  // Different shape from _parseHomeTwoRowItem's musicTwoRowItemRenderer:
+  // title/artist/album live in flexColumns[0..2] (each a
+  // musicResponsiveListItemFlexColumnRenderer), and the actually-playable
+  // videoId lives at the top-level playlistItemData.videoId — not inside
+  // any flexColumn's navigationEndpoint (those on flexColumns[1]/[2] are
+  // artist/album browseIds, not watchEndpoints, and flexColumns[0]'s
+  // watchEndpoint duplicates playlistItemData.videoId so we just read the
+  // one guaranteed spot instead of trying both).
+  static ({
+    String videoId,
+    String title,
+    String artist,
+    String artworkUrl,
+  })? _parseRelatedListItem(Map<String, dynamic> item) {
+    final r = item['musicResponsiveListItemRenderer'];
+    if (r is! Map) return null;
+
+    final videoId = (r['playlistItemData']?['videoId'] ?? '').toString();
+    if (videoId.isEmpty) return null;
+
+    final flexCols = (r['flexColumns'] as List?) ?? const [];
+    String colText(int index) {
+      if (index >= flexCols.length) return '';
+      final col = flexCols[index]['musicResponsiveListItemFlexColumnRenderer'];
+      if (col is! Map) return '';
+      final runs = (col['text']?['runs'] as List?) ?? const [];
+      return _cleanHomeText(
+          runs.map((run) => (run['text'] ?? '').toString()).join());
+    }
+
+    final title = colText(0);
+    if (title.isEmpty) return null;
+    final artist = colText(1);
+
+    final thumbs = (r['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
+            ?['thumbnails'] as List?) ??
+        const [];
+    String artworkUrl = '';
+    if (thumbs.isNotEmpty) {
+      artworkUrl = (thumbs.last['url'] ?? '').toString();
+    }
+
+    return (
+      videoId: videoId,
+      title: title,
+      artist: artist,
+      artworkUrl: _hqArtworkGeneric(artworkUrl),
+    );
+  }
+
+  /// Real InnerTube "You might also like" for the song currently
+  /// playing/viewed — see the two-step doc above _fetchRelatedBrowseId.
+  /// Returns [] (never throws to the caller) if either step fails, so a
+  /// player screen can just hide the row rather than show a broken one.
+  static Future<List<Song>> fetchYouMightAlsoLike(
+    String videoId, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    if (videoId.isEmpty) return const [];
+    try {
+      final relatedBrowseId = await _fetchRelatedBrowseId(videoId, timeout: timeout);
+      if (relatedBrowseId == null) return const [];
+
+      final data = await _ytmBrowseRaw(relatedBrowseId, timeout: timeout);
+      if (data == null) return const [];
+
+      final sections =
+          (data['contents']?['sectionListRenderer']?['contents'] as List?) ??
+              const [];
+      final songs = <Song>[];
+      for (final section in sections) {
+        if (section is! Map) continue;
+        final shelf = section['musicCarouselShelfRenderer'];
+        if (shelf is! Map) continue;
+        final items = (shelf['contents'] as List?) ?? const [];
+        for (final raw in items) {
+          if (raw is! Map<String, dynamic>) continue;
+          final it = _parseRelatedListItem(raw);
+          if (it == null || it.artworkUrl.isEmpty) continue;
+          songs.add(Song(
+            id: it.videoId,
+            title: it.title,
+            artist: it.artist,
+            album: '',
+            artworkUrl: it.artworkUrl,
+            source: SongSource.youtube,
+            // duration/viewCount aren't present in this InnerTube
+            // renderer (unlike the NewPipe-based related path elsewhere
+            // in this file) — left at defaults; stream itself is
+            // resolved lazily at play-time via the existing resolver,
+            // same as every other YT-sourced Song in this file.
+          ));
+        }
+      }
+      return songs;
+    } catch (e) {
+      _log('[fetchYouMightAlsoLike] error: $e');
+      return const [];
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // "FANS MIGHT ALSO LIKE" (real per-artist InnerTube recommendation).
+  // Verified by hand (real captured artist-page response, 2026-09-06,
+  // Arijit Singh / UCDxKh1gFWeYsqePvgVzmPoQ): an anonymous artist-page
+  // `browse` response's sectionListRenderer.contents[] always includes a
+  // musicCarouselShelfRenderer titled literally "Fans might also like"
+  // (that capture: index 7 of 9 sections — index isn't assumed fixed
+  // here, we search by title instead), contents[] of
+  // musicTwoRowItemRenderer — same shape _parseHomeTwoRowItem already
+  // handles, so no new parser needed, just reused with pageType filtered
+  // to MUSIC_PAGE_TYPE_ARTIST.
+  static Future<List<ArtistSimple>> fetchFansMightAlsoLike(
+    String artistChannelId, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    if (artistChannelId.isEmpty) return const [];
+    try {
+      final data = await _ytmBrowseRaw(artistChannelId, timeout: timeout);
+      if (data == null) return const [];
+
+      final tabs = (data['contents']?['singleColumnBrowseResultsRenderer']
+              ?['tabs'] as List?) ??
+          const [];
+      final firstTab = tabs.isNotEmpty ? tabs.first : null;
+      final sections = (firstTab is Map
+              ? firstTab['tabRenderer']?['content']?['sectionListRenderer']
+                  ?['contents'] as List?
+              : null) ??
+          const [];
+
+      for (final section in sections) {
+        if (section is! Map) continue;
+        final shelf = section['musicCarouselShelfRenderer'];
+        if (shelf is! Map) continue;
+        final titleRuns = (shelf['header']
+                    ?['musicCarouselShelfBasicHeaderRenderer']?['title']
+                ?['runs'] as List?) ??
+            const [];
+        final shelfTitle =
+            titleRuns.isNotEmpty ? (titleRuns.first['text'] ?? '').toString() : '';
+        if (shelfTitle != 'Fans might also like') continue;
+
+        final items = (shelf['contents'] as List?) ?? const [];
+        final artists = <ArtistSimple>[];
+        for (final raw in items) {
+          if (raw is! Map<String, dynamic>) continue;
+          final it = _parseHomeTwoRowItem(raw);
+          if (it == null || it.pageType != 'MUSIC_PAGE_TYPE_ARTIST') continue;
+          if (it.browseId.isEmpty || it.artworkUrl.isEmpty) continue;
+          artists.add(ArtistSimple(
+            id: it.browseId,
+            name: it.title,
+            imageUrl: it.artworkUrl,
+          ));
+        }
+        return artists;
+      }
+      // No "Fans might also like" shelf on this particular artist page
+      // (smaller/newer artists may not have one) — empty, not an error.
+      return const [];
+    } catch (e) {
+      _log('[fetchFansMightAlsoLike] error: $e');
+      return const [];
+    }
+  }
+
   // "Songs" search-filter param — restricts results to the Songs shelf
   // only (same as tapping the "Songs" chip on music.youtube.com), so
   // every result is a real song row with proper artist/album metadata,
@@ -4559,6 +5157,80 @@ class ApiService {
   // row fills at roughly the speed of whichever single sub-category is
   // slowest, not their sum.
   //
+  // FEATURE ("home pool bahut chhota hai — sirf ~10 items, refresh pe
+  // wahi ghoomte rehte hain" — variety fix, 2026-09-06): FEmusic_home's
+  // anonymous shelves are a small, fixed pool (verified by hand: ~10
+  // albums total). To add real variety without inventing anything, pull
+  // each seed artist's own "Albums"/"Singles" INLINE carousel off their
+  // artist page — the same real, currently-live releases the artist's
+  // own YT Music page shows, just the free top-level preview (no extra
+  // "More"/MPAD fetch here — that full-discography pagination is
+  // reserved for the Artist screen itself; Home only needs a handful of
+  // each artist's latest releases, which the inline carousel already
+  // gives for free off a browse call this makes anyway). Reuses the
+  // exact same seed artist channelIds the Home Artists row already
+  // resolves, so there's no second "who are the interesting artists"
+  // list to maintain.
+  //
+  // Per-refresh-cycle cache: fetchYtMusicHomePlaylists and
+  // fetchYtMusicHomeAlbums both call this, so the second call reuses the
+  // first's in-flight/completed result instead of doubling the network
+  // cost. Intentionally NOT time-based — cleared explicitly by each
+  // caller's own refresh path, not a timer, so it can't silently go
+  // stale mid-session.
+  static Future<List<HomeShelfItem>>? _seedArtistReleasesCache;
+
+  static Future<List<HomeShelfItem>> _fetchSeedArtistReleases() {
+    return _seedArtistReleasesCache ??= () async {
+      try {
+        final seedArtists = await _fetchYtMusicArtistsDirect(limit: 8);
+        if (seedArtists.isEmpty) return const <HomeShelfItem>[];
+
+        final browses = await Future.wait(seedArtists.map(
+          (a) => _ytmBrowseRaw(a.channelId, timeout: const Duration(seconds: 6)),
+        ));
+
+        final out = <HomeShelfItem>[];
+        final seenIds = <String>{};
+        for (final decoded in browses) {
+          if (decoded == null) continue;
+          for (final carousel in _findRenderers(decoded, 'musicCarouselShelfRenderer')) {
+            final headerTitleRuns = (carousel['header']
+                        ?['musicCarouselShelfBasicHeaderRenderer']?['title']
+                    ?['runs'] as List?) ??
+                const [];
+            final headerTitle = headerTitleRuns
+                .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+                .join()
+                .toLowerCase();
+            if (!headerTitle.contains('album') && !headerTitle.contains('single')) {
+              continue;
+            }
+            final cards = (carousel['contents'] as List?) ?? const [];
+            for (final raw in cards) {
+              if (raw is! Map<String, dynamic>) continue;
+              final it = _parseHomeTwoRowItem(raw);
+              if (it == null || it.artworkUrl.isEmpty) continue;
+              if (it.pageType != 'MUSIC_PAGE_TYPE_ALBUM') continue;
+              if (!seenIds.add(it.browseId)) continue;
+              out.add(HomeShelfItem(
+                browseId: it.browseId,
+                title: it.title,
+                subtitle: it.subtitle,
+                artworkUrl: it.artworkUrl,
+                isAlbum: true,
+              ));
+            }
+          }
+        }
+        return out;
+      } catch (e) {
+        _log('[_fetchSeedArtistReleases] error: $e');
+        return const <HomeShelfItem>[];
+      }
+    }();
+  }
+
   // Each card is a plain list of Song objects — not a playlist id.
   // That removes the old two-step "fetch card -> tap -> import
   // playlist -> maybe fails" flow entirely: there's nothing left to
@@ -4570,8 +5242,109 @@ class ApiService {
     String? mood,
     List<String>? excludeIds,
   }) async {
-    final subQueries = _kMoodSubQueries[mood] ?? _kMoodSubQueries[null]!;
     final exclude = (excludeIds ?? const []).toSet();
+    final realCards = <YtHomePlaylistCard>[];
+
+    // FEATURE ("ekdam InnerTube jaisa, awkward/unrelated cards hata do"):
+    // for the default Home ("All"/null mood — where the old
+    // "top hits global playlist"/"trending songs now" text searches used
+    // to surface random, unrelated uploads as fake playlist cards), try
+    // REAL InnerTube home shelves first. FEmusic_home (anonymous, no
+    // login needed — see fetchRealHomeShelves doc comment) doesn't have
+    // a mood-specific equivalent, so mood chips (Bollywood/90s/etc.)
+    // still use the existing search-based path below unchanged.
+    if (mood == null) {
+      try {
+        final realShelves = await fetchRealHomeShelves();
+        // A real shelf's playlist cards (isAlbum == false) need their
+        // song list resolved before they're usable as a
+        // YtHomePlaylistCard (unlike HomeAlbumCard, which lazy-loads on
+        // tap) — reuses fetchYtPlaylistSongs, the same
+        // Worker-race-vs-explode_dart resolver every other real
+        // playlist import in this app already goes through.
+        var playlistItems = realShelves
+            .expand((s) => s.items.where((it) => !it.isAlbum)
+                .map((it) => (shelfTitle: s.title, item: it)))
+            .toList();
+        // FIX ("refresh pe hamesha same cards" — anonymous FEmusic_home
+        // returns a small, fixed pool, not a randomized one per call):
+        // shuffle so pull-to-refresh/mood-revisit actually surfaces a
+        // different subset of the same real pool instead of looking
+        // frozen/dead. Still 100% real InnerTube playlists either way —
+        // this only changes which ones are picked first, never what
+        // they are.
+        playlistItems.shuffle();
+
+        final cardFutures = <Future<YtHomePlaylistCard?>>[];
+        for (final entry in playlistItems) {
+          if (cardFutures.length >= limit) break;
+          final it = entry.item;
+          // Real playlist browseIds from FEmusic_home come VL-prefixed
+          // (e.g. "VLPLxxxx") — fetchYtPlaylistSongs/youtube_explode_dart
+          // expect the bare playlist id ("PLxxxx").
+          final playlistId =
+              it.browseId.startsWith('VL') ? it.browseId.substring(2) : it.browseId;
+          cardFutures.add(() async {
+            try {
+              final songs = await fetchYtPlaylistSongs(
+                playlistId,
+                limit: 100 + exclude.length + 20,
+              ).timeout(const Duration(seconds: 10));
+              final cleaned = songs.where((s) => s.id.isNotEmpty).toList();
+              final fresh =
+                  cleaned.where((s) => !exclude.contains(s.id)).toList();
+              final finalSongs =
+                  (fresh.length >= 10 ? fresh : cleaned).take(100).toList();
+              if (finalSongs.length < 10) return null;
+              return YtHomePlaylistCard(
+                id: 'realhome_${it.browseId}',
+                title: it.title,
+                subtitle: it.subtitle.isNotEmpty ? it.subtitle : entry.shelfTitle,
+                artworkUrl: it.artworkUrl,
+                songs: finalSongs,
+              );
+            } catch (_) {
+              return null;
+            }
+          }());
+        }
+        if (cardFutures.isNotEmpty) {
+          final resolved = await Future.wait(cardFutures);
+          realCards.addAll(resolved.whereType<YtHomePlaylistCard>());
+        }
+        // Real shelves came back empty/unresolvable (e.g. every
+        // candidate playlist failed to resolve, or FEmusic_home itself
+        // was unreachable) — realCards stays empty and the search-based
+        // path below fills the row entirely, same as before this
+        // feature existed.
+      } catch (_) {
+        // Any failure in the real-shelf path is non-fatal — realCards
+        // stays empty, search-based path below fills in exactly as
+        // before this feature existed.
+      }
+    }
+
+    // TOP-UP, not early-return: if the real InnerTube pool above didn't
+    // fill the whole row (it's a small fixed pool — typically ~10
+    // playlists total for the anonymous home feed), fill the remainder
+    // from the existing real-playlist-search path (_realPlaylistCard —
+    // itself a genuine TypeFilters.playlist search with a minimum
+    // video-count quality floor, not the old raw-video-search junk) so
+    // a fresh mood/refresh still has enough cards without ever
+    // re-showing the exact same set FEmusic_home just gave.
+    final remaining = limit - realCards.length;
+    if (remaining <= 0) {
+      if (realCards.isNotEmpty) {
+        final shownIds = <String>[];
+        for (final c in realCards) {
+          shownIds.addAll(c.songs.map((s) => s.id));
+        }
+        unawaited(HomePlaylistHistory.recordShown(mood, shownIds));
+      }
+      return realCards.take(limit).toList();
+    }
+
+    final subQueries = _kMoodSubQueries[mood] ?? _kMoodSubQueries[null]!;
     // FIX ("100 songs ke sath playlist khulni chahiye"): was capped at 30
     // regardless of source. Real playlists (the _realPlaylistCard path
     // below) genuinely have 100+ tracks — 30 was throwing away real
@@ -4589,7 +5362,7 @@ class ApiService {
     // excluded from every other mood's normal music-search sources.
     final isPodcastMood = mood == 'podcasts';
 
-    final cardFutures = subQueries.take(limit).map((sub) async {
+    final cardFutures = subQueries.take(remaining).map((sub) async {
       // FEATURE ("real YouTube playlist import, sirf random songs nahi"):
       // try to back this card with a REAL, currently-live YouTube
       // playlist first — a genuine editorial/label playlist someone
@@ -4621,7 +5394,8 @@ class ApiService {
     });
 
     final results = await Future.wait(cardFutures);
-    final cards = results.whereType<YtHomePlaylistCard>().toList();
+    final fallbackCards = results.whereType<YtHomePlaylistCard>().toList();
+    final cards = [...realCards, ...fallbackCards];
 
     if (cards.isNotEmpty) {
       final shownIds = <String>[];
@@ -4646,9 +5420,90 @@ class ApiService {
     int limit = 8,
     String? mood,
   }) async {
+    // Same real-InnerTube-shelves-first approach as
+    // fetchYtMusicHomePlaylists above — for default Home, prefer
+    // FEmusic_home's actual "New releases" shelf over a mood-query
+    // album search. Albums are lazy (no track list fetched here, same
+    // as the existing HomeAlbumCard contract — AlbumScreen resolves
+    // tracks on open), so this is just a direct map, no extra
+    // network calls needed per card.
+    final realCards = <HomeAlbumCard>[];
+    if (mood == null) {
+      try {
+        final realShelves = await fetchRealHomeShelves();
+        final albumItems = realShelves
+            .expand((s) => s.items)
+            .where((it) => it.isAlbum)
+            .toList();
+        // FIX ("refresh pe hamesha same albums" — same fixed-pool
+        // reasoning as fetchYtMusicHomePlaylists' shuffle above):
+        // anonymous FEmusic_home's "New releases" shelf doesn't change
+        // between calls, so shuffle which of the real albums get shown
+        // first — still exclusively real InnerTube albums either way.
+        albumItems.shuffle();
+        final seenIds = <String>{};
+        realCards.addAll(albumItems
+            .where((it) => seenIds.add(it.browseId))
+            .map((it) => HomeAlbumCard(
+                  albumId: it.browseId,
+                  title: it.title,
+                  // subtitle raw form is like "Single • Mithoon, Saaj
+                  // Bhatt, Sayeed Quadri" (release-type prefix + a
+                  // comma-joined artist/writer credit list) — strip
+                  // the "<Type> • " prefix so the Albums row shows a
+                  // clean artist credit, same shape every other
+                  // artist label in this app already uses.
+                  artist: it.subtitle.contains(' • ')
+                      ? it.subtitle.split(' • ').last
+                      : it.subtitle,
+                  artworkUrl: it.artworkUrl,
+                ))
+            .take(limit));
+        // Real shelves had no album cards (or FEmusic_home was
+        // unreachable) — realCards stays empty, top-up below fills the
+        // whole row exactly as before this feature existed.
+      } catch (_) {
+        // Non-fatal — realCards stays empty, top-up below fills in.
+      }
+
+      // SECOND real pool — seed artists' own Albums/Singles releases (see
+      // _fetchSeedArtistReleases doc above), added only if FEmusic_home's
+      // own shelf didn't already fill the row, so the row still prefers
+      // YT Music's own curated "New releases" first and only reaches for
+      // artist-specific releases as extra real variety on top.
+      if (realCards.length < limit) {
+        try {
+          final seedReleases = await _fetchSeedArtistReleases();
+          final existingIds = realCards.map((c) => c.albumId).toSet();
+          final extra = seedReleases.where((it) => existingIds.add(it.browseId)).toList();
+          extra.shuffle();
+          realCards.addAll(extra.take(limit - realCards.length).map((it) => HomeAlbumCard(
+                albumId: it.browseId,
+                title: it.title,
+                artist: it.subtitle.contains(' • ')
+                    ? it.subtitle.split(' • ').last
+                    : it.subtitle,
+                artworkUrl: it.artworkUrl,
+              )));
+        } catch (_) {
+          // Non-fatal — realCards keeps whatever FEmusic_home already
+          // gave, search-based top-up below still fills any remainder.
+        }
+      }
+    }
+
+    // TOP-UP, not early-return — same reasoning as
+    // fetchYtMusicHomePlaylists above: the anonymous real pool is small
+    // and fixed, so fill any remaining slots via the existing
+    // searchAlbumsYtOnly path (a genuine MUSIC_PAGE_TYPE_ALBUM-filtered
+    // InnerTube search, not a raw video search) instead of returning a
+    // half-empty row.
+    final remaining = limit - realCards.length;
+    if (remaining <= 0) return realCards.take(limit).toList();
+
     final subQueries = _kMoodSubQueries[mood] ?? _kMoodSubQueries[null]!;
 
-    final cardFutures = subQueries.take(limit).map((sub) async {
+    final cardFutures = subQueries.take(remaining).map((sub) async {
       final albums = await searchAlbumsYtOnly(sub.query, limit: 1);
       if (albums.isEmpty) return null;
       final a = albums.first;
@@ -4662,7 +5517,8 @@ class ApiService {
     });
 
     final results = await Future.wait(cardFutures);
-    final cards = results.whereType<HomeAlbumCard>().toList();
+    final fallbackCards = results.whereType<HomeAlbumCard>().toList();
+    final cards = [...realCards, ...fallbackCards];
     // Same collectionId can legitimately win for two different mood
     // seeds (e.g. "trending" and "new releases" landing on the same
     // chart-topping album) — dedupe by id so the row never repeats a card.
@@ -5147,11 +6003,22 @@ class ApiService {
   /// the home screen's artist row always has a real, working data path
   /// and never depends on a single backend being healthy.
   ///
-  /// Hits YT Music's WEB_REMIX search InnerTube endpoint directly (same
-  /// API key/client the Worker itself uses) for a handful of
-  /// high-recognition seed artists, then pulls channelId/name/thumbnail
-  /// straight out of each song result's artist run — same extraction
-  /// approach as the Worker's own search-seed fallback.
+  /// FIX ("home page pe artist ke real images nahi aate" — root cause +
+  /// fix, 2026-09-06): this used to pull each artist's photo off a SONG
+  /// search result row's own artwork (a rectangular album/video thumbnail
+  /// cropped into a circle — often not even the artist's face), then
+  /// later just left imageUrl empty rather than show a wrong photo. Real
+  /// fix instead of a placeholder: for each seed name, (1) search once
+  /// and read the MUSIC_PAGE_TYPE_ARTIST-tagged run's channelId (same
+  /// _artistRunsInSubtitle extraction as before — cheap, already
+  /// correct), then (2) `browse` that channelId directly — the exact
+  /// artist-page call verified by hand (Arijit Singh capture,
+  /// 2026-09-06) whose header (musicImmersiveHeaderRenderer /
+  /// musicVisualHeaderRenderer / musicHeaderRenderer) carries the
+  /// artist's own real circular profile photo, not a song's artwork.
+  /// Two InnerTube calls per seed instead of one, but each seed already
+  /// runs in parallel with the others, and the result is a guaranteed
+  /// real photo instead of a wrong one or a blank placeholder.
   static Future<List<YtHomeArtist>> _fetchYtMusicArtistsDirect(
       {int limit = 12}) async {
     const seeds = [
@@ -5166,57 +6033,76 @@ class ApiService {
     ];
 
     try {
-      // REWRITTEN on _findRenderers + _artistRunsInSubtitle (production-
-      // grade, shape-agnostic): the old version hand-walked one specific
-      // path (tabbedSearchResultsRenderer → sectionListRenderer →
-      // musicShelfRenderer) with a flat sectionListRenderer as its only
-      // fallback — any other shape (a card, a nested carousel) silently
-      // produced zero artists for that seed. This now finds every song
-      // row anywhere in the response regardless of wrapper, and pulls the
-      // MUSIC_PAGE_TYPE_ARTIST-tagged run out of each row's subtitle —
-      // exactly the same extraction _artistRunsInSubtitle already does
-      // for real search results, so there's one implementation of "how do
-      // we get an artist out of a song row" instead of two drifting apart.
-      final responses = await Future.wait(seeds.map(
+      // Stage 1: one search per seed -> that seed's real artist channelId
+      // (song search, same as before — cheapest reliable way to resolve
+      // "Arijit Singh" the name into UC... the channel).
+      final searchResponses = await Future.wait(seeds.map(
         (q) => _ytmSearchRaw(q, params: _ytmSongsFilterParam,
             timeout: const Duration(seconds: 4)),
       ));
 
       final seen = <String>{};
-      final out = <YtHomeArtist>[];
-
-      for (final json in responses) {
+      final resolved = <({String channelId, String name})>[];
+      for (final json in searchResponses) {
         if (json == null) continue;
         for (final item in _findRenderers(json, 'musicResponsiveListItemRenderer')) {
           for (final run in _artistRunsInSubtitle(item)) {
             if (!seen.add(run.channelId)) continue;
-            // BUG FIX ("artist ka sahi se thumbnail nahi dikhta" — home
-            // page artist strip): `item` here is a SONG search result row
-            // (the seed queries above are song searches, not artist
-            // searches), so _ytmThumbnailUrl(item) was pulling that
-            // SONG's own album/video artwork — not the artist's actual
-            // profile photo — and forcing it into this artist's circular
-            // avatar slot. That's a different image entirely: often a
-            // rectangular thumbnail cropped into a circle, sometimes not
-            // even visually associated with the artist at all (a
-            // compilation cover, a feature-artist's own photo, etc.).
-            // This only ever affected the FALLBACK path (used when the
-            // Worker's dedicated /api/yt-music-home-artists endpoint —
-            // which does return real artist avatars — is down/degraded),
-            // so it's an occasional-but-real wrong-photo bug, not a
-            // constant one.
-            //
-            // Leaving imageUrl empty here instead of feeding it a wrong
-            // photo lets AurumArtwork's own clean placeholder (gold
-            // music-note glyph) render for these entries — genuinely
-            // better UX than a confidently-wrong image, and consistent
-            // with how every other artwork call site in this app already
-            // treats "no real image available".
-            out.add(YtHomeArtist(
-                channelId: run.channelId, name: _cleanText(run.name), imageUrl: ''));
-            if (out.length >= limit) return out;
+            resolved.add((channelId: run.channelId, name: _cleanText(run.name)));
+            break; // one artist per seed's first song result is enough
           }
+          if (resolved.isNotEmpty && resolved.last.channelId.isNotEmpty) break;
         }
+        if (resolved.length >= limit) break;
+      }
+
+      // Stage 2: browse each resolved channelId for its own real header
+      // photo — run in parallel, same reasoning as the Albums/Singles
+      // More-button fetches elsewhere in this file.
+      final browseResponses = await Future.wait(resolved.map(
+        (r) => _ytmBrowseRaw(r.channelId, timeout: const Duration(seconds: 6)),
+      ));
+
+      final out = <YtHomeArtist>[];
+      for (var i = 0; i < resolved.length; i++) {
+        final data = browseResponses[i];
+        if (data == null) continue;
+        final header = data['header'];
+        final headerRenderer = header is Map
+            ? (header['musicImmersiveHeaderRenderer'] ??
+                header['musicVisualHeaderRenderer'] ??
+                header['musicHeaderRenderer'])
+            : null;
+        if (headerRenderer is! Map) continue;
+
+        final thumbs = (headerRenderer['thumbnail']?['musicThumbnailRenderer']
+                    ?['thumbnail']?['thumbnails'] as List?) ??
+            (headerRenderer['foregroundThumbnail']?['musicThumbnailRenderer']
+                    ?['thumbnail']?['thumbnails'] as List?) ??
+            const [];
+        if (thumbs.isEmpty) continue; // No real photo — skip, don't guess.
+        final rawUrl = (thumbs.last['url'] ?? '').toString();
+        if (rawUrl.isEmpty) continue;
+        final imageUrl = rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500-p');
+
+        // Prefer the artist page's own canonical name (matches the photo
+        // 1:1) over the search-resolved name, same "-  Topic" cleanup
+        // already applied elsewhere for this exact header shape.
+        final headerNameRuns = (headerRenderer['title']?['runs'] as List?) ?? const [];
+        final headerName = headerNameRuns.isNotEmpty
+            ? _cleanText(headerNameRuns
+                    .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+                    .join())
+                .replaceAll(RegExp(r'\s*-\s*Topic\s*$', caseSensitive: false), '')
+                .trim()
+            : '';
+
+        out.add(YtHomeArtist(
+          channelId: resolved[i].channelId,
+          name: headerName.isNotEmpty ? headerName : resolved[i].name,
+          imageUrl: imageUrl,
+        ));
+        if (out.length >= limit) break;
       }
       return out;
     } catch (e) {
@@ -5224,6 +6110,7 @@ class ApiService {
       return const [];
     }
   }
+
 
   // RACE (2026-08-14 — "playlist click pe ekdam fast open hona
   // chahiye, worker ka wait khatam"): this used to be strictly
@@ -7772,6 +8659,54 @@ class ApiService {
         if (RecommendationEngine.isNonMusicContent(song)) continue;
         topSongs.add(song);
       }
+
+      // FIX ("artist ke songs sirf 20-28 tak hi aate hai" — root cause
+      // traced 2026-09-06): the Top Songs shelf read above is only ever
+      // an INLINE PREVIEW — YT Music's artist page caps it (verified by
+      // hand: Arijit Singh's page returned exactly 22 inline rows), the
+      // same "preview vs full list" split already documented and handled
+      // for Albums/Singles above (their MPAD 'More' browseId), but Top
+      // Songs was never given the same treatment. The shelf itself
+      // carries a `bottomEndpoint`/"Show all" browseId (verified by hand:
+      // VL-prefixed, MUSIC_PAGE_TYPE_PLAYLIST — this artist's actual
+      // complete "Top songs" playlist) that a plain `browse` on returns
+      // 100 real songs in one call, WITH ITS OWN continuation token for
+      // artists whose full list runs past 100 (verified: Arijit Singh's
+      // playlist continues past page 1). Below: find that VL-playlist id
+      // from the shelf wrapper (not the individual song rows, which don't
+      // carry it), fetch page 1, then keep following continuation tokens
+      // until either songCount is reached or the playlist runs out.
+      if (topSongs.length < songCount) {
+        String? topSongsPlaylistId;
+        for (final shelf in _findRenderers(decoded, 'musicShelfRenderer')) {
+          final bottomBrowseId = (shelf['bottomEndpoint']?['browseEndpoint']
+                  ?['browseId'] ??
+              '')
+              .toString();
+          if (bottomBrowseId.startsWith('VL')) {
+            topSongsPlaylistId = bottomBrowseId;
+            break;
+          }
+        }
+
+        if (topSongsPlaylistId != null) {
+          try {
+            await _fetchFullTopSongsPlaylist(
+              topSongsPlaylistId,
+              targetCount: songCount,
+              fallbackArtistName: name,
+              resolvedChannelId: resolvedChannelId,
+              topSongs: topSongs,
+              seenVideoIds: seenVideoIds,
+            );
+          } catch (e) {
+            _log('[_fetchArtistFromYtMusicBrowse] Top Songs playlist top-up failed: $e');
+            // Non-fatal — the inline-preview topSongs collected above are
+            // still returned as-is, same as before this fix existed.
+          }
+        }
+      }
+
 
       // ── Albums / Singles: musicTwoRowItemRenderer cards, split by
       // whichever shelf header they sit under ("Albums" vs "Singles").
