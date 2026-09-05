@@ -31,6 +31,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
   bool _dynamicPlayerColor = true;
   String _playerButtonColors = 'Primary';
   String _playerSliderStyle = 'Rounded';
+  String _fullPlayerStyle = 'Classic';
   // SPEED FIX (Spotify-level lightweight): these three local fallback
   // defaults must match their AudioPrefs notifier counterparts exactly
   // (showBlurredBgNotifier, navBarBlurSigmaNotifier,
@@ -116,6 +117,7 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
       _dynamicPlayerColor = p.getBool('dynamic_player_color') ?? true;
       _playerButtonColors = p.getString('player_button_colors') ?? 'Primary';
       _playerSliderStyle = p.getString('player_slider_style') ?? 'Rounded';
+      _fullPlayerStyle = p.getString('full_player_style') ?? 'Classic';
       // SPEED FIX (Spotify-level lightweight): fallback defaults here
       // matched to the new AudioPrefs notifier defaults (false/0.0/0.0)
       // — see the matching comment on the field declarations above for
@@ -334,6 +336,13 @@ class _SettingsAppearanceScreenState extends State<SettingsAppearanceScreen> {
             subtitle: l10n.saPlayerSliderStyleSubtitle,
             value: _playerSliderStyle,
             onChanged: (v) { setState(() => _playerSliderStyle = v); _save('player_slider_style', v); context.read<ThemeProvider>().setPlayerSliderStyle(v); },
+          ),
+          _dropdownTile(context,
+            title: 'Full Player Style',
+            subtitle: 'Classic: the original Astra-style full player. Edge to Edge: full-bleed sheet that opens edge-to-edge.',
+            value: _fullPlayerStyle,
+            options: const ['Classic', 'Edge to Edge'],
+            onChanged: (v) { setState(() => _fullPlayerStyle = v!); _save('full_player_style', v!); context.read<ThemeProvider>().setFullPlayerStyle(v!); },
           ),
           _inlineSwitch(context,
             title: l10n.saShowBlurredBg,

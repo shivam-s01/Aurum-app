@@ -41,6 +41,7 @@ import 'artist_screen.dart';
 import 'profile_screen.dart';
 import 'login_screen.dart';
 import 'full_player_screen.dart';
+import 'edge_to_edge_full_player.dart';
 import 'premium_screen.dart';
 import 'mix_screen.dart';
 import '../providers/auth_provider.dart';
@@ -311,7 +312,8 @@ void pushFullPlayer(BuildContext context, {VoidCallback? onClosed}) {
         // change), never during the drag itself.
         opaque: false,
         pageBuilder: (context, anim, ___) {
-          const fullPlayer = FullPlayerScreen();
+          final useEdgeToEdge = context.read<ThemeProvider>().fullPlayerStyle == 'Edge to Edge';
+          final fullPlayer = useEdgeToEdge ? const EdgeToEdgeFullPlayer() : const FullPlayerScreen();
           // FIX (see _hasOpenedFullPlayerThisSession doc comment above for
           // the full story): the backdrop below exists solely to cover a
           // COLD-START gap — skip it entirely once this session has

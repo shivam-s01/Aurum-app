@@ -11,12 +11,14 @@ class ThemeProvider extends ChangeNotifier {
   static const _accentKey = 'accent_color';
   static const _btnColorKey = 'player_button_colors';
   static const _sliderStyleKey = 'player_slider_style';
+  static const _fullPlayerStyleKey = 'full_player_style';
 
   AurumThemeMode _mode      = AurumThemeMode.dark;
   String         _fontStyle = 'Default';
   Color          _accentColor = AurumTheme.gold;
   String         _playerButtonColorMode = 'Primary';
   String         _playerSliderStyle = 'Rounded';
+  String         _fullPlayerStyle = 'Classic';
 
   AurumThemeMode get mode      => _mode;
   String         get fontStyle => _fontStyle;
@@ -166,6 +168,7 @@ class ThemeProvider extends ChangeNotifier {
     if (accentInt != null) _accentColor = Color(accentInt);
     _playerButtonColorMode = p.getString(_btnColorKey) ?? _playerButtonColorMode;
     _playerSliderStyle = p.getString(_sliderStyleKey) ?? _playerSliderStyle;
+    _fullPlayerStyle = p.getString(_fullPlayerStyleKey) ?? _fullPlayerStyle;
     notifyListeners();
   }
 
@@ -181,6 +184,13 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
     final p = await SharedPreferences.getInstance();
     await p.setString(_sliderStyleKey, style);
+  }
+
+  Future<void> setFullPlayerStyle(String style) async {
+    _fullPlayerStyle = style;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_fullPlayerStyleKey, style);
   }
 
   Future<void> setAccentColor(Color color) async {
