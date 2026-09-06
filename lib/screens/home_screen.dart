@@ -565,10 +565,14 @@ class _HomeScreenState extends State<HomeScreen> {
     // aged past that window, so the feed periodically refreshes with
     // genuinely new listening-based recommendations without needing a
     // network fetch on every single app open.
-    HomeFeedCache.isFresh().then((fresh) {
-      if (!mounted) return;
-      if (!fresh) _loadOnline(clearExisting: false);
-    });
+    // REMOVED (2026-09-06, "1 bhe na aaye kabhi bhe" — old song-shelf
+    // sections must never reappear, not even transiently): this used to
+    // call _loadOnline() here on every cold start once the cache aged
+    // past 6 hours. _loadOnline is now never called from anywhere in this
+    // file (see _hydrateFromCache and the pull-to-refresh handler below,
+    // both also cut) — the entire fetchHomeStreaming/_onlineSections
+    // pipeline is fully dead, not just unrendered, so there is no path
+    // left that can populate or display it again.
     // Artist strip follows the exact same freshness rule as the section
     // feed above — its own separate 6-hour-gated timestamp.
     HomeFeedCache.isArtistsFresh().then((fresh) {
@@ -645,56 +649,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _hydrateFromCache() async {
-    final cachedSections = await HomeFeedCache.loadSections();
+    // REMOVED (2026-09-06, "cache mai dekh lena, 1 bhe na aaye"): this used
+    // to also load cachedSections / the bundled home_snapshot.json asset
+    // and push them into _onlineSections for an instant first paint. Both
+    // of those are old-pipeline song shelves (same Trending
+    // Now/Afternoon Picks/etc. family) — loading them here would have let
+    // the just-removed section list flash back onto Home from disk cache
+    // or from the bundled snapshot on a fresh install, even with the
+    // render/fetch call sites cut elsewhere. Only the artist cache (which
+    // still legitimately renders via _ArtistStrip) is hydrated now.
     final cachedArtists = await HomeFeedCache.loadArtists();
     if (!mounted) return;
-    // Only apply the cache if the real fetch hasn't already produced
-    // something newer/better by the time this resolves — SharedPreferences
-    // reads are fast but still technically async, and _loadOnline() is
-    // fired in the same initState right after this call. Guarding on
-    // `_onlineSections.isEmpty`/`_homeArtists.isEmpty` means whichever
-    // source lands first (almost always the cache, since it's pure local
-    // disk vs a network round-trip) wins the initial paint, and the other
-    // one simply never overwrites it with less/older data.
-    // PERF FIX: sections go through the ValueNotifier directly (no
-    // setState) — see the notifier's doc comment above for why. Only the
-    // artist strip still needs a real setState here, and only if it's
-    // actually changing.
-    if (_onlineSections.isEmpty && cachedSections.isNotEmpty) {
-      // Real content already on screen from cache — the shimmer-only
-      // loading state no longer applies, even though the fresh fetch is
-      // still running in the background. _loadOnline()'s own onSection
-      // stream will progressively replace these with live sections as
-      // they arrive, same as it already does for a from-scratch load.
-      _onlineSections = cachedSections;
-      if (_onlineLoading) setState(() => _onlineLoading = false);
-    } else if (_onlineSections.isEmpty) {
-      // GENUINELY NEW INSTALL FIX (2026-08-31, "1 second se bhi kam"):
-      // no on-disk cache exists at all — this is the first time this app
-      // has EVER run on this device, so HomeFeedCache is empty by
-      // definition and the screen would otherwise sit on the loader
-      // until fetchHomeStreaming's fast-first-section (~1-3s network
-      // round-trip) or the full pipeline resolves. assets/data/
-      // home_snapshot.json is a real (not fake/hardcoded) home feed
-      // captured once via lib/tools/export_home_snapshot.dart — reading
-      // it is a pure asset-bundle read, no network, effectively instant
-      // (well under 1s, typically a few ms). It's frozen/dated content
-      // (from whenever the snapshot was last generated), so exactly like
-      // the disk cache above, it's only ever the FIRST paint — the live
-      // fetch below still runs immediately after and progressively
-      // replaces every section with fresh, current data the moment it
-      // arrives. Stream URLs inside the snapshot are never used for
-      // playback (resolveStreamUrl() re-resolves fresh from the song's
-      // id/title/artist at play-time — see export_home_snapshot.dart's
-      // header comment), so there's no "dead link" risk even if this
-      // snapshot is months old by the time someone installs the app.
-      final bundled = await HomeFeedCache.loadBundledSnapshot();
-      if (!mounted) return;
-      if (_onlineSections.isEmpty && bundled.isNotEmpty) {
-        _onlineSections = bundled;
-        if (_onlineLoading) setState(() => _onlineLoading = false);
-      }
-    }
     if (_homeArtists.isEmpty && cachedArtists.isNotEmpty) {
       setState(() {
         _homeArtists = cachedArtists;
@@ -771,6 +736,16 @@ class _HomeScreenState extends State<HomeScreen> {
   // (Continue Listening / Rediscover Favorites only ever draw from songs
   // the user has actually played). Order follows `ids` (the engine's own
   // ranking), not `history`'s order.
+  // Extracted (2026-09-06) so pull-to-refresh can still rotate
+  // _RealHomeShelvesSection's real InnerTube shelves without going through
+  // _loadOnline()/_onlineSections at all — see this function's call site
+  // in the RefreshIndicator above.
+  Future<void> _bumpPlaylistRefreshKey() async {
+    if (!mounted) return;
+    setState(() => _playlistRefreshKey++);
+  }
+
+  // ignore: unused_element
   Future<void> _loadOnline({bool clearExisting = true}) async {
     setState(() {
       // FIX (shimmer flash-over-cache race): this used to unconditionally
@@ -1002,8 +977,15 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: AurumTheme.bgCardOf(context),
             strokeWidth: 2.6,
             displacement: 48,
+            // _loadOnline() removed from here (2026-09-06) — it only ever
+            // repopulated the old, now permanently unrendered
+            // _onlineSections pipeline. _bumpPlaylistRefreshKey() replaces
+            // just the one line of _loadOnline this screen still actually
+            // needs: incrementing _playlistRefreshKey, which is what makes
+            // _RealHomeShelvesSection (the real InnerTube shelves) and the
+            // mood-chip row actually refetch on pull-to-refresh.
             onRefresh: () => isOnline
-                ? Future.wait([_loadOnline(), _loadArtists()])
+                ? Future.wait([_bumpPlaylistRefreshKey(), _loadArtists()])
                 : context.read<LibraryProvider>().refresh(),
             child: AurumScrollDeltaScope(
               notifier: _scrollDelta.notifier,
@@ -1053,6 +1035,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   SliverToBoxAdapter(
                     child: _RealHomeShelvesSection(refreshKey: _playlistRefreshKey),
                   ),
+                  // FEATURE ("You might also like home page pr show hi
+                  // nahi hota" — 2026-09-06): real InnerTube "You might
+                  // also like" (ApiService.fetchYouMightAlsoLike) already
+                  // existed in this codebase but was never actually
+                  // rendered anywhere — only ever consumed internally by
+                  // RecommendationEngine's scoring pool. Seeded off the
+                  // most recently played song (same "last thing you
+                  // listened to" seed YT Music's own home feed uses for
+                  // this row) via RecentlyPlayedProvider, same provider
+                  // already read elsewhere on this screen. Self-hides
+                  // (SizedBox.shrink) with no history yet or no related
+                  // songs found — never shows an empty/broken row.
+                  const SliverToBoxAdapter(
+                    child: _YouMightAlsoLikeSection(),
+                  ),
                   // REMOVED ("ekdam youtube music jaisa home page chahiye,
                   // sirf real InnerTube" — 2026-09-06): _YtAlbumsForYouSection
                   // and _ThemedPlaylistShelvesSection (the "India's Biggest
@@ -1090,74 +1087,31 @@ class _HomeScreenState extends State<HomeScreen> {
                   // visible (plus cacheExtent) ever build — off-screen
                   // shelves, and their network image requests, simply
                   // don't exist yet.
-                  ValueListenableBuilder<List<SongSection>>(
-                    valueListenable: _onlineSectionsNotifier,
-                    builder: (context, sections, _) {
-                      if (_onlineLoading) {
-                        // GOOGLE-STYLE LOADER (2026-08-31): swapped the plain
-                        // CircularProgressIndicator for the real Material 3
-                        // Expressive shape-morphing loader (AurumMorphLoader,
-                        // already used elsewhere in the app — e.g.
-                        // pull-to-refresh) — same authentic spring-physics
-                        // morph as the current Google Play Store / Android 16
-                        // loading indicator, instead of a plain spinning
-                        // circle. Shown as ONE steady state for the whole
-                        // fetch (see _loadOnline's progressive-flush fix)
-                        // rather than the old section-shimmer.
-                        return SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 64),
-                            child: Center(
-                              child: AurumMorphLoader(size: 48),
-                            ),
-                          ),
-                        );
-                      }
-                      if (sections.isEmpty) {
-                        return SliverToBoxAdapter(
-                          child: _buildOnlineError(
-                            context,
-                            message: _onlineError ?? AppLocalizations.of(context)!.homeCouldntLoadSongsRetry,
-                            onRetry: _loadOnline,
-                          ),
-                        );
-                      }
-                      final midpoint =
-                          (sections.length / 2).floor().clamp(1, sections.length);
-                      return SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (context, index) {
-                            // Two logical items per section: the section
-                            // row itself, and (only right after the
-                            // midpoint section) the artist strip.
-                            final sectionIndex = index ~/ 2;
-                            final isArtistStripSlot = index.isOdd;
-                            if (isArtistStripSlot) {
-                              // Only actually render the strip once, right
-                              // after the midpoint section — every other
-                              // odd slot is empty so the strip's position
-                              // stays "middle of the feed" regardless of
-                              // section count.
-                              if (sectionIndex + 1 != midpoint) {
-                                return const SizedBox.shrink();
-                              }
-                              return _ArtistStrip(
-                                artists: _homeArtists,
-                                loading: _artistsLoading,
-                              );
-                            }
-                            if (sectionIndex >= sections.length) return null;
-                            final section = sections[sectionIndex];
-                            return _StaggeredSection(
-                              key: ValueKey(section.id),
-                              sectionId: section.id,
-                              child: _SongSectionRow(section: section),
-                            );
-                          },
-                          childCount: sections.length * 2,
-                        ),
-                      );
-                    },
+                  // REMOVED (2026-09-06, "ye sb section hatana hai, home
+                  // page complete innertube se karna hai" + follow-up "1
+                  // bhe na aaye kabhi bhe"): the old fetchHomeStreaming-
+                  // backed song shelves (Trending Now, Afternoon Picks,
+                  // Workout, Road Trip, artist-name shelves like "Lata
+                  // Mangeshkar", Top English Hits, Made for You · X,
+                  // Romance, etc.) are no longer mounted here. Those all
+                  // came from the JioSaavn/search-pool pipeline
+                  // (_pool/_saavnSectionV4 in api_service.dart), not real
+                  // InnerTube data — _RealHomeShelvesSection above (real
+                  // FEmusic_home shelves) is now the only song-shelf UI on
+                  // Home. Unlike the first pass at this, _loadOnline() is
+                  // now fully uncalled from anywhere in this file (cold
+                  // start, cache hydration, and pull-to-refresh were all
+                  // cut too — see _hydrateFromCache and the
+                  // RefreshIndicator above) so _onlineSections can never
+                  // be populated again, not just unrendered. Popular
+                  // Artists (_ArtistStrip) is kept, now rendered
+                  // unconditionally instead of at the midpoint of a
+                  // section list that no longer exists.
+                  SliverToBoxAdapter(
+                    child: _ArtistStrip(
+                      artists: _homeArtists,
+                      loading: _artistsLoading,
+                    ),
                   ),
                 ],
                 const SliverToBoxAdapter(child: SizedBox(height: 110)),
@@ -3135,11 +3089,25 @@ class _ArtistStripState extends State<_ArtistStrip> {
           // (Spotify/YT Music's own "Popular artists" pattern) keeps the
           // section's footprint to a single fixed-height row while still
           // surfacing the same 10 artists — just swipeable instead of
-          // stacked. Chips are sized up from the old 64px version (84px
-          // avatar + name below) for a premium, not-cramped feel now that
-          // there's no competing full-row layout to match widths with.
+          // stacked.
+          //
+          // CORRECTION (2026-09-06, same day as the bump below): the
+          // earlier 124px pass was based on a rough visual guess against
+          // the reference screenshot, not an actual measurement — doing
+          // the real math (circle width as a % of the screenshot's own
+          // pixel width, translated to a typical phone's logical/dp
+          // width) puts the reference artist circle at roughly 65-75dp,
+          // NOT 124dp. 124px was overshooting by nearly 2x. Corrected to
+          // 72px avatar (between the original 84px baseline and that
+          // measured ~65-75dp target) — genuinely matches the reference
+          // proportion now instead of just "looking bigger than before."
+          // Row height corrected to 122 to match (72 avatar + 8 spacing +
+          // one line of 12px name text + a little breathing room) —
+          // NOT simply reverted to the old 128, since the chip's own
+          // internal spacing/font-size also changed slightly alongside
+          // the size correction.
           FadedHorizontalList(
-            height: 128,
+            height: 122,
             controller: _scrollController,
             fadeWidth: 12,
             child: loading
@@ -3239,13 +3207,13 @@ class _ArtistChip extends StatelessWidget {
       scaleAmount: 0.94,
       onTap: () => _open(context),
       child: Container(
-        width: 86,
+        width: 78,
         margin: const EdgeInsets.only(right: 16),
         child: Column(
           children: [
             AurumStackedArtwork(
               url: artist.imageUrl,
-              size: 84,
+              size: 72,
               circular: true,
               showNowPlaying: isCurrentArtist,
               isPlaying: isActuallyPlaying,
@@ -3258,7 +3226,7 @@ class _ArtistChip extends StatelessWidget {
                 color: isCurrentArtist
                     ? AurumTheme.gold
                     : AurumTheme.textPrimaryOf(context),
-                fontSize: 12.5,
+                fontSize: 12,
                 fontWeight: isCurrentArtist ? FontWeight.w700 : FontWeight.w600,
               ),
               maxLines: 1,
@@ -3322,6 +3290,202 @@ class _ArtistChip extends StatelessWidget {
 // does not remove _YtPlaylistsForYouSection's class (kept as dead code),
 // just stops it from being mounted — see the SliverToBoxAdapter call
 // site in build() above for the actual swap.
+// FEATURE ("You might also like" home page pr show hi nahi hota" —
+// 2026-09-06): renders ApiService.fetchYouMightAlsoLike, seeded off the
+// most recently played song via RecentlyPlayedProvider. Same shelf
+// visual language as every other Home row (title + forward arrow to open
+// the full list as a real playlist, horizontal _SongGridCard strip below)
+// so it doesn't read as a bolted-on feature.
+class _YouMightAlsoLikeSection extends StatefulWidget {
+  const _YouMightAlsoLikeSection();
+
+  @override
+  State<_YouMightAlsoLikeSection> createState() =>
+      _YouMightAlsoLikeSectionState();
+}
+
+class _YouMightAlsoLikeSectionState extends State<_YouMightAlsoLikeSection> {
+  List<Song>? _songs;
+  bool _failed = false;
+  // The seed song itself isn't shown — only used to ask InnerTube what's
+  // related to it — but keeping it lets a future rebuild (e.g. a new song
+  // finishing playback and becoming the latest history entry) refetch
+  // against the new seed instead of staying stuck on whatever was most
+  // recent the first time this widget built.
+  String? _seedVideoId;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // RecentlyPlayedProvider can gain a new most-recent entry any time
+    // after this widget's first build (a song finishing playback doesn't
+    // remount Home) — re-check on every dependency change (provider
+    // notifies listeners -> this rebuilds) rather than only once in
+    // initState, so the seed genuinely tracks "last played", not just
+    // "whatever was last played when Home first opened this session".
+    final latest = context.watch<RecentlyPlayedProvider>().history.firstOrNull;
+    final latestId = latest?.id;
+    if (latestId != null && latestId != _seedVideoId) {
+      _seedVideoId = latestId;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final seed = _seedVideoId;
+    if (seed == null || seed.isEmpty) {
+      // No listening history yet (fresh install / library-only user) —
+      // nothing to seed this off of. Stays hidden rather than falling
+      // back to a random/unrelated song, which would make the row's
+      // name a lie.
+      if (mounted) setState(() { _songs = const []; _failed = true; });
+      return;
+    }
+    try {
+      final songs = await ApiService.fetchYouMightAlsoLike(seed);
+      if (!mounted) return;
+      setState(() {
+        _songs = songs;
+        _failed = songs.isEmpty;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  void _openAsPlaylist(BuildContext context, List<Song> songs) {
+    AurumHaptics.selection();
+    final art = songs
+        .where((s) => s.artworkUrl.isNotEmpty)
+        .map((s) => s.artworkUrl)
+        .firstOrNull ?? '';
+    AurumDepthRoute.to(
+      context,
+      MixScreen(
+        mixId: 'you_might_also_like_$_seedVideoId',
+        mixName: AppLocalizations.of(context)!.searchYouMightAlsoLike,
+        artworkUrl: art,
+        emoji: '',
+        songs: songs,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Keep watching so a brand-new most-recent play (didChangeDependencies
+    // above) actually triggers a rebuild of this widget, not just a
+    // re-evaluation that gets skipped because nothing here read the
+    // provider during build.
+    context.watch<RecentlyPlayedProvider>();
+    final songs = _songs;
+
+    // Still loading (first paint) — same skeleton language
+    // _RealHomeShelvesSection already uses elsewhere on Home.
+    if (songs == null && !_failed) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ShelfTitleSkeleton(),
+            const SizedBox(height: 12),
+            FadedHorizontalList(
+              height: 130,
+              child: _YtPlaylistsForYouSkeleton(
+                  scrollController: ScrollController()),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // No history to seed off, or InnerTube genuinely found nothing
+    // related — skip silently, same "don't show an empty titled row"
+    // rule every other optional Home section follows.
+    if (songs == null || songs.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _openAsPlaylist(context, songs),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Text(
+                        AppLocalizations.of(context)!.searchYouMightAlsoLike,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Material(
+                color: Colors.transparent,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => _openAsPlaylist(context, songs),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 20,
+                      color: AurumTheme.textPrimaryOf(context),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          FadedHorizontalList(
+            height: 214,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 600,
+              padding: const EdgeInsets.only(right: 12),
+              itemCount: songs.length.clamp(0, 12),
+              itemBuilder: (_, i) {
+                if (i >= songs.length) return const SizedBox.shrink();
+                return _SongGridCard(
+                  song: songs[i],
+                  queue: songs,
+                  index: i,
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RealHomeShelvesSection extends StatefulWidget {
   final int refreshKey;
   const _RealHomeShelvesSection({this.refreshKey = 0});
@@ -3453,6 +3617,27 @@ class _RealHomeShelfRow extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // FEATURE ("ekdam youtube music jaisa" eyebrow+title header —
+          // 2026-09-06): when InnerTube's own response carries a
+          // strapline for this shelf (see HomeShelf.strapline's doc
+          // comment — genuinely present on some mood/genre carousels,
+          // e.g. "BACKGROUND SCORE TO YOUR LOVE STORY" above "Romance
+          // Right Now"), show it as the small-caps eyebrow line YT
+          // Music itself renders above the bold shelf title. Shelves
+          // with no strapline (e.g. "New releases") render exactly as
+          // before — single-line title, nothing invented.
+          if (shelf.strapline != null) ...[
+            Text(
+              shelf.strapline!.toUpperCase(),
+              style: TextStyle(
+                color: AurumTheme.textSecondaryOf(context),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+              ),
+            ),
+            const SizedBox(height: 2),
+          ],
           Text(
             shelf.title,
             style: TextStyle(
@@ -3519,53 +3704,52 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
     if (_resolving) return;
     AurumHaptics.selection();
     setState(() => _resolving = true);
-    try {
-      final songs = await ApiService.resolveHomeShelfPlaylist(widget.item)
-          .timeout(const Duration(seconds: 10));
-      if (!mounted) return;
-      if (songs.isEmpty) {
-        _showFailureSnackbar();
-        return;
-      }
-      AurumDepthRoute.to(
-        context,
-        MixScreen(
-          mixId: widget.item.browseId,
-          mixName: widget.item.title,
-          artworkUrl: widget.item.artworkUrl,
-          emoji: '',
-          songs: songs,
-        ),
-      );
-    } catch (_) {
-      if (mounted) _showFailureSnackbar();
-    } finally {
-      if (mounted) setState(() => _resolving = false);
-    }
-  }
-
-  // FIX (2026-09-06 recheck): uses the same ScaffoldMessenger/SnackBar
-  // pattern already established elsewhere in this exact file (see
-  // _HomeScreenState's playback-error snackbar and Auto Sleep Guard
-  // resume prompt above) — AurumSnackbar.show is not a real class
-  // anywhere in this codebase and would have failed to compile.
-  void _showFailureSnackbar() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AurumTheme.bgCardOf(context),
-        duration: const Duration(seconds: 4),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        content: Text(
-          AppLocalizations.of(context)!.homeCouldntLoadSongsRetry,
-          style: TextStyle(
-            color: AurumTheme.textPrimaryOf(context),
-            fontSize: 13,
-          ),
-        ),
+    // PERF FIX ("playlist pe click karne pe pehle loading leta hai" —
+    // 2026-09-06): this used to await resolveHomeShelfPlaylist's full
+    // network round-trip (up to 10s timeout) BEFORE navigating at all —
+    // meaning every tap sat on a frozen/loading card for however long
+    // that fetch took, exactly the "feels slow" gap being fixed here.
+    // Real YT Music navigates to the mix screen INSTANTLY on tap and
+    // streams the tracklist in after — this now does the same: navigate
+    // first with an empty list, then resolve the real first page as this
+    // screen's own `autoLoadMore` (which MixScreen already calls once
+    // right after it mounts and appends the result in-place — see
+    // MixScreen.autoLoadMore's own doc comment). One InnerTube call
+    // either way; the only change is WHEN the user starts looking at a
+    // real (if momentarily empty) screen instead of a still-on-Home
+    // loading spinner.
+    if (mounted) setState(() => _resolving = false);
+    if (!mounted) return;
+    AurumDepthRoute.to(
+      context,
+      MixScreen(
+        mixId: widget.item.browseId,
+        mixName: widget.item.title,
+        artworkUrl: widget.item.artworkUrl,
+        emoji: '',
+        songs: const [],
+        autoLoadMore: () async {
+          final firstPage = await ApiService.resolveHomeShelfPlaylist(widget.item);
+          if (firstPage.isEmpty) return firstPage;
+          final more = await ApiService.fetchHomeShelfPlaylistMore(
+            widget.item,
+            existingVideoIds: firstPage.map((s) => s.id).toList(),
+          );
+          return [...firstPage, ...more];
+        },
       ),
     );
   }
+
+  // FIX ("playlist pe click karne pe pehle loading leta hai" — recheck,
+  // 2026-09-06): the old _open() had its own failure snackbar shown on
+  // Home's context before navigating — that's no longer possible since
+  // navigation now happens BEFORE the fetch (see _open() above). A
+  // genuine failure (bad network, no songs found for this shelf item at
+  // all) now surfaces as MixScreen's own empty-state text instead —
+  // same message, just shown on the screen the person is actually
+  // looking at when the failure becomes known, rather than a snackbar
+  // on a screen they've already left.
 
   @override
   Widget build(BuildContext context) {

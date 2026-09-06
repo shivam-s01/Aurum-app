@@ -68,6 +68,19 @@ class MixScreen extends StatefulWidget {
   // caller that doesn't pass one simply skips that block (see build()).
   final String? description;
 
+  // OPT-IN background top-up (2026-09-06, "ekdam youtube music jaisa
+  // fast" perf fix): only set by _RealShelfPlaylistCard._open() in
+  // home_screen.dart, which now opens this screen off a fast ~25-song
+  // first page (see ApiService.resolveHomeShelfPlaylist's doc comment)
+  // instead of blocking navigation on a full ~100-song fetch. When set,
+  // this is called once right after the screen mounts and its result is
+  // appended the same append-only way _onRefresh already appends
+  // pull-to-refresh results — never replaces what's already showing, so
+  // scroll position and whatever's currently playing/visible don't jump.
+  // Every other existing caller leaves this null and behaves exactly as
+  // before.
+  final Future<List<Song>> Function()? autoLoadMore;
+
   const MixScreen({
     super.key,
     required this.mixId,
@@ -78,6 +91,7 @@ class MixScreen extends StatefulWidget {
     this.enableRefresh = false,
     this.refreshSeed,
     this.description,
+    this.autoLoadMore,
   });
 
   @override
@@ -97,10 +111,41 @@ class _MixScreenState extends State<MixScreen> {
   // exactly as before, so this has zero effect on them.
   late List<Song> _songs = widget.songs;
 
+  // FIX ("playlist pe click karne pe pehle loading leta hai" — 2026-09-06):
+  // _RealShelfPlaylistCard in home_screen.dart now navigates here
+  // instantly with an empty `songs: []` and resolves the real tracklist
+  // via autoLoadMore instead of blocking the tap on that network call.
+  // Without this flag, the empty-state branch below ("No songs found")
+  // would flash for however long that first resolve takes — wrong
+  // message for "still loading," not "genuinely nothing here." True only
+  // while genuinely waiting on that specific autoLoadMore-as-first-load
+  // case; every other existing caller passes a real, already-populated
+  // `songs` list and autoLoadMore null or "top-up only," so this stays
+  // false for all of them exactly as before this fix.
+  late bool _awaitingFirstLoad = widget.songs.isEmpty && widget.autoLoadMore != null;
+
   @override
   void initState() {
     super.initState();
     _extractGlow();
+    // Fire-and-forget: see autoLoadMore's doc comment above. Deliberately
+    // not awaited here — the screen must render immediately with
+    // widget.songs already in hand; this only ever silently appends once
+    // it resolves, same "no error surfaced, list just stays as-is on
+    // failure" rule _onRefresh follows for the same reason (a background
+    // top-up failing isn't something worth interrupting the user for).
+    final autoLoadMore = widget.autoLoadMore;
+    if (autoLoadMore != null) {
+      autoLoadMore().then((more) {
+        if (!mounted) return;
+        setState(() {
+          _songs = [..._songs, ...more];
+          _awaitingFirstLoad = false;
+        });
+      }).catchError((_) {
+        if (mounted) setState(() => _awaitingFirstLoad = false);
+      });
+    }
   }
 
   Future<void> _extractGlow() async {
@@ -410,7 +455,12 @@ class _MixScreenState extends State<MixScreen> {
           // pill, YT-Music-style) · download (glass circle), centered.
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+              // SPACING FIX ("faila faila" / more breathing room, reference:
+              // YT Music mix screen) — this row was tight against the
+              // summary line above and the song list below (20/4). Opened
+              // up to 30/22 so the control row reads as its own generously
+              // spaced section instead of being squeezed between neighbors.
+              padding: const EdgeInsets.fromLTRB(20, 30, 20, 22),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -419,7 +469,7 @@ class _MixScreenState extends State<MixScreen> {
                     active: _shuffle,
                     onTap: () => setState(() => _shuffle = !_shuffle),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 18),
                   AurumPressable(
                     scaleAmount: 0.95,
                     onTap: songs.isEmpty
@@ -433,14 +483,16 @@ class _MixScreenState extends State<MixScreen> {
                                 queue: queue, index: 0, curatedQueue: true);
                           },
                     child: Container(
-                      height: 44,
-                      constraints: const BoxConstraints(minWidth: 118),
-                      padding: const EdgeInsets.symmetric(horizontal: 22),
+                      // SPACING FIX — bumped 44→50 to match reference's
+                      // bigger, more dominant center Play pill.
+                      height: 50,
+                      constraints: const BoxConstraints(minWidth: 130),
+                      padding: const EdgeInsets.symmetric(horizontal: 26),
                       decoration: BoxDecoration(
                         color: songs.isEmpty
                             ? Colors.white.withOpacity(0.4)
                             : Colors.white,
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(27),
                         // LIGHT-MODE FIX: a flat white pill sits with
                         // barely any edge definition against light
                         // mode's warm off-white body background (the
@@ -477,7 +529,7 @@ class _MixScreenState extends State<MixScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 18),
                   Consumer<DownloadProvider>(
                     builder: (context, downloads, _) {
                       return _RoundGlassButton(
@@ -510,12 +562,15 @@ class _MixScreenState extends State<MixScreen> {
 
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+              // SPACING FIX (see control row comment below) — top bumped
+              // 16→22 so this line doesn't sit crammed right under the
+              // header/description above it.
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 4),
               child: Text(
                 _summaryLine(songs),
                 style: TextStyle(
                   color: AurumTheme.textPrimaryOf(context),
-                  fontSize: 14,
+                  fontSize: 14.5,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -524,9 +579,15 @@ class _MixScreenState extends State<MixScreen> {
           if (songs.isEmpty)
             SliverFillRemaining(
               child: Center(
-                child: Text(l10n.albumNoSongsFound,
-                    style:
-                        TextStyle(color: AurumTheme.textMutedOf(context))),
+                child: _awaitingFirstLoad
+                    // Genuinely still waiting on the first real fetch
+                    // (see _awaitingFirstLoad's doc comment) — a spinner
+                    // here, not the "nothing found" message, since we
+                    // don't yet know whether this mix has songs or not.
+                    ? const CircularProgressIndicator()
+                    : Text(l10n.albumNoSongsFound,
+                        style: TextStyle(
+                            color: AurumTheme.textMutedOf(context))),
               ),
             )
           else

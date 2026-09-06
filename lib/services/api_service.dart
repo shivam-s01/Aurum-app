@@ -421,7 +421,15 @@ class HomeShelfItem {
 class HomeShelf {
   final String title;
   final List<HomeShelfItem> items;
-  const HomeShelf({required this.title, required this.items});
+  // Real InnerTube field (musicCarouselShelfBasicHeaderRenderer.strapline,
+  // a Text-runs object same shape as title) — the small caps "eyebrow"
+  // line YT Music shows above a shelf's bold title on some mood/genre
+  // carousels (e.g. "BACKGROUND SCORE TO YOUR LOVE STORY" above
+  // "Romance Right Now"). Genuinely present in the anonymous response
+  // for some shelves, absent for others (e.g. "New releases" has none)
+  // — never fabricated when missing, see _parseHomeShelfHeader below.
+  final String? strapline;
+  const HomeShelf({required this.title, required this.items, this.strapline});
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -4350,6 +4358,24 @@ class ApiService {
             : '';
         if (shelfTitle.isEmpty) continue;
 
+        // FEATURE ("ekdam youtube music jaisa" eyebrow+title header —
+        // 2026-09-06): musicCarouselShelfBasicHeaderRenderer can also
+        // carry a `strapline` field (verified against real InnerTube's
+        // own parser schema — same Text-runs shape as `title`) — the
+        // small-caps line YT Music shows above a shelf's bold title on
+        // some mood/genre carousels (e.g. "BACKGROUND SCORE TO YOUR LOVE
+        // STORY" above "Romance Right Now"). Genuinely absent on plain
+        // shelves like "New releases" — left null rather than an empty
+        // string so the UI can tell "no eyebrow for this shelf" apart
+        // from "eyebrow happened to be blank", and never invents one.
+        final straplineRuns = (shelf['header']
+                    ?['musicCarouselShelfBasicHeaderRenderer']?['strapline']
+                ?['runs'] as List?) ??
+            const [];
+        final shelfStrapline = straplineRuns.isNotEmpty
+            ? _cleanHomeText((straplineRuns.first['text'] ?? '').toString())
+            : null;
+
         final items = (shelf['contents'] as List?) ?? const [];
         final parsed = <HomeShelfItem>[];
         for (final raw in items) {
@@ -4366,7 +4392,13 @@ class ApiService {
         }
         if (parsed.isEmpty) continue;
 
-        shelves.add(HomeShelf(title: shelfTitle, items: parsed));
+        shelves.add(HomeShelf(
+          title: shelfTitle,
+          items: parsed,
+          strapline: (shelfStrapline != null && shelfStrapline.isNotEmpty)
+              ? shelfStrapline
+              : null,
+        ));
       }
       return shelves;
     } catch (e) {
@@ -4547,13 +4579,60 @@ class ApiService {
   // home load itself cheap (fetchRealHomeShelves never resolves songs up
   // front for ANY item) while still opening to a fully-populated
   // MixScreen on tap, same as every other playlist tile in this app.
+  // PERF FIX ("ekdam youtube music jaisa fast" — mix open lag + extra
+  // data usage, 2026-09-06): this used to default to targetCount: 100,
+  // which for a shelf item with no continuation cache means
+  // _fetchFullTopSongsPlaylist has to walk up to ~10 SEQUENTIAL
+  // continuation hops (each one waiting on the previous response's
+  // token) before _RealShelfPlaylistCard._open() would even navigate to
+  // MixScreen — the whole tap-to-open felt frozen for however long that
+  // full chain took, and pulled far more song metadata over the network
+  // than a user glancing at a mix and playing the first few tracks ever
+  // needed. Real YT Music opens a playlist instantly off its first page
+  // (~25-50 items) and only paginates further as the user actually
+  // scrolls. Dropping the default to 25 means this is normally a single
+  // browse call (one network round-trip, no continuation hop at all) —
+  // MixScreen opens as soon as that one page is back. See
+  // fetchHomeShelfPlaylistMore below for the background top-up that
+  // fetches the rest AFTER the screen is already open, so the mix still
+  // ends up fully populated exactly as before — just without blocking
+  // the open on it.
   static Future<List<Song>> resolveHomeShelfPlaylist(
     HomeShelfItem item, {
-    int targetCount = 100,
+    int targetCount = 25,
     Duration timeout = const Duration(seconds: 8),
   }) async {
     final songs = <Song>[];
     final seenIds = <String>{};
+    await _fetchFullTopSongsPlaylist(
+      item.browseId,
+      targetCount: targetCount,
+      fallbackArtistName: item.subtitle.isNotEmpty ? item.subtitle : item.title,
+      resolvedChannelId: '',
+      topSongs: songs,
+      seenVideoIds: seenIds,
+      timeout: timeout,
+    );
+    return songs;
+  }
+
+  // Companion to resolveHomeShelfPlaylist's fast-first-page fetch above —
+  // called AFTER MixScreen is already open (see _RealShelfPlaylistCard._open
+  // in home_screen.dart) to quietly top the mix up to the fuller
+  // targetCount in the background, same "instant open, keep filling in"
+  // pattern _fetchFullTopSongsPlaylist's other callers already use for
+  // artist pages. existingVideoIds seeds seenVideoIds so this never
+  // re-adds a song MixScreen is already showing — it always continues
+  // past the first page's continuation token rather than restarting from
+  // hop 0, so this is genuinely a top-up, not a second full fetch.
+  static Future<List<Song>> fetchHomeShelfPlaylistMore(
+    HomeShelfItem item, {
+    required List<String> existingVideoIds,
+    int targetCount = 100,
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final songs = <Song>[];
+    final seenIds = existingVideoIds.toSet();
     await _fetchFullTopSongsPlaylist(
       item.browseId,
       targetCount: targetCount,
@@ -8591,6 +8670,22 @@ class ApiService {
           singles: browseArtist.singles,
           source: browseArtist.source,
           bannerUrl: browseArtist.bannerUrl,
+          // BUG FIX ("You Might Also Like / Fans might also like kabhi
+          // kabhi automatic gayab ho jaata hai" — 2026-09-06): this field
+          // was missing from snapshot(), so it silently fell back to the
+          // Artist model's `const []` default on every update after the
+          // first. Stage 1's onUpdate(browseArtist) correctly showed the
+          // row (browseArtist.relatedArtists came straight from the YT
+          // Music browse response), but the very next update — Stage 2's
+          // onUpdate(snapshot()), which fires as soon as the uploads
+          // top-up finishes, often just a couple seconds later — replaced
+          // the whole Artist object with one whose relatedArtists was
+          // empty, so the row vanished again right in front of the user.
+          // Carrying browseArtist's own relatedArtists through every
+          // snapshot (it's fetched once, up front, and never changes
+          // across stages) keeps the row present and stable from first
+          // paint through every later top-up.
+          relatedArtists: browseArtist.relatedArtists,
         );
 
     // STAGE 2: channel uploads walk top-up — outer timeout raised to 26s
@@ -8806,6 +8901,13 @@ class ApiService {
             singles: browseArtist.singles,
             source: browseArtist.source,
             bannerUrl: browseArtist.bannerUrl,
+            // BUG FIX (same "Fans might also like disappears" issue as
+            // fetchArtistStreaming's snapshot() above, 2026-09-06): this
+            // non-streaming path had the identical bug — relatedArtists
+            // missing here meant the final returned Artist always lost
+            // the row the moment this uploads top-up ran, even though
+            // browseArtist itself had it from the YT Music browse call.
+            relatedArtists: browseArtist.relatedArtists,
           );
         } catch (e) {
           _log('[fetchArtist] YT uploads top-up failed for "${browseArtist.name}": $e');
