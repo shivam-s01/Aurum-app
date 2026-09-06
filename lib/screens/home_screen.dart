@@ -1039,24 +1039,26 @@ class _HomeScreenState extends State<HomeScreen> {
                   SliverToBoxAdapter(
                     child: _YtPlaylistsForYouSection(refreshKey: _playlistRefreshKey),
                   ),
-                  // ── Albums For You (real YT Music, YouTube-only —
-                  // no Saavn leg, see fetchYtMusicHomeAlbums/
-                  // searchAlbumsYtOnly). Independent of the playlists
-                  // row's mood chips (always the default/global mood)
-                  // rather than sharing that row's private _selectedMood
-                  // state, which isn't exposed outside that widget. ──
-                  SliverToBoxAdapter(
-                    child: _YtAlbumsForYouSection(
-                      refreshKey: _playlistRefreshKey,
-                      mood: _kMoodAll,
-                    ),
-                  ),
-                  // ── Themed playlist shelves (full YT Music-style
-                  // playlist layout — Bollywood/90s/Party/etc, each its
-                  // own titled shelf) ──
-                  SliverToBoxAdapter(
-                    child: _ThemedPlaylistShelvesSection(refreshKey: _playlistRefreshKey),
-                  ),
+                  // REMOVED ("ekdam youtube music jaisa home page chahiye,
+                  // sirf real InnerTube" — 2026-09-06): _YtAlbumsForYouSection
+                  // and _ThemedPlaylistShelvesSection (the "India's Biggest
+                  // Hits" / "Brb, Being Nostalgic!" / "Party Mode: On" /
+                  // "Love Is In The Air" etc. multi-shelf block) both used
+                  // the same generic mood-seed search pool as the removed
+                  // mood-chip playlists once did, and _YtAlbumsForYouSection
+                  // in particular had a real title/subtitle text-overlap
+                  // layout bug on top of never refreshing to different
+                  // results reliably. Deleting both sliver calls here rather
+                  // than trying to patch either — Home now shows exactly
+                  // one real-InnerTube-backed section
+                  // (_YtPlaylistsForYouSection, mood chips still work and
+                  // are themselves now genuinely fresh per _realPlaylistCard's
+                  // InnerTube-search rewrite), the same one-row layout
+                  // YT Music's own home page actually uses instead of many
+                  // stacked editorial shelves. Both removed classes are left
+                  // defined below (dead code) rather than deleted outright,
+                  // in case any part of them is wanted again later — they
+                  // just aren't referenced from the widget tree anymore.
                   // ── Song sections, with the Artist Strip injected at the
                   // midpoint — YT Music and Spotify both surface a "Popular
                   // artists" row roughly halfway down the home feed, never

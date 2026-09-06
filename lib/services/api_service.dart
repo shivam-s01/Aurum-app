@@ -4085,7 +4085,7 @@ class ApiService {
         if (thumbs.isNotEmpty) {
           final rawUrl = (thumbs.last['url'] ?? '').toString();
           artworkUrl = rawUrl.isNotEmpty
-              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500')
+              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1000-h1000')
               : '';
         }
 
@@ -4244,13 +4244,23 @@ class ApiService {
       .replaceAll('&lt;', '<')
       .replaceAll('&gt;', '>');
 
-  // yt3.googleusercontent.com thumbnails already come reasonably large
-  // (up to =w544-h544 in the captured response) and don't use Saavn's
-  // 150x150/50x50 URL-suffix convention, so _hqArtwork (Saavn-specific
-  // string replace) doesn't apply here — this is a thin pass-through
-  // kept as its own named function so a future real upscale rule has an
-  // obvious single place to live, without implying today's URLs need one.
-  static String _hqArtworkGeneric(String url) => url;
+  // FIX ("ekdam top grade level" artwork — recheck, 2026-09-06): this was
+  // a pure pass-through — captured thumbnails top out around
+  // "=w544-h544-l90-rj" (verified: FEmusic_home/artist-page capture,
+  // 2026-09-06), which is fine for a small card but soft once a shelf
+  // card scales up (hero art, tap-to-expand, larger screens/tablets).
+  // yt3.googleusercontent.com serves the SAME source image at whatever
+  // w/h suffix is requested — this isn't upscaling a smaller file, it's
+  // asking Google's own CDN for a bigger render of the same original,
+  // exactly how YT Music's own web/app clients request larger art for
+  // bigger UI surfaces. Bumped the ceiling to 1000x1000; a genuinely
+  // low-res source image is simply returned at its own native size by
+  // the CDN either way, so this never fabricates detail that isn't
+  // there — it only stops truncating what IS there.
+  static String _hqArtworkGeneric(String url) {
+    if (url.isEmpty) return url;
+    return url.replaceAll(RegExp(r'=w\d+-h\d+[\w-]*$'), '=w1000-h1000');
+  }
 
   /// A real (title, subtitle, artworkUrl, browseId, isAlbum) shelf item
   /// straight from InnerTube's own home feed — see _ytmHomeRaw doc above.
@@ -5265,9 +5275,10 @@ class ApiService {
         // A real shelf's playlist cards (isAlbum == false) need their
         // song list resolved before they're usable as a
         // YtHomePlaylistCard (unlike HomeAlbumCard, which lazy-loads on
-        // tap) — reuses fetchYtPlaylistSongs, the same
-        // Worker-race-vs-explode_dart resolver every other real
-        // playlist import in this app already goes through.
+        // tap) — resolved via _fetchFullTopSongsPlaylist's InnerTube
+        // browse+continuation path below (also applies the same
+        // isNonMusicContent quality filter every other real song list in
+        // this file already goes through).
         var playlistItems = realShelves
             .expand((s) => s.items.where((it) => !it.isAlbum)
                 .map((it) => (shelfTitle: s.title, item: it)))
@@ -5281,42 +5292,73 @@ class ApiService {
         // they are.
         playlistItems.shuffle();
 
-        final cardFutures = <Future<YtHomePlaylistCard?>>[];
-        for (final entry in playlistItems) {
-          if (cardFutures.length >= limit) break;
-          final it = entry.item;
-          // Real playlist browseIds from FEmusic_home come VL-prefixed
-          // (e.g. "VLPLxxxx") — fetchYtPlaylistSongs/youtube_explode_dart
-          // expect the bare playlist id ("PLxxxx").
-          final playlistId =
-              it.browseId.startsWith('VL') ? it.browseId.substring(2) : it.browseId;
-          cardFutures.add(() async {
-            try {
-              final songs = await fetchYtPlaylistSongs(
-                playlistId,
-                limit: 100 + exclude.length + 20,
-              ).timeout(const Duration(seconds: 10));
-              final cleaned = songs.where((s) => s.id.isNotEmpty).toList();
-              final fresh =
-                  cleaned.where((s) => !exclude.contains(s.id)).toList();
-              final finalSongs =
-                  (fresh.length >= 10 ? fresh : cleaned).take(100).toList();
-              if (finalSongs.length < 10) return null;
-              return YtHomePlaylistCard(
-                id: 'realhome_${it.browseId}',
-                title: it.title,
-                subtitle: it.subtitle.isNotEmpty ? it.subtitle : entry.shelfTitle,
-                artworkUrl: it.artworkUrl,
-                songs: finalSongs,
-              );
-            } catch (_) {
-              return null;
-            }
-          }());
-        }
-        if (cardFutures.isNotEmpty) {
-          final resolved = await Future.wait(cardFutures);
+        // PERF FIX ("weak/mobile network pe smooth rahe" — recheck,
+        // 2026-09-06): building every card's future up front and
+        // Future.wait-ing them all at once fired up to `limit` (10)
+        // concurrent network calls simultaneously — each itself a full
+        // InnerTube browse (and potentially a continuation hop for a
+        // failed/thin card retried by the top-up path below). Fine on
+        // strong wifi, but real congestion risk on weaker mobile data.
+        // Batched into groups of 6 (sequential between batches, still
+        // fully parallel WITHIN each batch) — caps simultaneous in-flight
+        // requests without meaningfully slowing a healthy connection
+        // (each batch is still one round-trip's worth of latency, just
+        // fewer sockets fighting for bandwidth at once).
+        const kMaxParallelCardFetches = 6;
+        final candidateItems = playlistItems.take(limit).toList();
+        for (var i = 0; i < candidateItems.length; i += kMaxParallelCardFetches) {
+          final batch = candidateItems.skip(i).take(kMaxParallelCardFetches);
+          final batchFutures = batch.map((entry) {
+            final it = entry.item;
+            return () async {
+              try {
+                // PERF FIX ("home load pe lag/hang na ho" — recheck,
+                // 2026-09-06): targetCount was 100+exclude+20 (~120), but
+                // the card only ever keeps 100 songs (.take(100) below) —
+                // and a VL-playlist's own page size is exactly 100
+                // (verified: Arijit Singh capture returned 100 unique
+                // songs on page 1). Asking for 120 forced an extra,
+                // entirely wasted continuation-token network hop on every
+                // single card, every single Home load — real latency for
+                // zero extra usable songs. Capped at 100 so page 1 alone
+                // satisfies the target and no continuation hop fires at
+                // all for this call site (continuation pagination is
+                // still available/used by the OTHER two call sites of
+                // this same function — mood-chip playlists and artist
+                // Top Songs — where the caller actually keeps everything
+                // it asks for).
+                final songs = <Song>[];
+                final seenIds = <String>{};
+                await _fetchFullTopSongsPlaylist(
+                  it.browseId, // already VL-prefixed from FEmusic_home, exactly what browse expects
+                  targetCount: 100,
+                  fallbackArtistName: entry.shelfTitle,
+                  resolvedChannelId: '',
+                  topSongs: songs,
+                  seenVideoIds: seenIds,
+                  timeout: const Duration(seconds: 8),
+                );
+                final cleaned = songs.where((s) => s.id.isNotEmpty).toList();
+                final fresh =
+                    cleaned.where((s) => !exclude.contains(s.id)).toList();
+                final finalSongs =
+                    (fresh.length >= 10 ? fresh : cleaned).take(100).toList();
+                if (finalSongs.length < 10) return null;
+                return YtHomePlaylistCard(
+                  id: 'realhome_${it.browseId}',
+                  title: it.title,
+                  subtitle: it.subtitle.isNotEmpty ? it.subtitle : entry.shelfTitle,
+                  artworkUrl: it.artworkUrl,
+                  songs: finalSongs,
+                );
+              } catch (_) {
+                return null;
+              }
+            }();
+          }).toList();
+          final resolved = await Future.wait(batchFutures);
           realCards.addAll(resolved.whereType<YtHomePlaylistCard>());
+          if (realCards.length >= limit) break;
         }
         // Real shelves came back empty/unresolvable (e.g. every
         // candidate playlist failed to resolve, or FEmusic_home itself
@@ -5570,10 +5612,25 @@ class ApiService {
 
       for (final candidate in candidates) {
         try {
-          final songs = await fetchYtPlaylistSongs(
-            candidate.id,
-            limit: songsPerCard + exclude.length + 20,
-          ).timeout(const Duration(seconds: 10));
+          // PERF FIX ("home load pe lag/hang na ho" — recheck,
+          // 2026-09-06): same over-fetch waste as the FEmusic_home call
+          // site above — songsPerCard is 100 and the result is
+          // .take(songsPerCard) below regardless, but targetCount here
+          // asked for +exclude.length+20 extra, forcing a wasted
+          // continuation-token network hop past a VL-playlist's 100-song
+          // first page for zero usable extra songs. Capped at
+          // songsPerCard so page 1 alone satisfies it whenever possible.
+          final songs = <Song>[];
+          final seenIds = <String>{};
+          await _fetchFullTopSongsPlaylist(
+            candidate.id.startsWith('VL') ? candidate.id : 'VL${candidate.id}',
+            targetCount: songsPerCard,
+            fallbackArtistName: candidate.author,
+            resolvedChannelId: '',
+            topSongs: songs,
+            seenVideoIds: seenIds,
+            timeout: const Duration(seconds: 8),
+          );
           final cleaned = songs.where((s) => s.id.isNotEmpty).toList();
           final fresh = cleaned.where((s) => !exclude.contains(s.id)).toList();
           final finalSongs =
@@ -5615,39 +5672,68 @@ class ApiService {
     String query, {
     int take = 5,
   }) async {
+    // REWRITTEN ("mood chips real InnerTube se lena hai, refresh pe same
+    // stale results aur 10-20 songs wali dikkat" — see
+    // _ytmPlaylistsFilterParam fix comment above for full root cause):
+    // switched from youtube_explode_dart's generic YouTube playlist
+    // search to YT Music's own WEB_REMIX InnerTube search with the
+    // verified playlists filter — same search surface, same freshness,
+    // as every other real-content path in this file (home shelves,
+    // artist pages, related-content). A plain-YouTube playlist search
+    // has no reason to agree with what YT Music itself would show for a
+    // mood query, and doesn't get YT Music's own popularity/curation
+    // signal at all.
     try {
-      final searchFuture = _yt.search.searchContent(
-        query,
-        filter: TypeFilters.playlist,
-      );
-      final results = await searchFuture.timeout(
-        const Duration(seconds: 8),
-      );
-      final list = results.toList();
+      final decoded = await _ytmSearchRaw(query, params: _ytmPlaylistsFilterParam,
+          timeout: const Duration(seconds: 6));
+      if (decoded == null) return const [];
 
-      final candidates = list
-          .whereType<SearchPlaylist>()
-          .where((p) => p.id.value.isNotEmpty)
-          // Mix/Radio ids never actually come back from a playlist
-          // SEARCH (only from watch-page "up next" endpoints), but the
-          // check costs nothing and removes any doubt.
-          .where((p) => !_isYtMixPlaylistId(p.id.value))
-          .where((p) => !RecommendationEngine.isLowQualityUpload(p.title))
-          // A playlist with only a handful of videos isn't a real "Top
-          // Hits"-style shelf card — skip thin ones so the ones that do
-          // get picked feel substantial, same reasoning as the
-          // song-search path's own quality floor.
-          .where((p) {
-            final count = p.videoCount;
-            return count == null || count >= _kMinPlaylistVideoCount;
-          })
-          .map((p) => _RealPlaylistCandidate(
-                id: p.id.value,
-                author: '',
-                artworkUrl: _bestThumbnail(p.thumbnails),
-              ))
-          .take(take)
-          .toList();
+      final candidates = <_RealPlaylistCandidate>[];
+      for (final item in _findRenderers(decoded, 'musicResponsiveListItemRenderer')) {
+        final browseId = (item['navigationEndpoint']?['browseEndpoint']?['browseId'] ??
+                item['overlay']?['musicItemThumbnailOverlayRenderer']?['content']
+                        ?['musicPlayButtonRenderer']?['playNavigationEndpoint']
+                    ?['watchPlaylistEndpoint']?['playlistId'] ??
+                '')
+            .toString();
+        if (browseId.isEmpty) continue;
+        // Mix/Radio ids (RDAMVM.../RDCLAK5uy...) aren't a real curated
+        // playlist — same exclusion _isYtMixPlaylistId already applies
+        // elsewhere in this file.
+        if (_isYtMixPlaylistId(browseId)) continue;
+        if (!browseId.startsWith('VL') && !browseId.startsWith('PL') &&
+            !browseId.startsWith('OLAK5uy')) {
+          continue; // Not a playlist-shaped id — skip rather than guess.
+        }
+
+        final title = _flexColumnText(item, 0);
+        if (title.isEmpty || RecommendationEngine.isLowQualityUpload(title)) continue;
+
+        final thumbs = (item['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
+                    ?['thumbnails'] as List?) ??
+            const [];
+        final artworkUrl = thumbs.isNotEmpty
+            ? _hqArtworkGeneric((thumbs.last['url'] ?? '').toString())
+            : '';
+
+        // Second flex column is typically "Playlist • <channel/author>".
+        final subtitleRuns = ((item['flexColumns'] as List?)?.length ?? 0) > 1
+            ? ((item['flexColumns'][1]?['musicResponsiveListItemFlexColumnRenderer']
+                        ?['text']?['runs'] as List?) ??
+                const [])
+            : const [];
+        final author = subtitleRuns
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .where((t) => t != ' • ' && t.trim().isNotEmpty)
+            .lastWhere((_) => true, orElse: () => '');
+
+        candidates.add(_RealPlaylistCandidate(
+          id: browseId.startsWith('VL') ? browseId.substring(2) : browseId,
+          author: _cleanHomeText(author),
+          artworkUrl: artworkUrl,
+        ));
+        if (candidates.length >= take) break;
+      }
       return candidates;
     } catch (_) {
       // Any shape mismatch/parse failure/network error here just means
@@ -7580,36 +7666,35 @@ class ApiService {
 
   /// STREAMING VERSION ("Musify/SimpMusic jaisa fast") — used by
   /// home_screen.dart instead of the blocking fetchHomeArtistsCombined()
-  /// above. Calls `onUpdate` twice: once as soon as the fast YT leg
-  /// resolves (near-instant, single Worker call), and again once the slow
-  /// 20-artist Saavn pool finishes merging in — so the artist strip can
-  /// paint real content almost immediately instead of staying empty for
-  /// however long the slowest of 20 individual searches takes.
+  /// above.
+  ///
+  /// FIX ("ekdam InnerTube/YouTube jaisa chahiye, Saavn artist merge hata
+  /// do" — 2026-09-06): this used to call `onUpdate` twice — once with
+  /// the fast YT leg, once more after merging in a slow 20-artist Saavn
+  /// pool (fetchHomeArtists() above, which resolves each artist via
+  /// Saavn's own search/match — a different, sometimes-mismatched image
+  /// source than YT Music's own real profile photo). Removed the Saavn
+  /// leg entirely: home is now 100% real YT Music InnerTube artists (the
+  /// same guaranteed-real-photo path fetchYtMusicHomeArtists/
+  /// _fetchYtMusicArtistsDirect already provide), matching every other
+  /// Home section's data source after this session's fixes. Kept the
+  /// `onUpdate` callback signature and streaming shape unchanged (still
+  /// calls it once) so home_screen.dart needs no changes at all.
   static Future<void> fetchHomeArtistsStreaming(
     void Function(List<ArtistSimple> artists) onUpdate,
   ) async {
-    final seenNames = <String>{};
-    final merged = <ArtistSimple>[];
-    void addAll(Iterable<ArtistSimple> items) {
-      for (final a in items) {
-        final key = a.name.trim().toLowerCase();
-        if (key.isEmpty || !seenNames.add(key)) continue;
-        merged.add(a);
-      }
-    }
-
     List<YtHomeArtist> ytArtists = const [];
     try {
       ytArtists = await fetchYtMusicHomeArtists(limit: 40);
     } catch (_) {}
-    addAll(ytArtists.map((a) => ArtistSimple(id: 'yt_${a.channelId}', name: a.name, imageUrl: a.imageUrl)));
-    onUpdate(_uniqueIds(merged));
 
-    List<ArtistSimple> saavnArtists = const [];
-    try {
-      saavnArtists = await fetchHomeArtists();
-    } catch (_) {}
-    addAll(saavnArtists);
+    final seenNames = <String>{};
+    final merged = <ArtistSimple>[];
+    for (final a in ytArtists) {
+      final key = a.name.trim().toLowerCase();
+      if (key.isEmpty || !seenNames.add(key)) continue;
+      merged.add(ArtistSimple(id: 'yt_${a.channelId}', name: a.name, imageUrl: a.imageUrl));
+    }
     onUpdate(_uniqueIds(merged));
   }
 
@@ -7726,6 +7811,26 @@ class ApiService {
   // below), keeping everything else byte-identical to what's confirmed
   // working in production — the safest, least speculative construction.
   static const String _ytmArtistsFilterParam = 'EgWKAQIgAWoKEAMQBBAJEAoQBQ%3D%3D';
+
+  // FIX ("mood chips ke playlists refresh pe change nahi hote, aur 10-20
+  // songs hi hote hain" — root cause + fix, 2026-09-06): _realPlaylistCard
+  // (below) was searching for mood playlists via youtube_explode_dart's
+  // generic YouTube search (music.youtube.com InnerTube at all — plain
+  // youtube.com), which is unofficial-scrape-based, tends to surface the
+  // same top-ranked handful of results call after call (hence "refresh pe
+  // change nahi hota"), and its playlist-video-listing path
+  // (fetchYtPlaylistSongs -> youtube_explode_dart's getVideos) can return
+  // a short/incomplete list for large playlists (hence "10-20 songs").
+  // Constructed the exact same verified way _ytmSongsFilterParam /
+  // _ytmArtistsFilterParam / _ytmAlbumsFilterParam already are: decode
+  // the proven-working songs param as raw protobuf
+  // (12058a010208016a0a100310041009100a1005), swap only the filter-type
+  // tag byte at index 5 (0x08 songs -> 0x28 playlists, matching
+  // ytmusicapi's own get_search_params() filter_code table referenced in
+  // the artists-param fix comment just above: songs=0x08, videos=0x10,
+  // albums=0x18, artists=0x20, playlists=0x28), re-encode — everything
+  // else byte-identical to what's already confirmed working.
+  static const String _ytmPlaylistsFilterParam = 'EgWKAQIoAWoKEAMQBBAJEAoQBQ%3D%3D';
 
   /// PRODUCTION-GRADE ARTIST SEARCH ("search mein artist ekdam aaye").
   ///
@@ -8630,7 +8735,7 @@ class ApiService {
         if (thumbs.isNotEmpty) {
           final rawUrl = (thumbs.last['url'] ?? '').toString();
           artworkUrl = rawUrl.isNotEmpty
-              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500')
+              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1000-h1000')
               : '';
         }
 
@@ -8812,7 +8917,7 @@ class ApiService {
           if (cardThumbs.isNotEmpty) {
             final rawUrl = (cardThumbs.last['url'] ?? '').toString();
             cardArt = rawUrl.isNotEmpty
-                ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500')
+                ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1000-h1000')
                 : '';
           }
           final subtitleRuns = ((card['subtitle']?['runs'] as List?) ?? const []);
@@ -8925,7 +9030,7 @@ class ApiService {
           if (cardThumbs.isNotEmpty) {
             final rawUrl = (cardThumbs.last['url'] ?? '').toString();
             cardArt = rawUrl.isNotEmpty
-                ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w500-h500')
+                ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1000-h1000')
                 : '';
           }
           relatedArtists.add(RelatedArtist(
