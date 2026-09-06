@@ -20,6 +20,8 @@ import '../widgets/song_tile.dart';
 import '../widgets/mini_player_slot.dart';
 import '../utils/aurum_transitions.dart';
 import 'album_screen.dart';
+import 'artist_all_songs_screen.dart';
+import 'artist_all_albums_screen.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_immersive_header.dart';
@@ -429,27 +431,70 @@ class _ArtistScreenState extends State<ArtistScreen> {
         ),
 
         if (artist.topSongs.isNotEmpty) ...[
-          _sectionHeader(context, l10n.asPopular),
-          // FEATURE ("Top Songs ko Show all ke saath collapse karo, sirf
-          // top 5 dikhe pehle" — YT Music parity): YT Music's artist page
-          // never dumps the whole catalog inline — it shows a short
-          // "Popular" preview (5 tracks) with a "Show all" row that opens
-          // the complete list separately. _ArtistTopSongsSection below
-          // owns that expand/collapse state locally (a plain bool, no
-          // new provider needed) so this stays a simple visual toggle —
-          // the full `artist.topSongs` list this screen already fetched
-          // is what both the 5-song preview and the "Show all" expansion
-          // read from; nothing is re-fetched.
-          _ArtistTopSongsSection(songs: artist.topSongs, l10n: l10n),
+          // FEATURE ("main page pr bs 10 songs hi show kre aur trick
+          // click pr new page khule wala sb songs ho" — top-level
+          // parity): the section header itself carries the "open full
+          // list" affordance now (a plain forward-arrow icon button —
+          // same Echo-Nightly-matched treatment home_screen.dart already
+          // uses for every shelf's "see all", so this reads as one
+          // consistent app-wide pattern instead of a one-off). No inline
+          // expand/collapse and no per-tile 1/2/3 index numbers — just a
+          // clean 10-track preview here, with ArtistAllSongsScreen owning
+          // the complete, un-numbered list. Nothing is re-fetched: both
+          // the preview and the full page read from this same
+          // artist.topSongs list ArtistScreen already has in memory.
+          _sectionHeader(
+            context,
+            l10n.asPopular,
+            onSeeAll: () {
+              AurumHaptics.light();
+              AurumDepthRoute.to(
+                context,
+                ArtistAllSongsScreen(
+                  artistName: artist.name,
+                  songs: artist.topSongs,
+                ),
+              );
+            },
+          ),
+          _ArtistTopSongsSection(songs: artist.topSongs),
         ],
 
         if (artist.topAlbums.isNotEmpty) ...[
-          _sectionHeader(context, l10n.asAlbums),
+          _sectionHeader(
+            context,
+            l10n.asAlbums,
+            onSeeAll: () {
+              AurumHaptics.light();
+              AurumDepthRoute.to(
+                context,
+                ArtistAllAlbumsScreen(
+                  artistName: artist.name,
+                  title: l10n.asAlbums,
+                  albums: artist.topAlbums,
+                ),
+              );
+            },
+          ),
           _albumGrid(context, artist.topAlbums),
         ],
 
         if (artist.singles.isNotEmpty) ...[
-          _sectionHeader(context, l10n.asSingles),
+          _sectionHeader(
+            context,
+            l10n.asSingles,
+            onSeeAll: () {
+              AurumHaptics.light();
+              AurumDepthRoute.to(
+                context,
+                ArtistAllAlbumsScreen(
+                  artistName: artist.name,
+                  title: l10n.asSingles,
+                  albums: artist.singles,
+                ),
+              );
+            },
+          ),
           _albumGrid(context, artist.singles),
         ],
 
@@ -489,17 +534,48 @@ class _ArtistScreenState extends State<ArtistScreen> {
     );
   }
 
-  Widget _sectionHeader(BuildContext context, String title) {
+  Widget _sectionHeader(BuildContext context, String title,
+      {VoidCallback? onSeeAll}) {
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-        child: Text(
-          title,
-          style: TextStyle(
-            color: AurumTheme.textPrimaryOf(context),
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-          ),
+        padding: const EdgeInsets.fromLTRB(20, 20, 12, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            // ECHO-NIGHTLY MATCH ("trick jaisa mark" — a plain icon, no
+            // text): identical treatment to home_screen.dart's shelf
+            // "see all" — a bare circular icon button with a
+            // forward-arrow glyph, no fill, no outline, no extra text
+            // label. Only rendered when the caller actually has a full
+            // list to open.
+            if (onSeeAll != null)
+              Material(
+                color: Colors.transparent,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: onSeeAll,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 20,
+                      color: AurumTheme.textPrimaryOf(context),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -686,66 +762,31 @@ class _ArtistScreenState extends State<ArtistScreen> {
 /// same complete list ArtistScreen already fetched via fetchArtist(), so
 /// expanding never re-fetches or truncates data, it only changes how much
 /// of the already-fetched list is rendered.
-class _ArtistTopSongsSection extends StatefulWidget {
+// FEATURE ("main page pr bs 10 songs hi show kre" / "1 2 3 number hata
+// do" — top-level parity): plain stateless preview now — no per-tile
+// index numbering (no showIndex/displayIndex), no inline expand/collapse
+// state to own. Just the first 10 tracks; the section header's arrow
+// icon (see _sectionHeader's onSeeAll) is what opens the complete,
+// still-un-numbered list on ArtistAllSongsScreen.
+class _ArtistTopSongsSection extends StatelessWidget {
+  static const int _previewCount = 10;
   final List<Song> songs;
-  final AppLocalizations l10n;
-  const _ArtistTopSongsSection({required this.songs, required this.l10n});
-
-  @override
-  State<_ArtistTopSongsSection> createState() => _ArtistTopSongsSectionState();
-}
-
-class _ArtistTopSongsSectionState extends State<_ArtistTopSongsSection> {
-  static const int _previewCount = 5;
-  bool _expanded = false;
+  const _ArtistTopSongsSection({required this.songs});
 
   @override
   Widget build(BuildContext context) {
-    final songs = widget.songs;
-    final showToggle = songs.length > _previewCount;
-    final visibleCount = _expanded || !showToggle
-        ? songs.length
-        : _previewCount;
+    final visibleCount =
+        songs.length > _previewCount ? _previewCount : songs.length;
 
     return SliverList(
       delegate: SliverChildBuilderDelegate(
-        (context, i) {
-          if (i < visibleCount) {
-            return SongTile(
-              song: songs[i],
-              queue: songs,
-              index: i,
-              showIndex: true,
-              displayIndex: i + 1,
-              curatedQueue: true,
-            );
-          }
-          // Final row: the "Show all" toggle itself.
-          return AurumPressable(
-            onTap: () => setState(() => _expanded = !_expanded),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              child: Row(
-                children: [
-                  Text(
-                    _expanded ? widget.l10n.asShowLess : widget.l10n.asShowAll,
-                    style: TextStyle(
-                      color: AurumTheme.textPrimaryOf(context),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  Icon(
-                    _expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: AurumTheme.textPrimaryOf(context),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-        childCount: showToggle ? visibleCount + 1 : visibleCount,
+        (context, i) => SongTile(
+          song: songs[i],
+          queue: songs,
+          index: i,
+          curatedQueue: true,
+        ),
+        childCount: visibleCount,
       ),
     );
   }

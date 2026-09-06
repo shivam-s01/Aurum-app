@@ -1662,11 +1662,16 @@ class _SearchScreenState extends State<SearchScreen>
             if (idx < _liveResults.length) {
               final song = _liveResults[idx];
               // PERF: fixed height matches SongTile's actual rendered
-              // size (same 66px convention the submit-search list uses)
-              // so Flutter can lay out this item without measuring its
-              // subtree first — cheaper per-item cost during fast scroll.
+              // size. SIZE FIX ("thumbnail bahut chhota dikhta hai"):
+              // SongTile's cover art grew 50→64px app-wide, which grew
+              // its real row height 66→~92 (20 vertical padding + the
+              // 72px artwork box AurumStackedArtwork draws at size+8
+              // headroom) — updated so this fixed height matches the
+              // tile's actual new size instead of clipping it, while
+              // keeping the same "skip subtree measurement" perf win
+              // this convention exists for.
               return SizedBox(
-                height: 66,
+                height: 92,
                 child: _StaggeredItem(
                   index: idx,
                   itemKey: 'live_${song.id}',
@@ -1850,8 +1855,10 @@ class _SearchScreenState extends State<SearchScreen>
               return const SizedBox.shrink();
             }
             if (i < _results.length) {
+              // SIZE FIX: see the live-panel SizedBox above for why this
+              // is 92 now, not 66 — same SongTile height-growth reasoning.
               return SizedBox(
-                height: 66,
+                height: 92,
                 child: _StaggeredItem(
                   index: i,
                   itemKey: 'result_${_results[i].id}',
@@ -1897,8 +1904,10 @@ class _SearchScreenState extends State<SearchScreen>
             if (relatedIdx < 0 || relatedIdx >= _relatedResults.length) {
               return const SizedBox.shrink();
             }
+            // SIZE FIX: see the live-panel SizedBox above for why this
+            // is 92 now, not 66 — same SongTile height-growth reasoning.
             return SizedBox(
-              height: 66,
+              height: 92,
               child: _StaggeredItem(
                 index: i,
                 itemKey: 'related_${_relatedResults[relatedIdx].id}',

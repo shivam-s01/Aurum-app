@@ -19,7 +19,9 @@
 import 'dart:async';
 import '../utils/aurum_transitions.dart';
 import 'dart:ui';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
 import '../services/api_service.dart';
@@ -33,6 +35,8 @@ import '../widgets/aurum_save_button.dart';
 import '../widgets/aurum_snack.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/mini_player_slot.dart';
+import '../widgets/cast_button.dart';
+import '../widgets/aurum_stage_backdrop.dart' show resolveAurumImageProvider;
 import 'artist_screen.dart';
 import 'search_screen.dart';
 import 'full_player_screen.dart' show shareSong;
@@ -265,9 +269,18 @@ class _MixScreenState extends State<MixScreen> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Layer 1 — full-bleed artwork fills the entire header,
-                  // edge to edge, no card/frame — matches the reference
-                  // players' playlist/artist header treatment.
+                  // Layer 1 — blurred, edge-to-edge artwork filling the
+                  // entire header, hazy/"dudhla" exactly like the Full
+                  // Player's own background (see full_player_screen.dart's
+                  // _BlurredArtworkCore) — same 20σ/22σ sigma and 1.55x
+                  // overscan, so this reads as the identical treatment,
+                  // not a separate look. Baked to a static bitmap ONCE
+                  // per artworkUrl (see _MixHeaderBlur below) instead of
+                  // running a live blur shader every composited frame —
+                  // same technique already proven in aurum_stage_backdrop.
+                  // dart's _BakedBlurStage, just keyed on a plain URL
+                  // (mix_screen has no Song object, only artworkUrl)
+                  // instead of a Song.
                   if (widget.artworkUrl.isNotEmpty)
                     Hero(
                       tag: 'mix_art_${widget.mixId}',
@@ -278,8 +291,10 @@ class _MixScreenState extends State<MixScreen> {
                           child: ScaleTransition(scale: animation, child: to.widget),
                         );
                       },
-                      child: AurumArtwork(
-                          url: widget.artworkUrl, size: 700, borderRadius: 0),
+                      child: _MixHeaderBlur(
+                        key: ValueKey(widget.artworkUrl),
+                        artworkUrl: widget.artworkUrl,
+                      ),
                     )
                   else
                     Container(
@@ -451,25 +466,40 @@ class _MixScreenState extends State<MixScreen> {
             ),
           ),
 
-          // Action row — shuffle (glass circle) · play/pause (filled
-          // pill, YT-Music-style) · download (glass circle), centered.
+          // Action row — YT-Music-style 5-control row matching the
+          // reference exactly: queue(list) · shuffle · Play (dominant
+          // filled pill, center) · save/add-to-library · cast. Every
+          // icon here is a real, already-wired action elsewhere in the
+          // app (queue via player.addSongsToQueue — same call
+          // _GridOption's "Add to Queue" uses below; save via
+          // FollowedAlbumsProvider.toggleFollow — same call the header's
+          // save button and _GridOption's "Add to Library" use; cast via
+          // the shared CastIconButton used on the full player) — nothing
+          // new or fake, just surfaced here too so the row reads exactly
+          // like the reference screenshot's control strip.
           SliverToBoxAdapter(
             child: Padding(
-              // SPACING FIX ("faila faila" / more breathing room, reference:
-              // YT Music mix screen) — this row was tight against the
-              // summary line above and the song list below (20/4). Opened
-              // up to 30/22 so the control row reads as its own generously
-              // spaced section instead of being squeezed between neighbors.
               padding: const EdgeInsets.fromLTRB(20, 30, 20, 22),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  _RoundGlassButton(
+                    icon: Icons.queue_music_rounded,
+                    onTap: songs.isEmpty
+                        ? null
+                        : () async {
+                            AurumHaptics.light();
+                            final added = await player.addSongsToQueue(songs);
+                            _snack(context, added > 0
+                                ? 'Added $added song${added == 1 ? '' : 's'} to queue'
+                                : 'Already in queue');
+                          },
+                  ),
                   _RoundGlassButton(
                     icon: Icons.shuffle_rounded,
                     active: _shuffle,
                     onTap: () => setState(() => _shuffle = !_shuffle),
                   ),
-                  const SizedBox(width: 18),
                   AurumPressable(
                     scaleAmount: 0.95,
                     onTap: songs.isEmpty
@@ -486,8 +516,8 @@ class _MixScreenState extends State<MixScreen> {
                       // SPACING FIX — bumped 44→50 to match reference's
                       // bigger, more dominant center Play pill.
                       height: 50,
-                      constraints: const BoxConstraints(minWidth: 130),
-                      padding: const EdgeInsets.symmetric(horizontal: 26),
+                      constraints: const BoxConstraints(minWidth: 110),
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
                       decoration: BoxDecoration(
                         color: songs.isEmpty
                             ? Colors.white.withOpacity(0.4)
@@ -529,16 +559,39 @@ class _MixScreenState extends State<MixScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 18),
-                  Consumer<DownloadProvider>(
-                    builder: (context, downloads, _) {
+                  Consumer<FollowedAlbumsProvider>(
+                    builder: (context, followedAlbums, _) {
+                      final saved = followedAlbums.isFollowing(widget.mixId);
                       return _RoundGlassButton(
-                        icon: Icons.download_outlined,
-                        onTap: songs.isEmpty
-                            ? null
-                            : () => _downloadMix(context, downloads),
+                        icon: saved
+                            ? Icons.bookmark_rounded
+                            : Icons.add_rounded,
+                        active: saved,
+                        onTap: () {
+                          followedAlbums.toggleFollow(
+                            albumId: widget.mixId,
+                            name: widget.mixName,
+                            artworkUrl: widget.artworkUrl,
+                            isMix: true,
+                            songs: songs,
+                          );
+                          _snack(context, saved
+                              ? 'Removed from Library'
+                              : 'Added to Library');
+                        },
                       );
                     },
+                  ),
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AurumTheme.bgSurfaceOf(context),
+                    ),
+                    child: const Center(
+                      child: CastIconButton(size: 21),
+                    ),
                   ),
                 ],
               ),
@@ -1171,6 +1224,166 @@ class _ArtistChip extends StatelessWidget {
           ),
         ]),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// _MixHeaderBlur — the mix screen header's edge-to-edge blurred artwork,
+// "dudhla" exactly like the Full Player's own background. Same sigma
+// (20σ light / 22σ dark) and 1.55x overscan as
+// full_player_screen.dart's _BlurredArtworkCore, and the same bake-once-
+// then-blit technique already proven in aurum_stage_backdrop.dart's
+// _BakedBlurStage — the expensive blur shader runs exactly ONCE per
+// artworkUrl (captured via RenderRepaintBoundary.toImage() the first
+// frame it's actually painted), then every subsequent frame is just a
+// RawImage blit, as cheap as any other static photo. Keyed on artworkUrl
+// (not a Song — this screen only ever has a plain URL) so scrolling/
+// rebuilding this header never re-triggers the bake.
+// ─────────────────────────────────────────────────────────────────────────
+class _MixHeaderBlur extends StatefulWidget {
+  final String artworkUrl;
+  const _MixHeaderBlur({super.key, required this.artworkUrl});
+
+  @override
+  State<_MixHeaderBlur> createState() => _MixHeaderBlurState();
+}
+
+class _MixHeaderBlurState extends State<_MixHeaderBlur> {
+  final GlobalKey _repaintKey = GlobalKey();
+  ui.Image? _snapshot;
+  bool _capturing = false;
+  Animation<double>? _routeAnimation;
+  // SAFETY CAP ("battery heating" concern): the retry-until-painted loop
+  // below normally settles within 1-2 frames once the image decodes, but
+  // capping it means a genuinely stuck edge case (e.g. a broken/never-
+  // resolving artwork URL) can't turn into an unbounded per-frame retry
+  // loop burning CPU indefinitely. After this many attempts it just
+  // leaves the live blur showing — visually identical, just not baked
+  // into a static bitmap.
+  int _captureAttempts = 0;
+  static const int _maxCaptureAttempts = 30;
+
+  // Route lookups (ModalRoute.of/InheritedWidget) aren't safe in
+  // initState — didChangeDependencies is the correct lifecycle hook for
+  // this, and it's also called once right after initState on first
+  // build, so this still fires exactly once per mount.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_routeAnimation != null || _snapshot != null) return;
+    // Wait for this screen's own push transition (and any Hero flight
+    // riding along with it) to fully settle before capturing — baking
+    // mid-flight, while the outer Hero's ScaleTransition is still
+    // animating this subtree, would freeze a transient in-between frame
+    // instead of the artwork's real resting frame. Falling back to a
+    // plain post-frame callback (no active route, e.g. hot-reload)
+    // still works exactly as before.
+    final route = ModalRoute.of(context);
+    if (route != null && route.animation != null && !route.animation!.isCompleted) {
+      _routeAnimation = route.animation;
+      _routeAnimation!.addStatusListener(_onRouteAnimationStatus);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
+    }
+  }
+
+  void _onRouteAnimationStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      _routeAnimation?.removeStatusListener(_onRouteAnimationStatus);
+      _routeAnimation = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
+    }
+  }
+
+  @override
+  void dispose() {
+    _routeAnimation?.removeStatusListener(_onRouteAnimationStatus);
+    _snapshot?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _capture() async {
+    if (_capturing || !mounted) return;
+    _capturing = true;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      _capturing = false;
+      return;
+    }
+    try {
+      final boundary = _repaintKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      if (boundary == null || boundary.debugNeedsPaint) {
+        _capturing = false;
+        _captureAttempts++;
+        if (mounted && _captureAttempts < _maxCaptureAttempts) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
+        }
+        return;
+      }
+      // pixelRatio 1.0 — same reasoning as the full player: the source
+      // decodes at a small capped width already, and a heavy blur
+      // destroys detail a higher-res capture would've preserved anyway.
+      final image = await boundary.toImage(pixelRatio: 1.0);
+      if (!mounted) {
+        image.dispose();
+        _capturing = false;
+        return;
+      }
+      final old = _snapshot;
+      setState(() => _snapshot = image);
+      old?.dispose();
+    } catch (_) {
+      // Live blur just stays on screen if a capture attempt fails —
+      // never worse than not baking, never a crash.
+    } finally {
+      _capturing = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = _snapshot;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return ClipRect(
+      child: snapshot != null
+          // Post-bake: plain bitmap blit, zero shader cost from here on.
+          ? RawImage(image: snapshot, fit: BoxFit.cover)
+          // Pre-bake: the one time the real blur shader runs for this art.
+          : RepaintBoundary(
+              key: _repaintKey,
+              child: Transform.scale(
+                // Small overscan so the blur's soft edge never shows a
+                // hard boundary — identical 1.55x used by the full
+                // player's own blurred background.
+                scale: 1.55,
+                child: ImageFiltered(
+                  imageFilter: ui.ImageFilter.blur(
+                    sigmaX: isLight ? 20 : 22,
+                    sigmaY: isLight ? 20 : 22,
+                    tileMode: TileMode.clamp,
+                  ),
+                  child: SizedBox.expand(
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        // Small fixed decode size — matches
+                        // AurumArtwork's own "why decode more than the
+                        // blur can preserve" logic.
+                        width: 200,
+                        height: 200,
+                        child: Image(
+                          image: resolveAurumImageProvider(widget.artworkUrl),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const SizedBox.expand(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
     );
   }
 }

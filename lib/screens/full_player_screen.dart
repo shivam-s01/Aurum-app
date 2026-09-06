@@ -7300,6 +7300,18 @@ class _BlurredArtworkCoreState extends State<_BlurredArtworkCore> {
   final GlobalKey _repaintKey = GlobalKey();
   ui.Image? _snapshot;
   bool _capturing = false;
+  // SAFETY CAP ("battery aur heating ekdam low chahiye, YouTube-level
+  // optimize" — this screen stays open through an entire playback
+  // session and re-bakes on every song change via didUpdateWidget, so
+  // an unbounded per-frame retry is a real, recurring battery/CPU risk
+  // here specifically, not a one-off): if a song's artwork genuinely
+  // never finishes decoding (dead URL, network failure), this caps how
+  // many frames get spent retrying before just leaving the live
+  // ImageFiltered blur on screen — visually identical outcome, just no
+  // longer able to burn CPU every frame indefinitely for a song that
+  // will never resolve.
+  int _captureAttempts = 0;
+  static const int _maxCaptureAttempts = 30;
 
   @override
   void initState() {
@@ -7336,6 +7348,7 @@ class _BlurredArtworkCoreState extends State<_BlurredArtworkCore> {
     // bitmap and re-bake for the new artwork.
     if (old.song.id != widget.song.id ||
         old.song.artworkUrl != widget.song.artworkUrl) {
+      _captureAttempts = 0;
       _snapshot?.dispose();
       _snapshot = null;
       WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
@@ -7358,7 +7371,8 @@ class _BlurredArtworkCoreState extends State<_BlurredArtworkCore> {
         // Not ready yet (artwork still decoding) — try again next frame
         // rather than baking in an incomplete/placeholder paint.
         _capturing = false;
-        if (mounted) {
+        _captureAttempts++;
+        if (mounted && _captureAttempts < _maxCaptureAttempts) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
         }
         return;

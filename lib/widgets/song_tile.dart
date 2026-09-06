@@ -198,7 +198,12 @@ class _SongTileState extends State<SongTile> {
       splashColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
       highlightColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        // SPACING FIX ("thumbnail bahut chhota dikhta hai" — reference:
+        // the artist "Top songs" list, where each row's cover art reads
+        // as noticeably bigger/more premium than a compact 50px chip):
+        // opened vertical padding 8→10 so the bigger 64px cover below
+        // doesn't feel cramped between rows.
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
             if (widget.showIndex) ...[
@@ -219,14 +224,21 @@ class _SongTileState extends State<SongTile> {
             // is the currently-playing song (replaces the old bare-index-
             // column wave — the badge now lives directly on the artwork,
             // same as Echo's isPlaying overlay on item_shelf_media_cover).
+            // SIZE FIX ("thumbnail bahut chhota dikhta hai, bhaut jyda
+            // chhota" — reference: artist "Top songs" list): bumped
+            // 50→64 so the cover reads as a genuine top-level, premium-
+            // sized thumbnail everywhere this tile is used (Liked Songs,
+            // Library, Search, Artist page, Mix screen) instead of a
+            // compact chip — matches the reference screenshot exactly,
+            // not a smaller approximation of it.
             AurumStackedArtwork(
               url: widget.song.artworkUrl,
-              size: 50,
-              borderRadius: 8,
+              size: 64,
+              borderRadius: 10,
               showNowPlaying: isCurrentSong,
               isPlaying: isActuallyPlaying,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -235,16 +247,16 @@ class _SongTileState extends State<SongTile> {
                     widget.song.title,
                     style: TextStyle(
                       color: isCurrentSong ? AurumTheme.gold : AurumTheme.textPrimaryOf(context),
-                      fontSize: 14,
-                      fontWeight: isCurrentSong ? FontWeight.w600 : FontWeight.w500,
+                      fontSize: 16,
+                      fontWeight: isCurrentSong ? FontWeight.w700 : FontWeight.w600,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Text(
                     widget.song.artist,
-                    style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 12),
+                    style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 13),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -254,7 +266,7 @@ class _SongTileState extends State<SongTile> {
             // Heart button — pop + sparkle burst on like, wobble on unlike
             AurumLikeButton(
               isLiked: isLiked,
-              size: 18,
+              size: 19,
               unlikedColor: AurumTheme.textMutedOf(context),
               onTap: () => context.read<FavoritesProvider>().toggleFavorite(widget.song),
             ),
