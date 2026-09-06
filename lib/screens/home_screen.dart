@@ -1035,9 +1035,23 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (!isOnline)
                   const SliverToBoxAdapter(child: _OfflineContent(key: ValueKey('offline')))
                 else ...[
-                  // ── Playlists For You (real YT Music) ──
+                  // ── Real InnerTube home shelves, one titled carousel
+                  // per shelf ("New releases", "India's biggest hits",
+                  // etc.) — the actual YT Music multi-shelf layout,
+                  // straight from fetchRealHomeShelves() (FEmusic_home,
+                  // same data _YtPlaylistsForYouSection used to flatten
+                  // into one generic "Playlists For You" row — this
+                  // renders it under its real per-shelf titles instead).
+                  // REMOVED ("purana sb hata do, ekdam fresh InnerTube",
+                  // 2026-09-06): _YtPlaylistsForYouSection (mood chips +
+                  // flattened/shuffled single row) is no longer mounted
+                  // here — this section is now the only real-shelf UI on
+                  // Home. Class left defined below (dead code, along with
+                  // _YtAlbumsForYouSection/_ThemedPlaylistShelvesSection
+                  // already removed earlier) rather than deleted outright,
+                  // in case any part of it is wanted again later. ──
                   SliverToBoxAdapter(
-                    child: _YtPlaylistsForYouSection(refreshKey: _playlistRefreshKey),
+                    child: _RealHomeShelvesSection(refreshKey: _playlistRefreshKey),
                   ),
                   // REMOVED ("ekdam youtube music jaisa home page chahiye,
                   // sirf real InnerTube" — 2026-09-06): _YtAlbumsForYouSection
@@ -3278,6 +3292,364 @@ class _ArtistChip extends StatelessWidget {
 // this screen already uses — no new navigation destination, no
 // duplicated playlist-detail UI.
 // ══════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
+// REAL HOME SHELVES — "ekdam youtube music jaisa home page" (2026-09-06).
+//
+// WHY THIS EXISTS: _YtPlaylistsForYouSection below calls
+// ApiService.fetchYtMusicHomePlaylists(), which takes every real shelf
+// fetchRealHomeShelves() finds (e.g. "India's biggest hits", "New
+// releases" — verified by hand via a direct FEmusic_home capture, see
+// check_ytm_home.py output, 2026-09-06: both shelves came back 100%
+// clean, every item had a valid browseId/kind/artwork, zero issues) and
+// FLATTENS them into one shuffled pool behind a single "Playlists For
+// You" header — throwing away the actual shelf grouping/titles that are
+// the entire visual signature of YT Music's real home page (confirmed
+// against the user's own YT Music screenshots: "Old School Romance",
+// "Quick picks", "Punjabi Hits", "New releases", "Trending community
+// playlists" — each its own titled row, never merged).
+//
+// THIS SECTION calls ApiService.fetchHomeShelvesForDisplay() — real
+// FEmusic_home shelves, PLUS a personalized "Made for you" shelf (real
+// on-device listening affinity, see RecommendationEngine), PLUS a
+// handful of fixed seed shelves (genre/mood, same real InnerTube
+// playlist search surface — see _kSeedHomeShelfQueries) so Home has more
+// than the ~2 shelves anonymous FEmusic_home alone returns. Renders ONE
+// CAROUSEL PER SHELF, each under its own real title — never invented/
+// translated for the FEmusic_home shelves, and a genuine descriptive
+// label (e.g. the artist's own name for personalized cards) for the
+// seed/personalized ones — so Home visually matches YT Music's actual
+// multi-shelf layout instead of one generic row. Deliberately additive:
+// does not remove _YtPlaylistsForYouSection's class (kept as dead code),
+// just stops it from being mounted — see the SliverToBoxAdapter call
+// site in build() above for the actual swap.
+class _RealHomeShelvesSection extends StatefulWidget {
+  final int refreshKey;
+  const _RealHomeShelvesSection({this.refreshKey = 0});
+
+  @override
+  State<_RealHomeShelvesSection> createState() =>
+      _RealHomeShelvesSectionState();
+}
+
+class _RealHomeShelvesSectionState extends State<_RealHomeShelvesSection> {
+  List<HomeShelf>? _shelves;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_RealHomeShelvesSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Pull-to-refresh bumps refreshKey — refetch so these shelves rotate
+    // along with every other section on refresh, same convention as
+    // _YtPlaylistsForYouSection's own didUpdateWidget.
+    if (oldWidget.refreshKey != widget.refreshKey) {
+      setState(() {
+        _shelves = null;
+        _failed = false;
+      });
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    try {
+      // FEATURE ("youtube music innertube jaisa, ekdam same top level" —
+      // 2026-09-06): fetchHomeShelvesForDisplay combines the real
+      // FEmusic_home shelves with a personalized "Made for you" shelf
+      // (from real on-device listening affinity) and a handful of fixed
+      // seed shelves (genre/mood, same real InnerTube playlist search
+      // surface) — see that function's doc comment in api_service.dart
+      // for the exact ordering/reasoning. refreshSeed ties the
+      // personalized shelf's own internal shuffle to this row's
+      // refreshKey so pull-to-refresh actually rotates which top artists
+      // get featured, not just re-running the identical query.
+      final shelves = await ApiService.fetchHomeShelvesForDisplay(
+        refreshSeed: widget.refreshKey,
+      );
+      if (!mounted) return;
+      setState(() {
+        _shelves = shelves;
+        _failed = shelves.isEmpty;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shelves = _shelves;
+
+    // Still loading (first paint) — one skeleton shelf, same visual
+    // language _YtPlaylistsForYouSkeleton already uses elsewhere on Home.
+    if (shelves == null && !_failed) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ShelfTitleSkeleton(),
+            const SizedBox(height: 12),
+            FadedHorizontalList(
+              height: 130,
+              child: _YtPlaylistsForYouSkeleton(
+                  scrollController: ScrollController()),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Nothing real came back (offline/blocked/anonymous quota) — skip
+    // silently, same "don't show an empty titled row" rule every other
+    // optional Home section follows.
+    if (shelves == null || shelves.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final shelf in shelves)
+          _RealHomeShelfRow(
+            key: ValueKey('${shelf.title}_${widget.refreshKey}'),
+            shelf: shelf,
+          ),
+      ],
+    );
+  }
+}
+
+class _ShelfTitleSkeleton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 160,
+      height: 20,
+      decoration: BoxDecoration(
+        color: AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.circular(6),
+      ),
+    );
+  }
+}
+
+// One real shelf ("New releases", "India's biggest hits", etc.) as its
+// own titled horizontal row — real title straight from InnerTube, real
+// cards (album -> AlbumScreen, playlist -> lazy-resolved MixScreen).
+class _RealHomeShelfRow extends StatelessWidget {
+  final HomeShelf shelf;
+  const _RealHomeShelfRow({super.key, required this.shelf});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            shelf.title,
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          FadedHorizontalList(
+            height: 130,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 600,
+              padding: const EdgeInsets.only(right: 12),
+              itemCount: shelf.items.length,
+              itemBuilder: (_, i) {
+                final item = shelf.items[i];
+                if (item.isAlbum) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: _HomeAlbumCardWidget(
+                      card: HomeAlbumCard(
+                        albumId: item.browseId,
+                        title: item.title,
+                        artist: item.subtitle,
+                        artworkUrl: item.artworkUrl,
+                      ),
+                    ),
+                  );
+                }
+                return _RealShelfPlaylistCard(item: item);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Playlist card from a real shelf — visually identical to
+// _YtHomePlaylistCardWidget, but resolves its song list lazily on tap
+// (via ApiService.resolveHomeShelfPlaylist) instead of requiring every
+// card's ~100 songs to already be fetched before Home can even show the
+// row — keeps the multi-shelf home load itself cheap regardless of how
+// many shelves/items InnerTube returns.
+class _RealShelfPlaylistCard extends StatefulWidget {
+  final HomeShelfItem item;
+  const _RealShelfPlaylistCard({required this.item});
+
+  @override
+  State<_RealShelfPlaylistCard> createState() =>
+      _RealShelfPlaylistCardState();
+}
+
+class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
+  bool _pressed = false;
+  bool _resolving = false;
+
+  Future<void> _open() async {
+    if (_resolving) return;
+    AurumHaptics.selection();
+    setState(() => _resolving = true);
+    try {
+      final songs = await ApiService.resolveHomeShelfPlaylist(widget.item)
+          .timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      if (songs.isEmpty) {
+        _showFailureSnackbar();
+        return;
+      }
+      AurumDepthRoute.to(
+        context,
+        MixScreen(
+          mixId: widget.item.browseId,
+          mixName: widget.item.title,
+          artworkUrl: widget.item.artworkUrl,
+          emoji: '',
+          songs: songs,
+        ),
+      );
+    } catch (_) {
+      if (mounted) _showFailureSnackbar();
+    } finally {
+      if (mounted) setState(() => _resolving = false);
+    }
+  }
+
+  // FIX (2026-09-06 recheck): uses the same ScaffoldMessenger/SnackBar
+  // pattern already established elsewhere in this exact file (see
+  // _HomeScreenState's playback-error snackbar and Auto Sleep Guard
+  // resume prompt above) — AurumSnackbar.show is not a real class
+  // anywhere in this codebase and would have failed to compile.
+  void _showFailureSnackbar() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AurumTheme.bgCardOf(context),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        content: Text(
+          AppLocalizations.of(context)!.homeCouldntLoadSongsRetry,
+          style: TextStyle(
+            color: AurumTheme.textPrimaryOf(context),
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.item;
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: _open,
+        child: AnimatedScale(
+          scale: _pressed ? 0.96 : 1.0,
+          duration: AurumMotion.durationOrZero(AurumMotion.short1),
+          curve: Curves.easeOut,
+          child: Container(
+            width: 130,
+            margin: const EdgeInsets.only(right: 12),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (c.artworkUrl.isNotEmpty)
+                    CachedNetworkImage(
+                      imageUrl: c.artworkUrl,
+                      cacheManager: AurumImageCache(),
+                      fit: BoxFit.cover,
+                      memCacheWidth: 260,
+                      memCacheHeight: 260,
+                      placeholder: (_, __) =>
+                          Container(color: AurumTheme.bgCardOf(context)),
+                      errorWidget: (_, __, ___) =>
+                          Container(color: AurumTheme.bgCardOf(context)),
+                    )
+                  else
+                    Container(color: AurumTheme.bgCardOf(context)),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withOpacity(0.75),
+                        ],
+                        stops: const [0.4, 1.0],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 10,
+                    right: 10,
+                    bottom: 10,
+                    child: Text(
+                      c.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                  if (_resolving)
+                    const Positioned.fill(
+                      child: ColoredBox(
+                        color: Colors.black45,
+                        child: Center(
+                          child: AurumMorphLoader(size: 22),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _YtPlaylistsForYouSection extends StatefulWidget {
   final int refreshKey;
   const _YtPlaylistsForYouSection({this.refreshKey = 0});

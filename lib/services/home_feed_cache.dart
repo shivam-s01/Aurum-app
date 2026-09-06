@@ -109,9 +109,28 @@ List<ArtistSimple> _decodeArtists(String raw) {
 
 class HomeFeedCache {
   static const _sectionsKey = 'home_feed_cache_sections_v1';
-  static const _artistsKey = 'home_feed_cache_artists_v1';
+  // BUMPED v1 -> v2 ("home page pe artist ke real images nahi aate" —
+  // stale-cache root cause, 2026-09-06): devices that had already cached
+  // artist entries from BEFORE fetchHomeArtistsStreaming's real-InnerTube-
+  // only rewrite (old entries could carry a movie-poster/mix-cover image
+  // sourced from the removed Saavn-merge leg — see fetchHomeArtistsStreaming's
+  // own doc comment for that removal) would otherwise keep reading that
+  // stale, wrong-image cache indefinitely: isArtistsFresh()'s 6-hour gate
+  // means _loadArtists() (the correct fetch) never even fires again until
+  // that window lapses, so the wrong photos just sat there. Changing the
+  // storage key makes any pre-existing v1 cache invisible to loadArtists()
+  // (reads back empty, exactly like a fresh install) WITHOUT needing a
+  // migration — _hydrateFromCache() finding nothing simply falls through
+  // to a real fetch immediately, same as any other cold start with no
+  // cache yet. One-time effect per device (first launch after this update
+  // writes a v2 entry, which behaves normally — timed freshness, instant
+  // hydration — from then on).
+  static const _artistsKey = 'home_feed_cache_artists_v2';
   static const _savedAtKey = 'home_feed_cache_saved_at_ms';
-  static const _artistsSavedAtKey = 'home_feed_cache_artists_saved_at_ms';
+  // Paired with _artistsKey's bump — an old v1 timestamp must not be read
+  // as if it were a v2 cache's freshness marker (that would report the
+  // brand-new-but-empty v2 cache as "fresh" and skip the fetch entirely).
+  static const _artistsSavedAtKey = 'home_feed_cache_artists_saved_at_ms_v2';
 
   // TIME-BASED FRESHNESS (restored 2026-09): the previous "never expire on
   // its own" behavior meant _loadOnline()/_loadArtists() — and therefore

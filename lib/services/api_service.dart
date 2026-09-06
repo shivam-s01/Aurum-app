@@ -2246,7 +2246,23 @@ class ApiService {
       ...RecommendationEngine.sessionRecentIds,
     };
     final mergedIds    = <String>{...allExistingIds};
-    final mergedTitles = <String>{};
+    // FIX ("kuch songs baar baar repeat ho rahe hai" — Up Next replays):
+    // this used to start EMPTY every call, so a song that played 20+
+    // songs ago (already scrolled out of sessionRecentIds' 20-slot ID
+    // window) had nothing left blocking it here — sessionRecentTitles'
+    // whole point (a much longer 200-title memory, see its own doc
+    // comment in recommendation_engine.dart) was never actually consulted
+    // by getAutoQueue, only by other call sites. Seeding mergedTitles from
+    // it up front means a song already heard earlier this session stays
+    // blocked here too, for as long as its title stays in that window —
+    // not just for its first 20 songs. sessionRecentTitles is built with
+    // _titleCore() (keeps spaces, no length cap) while this pool's own
+    // dedup key is _normTitle() (strips spaces, 30-char cap) — re-running
+    // each seeded title through _normTitle() here so the two actually
+    // compare equal instead of silently never matching.
+    final mergedTitles = <String>{
+      for (final t in RecommendationEngine.sessionRecentTitles) _normTitle(t),
+    };
     // Same smart-dedup fix applied everywhere else in the Up Next/search
     // pipeline — exact-string mergedTitles alone misses reuploads whose
     // junk suffix differs, letting the same song occupy multiple pool
@@ -2393,6 +2409,33 @@ class ApiService {
           return <Song>[];
         }
       }(),
+      // Signal 1.75 ("YouTube ka you might also like wala bhe" — user
+      // directive, 2026-09-06): fetchYouMightAlsoLike is YT MUSIC's own
+      // InnerTube-native "You might also like" shelf (MPTR... browseId,
+      // a DIFFERENT signal from Signal 1's generic YouTube related-videos
+      // graph above — this one comes from YT Music's own music-specific
+      // recommendation model, not the general YouTube video graph) —
+      // defined in this file but never actually called anywhere until
+      // now. Reuses the same resolveYtIdForRelated() closure Signal 1
+      // already uses so a Saavn/local-sourced current song still gets a
+      // real YouTube-equivalent video id to query against. Same quality
+      // gates applied as every other YT-sourced signal in this pool.
+      () async {
+        try {
+          final ytId = await resolveYtIdForRelated();
+          if (ytId == null) return <Song>[];
+          final related = await fetchYouMightAlsoLike(ytId,
+              timeout: const Duration(seconds: 6));
+          return related.where((s) {
+            if (s.id.isEmpty || s.title.isEmpty) return false;
+            if (RecommendationEngine.isLowQualityUpload(s.title)) return false;
+            if (RecommendationEngine.isNonMusicContent(s)) return false;
+            return true;
+          }).toList();
+        } catch (_) {
+          return <Song>[];
+        }
+      }(),
       // Signal 2: Same-artist catalog search — now YT instead of Saavn.
       // FIX ("Up Next ek hi junk uploader channel se flood ho jaata hai"):
       // when currentSong.artist itself looks like an uploader/channel
@@ -2420,11 +2463,13 @@ class ApiService {
 
     // Apply in priority order — strongest/most specific signal wins any
     // addToPool duplicate-tie: related-graph first (closest to what YT
-    // Music itself would queue next), then same-artist, then mood/genre/era.
+    // Music itself would queue next), then YT Music's own InnerTube
+    // "you might also like", then same-artist, then mood/genre/era.
     for (final s in results[0]) addToPool(s); // Signal 1: related-graph
-    for (final s in results[1]) addToPool(s); // Signal 2: same-artist
-    for (final s in results[2]) addToPool(s); // Signal 3: mood/genre/era
-    _log('[autoQueue] all signals parallel (YT-only): ${pool.length}');
+    for (final s in results[1]) addToPool(s); // Signal 1.75: YT Music "you might also like"
+    for (final s in results[2]) addToPool(s); // Signal 2: same-artist
+    for (final s in results[3]) addToPool(s); // Signal 3: mood/genre/era
+    _log('[autoQueue] all signals parallel (YT-only + YT Music related): ${pool.length}');
 
     return RecommendationEngine.rankAndFilter(
       pool: pool, currentSong: currentSong,
@@ -4328,6 +4373,197 @@ class ApiService {
       _log('[fetchRealHomeShelves] parse error: $e');
       return const [];
     }
+  }
+
+  // FEATURE ("youtube music innertube jaisa, ekdam same top level" —
+  // 2026-09-06): anonymous FEmusic_home only ever returns a small, fixed
+  // pool (verified by hand: 2 shelves, ~20 items total — see
+  // check_ytm_home.py output). Real YT Music's own home (logged-in or
+  // not) fills the rest of its feed with search-seeded shelves (genre/
+  // mood/language queries run through the exact same InnerTube playlist
+  // search surface — same endpoint, same filter param — as a person
+  // typing that query themselves), which is what this adds: a handful of
+  // FIXED seed queries, each turned into its own titled HomeShelf via
+  // _searchAsHomeShelf below (reuses _searchRealPlaylists' own proven
+  // musicResponsiveListItemRenderer parsing — same real-playlist
+  // validation, same VL/PL/OLAK5uy id check, same low-quality-title
+  // filter already used for mood-chip playlists elsewhere in this file).
+  // Every card here is a genuine InnerTube playlist search result, never
+  // invented — same standard the FEmusic_home shelves above already meet.
+  static const List<({String label, String query})> _kSeedHomeShelfQueries = [
+    (label: 'Trending now', query: 'trending songs'),
+    (label: 'Bollywood Hitlist', query: 'bollywood hits playlist'),
+    (label: 'Punjabi Hits', query: 'punjabi hits playlist'),
+    (label: 'Old is Gold', query: 'old bollywood songs playlist'),
+    (label: 'Romance Right Now', query: 'romantic hindi songs playlist'),
+    (label: 'Party Anthems', query: 'party songs playlist'),
+    (label: 'Chill & Lofi', query: 'lofi chill songs playlist'),
+  ];
+
+  static Future<HomeShelf?> _searchAsHomeShelf(String query, String label,
+      {int take = 10}) async {
+    try {
+      final decoded = await _ytmSearchRaw(query,
+          params: _ytmPlaylistsFilterParam, timeout: const Duration(seconds: 6));
+      if (decoded == null) return null;
+
+      final items = <HomeShelfItem>[];
+      final seenIds = <String>{};
+      for (final item in _findRenderers(decoded, 'musicResponsiveListItemRenderer')) {
+        final browseId = (item['navigationEndpoint']?['browseEndpoint']?['browseId'] ??
+                item['overlay']?['musicItemThumbnailOverlayRenderer']?['content']
+                        ?['musicPlayButtonRenderer']?['playNavigationEndpoint']
+                    ?['watchPlaylistEndpoint']?['playlistId'] ??
+                '')
+            .toString();
+        if (browseId.isEmpty || !seenIds.add(browseId)) continue;
+        // Same real-playlist-id validation _searchRealPlaylists already
+        // applies — mix/radio ids and non-playlist-shaped ids are never
+        // real curated playlists, so they're skipped rather than shown
+        // as a broken/misleading card.
+        if (_isYtMixPlaylistId(browseId)) continue;
+        if (!browseId.startsWith('VL') &&
+            !browseId.startsWith('PL') &&
+            !browseId.startsWith('OLAK5uy')) {
+          continue;
+        }
+
+        final title = _flexColumnText(item, 0);
+        if (title.isEmpty || RecommendationEngine.isLowQualityUpload(title)) continue;
+
+        final thumbs = (item['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
+                    ?['thumbnails'] as List?) ??
+            const [];
+        if (thumbs.isEmpty) continue; // No real photo — skip, don't guess.
+        final artworkUrl = _hqArtworkGeneric((thumbs.last['url'] ?? '').toString());
+
+        final subtitleRuns = ((item['flexColumns'] as List?)?.length ?? 0) > 1
+            ? ((item['flexColumns'][1]?['musicResponsiveListItemFlexColumnRenderer']
+                        ?['text']?['runs'] as List?) ??
+                const [])
+            : const [];
+        final subtitle = _cleanHomeText(subtitleRuns
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .where((t) => t != ' • ' && t.trim().isNotEmpty)
+            .lastWhere((_) => true, orElse: () => ''));
+
+        items.add(HomeShelfItem(
+          browseId: browseId,
+          title: _cleanHomeText(title),
+          subtitle: subtitle,
+          artworkUrl: artworkUrl,
+          isAlbum: false,
+        ));
+        if (items.length >= take) break;
+      }
+      if (items.isEmpty) return null;
+      return HomeShelf(title: label, items: items);
+    } catch (e) {
+      _log('[_searchAsHomeShelf] error for "$query": $e');
+      return null;
+    }
+  }
+
+  // PERSONALIZED SHELF ("user jo songs sune vaise aana, ekdam youtube
+  // music jaisa" — 2026-09-06): YT Music's own logged-in home has a
+  // "Made for you"/"Because you listened to X" shelf built from actual
+  // listening history — the anonymous FEmusic_home this app calls has no
+  // equivalent (no login, no server-side history). This reconstructs the
+  // same idea from RecommendationEngine's on-device affinity tracking
+  // (already built from real onSongStarted/onSongCompleted/onFavorited
+  // signals — see recommendation_engine.dart's own doc comments), used
+  // exactly like every other seed query above: one real InnerTube
+  // playlist search per top artist, never a fabricated recommendation.
+  // Returns null (not an empty/fake shelf) until the person has actually
+  // listened to enough for RecommendationEngine to have real affinity
+  // data — a new install correctly shows no personalized shelf yet,
+  // rather than a hollow one.
+  static Future<HomeShelf?> fetchPersonalizedHomeShelf({int? seed}) async {
+    final topArtists = RecommendationEngine.rotatingAffinityArtists(count: 3, seed: seed);
+    if (topArtists.isEmpty) return null;
+
+    final perArtist = await Future.wait(
+      topArtists.map((a) => _searchAsHomeShelf('$a mix playlist', a, take: 4)),
+    );
+    final items = <HomeShelfItem>[];
+    final seenIds = <String>{};
+    for (final shelf in perArtist) {
+      if (shelf == null) continue;
+      for (final it in shelf.items) {
+        if (seenIds.add(it.browseId)) items.add(it);
+      }
+    }
+    if (items.isEmpty) return null;
+    items.shuffle(math.Random(seed));
+    return HomeShelf(title: 'Made for you', items: items);
+  }
+
+  // Combined entry point home_screen.dart's _RealHomeShelvesSection calls:
+  // real FEmusic_home shelves FIRST (highest-signal, exactly what YT
+  // Music's own anonymous home shows), then the personalized "Made for
+  // you" shelf right after (if the person has enough listening history),
+  // then the fixed seed shelves filling out the rest — mirrors real YT
+  // Music's own ordering (home feed's own algorithmic/personalized rows
+  // before generic genre/mood shelves). All fetched in parallel; a
+  // failed/empty individual shelf is silently dropped rather than
+  // blocking or blanking the others.
+  static Future<List<HomeShelf>> fetchHomeShelvesForDisplay({int? refreshSeed}) async {
+    // FIX (compile-safety recheck, 2026-09-06): Future.wait needs a single
+    // homogeneous Future<T> type — fetchRealHomeShelves() returns
+    // Future<List<HomeShelf>> while fetchPersonalizedHomeShelf()/
+    // _searchAsHomeShelf() return Future<HomeShelf?>, so these can't sit
+    // in one literal list together. Split into two separate waits
+    // instead (still fully parallel — both run concurrently since
+    // neither is awaited until the wait itself) rather than forcing a
+    // mixed-type list.
+    final realFuture = fetchRealHomeShelves();
+    final extrasFuture = Future.wait<HomeShelf?>([
+      fetchPersonalizedHomeShelf(seed: refreshSeed),
+      ..._kSeedHomeShelfQueries.map(
+        (sq) => _searchAsHomeShelf(sq.query, sq.label),
+      ),
+    ]);
+
+    final real = await realFuture;
+    final extras = await extrasFuture;
+    final personalized = extras.first;
+    final seeded = extras.skip(1).whereType<HomeShelf>().toList();
+
+    return [
+      ...real,
+      if (personalized != null) personalized,
+      ...seeded,
+    ];
+  }
+
+  // FEATURE ("ekdam youtube music jaisa home" — real multi-shelf layout,
+  // 2026-09-06): public lazy-resolve wrapper around the private
+  // _fetchFullTopSongsPlaylist so a HomeShelfItem playlist card (from
+  // fetchRealHomeShelves — genuinely titled shelves like "New releases",
+  // "India's biggest hits", not the flattened/shuffled single row
+  // fetchYtMusicHomePlaylists produces) can resolve its song list ONLY
+  // when the user actually taps it, exactly like HomeAlbumCard already
+  // does for albums via AlbumScreen's own fetch. Keeps the multi-shelf
+  // home load itself cheap (fetchRealHomeShelves never resolves songs up
+  // front for ANY item) while still opening to a fully-populated
+  // MixScreen on tap, same as every other playlist tile in this app.
+  static Future<List<Song>> resolveHomeShelfPlaylist(
+    HomeShelfItem item, {
+    int targetCount = 100,
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final songs = <Song>[];
+    final seenIds = <String>{};
+    await _fetchFullTopSongsPlaylist(
+      item.browseId,
+      targetCount: targetCount,
+      fallbackArtistName: item.subtitle.isNotEmpty ? item.subtitle : item.title,
+      resolvedChannelId: '',
+      topSongs: songs,
+      seenVideoIds: seenIds,
+      timeout: timeout,
+    );
+    return songs;
   }
 
   // ═══════════════════════════════════════════════════════════════════
