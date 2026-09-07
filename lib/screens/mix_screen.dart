@@ -195,10 +195,34 @@ class _MixScreenState extends State<MixScreen> {
         url.startsWith('file://')) {
       return;
     }
+    // Warms BOTH header layers at once — the small sharp centered cover
+    // (matches AurumArtwork's own maxWidth for size:500, see aurum_
+    // artwork.dart's _cacheSize) and the blurred full-bleed ambient
+    // backdrop (matches its capped low-res decode width for
+    // isBlurredBackground/non-finite size). FIX ("ambient wash aur sharp
+    // cover ek saath aane chahiye, ek pehle ek baad mein nahi"): without
+    // this, only the sharp cover's request used to get kicked off early,
+    // so on a cold cache the blurred backdrop still only started its
+    // fetch once the header widget itself built — same "pop in late"
+    // problem this whole precache exists to avoid, just on the other
+    // layer now. Firing both here means both are already in flight
+    // (often finished) before either widget asks for its image.
     precacheImage(
       CachedNetworkImageProvider(
         url,
         maxWidth: 1400,
+        cacheManager: AurumImageCache(),
+      ),
+      context,
+    ).catchError((_) {});
+    precacheImage(
+      // Matches AurumArtwork's own _cacheSize for isBlurredBackground:true
+      // with size:double.infinity (220 — see aurum_artwork.dart), so this
+      // hits the exact same cache key the header's ambient layer will ask
+      // for, instead of warming a differently-sized decode that misses.
+      CachedNetworkImageProvider(
+        url,
+        maxWidth: 220,
         cacheManager: AurumImageCache(),
       ),
       context,
@@ -316,7 +340,7 @@ class _MixScreenState extends State<MixScreen> {
             // a flat pinned bar), so the SliverAppBar itself stays
             // chrome-free the whole time it's expanded.
             automaticallyImplyLeading: false,
-            expandedHeight: 300,
+            expandedHeight: 340,
             flexibleSpace: FlexibleSpaceBar(
               // PERF: collapseMode.pin (default) already avoids the parallax
               // recompute pin does on every scroll tick — kept implicit here,
@@ -326,16 +350,38 @@ class _MixScreenState extends State<MixScreen> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Layer 1 — full-bleed artwork fills the entire header,
-                  // edge to edge, no card/frame — matches the reference
-                  // players' playlist/artist header treatment.
-                  // REVERTED: an earlier pass made this a hazy/blurred
-                  // backdrop like the Full Player's background — turned
-                  // out to read as "thumbnail blur ho gaya"/broken rather
-                  // than intentional, so this is back to the original
-                  // sharp, full-resolution artwork.
+                  // Layer 0 — ambient ombré backdrop: the SAME artwork,
+                  // heavily blurred and dimmed, filling the entire header
+                  // edge to edge (Bloomee/YT-Music-style "glow wash"
+                  // rather than a flat color). This is what makes the
+                  // header feel alive at rest instead of a dead flat
+                  // glow while the sharp cover above it loads — the two
+                  // layers arrive together (see _precacheHeaderArtwork,
+                  // which now warms both), so there's no more "3 sec
+                  // later a big sharp square pops in over nothing."
                   if (widget.artworkUrl.isNotEmpty)
-                    Hero(
+                    Opacity(
+                      opacity: 0.55,
+                      child: AurumArtwork(
+                        url: widget.artworkUrl,
+                        size: double.infinity,
+                        borderRadius: 0,
+                        isBlurredBackground: true,
+                        fadeIn: false,
+                      ),
+                    )
+                  else
+                    Container(color: _glow),
+
+                  // Layer 1 — small, centered, sharp cover with its own
+                  // rounded corners + soft colored glow shadow — reads as
+                  // a deliberate premium album card floating over the
+                  // ambient wash, not a full-bleed photo. Hero'd so the
+                  // shared-element transition from the home screen's
+                  // card still feels continuous.
+                  Align(
+                    alignment: const Alignment(0, -0.08),
+                    child: Hero(
                       tag: 'mix_art_${widget.mixId}',
                       flightShuttleBuilder:
                           (context, animation, direction, from, to) {
@@ -344,20 +390,46 @@ class _MixScreenState extends State<MixScreen> {
                           child: ScaleTransition(scale: animation, child: to.widget),
                         );
                       },
-                      child: AurumArtwork(
-                          url: widget.artworkUrl, size: 700, borderRadius: 0),
-                    )
-                  else
-                    Container(
-                      color: _glow,
-                      child: Center(
-                        child: Icon(
-                          Icons.music_note_rounded,
-                          size: 64,
-                          color: Colors.white.withOpacity(0.7),
+                      child: Container(
+                        width: 168,
+                        height: 168,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _glow.withOpacity(0.55),
+                              blurRadius: 40,
+                              offset: const Offset(0, 16),
+                            ),
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.35),
+                              blurRadius: 16,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: widget.artworkUrl.isNotEmpty
+                              ? AurumArtwork(
+                                  url: widget.artworkUrl,
+                                  size: 500,
+                                  borderRadius: 18,
+                                )
+                              : Container(
+                                  color: _glow,
+                                  child: Center(
+                                    child: Icon(
+                                      Icons.music_note_rounded,
+                                      size: 48,
+                                      color: Colors.white.withOpacity(0.7),
+                                    ),
+                                  ),
+                                ),
                         ),
                       ),
                     ),
+                  ),
 
                   // Layer 2 — short scrim washing the artwork's own
                   // extracted color through the photo. Kept short (not a
@@ -391,12 +463,14 @@ class _MixScreenState extends State<MixScreen> {
                     );
                   }),
 
-                  // Title + source + type line, centered over the
-                  // artwork's lower half — YT Music-style stacked block.
+                  // Title + source + type line, centered under the small
+                  // floating cover — Bloomee/Apple-Music-style stacked
+                  // block sitting on the ambient wash rather than
+                  // crammed onto the photo itself.
                   Positioned(
                     left: 24,
                     right: 24,
-                    bottom: 18,
+                    bottom: 14,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -796,6 +870,15 @@ class _MixScreenState extends State<MixScreen> {
         songs: _songs,
         artists: _creditedArtists,
         rootContext: rootContext,
+        // PREMIUM TINT ("options bhi dead lag rahe hai" — reference:
+        // full_player_screen.dart's _PremiumOptionsSheet, which already
+        // tints its own sheet background from the now-playing song's
+        // extracted color instead of a flat theme surface). This screen
+        // already extracted _glow from the SAME artwork for the header —
+        // passing it through here means the sheet visually continues the
+        // header's color instead of hard-cutting to a flat neutral panel
+        // the instant it opens.
+        glow: _glow,
       ),
     );
   }
@@ -810,6 +893,7 @@ class _MixOptionsSheet extends StatefulWidget {
   final List<Song> songs;
   final List<String> artists;
   final BuildContext rootContext;
+  final Color glow;
 
   const _MixOptionsSheet({
     required this.mixId,
@@ -818,6 +902,7 @@ class _MixOptionsSheet extends StatefulWidget {
     required this.songs,
     required this.artists,
     required this.rootContext,
+    required this.glow,
   });
 
   @override
@@ -837,11 +922,28 @@ class _MixOptionsSheetState extends State<_MixOptionsSheet> {
     final followedAlbums = context.watch<FollowedAlbumsProvider>();
     final saved = followedAlbums.isFollowing(widget.mixId);
     final songs = widget.songs;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Same lerp-toward-dark tint full_player_screen.dart's premium sheet
+    // uses — keeps the color readable/muted at sheet size instead of the
+    // loud raw glow, while still clearly carrying the playlist's own hue
+    // rather than a generic elevated-surface gray.
+    final bgColor = isDark
+        ? Color.lerp(widget.glow, const Color(0xFF0C0C18), 0.55)!
+        : Color.lerp(widget.glow, Colors.white, 0.88)!;
 
     return Container(
       decoration: BoxDecoration(
-        color: AurumTheme.bgElevatedOf(context),
+        color: bgColor,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        border: Border(
+          top: BorderSide(
+            color: isDark
+                ? Colors.white.withOpacity(0.08)
+                : Colors.black.withOpacity(0.06),
+            width: 0.6,
+          ),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1199,16 +1301,44 @@ class _GridOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: () {
         AurumHaptics.selection();
         onTap();
       },
       child: Container(
+        // PREMIUM DEPTH ("options ekdum flat/dead lag rahe hai" — every
+        // button used to be one flat surface color with a hairline
+        // border and no shadow at all, so on a dark sheet the whole grid
+        // read as a single undifferentiated slab rather than distinct
+        // tappable buttons. A soft top-highlight-to-transparent gradient
+        // (glass-catching-light look) plus a real drop shadow gives each
+        // tile its own raised presence — cheap to paint (flat gradient +
+        // one shadow, no blur/image) so this costs nothing at sheet-open
+        // time even with 6+ tiles in the grid.
         decoration: BoxDecoration(
-          color: AurumTheme.bgSurfaceOf(context),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: isDark
+                ? [Colors.white.withOpacity(0.09), Colors.white.withOpacity(0.03)]
+                : [Colors.white.withOpacity(0.9), Colors.white.withOpacity(0.55)],
+          ),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.8),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withOpacity(0.12)
+                : Colors.black.withOpacity(0.06),
+            width: 0.8,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.22 : 0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,

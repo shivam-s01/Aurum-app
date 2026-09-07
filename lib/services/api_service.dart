@@ -10575,10 +10575,10 @@ class ApiService {
   /// callers can upgrade the banner without a second network round-trip;
   /// headerArtworkUrl is '' when the header shape didn't expose one, so
   /// callers should keep falling back to whatever they already had.
-  static Future<({List<Song> songs, String headerArtworkUrl})> fetchAlbumSongsWithArtwork(
-      String albumId) async {
+  static Future<({List<Song> songs, String headerArtworkUrl, List<AlbumRelatedShelf> relatedShelves})>
+      fetchAlbumSongsWithArtwork(String albumId) async {
     if (!albumId.startsWith('MPRE')) {
-      return (songs: await fetchAlbumSongs(albumId), headerArtworkUrl: '');
+      return (songs: await fetchAlbumSongs(albumId), headerArtworkUrl: '', relatedShelves: <AlbumRelatedShelf>[]);
     }
     return _fetchYtAlbumSongsWithArtwork(albumId);
   }
@@ -10599,11 +10599,13 @@ class ApiService {
     return result.songs;
   }
 
-  static Future<({List<Song> songs, String headerArtworkUrl})> _fetchYtAlbumSongsWithArtwork(
-      String albumBrowseId) async {
+  static Future<({List<Song> songs, String headerArtworkUrl, List<AlbumRelatedShelf> relatedShelves})>
+      _fetchYtAlbumSongsWithArtwork(String albumBrowseId) async {
     try {
       final decoded = await _ytmBrowseRaw(albumBrowseId, timeout: const Duration(seconds: 8));
-      if (decoded == null) return (songs: <Song>[], headerArtworkUrl: '');
+      if (decoded == null) {
+        return (songs: <Song>[], headerArtworkUrl: '', relatedShelves: <AlbumRelatedShelf>[]);
+      }
 
       final albumTitle = ((decoded['header']?['musicResponsiveHeaderRenderer']?['title']
                       ?['runs'] as List?) ??
@@ -10652,6 +10654,15 @@ class ApiService {
         }
       }
 
+      // "Other versions" / "More by [artist]" — the browse response's own
+      // secondary musicCarouselShelfRenderer shelves (same real InnerTube
+      // data YT Music's own album page renders below the tracklist),
+      // parsed with the exact same musicTwoRowItemRenderer recipe already
+      // proven against the artist page's Albums/Singles shelves above —
+      // never guessed/derived, only what YT itself already shipped in
+      // this one response (no extra round-trip needed).
+      final relatedShelves = _parseAlbumRelatedShelves(decoded);
+
       if (audioPlaylistId != null) {
         try {
           // FIX ("albums/artist jitne bhi songs hai sab aaye, koi cap
@@ -10664,12 +10675,29 @@ class ApiService {
           final songs = await fetchYtPlaylistSongs(audioPlaylistId, limit: 2000)
               .timeout(const Duration(seconds: 12));
           if (songs.isNotEmpty) {
-            if (albumTitle.isEmpty) return (songs: songs, headerArtworkUrl: headerArtworkUrl);
+            // FIX ("full player mai galat thumbnail aata hai / albums mai
+            // songs ke thumbnail nahi dikhte"): a playlist row's own
+            // artworkUrl can be missing/empty (the Worker's per-track
+            // `image` field isn't always populated for every track), and
+            // even when present it's often a lower-quality generic crop
+            // that doesn't match what the album header itself shows —
+            // so tapping a track opened the full player on a different
+            // thumbnail than the one just seen on this screen. Stamping
+            // this album's own high-res headerArtworkUrl onto every
+            // track (when we have one) makes every song row's cover AND
+            // the full player's cover always match this exact album art,
+            // and also fixes any row that had no artwork at all.
+            final stampedSongs = headerArtworkUrl.isEmpty
+                ? songs
+                : songs.map((s) => s.copyWith(artworkUrl: headerArtworkUrl)).toList();
+            if (albumTitle.isEmpty) {
+              return (songs: stampedSongs, headerArtworkUrl: headerArtworkUrl, relatedShelves: relatedShelves);
+            }
             // Stamp the real album title onto every track — playlist rows
             // don't reliably carry it themselves (import path leaves
             // `album` blank for a bare playlist fetch).
             return (
-              songs: songs
+              songs: stampedSongs
                   .map((s) => Song(
                         id: s.id,
                         title: s.title,
@@ -10684,6 +10712,7 @@ class ApiService {
                       ))
                   .toList(),
               headerArtworkUrl: headerArtworkUrl,
+              relatedShelves: relatedShelves,
             );
           }
         } catch (e) {
@@ -10707,13 +10736,19 @@ class ApiService {
         final title = _flexColumnText(item, 0);
         if (title.isEmpty) continue;
         final artistRuns = _artistRunsInSubtitle(item);
+        // Same thumbnail-consistency fix as the playlist branch above:
+        // prefer this album's own header artwork over the row's own
+        // (often missing/lower-quality) thumbnail so every track — and
+        // the full player once it's tapped — always shows this album's
+        // real cover.
+        final rowArt = _ytmThumbnailUrl(item);
         final song = Song(
           id: videoId,
           title: _cleanText(title),
           artist: _cleanText(
               artistRuns.isNotEmpty ? artistRuns.first.name : '', collapseJukeboxTitle: false),
           album: _cleanText(albumTitle),
-          artworkUrl: _ytmThumbnailUrl(item),
+          artworkUrl: headerArtworkUrl.isNotEmpty ? headerArtworkUrl : rowArt,
           streamUrl: null,
           source: SongSource.youtube,
           artistChannelId: artistRuns.isNotEmpty ? artistRuns.first.channelId : null,
@@ -10726,11 +10761,89 @@ class ApiService {
         if (RecommendationEngine.isNonMusicContent(song)) continue;
         songs.add(song);
       }
-      return (songs: songs, headerArtworkUrl: headerArtworkUrl);
+      return (songs: songs, headerArtworkUrl: headerArtworkUrl, relatedShelves: relatedShelves);
     } catch (e) {
       _log('[_fetchYtAlbumSongs] failed for $albumBrowseId: $e');
-      return (songs: <Song>[], headerArtworkUrl: '');
+      return (songs: <Song>[], headerArtworkUrl: '', relatedShelves: <AlbumRelatedShelf>[]);
     }
+  }
+
+  /// Parses an album browse response's own secondary shelves — "Other
+  /// versions", "More by [artist]", and similar musicCarouselShelfRenderer
+  /// rows YT Music's own album page shows below the tracklist — into
+  /// [AlbumRelatedShelf]s of [ArtistAlbum] cards. Same musicTwoRowItemRenderer
+  /// recipe already proven against the artist page's Albums/Singles shelves
+  /// (see _fetchArtistFromYtMusicBrowse above): title run → browseId lives
+  /// on the title's own navigationEndpoint, thumbnail from
+  /// thumbnailRenderer, year sniffed out of the subtitle runs. Every shelf
+  /// found this way is real InnerTube data already present in the one
+  /// browse response AlbumScreen already fetches — no extra round-trip,
+  /// and never invented if YT Music didn't actually ship a shelf here
+  /// (e.g. a lesser-known single often has none, in which case this
+  /// returns an empty list and the album screen simply omits the section).
+  static List<AlbumRelatedShelf> _parseAlbumRelatedShelves(dynamic decoded) {
+    final shelves = <AlbumRelatedShelf>[];
+    for (final carousel in _findRenderers(decoded, 'musicCarouselShelfRenderer')) {
+      final headerRenderer =
+          (carousel['header']?['musicCarouselShelfBasicHeaderRenderer'] as Map?)
+              ?.cast<String, dynamic>();
+      final titleRuns = (headerRenderer?['title']?['runs'] as List?) ?? const [];
+      final shelfTitle = titleRuns
+          .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+          .join()
+          .trim();
+      if (shelfTitle.isEmpty) continue;
+
+      final albums = <ArtistAlbum>[];
+      final seenIds = <String>{};
+      for (final card in _findRenderers(carousel, 'musicTwoRowItemRenderer')) {
+        final cardTitleRuns = (card['title']?['runs'] as List?) ?? const [];
+        final cardTitle = cardTitleRuns
+            .map((r) => (r is Map ? (r['text'] ?? '') : '').toString())
+            .join()
+            .trim();
+        if (cardTitle.isEmpty || cardTitleRuns.isEmpty) continue;
+        final titleNav =
+            ((cardTitleRuns.first as Map)['navigationEndpoint'] as Map?)?.cast<String, dynamic>();
+        final browseId = (titleNav?['browseEndpoint']?['browseId'] ?? '').toString();
+        // Only real albums/singles (MPRE-prefixed browseIds) belong on an
+        // album's own related shelves — the same carousel shape can also
+        // carry artist or playlist cards elsewhere, which this screen has
+        // no use for.
+        if (!browseId.startsWith('MPRE') || !seenIds.add(browseId)) continue;
+        final cardThumbs = (card['thumbnailRenderer']?['musicThumbnailRenderer']
+                    ?['thumbnail']?['thumbnails'] as List?) ??
+            const [];
+        String cardArt = '';
+        if (cardThumbs.isNotEmpty) {
+          final rawUrl = (cardThumbs.last['url'] ?? '').toString();
+          cardArt = rawUrl.isNotEmpty
+              ? rawUrl.replaceAll(RegExp(r'=w\d+-h\d+.*$'), '=w1000-h1000')
+              : '';
+        }
+        final subtitleRuns = (card['subtitle']?['runs'] as List?) ?? const [];
+        String? year;
+        for (final r in subtitleRuns) {
+          final text = (r is Map ? (r['text'] ?? '') : '').toString();
+          final yearMatch = RegExp(r'^(19|20)\d{2}$').firstMatch(text.trim());
+          if (yearMatch != null) {
+            year = yearMatch.group(0);
+            break;
+          }
+        }
+        albums.add(ArtistAlbum(
+          id: browseId,
+          name: _cleanText(cardTitle),
+          artworkUrl: cardArt,
+          year: year,
+          type: 'album',
+        ));
+      }
+      if (albums.isNotEmpty) {
+        shelves.add(AlbumRelatedShelf(title: shelfTitle, albums: albums));
+      }
+    }
+    return shelves;
   }
 
   static ArtistAlbum _artistAlbumFromJson(Map<String, dynamic> j, {required String type}) {

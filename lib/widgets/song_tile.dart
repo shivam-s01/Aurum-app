@@ -18,6 +18,8 @@ import 'aurum_like_button.dart';
 import 'aurum_stacked_artwork.dart';
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../utils/aurum_immersive_header.dart' show extractImmersiveColor;
+import '../utils/artwork_palette_cache.dart' show ensureContrastSafe;
 
 class SongTile extends StatefulWidget {
   final Song song;
@@ -197,13 +199,40 @@ class _SongTileState extends State<SongTile> {
       // can never read as a stray wrong-colored wash.
       splashColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
       highlightColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
-      child: Padding(
+      child: Container(
+        // CARD LOOK ("songs akward aur dead lag rahe hai, dusre app jaisa
+        // alive/premium chahiye" — reference: Bloomee's SongCardWidget,
+        // where every row is its own soft glass card floating on the
+        // page, not a bare Row painted flat against the background).
+        // This used to be a plain Padding straight on the scaffold's
+        // background — zero depth of its own, so on a plain dark page it
+        // reads as static/lifeless list text rather than a tappable row.
+        // A faint tinted fill + hairline border + tiny outer margin gives
+        // every row its own quiet "card" presence and a sliver of visible
+        // gap between rows, without competing with the header's glow or
+        // needing per-row images/blur (kept cheap — flat colors only, so
+        // this costs nothing extra to paint at scroll speed).
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: isCurrentSong
+              ? AurumTheme.gold.withOpacity(isDark ? 0.10 : 0.08)
+              : (isDark ? Colors.white : Colors.black).withOpacity(isDark ? 0.045 : 0.03),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isCurrentSong
+                ? AurumTheme.gold.withOpacity(0.28)
+                : (isDark ? Colors.white : Colors.black).withOpacity(isDark ? 0.07 : 0.06),
+            width: 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
         // SPACING FIX ("thumbnail bahut chhota dikhta hai" — reference:
         // the artist "Top songs" list, where each row's cover art reads
         // as noticeably bigger/more premium than a compact 50px chip):
         // opened vertical padding 8→10 so the bigger 64px cover below
         // doesn't feel cramped between rows.
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
             if (widget.showIndex) ...[
@@ -286,6 +315,7 @@ class _SongTileState extends State<SongTile> {
             ),
           ],
         ),
+        ),
       ),
       ),
     );
@@ -321,6 +351,33 @@ class _SongOptionsSheet extends StatefulWidget {
 }
 
 class _SongOptionsSheetState extends State<_SongOptionsSheet> {
+  // PREMIUM TINT ("options bhi dead lag rahe hai" — same fix as
+  // _MixOptionsSheet in mix_screen.dart): this sheet used to paint a
+  // flat AurumTheme.bgElevatedOf(context) regardless of the song, so it
+  // hard-cut to a generic gray panel every time it opened. Extracting
+  // the song's own artwork color and lerping toward dark/light (exactly
+  // the treatment full_player_screen.dart's _PremiumOptionsSheet already
+  // uses) makes the sheet visually belong to the song instead of reading
+  // as a disconnected system panel.
+  Color _glow = const Color(0xFF1A1630);
+
+  @override
+  void initState() {
+    super.initState();
+    _extractGlow();
+  }
+
+  Future<void> _extractGlow() async {
+    final c = await extractImmersiveColor(widget.song.artworkUrl);
+    if (c != null && mounted) {
+      final safe = ensureContrastSafe(
+        c,
+        isLight: Theme.of(context).brightness == Brightness.light,
+      );
+      setState(() => _glow = safe);
+    }
+  }
+
   // Shared, deduped toast handler — see aurum_snack.dart for why this
   // replaced a hand-copied per-file implementation.
   void _snack(String msg) {
@@ -335,11 +392,23 @@ class _SongOptionsSheetState extends State<_SongOptionsSheet> {
     final player = context.read<PlayerProvider>();
     final fav = context.watch<FavoritesProvider>();
     final isLiked = fav.isFavorite(song.id);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark
+        ? Color.lerp(_glow, const Color(0xFF0C0C18), 0.55)!
+        : Color.lerp(_glow, Colors.white, 0.88)!;
 
     return Container(
       decoration: BoxDecoration(
-        color: AurumTheme.bgElevatedOf(context),
+        color: bgColor,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        border: Border(
+          top: BorderSide(
+            color: isDark
+                ? Colors.white.withOpacity(0.08)
+                : Colors.black.withOpacity(0.06),
+            width: 0.6,
+          ),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -610,21 +679,25 @@ class _GridOption extends StatelessWidget {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withOpacity(0.06)
-              : Colors.black.withOpacity(0.06),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: isDark
+                ? [Colors.white.withOpacity(0.10), Colors.white.withOpacity(0.03)]
+                : [Colors.white.withOpacity(0.9), Colors.white.withOpacity(0.55)],
+          ),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isDark
-                ? Colors.white.withOpacity(0.10)
-                : Colors.black.withOpacity(0.12),
+                ? Colors.white.withOpacity(0.12)
+                : Colors.black.withOpacity(0.10),
             width: 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.18 : 0.06),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              color: Colors.black.withOpacity(isDark ? 0.22 : 0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),

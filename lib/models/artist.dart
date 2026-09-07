@@ -20,6 +20,19 @@ class ArtistAlbum {
   });
 }
 
+/// One titled shelf of related album cards on an album's own page — e.g.
+/// YT Music's "Other versions" (same soundtrack re-releases/re-masters)
+/// or "More by [artist]" rows. Always sourced straight from the album
+/// browse response's own musicCarouselShelfRenderer secondary shelves
+/// (see AlbumScreen/_fetchYtAlbumSongsWithArtwork), never invented —
+/// title is whatever YT Music itself labeled that shelf.
+class AlbumRelatedShelf {
+  final String title;
+  final List<ArtistAlbum> albums;
+
+  AlbumRelatedShelf({required this.title, required this.albums});
+}
+
 /// A simplified "related artist" entry — for the "Fans might also like"
 /// row. Always sourced from YouTube Music's own related-artists carousel
 /// on the browse response (never guessed/derived client-side), so it only

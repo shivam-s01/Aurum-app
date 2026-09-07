@@ -142,12 +142,12 @@ class Song {
     'artistChannelId': artistChannelId,
   };
 
-  Song copyWith({String? streamUrl, String? localPath}) => Song(
+  Song copyWith({String? streamUrl, String? localPath, String? artworkUrl}) => Song(
     id: id,
     title: title,
     artist: artist,
     album: album,
-    artworkUrl: artworkUrl,
+    artworkUrl: artworkUrl ?? this.artworkUrl,
     streamUrl: streamUrl ?? this.streamUrl,
     duration: duration,
     language: language,

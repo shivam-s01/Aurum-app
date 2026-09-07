@@ -154,20 +154,15 @@ class AurumGlassCollapseBar extends StatelessWidget {
     this.barHeight = kToolbarHeight,
   });
 
-  // CHANGE ("hamesha halka glass dikhe, simpmusic jaisa"): SimpMusic's
-  // Haze bar isn't scroll-gated at all — it's a permanently-transparent
-  // container with hazeEffect() always active, so the bar reads as
-  // faintly glassy even at the very top of a fully expanded header, then
-  // visibly strengthens once real content scrolls behind it. A hard 0.0
-  // floor (the old behavior) meant zero glass the instant a screen
-  // opened — correct for "cheapest possible frame while expanded," but
-  // not the always-on glass look being asked for here.
-  //
-  // _minStrength is that floor: never fully off, always ramping up to
-  // full strength by the time the header finishes collapsing. Softer
-  // than full strength at rest so it still reads as "expanded, but with
-  // a glass hint" rather than "already collapsed."
-  static const double _minStrength = 0.22;
+  // REVERTED ("scroll pr upar akward sa patti aa rahi hai" — 2026-09-07):
+  // the previous always-on floor (0.22) meant a faint hazy strip sat
+  // across the top of the header even while fully expanded, over sharp
+  // artwork that was never meant to be blurred at rest — read as a
+  // rendering glitch/dead strip, not intentional chrome. Reference
+  // players (Bloomee, YT Music) only show glass once the bar has
+  // actually started collapsing over content — zero blur, zero tint,
+  // completely invisible at full expansion.
+  static const double _minStrength = 0.0;
 
   @override
   Widget build(BuildContext context) {

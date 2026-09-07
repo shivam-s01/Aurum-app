@@ -13,6 +13,7 @@ import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
+import '../models/artist.dart';
 import '../providers/player_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import '../providers/download_provider.dart';
@@ -52,10 +53,28 @@ class _AlbumScreenState extends State<AlbumScreen> {
   bool _loading = true;
   bool _shuffle = false;
   late String _artworkUrl = widget.artworkUrl;
-  // Falls back to a dark neutral glow until (if) the palette resolves —
-  // matches mix_screen.dart's/artist_screen.dart's fallback so all three
-  // detail screens look identical before their artwork decodes.
-  Color _glow = const Color(0xFF1A1630);
+  // "Other versions" / "More by [artist]" — real InnerTube shelves parsed
+  // straight off the same album browse response _load() already fetches
+  // (see ApiService._parseAlbumRelatedShelves), never a separate call.
+  List<AlbumRelatedShelf> _relatedShelves = const [];
+  // FIX ("2-3 sec mai aane wala artwork/glow akward lagta hai"): if this
+  // artwork was already seen anywhere else in the app (the search/album
+  // card the user just tapped, an artist page, etc — the overwhelmingly
+  // common case, since you always arrive here FROM some card already
+  // showing this same art), ArtworkPaletteCache.peek() resolves it
+  // synchronously, so the very first frame already paints the real glow
+  // — no flat placeholder flash while _extractGlow's async lookup catches
+  // up. Only a genuinely first-ever-seen album (fresh deep link, cold
+  // cache) still falls through to the dark neutral default below.
+  late Color _glow = _peekInitialGlow();
+
+  Color _peekInitialGlow() {
+    final cached = ArtworkPaletteCache.peek(widget.artworkUrl);
+    if (cached != null) {
+      return ensureContrastSafe(cached.darkMuted, isLight: false);
+    }
+    return const Color(0xFF1A1630);
+  }
 
   @override
   void initState() {
@@ -89,6 +108,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
     setState(() {
       _songs = result.songs;
       if (result.headerArtworkUrl.isNotEmpty) _artworkUrl = result.headerArtworkUrl;
+      _relatedShelves = result.relatedShelves;
       _loading = false;
     });
     if (result.headerArtworkUrl.isNotEmpty) _extractGlow(result.headerArtworkUrl);
@@ -421,6 +441,17 @@ class _AlbumScreenState extends State<AlbumScreen> {
                 childCount: _songs.length,
               ),
             ),
+          // "Other versions" / "More by [artist]" — real InnerTube shelves
+          // straight off this same album's browse response, YT Music
+          // style. Each shelf gets its own horizontal-scroll row of album
+          // cards, matching the reference layout shown below the
+          // tracklist. Omitted entirely when the album genuinely has no
+          // such shelves (nothing invented) or while still loading.
+          if (!_loading)
+            for (final shelf in _relatedShelves)
+              SliverToBoxAdapter(
+                child: _AlbumRelatedShelfSection(shelf: shelf),
+              ),
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
         ),
@@ -736,6 +767,106 @@ class _AlbumOptionsSheetState extends State<_AlbumOptionsSheet> {
           const SizedBox(height: 16),
           SizedBox(height: MediaQuery.of(context).padding.bottom),
         ],
+      ),
+    );
+  }
+}
+
+/// One "Other versions" / "More by [artist]" shelf — a section title
+/// (whatever YT Music itself labeled it) followed by a horizontal-scroll
+/// row of album cards. Mirrors artist_all_albums_screen.dart's grid tile
+/// visually (same rounded artwork + title + year), just laid out as a
+/// horizontal strip instead of a grid, matching the reference screenshot.
+class _AlbumRelatedShelfSection extends StatelessWidget {
+  final AlbumRelatedShelf shelf;
+  const _AlbumRelatedShelfSection({required this.shelf});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Text(
+              shelf.title,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 190,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: shelf.albums.length,
+              itemBuilder: (context, i) =>
+                  _RelatedAlbumCard(album: shelf.albums[i]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Single card inside a related-shelf row — tapping opens that album's
+/// own AlbumScreen (real navigation, same as every other album card in
+/// the app), never a preview/inline expansion.
+class _RelatedAlbumCard extends StatelessWidget {
+  final ArtistAlbum album;
+  const _RelatedAlbumCard({required this.album});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: AurumPressable(
+        onTap: () {
+          AurumDepthRoute.to(
+            context,
+            AlbumScreen(
+              albumId: album.id,
+              albumName: album.name,
+              artworkUrl: album.artworkUrl,
+            ),
+          );
+        },
+        child: SizedBox(
+          width: 132,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AurumArtwork(url: album.artworkUrl, size: 132, borderRadius: 10),
+              const SizedBox(height: 8),
+              Text(
+                album.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (album.year != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  album.year!,
+                  style: TextStyle(
+                    color: AurumTheme.textMutedOf(context),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
