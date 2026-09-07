@@ -406,12 +406,24 @@ class HomeShelfItem {
   final String subtitle;
   final String artworkUrl;
   final bool isAlbum;
+  // FEATURE ("play trick option jar jagah laga hai akward lagta hai,
+  // kuch jagah hi lagao jaise innertube mein hota hai" — 2026-09-07):
+  // real InnerTube pageType for a card's browseEndpoint — genuinely
+  // 'MUSIC_PAGE_TYPE_RADIO' for a mix/radio (play-only, no real
+  // tracklist page — same as YT Music's own reference UI, where the
+  // small play-circle overlay only appears on that kind of card, never
+  // on a plain community/curated playlist or album). Carried through
+  // as-is from _parseHomeTwoRowItem's own pageType field — the overlay
+  // decision in _RealShelfPlaylistCard reads this instead of always
+  // showing the icon, never a guess based on title/artwork shape.
+  final bool isRadioMix;
   const HomeShelfItem({
     required this.browseId,
     required this.title,
     required this.subtitle,
     required this.artworkUrl,
     required this.isAlbum,
+    this.isRadioMix = false,
   });
 }
 
@@ -4550,6 +4562,7 @@ class ApiService {
             subtitle: it.subtitle,
             artworkUrl: it.artworkUrl,
             isAlbum: it.pageType == 'MUSIC_PAGE_TYPE_ALBUM',
+            isRadioMix: it.pageType == 'MUSIC_PAGE_TYPE_RADIO',
           ));
         }
         if (parsed.isEmpty) continue;
@@ -4868,6 +4881,7 @@ class ApiService {
             subtitle: it.subtitle,
             artworkUrl: it.artworkUrl,
             isAlbum: it.pageType == 'MUSIC_PAGE_TYPE_ALBUM',
+            isRadioMix: it.pageType == 'MUSIC_PAGE_TYPE_RADIO',
           ));
         }
         if (parsed.isEmpty) continue;
@@ -4893,6 +4907,7 @@ class ApiService {
               subtitle: it.subtitle,
               artworkUrl: it.artworkUrl,
               isAlbum: it.pageType == 'MUSIC_PAGE_TYPE_ALBUM',
+              isRadioMix: it.pageType == 'MUSIC_PAGE_TYPE_RADIO',
             ));
           }
         }
@@ -4941,28 +4956,17 @@ class ApiService {
   // eyebrow lines. They are NEVER presented as if scraped from InnerTube
   // — every item under the shelf is still a 100% real playlist search
   // result, only the eyebrow text above the title is a local label.
+  // CUT DOWN ("home page pr itne hi chahiye jitna reference screenshot
+  // mein hai, zyada nahi" — 2026-09-07): this list used to carry 22 seed
+  // shelves, which combined with the real/similar/featured shelves below
+  // put 28+ rows on Home — a never-ending scroll nothing like the
+  // reference screenshots' ~5-6 row page. Trimmed to the handful that
+  // actually appear in the reference (Dancing on your own / Easy
+  // Evenings / Old School Romance / 90s Throwback Fun / New releases-
+  // style / Trending community playlists), same real InnerTube playlist
+  // search per entry — nothing about HOW each shelf is fetched changed,
+  // only how many exist.
   static const List<({String label, String query, String? strapline})> _kSeedHomeShelfQueries = [
-    (label: 'Trending now', query: 'trending songs playlist', strapline: null),
-    (label: 'Bollywood Hitlist', query: 'bollywood hits playlist', strapline: null),
-    (label: 'Punjabi Hits', query: 'punjabi hits playlist', strapline: null),
-    (label: 'Old is Gold', query: 'old bollywood songs playlist', strapline: null),
-    (
-      label: 'Romance Right Now',
-      query: 'romantic hindi songs playlist',
-      strapline: 'Celebrate love the old fashioned way',
-    ),
-    (label: 'Party Anthems', query: 'party songs playlist', strapline: null),
-    (label: 'Chill & Lofi', query: 'lofi chill songs playlist', strapline: null),
-    (
-      label: 'Old School Romance',
-      query: 'old school romantic songs playlist',
-      strapline: 'Timeless love songs from a slower era',
-    ),
-    (
-      label: '90s Throwback Fun',
-      query: '90s bollywood songs playlist',
-      strapline: 'Brb, being nostalgic',
-    ),
     (
       label: 'Dancing on your own',
       query: 'dancing on your own playlist',
@@ -4974,29 +4978,47 @@ class ApiService {
       strapline: 'Comfy and cozy, as evenings should be',
     ),
     (
-      label: 'Feel-Good Hip Hop and R&B',
-      query: 'feel good hip hop rnb playlist',
-      strapline: null,
+      label: 'Old School Romance',
+      query: 'old school romantic songs playlist',
+      strapline: 'Celebrate love the old fashioned way',
     ),
-    (label: 'Coffee Shop Blend', query: 'coffee shop blend playlist', strapline: null),
-    (label: 'HIIT Desi Pop', query: 'hiit workout desi pop playlist', strapline: null),
-    (label: 'Gaming Hits', query: 'gaming hits playlist', strapline: null),
-    (label: 'Classical for Sleeping', query: 'classical sleep music playlist', strapline: null),
-    (label: 'Kannada Melodies', query: 'kannada melody songs playlist', strapline: null),
-    (label: 'Uncut Bollywood', query: 'uncut bollywood playlist', strapline: null),
-    (label: 'Soulful Tollywood', query: 'soulful tollywood playlist', strapline: null),
-    (label: 'Bengali Hitlist', query: 'bengali hit songs playlist', strapline: null),
-    (label: 'Arabs Abroad', query: 'arabic pop songs playlist', strapline: null),
-    (label: 'Owambe', query: 'african owambe playlist', strapline: null),
-    // FEATURE ("Trending community playlists" — 2026-09-07): a plain
-    // trending-playlist search — InnerTube's own playlist-search subtitle
-    // for a community playlist is genuinely "Playlist • N views" (already
-    // parsed as-is by the existing subtitle logic in _searchAsHomeShelf,
-    // no special-casing needed here), same real field the reference
-    // screenshot's "8.5M views" text comes from. Nothing view-count
-    // related is computed or guessed client-side.
+    (
+      label: '90s Throwback Fun',
+      query: '90s bollywood songs playlist',
+      strapline: 'From the weird to the wonderful. Relive the magic',
+    ),
     (label: 'Trending community playlists', query: 'trending community playlist', strapline: null),
   ];
+
+  // FEATURE ("Similar to [Artist]" CIRCULAR rows — ArchiveTune reference,
+  // 2026-09-07 correction): the reference screenshots' "Similar to
+  // <Artist>" rows are circular ARTIST chips (a real person/act's own
+  // photo), not square playlist cards — fetchSimilarToArtistShelves()
+  // above returns playlist shelves, which is the wrong shape for this
+  // row. This instead resolves the seed artist's real channel and reads
+  // its own relatedArtists (Artist.relatedArtists — YT Music's own
+  // "Fans might also like" carousel on that artist's browse page, see
+  // RelatedArtist's doc comment in models/artist.dart: never
+  // guessed/derived client-side). songCount/albumCount: 0 keeps this to
+  // the same single browse call fetchArtist already makes either way
+  // (see _fetchArtistFromYtMusicBrowse — those counts only cap how much
+  // of the response gets parsed, not how many network calls happen) —
+  // this never fetches a heavier artist page than the chip row needs.
+  static Future<({String artistName, List<ArtistSimple> related})?>
+      fetchSimilarArtistChips(String artistName) async {
+    try {
+      final id = await resolveArtistId(artistName);
+      if (id == null) return null;
+      final artist = await fetchArtist(id, songCount: 0, albumCount: 0);
+      if (artist == null || artist.relatedArtists.isEmpty) return null;
+      final chips = artist.relatedArtists
+          .map((r) => ArtistSimple(id: r.id, name: r.name, imageUrl: r.imageUrl))
+          .toList();
+      return (artistName: artistName, related: chips);
+    } catch (_) {
+      return null;
+    }
+  }
 
   static Future<HomeShelf?> _searchAsHomeShelf(String query, String label,
       {int take = 10, String? strapline}) async {
@@ -5189,12 +5211,22 @@ class ApiService {
     final featured = await featuredFuture;
     final seeded = (await seededFuture).whereType<HomeShelf>().toList();
 
-    return [
+    final combined = [
       ...real,
       ...similar,
       if (featured != null) featured,
       ...seeded,
     ];
+
+    // CAP ("home page pr itne hi chahiye jitna reference screenshot mein
+    // hai" — 2026-09-07): even with the seed list trimmed above, real +
+    // similar-to-artist + featured can still add up past what the
+    // reference screenshots show (~6-7 rows total before Popular
+    // Artists). Hard cap here rather than trusting every source to stay
+    // small — a future real/similar shelf count creeping up should never
+    // silently re-flood Home again.
+    const maxShelves = 6;
+    return combined.take(maxShelves).toList();
   }
 
   // FEATURE ("ekdam youtube music jaisa home" — real multi-shelf layout,

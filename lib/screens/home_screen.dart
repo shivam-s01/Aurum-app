@@ -1033,97 +1033,41 @@ class _HomeScreenState extends State<HomeScreen> {
                   // _YtAlbumsForYouSection/_ThemedPlaylistShelvesSection
                   // already removed earlier) rather than deleted outright,
                   // in case any part of it is wanted again later. ──
-                  // FEATURE ("mood genre jaisa playlist option, click pr
-                  // beautiful khule ekdam youtube music ka real" —
-                  // 2026-09-07): entry point into the real InnerTube
-                  // "Moods & Genres" grid (FEmusic_moods_and_genres) —
-                  // same colorful category-tile page music.youtube.com
-                  // itself shows, opened as its own full screen rather
-                  // than crammed into a home carousel. Kept alongside the
-                  // "Featured playlists for you" shelf's own arrow into
-                  // the same screen (_RealHomeShelfRow._openArrow below)
-                  // — two doors to the same real screen, never two
-                  // different implementations of it.
-                  const SliverToBoxAdapter(child: _MoodsGenresEntryCard()),
-                  SliverToBoxAdapter(
-                    child: _RealHomeShelvesSection(refreshKey: _playlistRefreshKey),
-                  ),
-                  // FEATURE ("You might also like home page pr show hi
-                  // nahi hota" — 2026-09-06): real InnerTube "You might
-                  // also like" (ApiService.fetchYouMightAlsoLike) already
-                  // existed in this codebase but was never actually
-                  // rendered anywhere — only ever consumed internally by
-                  // RecommendationEngine's scoring pool. Seeded off the
-                  // most recently played song (same "last thing you
-                  // listened to" seed YT Music's own home feed uses for
-                  // this row) via RecentlyPlayedProvider, same provider
-                  // already read elsewhere on this screen. Self-hides
-                  // (SizedBox.shrink) with no history yet or no related
-                  // songs found — never shows an empty/broken row.
-                  const SliverToBoxAdapter(
-                    child: _YouMightAlsoLikeSection(),
-                  ),
-                  // REMOVED ("ekdam youtube music jaisa home page chahiye,
-                  // sirf real InnerTube" — 2026-09-06): _YtAlbumsForYouSection
-                  // and _ThemedPlaylistShelvesSection (the "India's Biggest
-                  // Hits" / "Brb, Being Nostalgic!" / "Party Mode: On" /
-                  // "Love Is In The Air" etc. multi-shelf block) both used
-                  // the same generic mood-seed search pool as the removed
-                  // mood-chip playlists once did, and _YtAlbumsForYouSection
-                  // in particular had a real title/subtitle text-overlap
-                  // layout bug on top of never refreshing to different
-                  // results reliably. Deleting both sliver calls here rather
-                  // than trying to patch either — Home now shows exactly
-                  // one real-InnerTube-backed section
-                  // (_YtPlaylistsForYouSection, mood chips still work and
-                  // are themselves now genuinely fresh per _realPlaylistCard's
-                  // InnerTube-search rewrite), the same one-row layout
-                  // YT Music's own home page actually uses instead of many
-                  // stacked editorial shelves. Both removed classes are left
-                  // defined below (dead code) rather than deleted outright,
-                  // in case any part of them is wanted again later — they
-                  // just aren't referenced from the widget tree anymore.
-                  // ── Song sections, with the Artist Strip injected at the
-                  // midpoint — YT Music and Spotify both surface a "Popular
-                  // artists" row roughly halfway down the home feed, never
-                  // buried after every other section.
-                  // PERF FIX (home-load lag on real devices): this used to
-                  // be a single SliverToBoxAdapter wrapping a plain Column
-                  // of every section (_OnlineContent). A Column has no
-                  // on-demand building — Flutter must build+layout ALL
-                  // ~15-19 shelves (each up to 12 song cards, each with a
-                  // network image) the instant they're in the tree, even
-                  // the ones nowhere near the viewport. Every streamed-in
-                  // section then also forced Flutter to re-walk/re-layout
-                  // that entire already-built Column again. Switching to a
-                  // real SliverList means only the sections actually
-                  // visible (plus cacheExtent) ever build — off-screen
-                  // shelves, and their network image requests, simply
-                  // don't exist yet.
-                  // REMOVED (2026-09-06, "ye sb section hatana hai, home
-                  // page complete innertube se karna hai" + follow-up "1
-                  // bhe na aaye kabhi bhe"): the old fetchHomeStreaming-
-                  // backed song shelves (Trending Now, Afternoon Picks,
-                  // Workout, Road Trip, artist-name shelves like "Lata
-                  // Mangeshkar", Top English Hits, Made for You · X,
-                  // Romance, etc.) are no longer mounted here. Those all
-                  // came from the JioSaavn/search-pool pipeline
-                  // (_pool/_saavnSectionV4 in api_service.dart), not real
-                  // InnerTube data — _RealHomeShelvesSection above (real
-                  // FEmusic_home shelves) is now the only song-shelf UI on
-                  // Home. Unlike the first pass at this, _loadOnline() is
-                  // now fully uncalled from anywhere in this file (cold
-                  // start, cache hydration, and pull-to-refresh were all
-                  // cut too — see _hydrateFromCache and the
-                  // RefreshIndicator above) so _onlineSections can never
-                  // be populated again, not just unrendered. Popular
-                  // Artists (_ArtistStrip) is kept, now rendered
-                  // unconditionally instead of at the midpoint of a
-                  // section list that no longer exists.
+                  // REMOVED ("mood and genres ekdam upar hi aa gya hai ye
+                  // akward hai" — 2026-09-07): _MoodsGenresEntryCard used
+                  // to render here, before any real shelf, which put it
+                  // as literally the first thing under Hero on Home —
+                  // nowhere in the reference screenshots does a standalone
+                  // Moods & Genres entry appear that high (or at all, as
+                  // its own row). The real InnerTube Moods & Genres screen
+                  // is still one tap away via "Featured playlists for
+                  // you"'s own arrow (_RealHomeShelfRow._openArrow below)
+                  // — same destination, just no second/earlier door to it
+                  // competing for the top of Home. Class left defined
+                  // below (dead code) rather than deleted, in case it's
+                  // wanted back as e.g. a Library tab entry later.
+                  // REORDER ("artist ekdam niche nhi aayenge na akward lg
+                  // raha tha" — 2026-09-07): Popular Artists + all
+                  // "Similar to X" rows used to be pushed to the very
+                  // bottom, after every shelf — nothing in the reference
+                  // screenshots clumps every artist row together at the
+                  // end like that. Reference shows the artist strip near
+                  // the TOP (its own "Keep listening" screenshot has it
+                  // right under Hero) and "Similar to X" rows genuinely
+                  // interleaved between shelves, not stacked after all of
+                  // them. _ArtistStrip now renders first, then
+                  // _HomeShelvesAndSimilarSection below interleaves real
+                  // shelves with similar-artist rows itself instead of
+                  // two separate back-to-back sliver children.
                   SliverToBoxAdapter(
                     child: _ArtistStrip(
                       artists: _homeArtists,
                       loading: _artistsLoading,
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: _HomeShelvesAndSimilarSection(
+                      refreshKey: _playlistRefreshKey,
                     ),
                   ),
                 ],
@@ -3120,7 +3064,9 @@ class _ArtistStripState extends State<_ArtistStrip> {
           // internal spacing/font-size also changed slightly alongside
           // the size correction.
           FadedHorizontalList(
-            height: 122,
+            // Bumped alongside _ArtistChip's avatar size increase (104
+            // avatar + 10 spacing + ~13px name line + breathing room).
+            height: 158,
             controller: _scrollController,
             fadeWidth: 12,
             child: loading
@@ -3153,7 +3099,7 @@ class _ArtistStripState extends State<_ArtistStrip> {
         physics: const NeverScrollableScrollPhysics(),
         itemCount: 6,
         itemBuilder: (_, __) => Container(
-          width: 86,
+          width: 110,
           margin: const EdgeInsets.only(right: 16),
           child: Column(children: [
             // FIX (white flash — same root cause as elsewhere in this
@@ -3161,10 +3107,10 @@ class _ArtistStripState extends State<_ArtistStrip> {
             // base color, it doesn't replace it. Using the theme's own
             // card color (not Colors.white) keeps a dropped/late shimmer
             // frame looking correct against the dark theme.
-            CircleAvatar(radius: 42, backgroundColor: AurumTheme.bgCardOf(context)),
-            const SizedBox(height: 8),
+            CircleAvatar(radius: 52, backgroundColor: AurumTheme.bgCardOf(context)),
+            const SizedBox(height: 10),
             Container(
-              width: 60, height: 11,
+              width: 70, height: 12,
               decoration: BoxDecoration(
                 color: AurumTheme.bgCardOf(context),
                 borderRadius: BorderRadius.circular(4),
@@ -3220,26 +3166,34 @@ class _ArtistChip extends StatelessWidget {
       scaleAmount: 0.94,
       onTap: () => _open(context),
       child: Container(
-        width: 78,
+        // SIZE BUMP ("artist box ka size toda bada kro screenshot jaisa,
+        // mere mein abhi bhahut chhota" — 2026-09-07): 78/72 was a
+        // corrected-DOWN pass against an earlier over-large 124px guess
+        // (see the file-wide note above on _ArtistStrip) — but that
+        // correction undershot against THESE reference screenshots
+        // (Keep listening / Similar to X rows), where the artist circle
+        // reads closer to ~100-110dp. Bumped to 104 avatar / 110 chip
+        // width to match, row height in _ArtistStrip bumped alongside.
+        width: 110,
         margin: const EdgeInsets.only(right: 16),
         child: Column(
           children: [
             AurumStackedArtwork(
               url: artist.imageUrl,
-              size: 72,
+              size: 104,
               circular: true,
               showNowPlaying: isCurrentArtist,
               isPlaying: isActuallyPlaying,
               stackColor: AurumTheme.gold,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Text(
               artist.name,
               style: TextStyle(
                 color: isCurrentArtist
                     ? AurumTheme.gold
                     : AurumTheme.textPrimaryOf(context),
-                fontSize: 12,
+                fontSize: 13,
                 fontWeight: isCurrentArtist ? FontWeight.w700 : FontWeight.w600,
               ),
               maxLines: 1,
@@ -3309,6 +3263,218 @@ class _ArtistChip extends StatelessWidget {
 // visual language as every other Home row (title + forward arrow to open
 // the full list as a real playlist, horizontal _SongGridCard strip below)
 // so it doesn't read as a bolted-on feature.
+// ─────────────────────────────────────────────────────────────────────────────
+// "Similar to [Artist]" — circular rows, real affinity-ranked
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// FEATURE (ArchiveTune reference, 2026-09-07): fetches a real
+// InnerTube "related artists" row for each of the user's top-listened
+// artists (RecommendationEngine.rotatingAffinityArtists — real
+// on-device listening weight, most-played artists win, and it
+// reshuffles which top artists surface on every pull-to-refresh, same
+// convention _RealHomeShelvesSection's own personalized shelf already
+// uses). Each row is its own header (small circular seed-artist avatar
+// + "Similar to <Name>" + arrow) above a horizontal strip of that
+// artist's real related-artist chips (fetchSimilarArtistChips —
+// Artist.relatedArtists, YT Music's own "Fans might also like"
+// carousel — never guessed/derived client-side). A row with no related
+// artists found (thin/obscure seed artist) is silently dropped rather
+// than shown empty.
+class _SimilarArtistsSection extends StatefulWidget {
+  final int refreshKey;
+  const _SimilarArtistsSection({this.refreshKey = 0});
+
+  @override
+  State<_SimilarArtistsSection> createState() => _SimilarArtistsSectionState();
+}
+
+class _SimilarArtistsSectionState extends State<_SimilarArtistsSection> {
+  List<({String artistName, List<ArtistSimple> related})>? _rows;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_SimilarArtistsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshKey != widget.refreshKey) {
+      setState(() {
+        _rows = null;
+        _failed = false;
+      });
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    try {
+      final seedArtists = RecommendationEngine.rotatingAffinityArtists(
+        count: 3,
+        seed: widget.refreshKey,
+      );
+      if (seedArtists.isEmpty) {
+        if (mounted) setState(() => _failed = true);
+        return;
+      }
+      final results = await Future.wait(
+        seedArtists.map((a) => ApiService.fetchSimilarArtistChips(a)),
+      );
+      if (!mounted) return;
+      final rows = results
+          .where((r) => r != null)
+          .map((r) => r!)
+          .toList();
+      setState(() {
+        _rows = rows;
+        _failed = rows.isEmpty;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_failed) return const SizedBox.shrink();
+    final rows = _rows;
+    if (rows == null) {
+      // Loading — no skeleton here (unlike the shelf rows above): this
+      // section can legitimately end up empty (no listening history),
+      // so a skeleton would flash and then disappear for a large chunk
+      // of users. Same "quiet until real data" behavior _ArtistStrip's
+      // caller already relies on via its own `loading` flag.
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final row in rows)
+          _SimilarArtistsRow(
+            key: ValueKey('${row.artistName}_${widget.refreshKey}'),
+            seedArtistName: row.artistName,
+            related: row.related,
+          ),
+      ],
+    );
+  }
+}
+
+class _SimilarArtistsRow extends StatelessWidget {
+  final String seedArtistName;
+  final List<ArtistSimple> related;
+  const _SimilarArtistsRow({
+    super.key,
+    required this.seedArtistName,
+    required this.related,
+  });
+
+  Future<void> _openSeedArtist(BuildContext context) async {
+    AurumHaptics.selection();
+    final id = await ApiService.resolveArtistId(seedArtistName);
+    if (id == null || !context.mounted) return;
+    AurumDepthRoute.to(
+      context,
+      ArtistScreen(artistId: id, artistName: seedArtistName),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: () => _openSeedArtist(context),
+                child: ClipOval(
+                  child: AurumArtwork(
+                    url: related.isNotEmpty ? related.first.imageUrl : '',
+                    size: 44,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _openSeedArtist(context),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Plain (non-localized) label — same precedent as
+                      // _RealHomeShelfRow's hand-written strapline text
+                      // above (see its own doc comment): this row's
+                      // seed-artist name itself is never translatable
+                      // (it's a real person's name), so the eyebrow stays
+                      // English-only rather than adding one more ARB key
+                      // across all 16 language files for a two-word label.
+                      Text(
+                        'Similar to',
+                        style: TextStyle(
+                          color: AurumTheme.textSecondaryOf(context),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        seedArtistName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: () => _openSeedArtist(context),
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Icon(
+                      Icons.arrow_forward,
+                      color: AurumTheme.textPrimaryOf(context),
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FadedHorizontalList(
+            height: 158,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              cacheExtent: 500,
+              itemCount: related.length,
+              itemBuilder: (_, i) => _ArtistChip(
+                key: ValueKey(related[i].id),
+                artist: related[i],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _YouMightAlsoLikeSection extends StatefulWidget {
   const _YouMightAlsoLikeSection();
 
@@ -3546,6 +3712,170 @@ class _MoodsGenresEntryCard extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Real shelves + "Similar to [Artist]" — INTERLEAVED
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// FEATURE ("artist ekdam niche nhi aayenge, akward lag raha tha" —
+// 2026-09-07): fetches both real InnerTube home shelves (same source
+// _RealHomeShelvesSection always used — see fetchHomeShelvesForDisplay's
+// own doc comment) and per-affinity-artist "Similar to X" rows (same
+// source _SimilarArtistsSection always used — fetchSimilarArtistChips)
+// IN PARALLEL, then renders them woven together (one shelf, one
+// similar-artist row, one shelf, ...) instead of two back-to-back
+// blocks. Matches the reference screenshots, where a "Similar to
+// <Artist>" row never appears bunched with every other artist row at
+// the bottom — it sits between ordinary mood/genre shelves. If only one
+// of the two sources comes back (e.g. no listening history yet, so no
+// similar-artist rows), this silently falls back to showing just the
+// shelves — never an empty gap where a row should be.
+class _HomeShelvesAndSimilarSection extends StatefulWidget {
+  final int refreshKey;
+  const _HomeShelvesAndSimilarSection({this.refreshKey = 0});
+
+  @override
+  State<_HomeShelvesAndSimilarSection> createState() =>
+      _HomeShelvesAndSimilarSectionState();
+}
+
+class _HomeShelvesAndSimilarSectionState
+    extends State<_HomeShelvesAndSimilarSection> {
+  List<HomeShelf>? _shelves;
+  List<({String artistName, List<ArtistSimple> related})>? _similarRows;
+  bool _shelvesFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_HomeShelvesAndSimilarSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshKey != widget.refreshKey) {
+      setState(() {
+        _shelves = null;
+        _similarRows = null;
+        _shelvesFailed = false;
+      });
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    // FIX (recheck, 2026-09-07): shelves used to setState as soon as
+    // they resolved, then similar-artist rows setState again moments
+    // later once THEY resolved — since both are interleaved into one
+    // list, that meant Home visibly painted shelves-only first, then
+    // every shelf below the first similar-artist row jumped down a
+    // slot as that row got inserted. Both futures still start
+    // concurrently (no added latency), but now committed to state
+    // together in one setState — Home goes straight from skeleton to
+    // its final interleaved order, no mid-scroll layout shift.
+    final shelvesFuture = ApiService.fetchHomeShelvesForDisplay(
+      refreshSeed: widget.refreshKey,
+    );
+    final similarFuture = _loadSimilarRows();
+
+    List<HomeShelf> shelves = const [];
+    bool failed = false;
+    try {
+      shelves = await shelvesFuture;
+      failed = shelves.isEmpty;
+    } catch (_) {
+      failed = true;
+    }
+    final similar = await similarFuture;
+
+    if (!mounted) return;
+    setState(() {
+      _shelves = shelves;
+      _shelvesFailed = failed;
+      _similarRows = similar;
+    });
+  }
+
+  Future<List<({String artistName, List<ArtistSimple> related})>>
+      _loadSimilarRows() async {
+    try {
+      final seedArtists = RecommendationEngine.rotatingAffinityArtists(
+        count: 3,
+        seed: widget.refreshKey,
+      );
+      if (seedArtists.isEmpty) return const [];
+      final results = await Future.wait(
+        seedArtists.map((a) => ApiService.fetchSimilarArtistChips(a)),
+      );
+      return results.where((r) => r != null).map((r) => r!).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shelves = _shelves;
+
+    // Still loading shelves (first paint) — same skeleton language as
+    // before.
+    if (shelves == null && !_shelvesFailed) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ShelfTitleSkeleton(),
+            const SizedBox(height: 12),
+            FadedHorizontalList(
+              height: 130,
+              child: _YtPlaylistsForYouSkeleton(
+                  scrollController: ScrollController()),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (shelves == null || shelves.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final similar = _similarRows ?? const [];
+
+    // INTERLEAVE: walk both lists together, alternating one shelf then
+    // one similar-artist row, so neither source ends up bunched at the
+    // top or bottom of this section. Once one list runs out, the rest
+    // of the other just continues normally — never truncated.
+    final children = <Widget>[];
+    var shelfIdx = 0;
+    var similarIdx = 0;
+    while (shelfIdx < shelves.length || similarIdx < similar.length) {
+      if (shelfIdx < shelves.length) {
+        children.add(_RealHomeShelfRow(
+          key: ValueKey('${shelves[shelfIdx].title}_${widget.refreshKey}'),
+          shelf: shelves[shelfIdx],
+        ));
+        shelfIdx++;
+      }
+      if (similarIdx < similar.length) {
+        final row = similar[similarIdx];
+        children.add(_SimilarArtistsRow(
+          key: ValueKey('${row.artistName}_${widget.refreshKey}'),
+          seedArtistName: row.artistName,
+          related: row.related,
+        ));
+        similarIdx++;
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+  }
+}
+
 class _RealHomeShelvesSection extends StatefulWidget {
   final int refreshKey;
   const _RealHomeShelvesSection({this.refreshKey = 0});
@@ -3670,18 +4000,14 @@ class _RealHomeShelfRow extends StatelessWidget {
   final HomeShelf shelf;
   const _RealHomeShelfRow({super.key, required this.shelf});
 
-  // FEATURE ("Featured playlists for you" arrow -> Mood & Genres —
-  // ArchiveTune reference, 2026-09-07): reference screenshot's "Featured
-  // playlists for you" shelf has an arrow that opens the dedicated
-  // "Mood & Genres" grid screen (Chill/Commute/Energize/etc. — see
-  // ApiService.fetchMoodsAndGenres, the real FEmusic_moods_and_genres
-  // browse), NOT a generic see-all of that shelf's own 3 items. Every
-  // other shelf keeps the generic See-all behavior (_ShelfSeeAllScreen
-  // below, opened via the else branch in _openArrow) — this is the one
-  // deliberate exception, matched by title since that's a real, stable
-  // HomeShelf.title this app itself sets (see
-  // ApiService.fetchFeaturedPlaylistsForYou), not a magic string
-  // invented in the UI layer.
+  // REVERT ("Featured playlist for you wale arrow se moods aur genres
+  // khulna chahiye" — 2026-09-07): removed this special case in the
+  // previous pass because the confusion at the time was about the
+  // standalone Moods & Genres ENTRY CARD sitting awkwardly at the top
+  // of Home (a separate widget, _MoodsGenresEntryCard, already removed
+  // — see its own doc comment) — not about this arrow. Restoring the
+  // arrow -> Moods & Genres behavior: this is the deliberate one
+  // exception to the generic see-all arrow every other shelf uses.
   static const String _kFeaturedForYouTitle = 'Featured playlists for you';
 
   void _openArrow(BuildContext context) {
@@ -3777,7 +4103,10 @@ class _RealHomeShelfRow extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           FadedHorizontalList(
-            height: 130,
+            // Bumped alongside _RealShelfPlaylistCard's width increase
+            // (148 card + a little breathing room) — "cards ko toda sa
+            // bada kro" — 2026-09-07.
+            height: 148,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
@@ -3799,7 +4128,7 @@ class _RealHomeShelfRow extends StatelessWidget {
                     ),
                   );
                 }
-                return _RealShelfPlaylistCard(item: item);
+                return _RealShelfPlaylistCard(item: item, shelfTitle: shelf.title);
               },
             ),
           ),
@@ -3818,7 +4147,26 @@ class _RealHomeShelfRow extends StatelessWidget {
 class _RealShelfPlaylistCard extends StatefulWidget {
   final HomeShelfItem item;
   final bool fullWidth;
-  const _RealShelfPlaylistCard({required this.item, this.fullWidth = false});
+  // FIX ("play trick option jar jagah laga hai, hata do, bs 1-2 jagah
+  // ekdam innertube jaisa" — 2026-09-07 recheck): isRadioMix (InnerTube's
+  // own pageType) turned out to come back true/ambiguous across nearly
+  // every shelf item in practice, not just genuine mixes — so gating on
+  // it alone still showed the icon on almost every card, exactly the
+  // "sab jagah laga hai" problem being fixed. Switched to an explicit
+  // allow-list by shelf title instead: only shelves whose cards are
+  // genuinely video/mix-style content (community/trending playlists,
+  // "Hits of" year-collage editorial shelves) opt in — a plain
+  // curated/mood playlist or album shelf never shows it. Update
+  // ("aur bhe kuch pr rakho bs jyda nhi" — 2026-09-07): added
+  // 'Featured playlists for you' to the list alongside 'Trending
+  // community playlists' — still an explicit, short allow-list, not a
+  // blanket on/off.
+  final String shelfTitle;
+  const _RealShelfPlaylistCard({
+    required this.item,
+    required this.shelfTitle,
+    this.fullWidth = false,
+  });
 
   @override
   State<_RealShelfPlaylistCard> createState() =>
@@ -3894,7 +4242,12 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
           duration: AurumMotion.durationOrZero(AurumMotion.short1),
           curve: Curves.easeOut,
           child: Container(
-            width: widget.fullWidth ? null : 130,
+            // SIZE BUMP ("cards ko toda sa bada kr skte ho jo innertube se
+            // aa rahe hai" — 2026-09-07): 130 -> 148, a modest bump
+            // (matches the row height above) rather than a big jump —
+            // stays square (no explicit height, still fills the parent
+            // FadedHorizontalList's height) so this never distorts.
+            width: widget.fullWidth ? null : 148,
             margin: widget.fullWidth
                 ? EdgeInsets.zero
                 : const EdgeInsets.only(right: 12),
@@ -3930,23 +4283,28 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
                       ),
                     ),
                   ),
-                  Positioned(
-                    left: 8,
-                    top: 8,
-                    child: Container(
-                      width: 20,
-                      height: 20,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.black.withOpacity(0.45),
-                      ),
-                      child: const Icon(
-                        Icons.play_circle_outline,
-                        color: Colors.white,
-                        size: 16,
+                  // Explicit short allow-list — see the widget-level doc
+                  // comment above for why isRadioMix alone wasn't
+                  // reliable enough in practice.
+                  if (widget.shelfTitle == 'Trending community playlists' ||
+                      widget.shelfTitle == 'Featured playlists for you')
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.black.withOpacity(0.45),
+                        ),
+                        child: const Icon(
+                          Icons.play_circle_outline,
+                          color: Colors.white,
+                          size: 16,
+                        ),
                       ),
                     ),
-                  ),
                   Positioned(
                     left: 10,
                     right: 10,
@@ -4008,6 +4366,15 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
 // _HomeAlbumCardWidget as-is so the tap-through (album -> AlbumScreen,
 // playlist -> lazy-resolved MixScreen via resolveHomeShelfPlaylist) is
 // pixel-for-pixel the same behavior as tapping the same card on Home.
+// FIX ("khule to best page bana kr khule, aisa na khule akward lg raha
+// hai" — 2026-09-07 recheck): cards here used to be the fixed-148px
+// horizontal-strip card, centered inside a wider flexible grid cell —
+// left visible empty gutters on either side of every card, unlike the
+// reference screenshot's edge-to-edge grid cards. Switched to
+// fullWidth: true (a flag both card widgets already supported, used
+// elsewhere in this file for exactly this full-bleed case) so each card
+// now stretches to fill its own grid cell — no Center() wrapper needed,
+// no gutters, matches the reference "India's biggest hits" page.
 class _ShelfSeeAllScreen extends StatelessWidget {
   final HomeShelf shelf;
   const _ShelfSeeAllScreen({required this.shelf});
@@ -4039,10 +4406,12 @@ class _ShelfSeeAllScreen extends StatelessWidget {
         itemCount: shelf.items.length,
         itemBuilder: (_, i) {
           final item = shelf.items[i];
-          // Both card widgets are fixed-width (130) — built for a
-          // horizontal list, not a flexible grid cell — so center each
-          // one in its cell rather than stretching/distorting it.
           if (item.isAlbum) {
+            // Album card keeps its own fixed 130 width + below-artwork
+            // title/artist text (different layout than the playlist
+            // card, which bakes title into the artwork) — still needs
+            // centering in the wider grid cell, unlike the playlist
+            // card below which now stretches via fullWidth instead.
             return Center(
               child: _HomeAlbumCardWidget(
                 card: HomeAlbumCard(
@@ -4054,7 +4423,11 @@ class _ShelfSeeAllScreen extends StatelessWidget {
               ),
             );
           }
-          return Center(child: _RealShelfPlaylistCard(item: item));
+          return _RealShelfPlaylistCard(
+            item: item,
+            shelfTitle: shelf.title,
+            fullWidth: true,
+          );
         },
       ),
     );
