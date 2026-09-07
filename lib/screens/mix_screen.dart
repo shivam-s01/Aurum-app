@@ -330,7 +330,20 @@ class _MixScreenState extends State<MixScreen> {
         cacheExtent: 1200,
         slivers: [
           SliverAppBar(
-            pinned: true,
+            // FIX ("artwork aur sab ek sath upar scroll ho, status bar
+            // tak" — 2026-09-07): pinned:true reserved a permanent
+            // kToolbarHeight-tall strip at the very top that the header
+            // collapsed INTO and then got stuck behind — artwork, title,
+            // and the floating back/heart/search pills all vanished
+            // underneath that leftover strip instead of scrolling fully
+            // off past the status bar. That leftover strip is exactly
+            // the "ulta" band. pinned:false lets the whole header —
+            // artwork, scrim, title block, floating pills, all of it,
+            // since every one of them lives inside this same
+            // flexibleSpace — scroll away completely as one unit, same
+            // as the reference screenshots where the back arrow moves
+            // up WITH the artwork rather than parking in a fixed bar.
+            pinned: false,
             backgroundColor: immersiveScaffoldBg(context, _glow),
             elevation: 0,
             iconTheme: const IconThemeData(color: Colors.white),
@@ -440,28 +453,13 @@ class _MixScreenState extends State<MixScreen> {
                   // scrim and its whole-page palette background.
                   DecoratedBox(decoration: immersiveHeaderScrim(_glow)),
 
-                  // Layer 2b — SimpMusic-style frosted glass strip that
-                  // fades in behind the collapsed bar as the header
-                  // shrinks (see AurumGlassCollapseBar). Reads
-                  // FlexibleSpaceBarSettings from this same
-                  // FlexibleSpaceBar, so it needs zero extra scroll
-                  // listening of its own. Sits above the scrim but below
-                  // the title block below it, so the title is never the
-                  // thing getting blurred.
-                  Builder(builder: (context) {
-                    final settings = context
-                        .dependOnInheritedWidgetOfExactType<
-                            FlexibleSpaceBarSettings>();
-                    return AurumGlassCollapseBar(
-                      glow: _glow,
-                      expandRatio: settings != null
-                          ? ((settings.currentExtent -
-                                      settings.minExtent) /
-                                  (settings.maxExtent - settings.minExtent))
-                              .clamp(0.0, 1.0)
-                          : 1.0,
-                    );
-                  }),
+                  // REMOVED ("artwork ek sath upar scroll ho" fix,
+                  // 2026-09-07): AurumGlassCollapseBar existed purely to
+                  // frost the collapsed pinned strip that's gone now —
+                  // with pinned:false there's no leftover strip for it
+                  // to sit behind, so it would just be an invisible,
+                  // pointless BackdropFilter still paying its per-frame
+                  // GPU cost. Header now scrolls away as one whole unit.
 
                   // Title + source + type line, centered under the small
                   // floating cover — Bloomee/Apple-Music-style stacked

@@ -212,7 +212,9 @@ class _ArtistScreenState extends State<ArtistScreen> {
       slivers: [
         SliverAppBar(
           expandedHeight: 380,
-          pinned: true,
+          // FIX ("artwork aur sab ek sath upar scroll ho, status bar
+          // tak" — 2026-09-07): see matching comment in mix_screen.dart.
+          pinned: false,
           backgroundColor: immersiveScaffoldBg(context, _glow),
           elevation: 0,
           iconTheme: const IconThemeData(color: Colors.white),
@@ -231,22 +233,10 @@ class _ArtistScreenState extends State<ArtistScreen> {
                 // instead of this one being the flat black outlier.
                 DecoratedBox(decoration: immersiveHeaderScrim(_glow)),
 
-                // SimpMusic-style frosted glass strip fading in behind
-                // the collapsed bar as this header shrinks — see
-                // mix_screen.dart's matching comment for the reasoning.
-                Builder(builder: (context) {
-                  final settings = context
-                      .dependOnInheritedWidgetOfExactType<
-                          FlexibleSpaceBarSettings>();
-                  return AurumGlassCollapseBar(
-                    glow: _glow,
-                    expandRatio: settings != null
-                        ? ((settings.currentExtent - settings.minExtent) /
-                                (settings.maxExtent - settings.minExtent))
-                            .clamp(0.0, 1.0)
-                        : 1.0,
-                  );
-                }),
+                // REMOVED ("artwork ek sath upar scroll ho" fix,
+                // 2026-09-07): see matching comment in mix_screen.dart —
+                // pinned:false means no leftover collapsed strip for
+                // this to frost anymore.
 
                 // Name + subscriber/listener count, centered — YT Music
                 // stacks these as one block under the channel name.

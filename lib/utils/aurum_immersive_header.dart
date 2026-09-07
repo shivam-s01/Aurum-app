@@ -85,11 +85,33 @@ Future<Color?> extractImmersiveColor(
 Color _pickMuted(ArtworkPalette p) => p.darkMuted;
 
 /// The scrim that sits directly under full-bleed header artwork, washing
-/// the photo in [glow] top-to-bottom with NO black band — the page
-/// background under it (see [immersiveScaffoldBg]) is already the same
-/// muted tone, so the handoff only needs a short, gentle ramp rather than
-/// a long fade trying to carry the color on its own.
+/// the photo in [glow] top-to-bottom — the page background under it (see
+/// [immersiveScaffoldBg]) is already the same muted tone, so the handoff
+/// only needs a short, gentle ramp rather than a long fade trying to
+/// carry the color on its own.
+///
+/// FIX ("Pritam artist page, 90s songs playlist, Saajan Chale Sasural
+/// album — title text invisible on light/washed artwork"): this used to
+/// end the gradient at raw [glow] with no floor on how dark that bottom
+/// stop actually is. [glow] can legitimately be light — either because
+/// the source artwork itself is pale (a snowy photo, a faded film-poster
+/// scan) or because `ensureContrastSafe` deliberately lightens it for
+/// light-mode readability elsewhere on the same screen — and every
+/// caller draws solid-white title text with only a soft shadow directly
+/// over this exact bottom stop, assuming it's always dark. A light glow
+/// made that assumption false and the title unreadable. The bottom stop
+/// now always blends toward nearly-black regardless of glow's own
+/// lightness, so the artwork's color still carries the wash (it's still
+/// visibly tinted, not flat black) but the strip title text sits on is
+/// guaranteed dark enough for white text every time.
 BoxDecoration immersiveHeaderScrim(Color glow) {
+  // Locks in a dark floor for the bottom of the scrim independent of how
+  // light `glow` itself is — keeps the hue (blended in, not replaced)
+  // while guaranteeing the luminance white text needs.
+  final textSafeBottom = Color.alphaBlend(
+    glow.withOpacity(0.55),
+    const Color(0xFF0A0810),
+  );
   return BoxDecoration(
     gradient: LinearGradient(
       begin: Alignment.topCenter,
@@ -98,7 +120,7 @@ BoxDecoration immersiveHeaderScrim(Color glow) {
         glow.withOpacity(0.10),
         glow.withOpacity(0.35),
         glow.withOpacity(0.70),
-        glow,
+        textSafeBottom,
       ],
       stops: const [0.0, 0.45, 0.80, 1.0],
     ),
@@ -106,19 +128,56 @@ BoxDecoration immersiveHeaderScrim(Color glow) {
 }
 
 /// The color the whole Scaffold/CustomScrollView background should carry
-/// once a glow is available — a darkened, low-saturation version of the
-/// extracted tone so body text and cards (which assume a near-neutral
-/// backdrop) stay fully readable, while the page still visibly carries
-/// the artwork's color all the way down instead of just in the header.
+/// once a glow is available — a low-saturation version of the extracted
+/// tone so body text and cards (which assume a near-neutral backdrop)
+/// stay fully readable, while the page still visibly carries the
+/// artwork's color all the way down instead of just in the header.
+///
+/// FIX ("kuch sec mein artwork chalta hai to alag color aata hai" —
+/// theme-blind crush): this used to unconditionally clamp lightness to
+/// 0.05-0.16 regardless of theme, i.e. it always produced a near-black
+/// tint and alpha-blended it at 92% opacity over the scaffold. In dark
+/// mode that's roughly invisible against an already-dark background, but
+/// in light mode it dumps a dark blob under white/bright cards — reads
+/// as a rendering glitch, not a deliberate wash. The correct, Apple
+/// Music/YT Music/SimpMusic-style behavior is theme-symmetric: dark mode
+/// gets a deepened, low-saturation version of the glow; light mode gets
+/// a lifted, gently-tinted version of the SAME glow — same hue carried
+/// through both, only lightness/saturation direction flips, and the
+/// blend ratio is tuned separately per mode so the result never fights
+/// with either theme's own surface tone.
 Color immersiveScaffoldBg(BuildContext context, Color? glow) {
   if (glow == null) return AurumTheme.bgOf(context);
+  final isDark = Theme.of(context).brightness == Brightness.dark;
   final hsl = HSLColor.fromColor(glow);
-  final darkened = hsl
-      .withLightness((hsl.lightness * 0.35).clamp(0.05, 0.16))
-      .withSaturation((hsl.saturation * 0.55).clamp(0.0, 0.45))
-      .toColor();
+
+  final Color tinted;
+  final double blendOpacity;
+  if (isDark) {
+    // Deepen toward the dark surfaces' own tonal range (darkBg sits
+    // around L≈0.11) instead of crushing all the way to near-black —
+    // keeps the hue readable as a color, not a shadow.
+    tinted = hsl
+        .withLightness((hsl.lightness * 0.45).clamp(0.09, 0.22))
+        .withSaturation((hsl.saturation * 0.55).clamp(0.0, 0.45))
+        .toColor();
+    blendOpacity = 0.92;
+  } else {
+    // Lift toward the light surfaces' own tonal range (lightBg sits
+    // around L≈0.94) — same hue, pushed up instead of down, and
+    // saturation pulled in further since a light wash reads "tinted"
+    // at a much lower saturation than a dark one needs to.
+    tinted = hsl
+        .withLightness((0.90 + hsl.lightness * 0.08).clamp(0.90, 0.97))
+        .withSaturation((hsl.saturation * 0.35).clamp(0.0, 0.22))
+        .toColor();
+    // Lighter touch in light mode: the goal is a warm cast behind white
+    // cards, not a colored panel — too strong here reads as a stain.
+    blendOpacity = 0.55;
+  }
+
   return Color.alphaBlend(
-    darkened.withOpacity(0.92),
+    tinted.withOpacity(blendOpacity),
     AurumTheme.bgOf(context),
   );
 }

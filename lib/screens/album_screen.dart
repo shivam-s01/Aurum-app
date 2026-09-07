@@ -158,7 +158,11 @@ class _AlbumScreenState extends State<AlbumScreen> {
         child: CustomScrollView(
         slivers: [
           SliverAppBar(
-            pinned: true,
+            // FIX ("artwork aur sab ek sath upar scroll ho, status bar
+            // tak" — 2026-09-07): see matching comment in mix_screen.dart.
+            // pinned:true was leaving a leftover kToolbarHeight strip the
+            // banner got stuck behind instead of scrolling fully away.
+            pinned: false,
             backgroundColor: immersiveScaffoldBg(context, _glow),
             elevation: 0,
             iconTheme: const IconThemeData(color: Colors.white),
@@ -261,24 +265,10 @@ class _AlbumScreenState extends State<AlbumScreen> {
                       ),
                     ),
                   ),
-                  // SimpMusic-style frosted glass strip fading in behind
-                  // the collapsed bar — see mix_screen.dart's matching
-                  // comment for why this is gated on expandRatio rather
-                  // than always-on.
-                  Builder(builder: (context) {
-                    final settings = context
-                        .dependOnInheritedWidgetOfExactType<
-                            FlexibleSpaceBarSettings>();
-                    return AurumGlassCollapseBar(
-                      glow: _glow,
-                      expandRatio: settings != null
-                          ? ((settings.currentExtent -
-                                      settings.minExtent) /
-                                  (settings.maxExtent - settings.minExtent))
-                              .clamp(0.0, 1.0)
-                          : 1.0,
-                    );
-                  }),
+                  // REMOVED ("artwork ek sath upar scroll ho" fix,
+                  // 2026-09-07): see matching comment in mix_screen.dart —
+                  // pinned:false means no leftover collapsed strip for
+                  // this to frost anymore.
                 ],
               ),
             ),
