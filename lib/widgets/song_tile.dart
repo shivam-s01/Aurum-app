@@ -224,16 +224,16 @@ class _SongTileState extends State<SongTile> {
             // is the currently-playing song (replaces the old bare-index-
             // column wave — the badge now lives directly on the artwork,
             // same as Echo's isPlaying overlay on item_shelf_media_cover).
-            // SIZE FIX ("thumbnail bahut chhota dikhta hai, bhaut jyda
-            // chhota" — reference: artist "Top songs" list): bumped
-            // 50→64 so the cover reads as a genuine top-level, premium-
-            // sized thumbnail everywhere this tile is used (Liked Songs,
-            // Library, Search, Artist page, Mix screen) instead of a
-            // compact chip — matches the reference screenshot exactly,
-            // not a smaller approximation of it.
+            // SIZE FIX ("thumbnail bahut chhota dikhta hai" then later
+            // "bs thoda sa aur chhota, jyada bada ho gaya tha" — two
+            // rounds of feedback): first bumped 50→64, then dialed back
+            // slightly to 58 once 64 read as a bit too large in practice.
+            // Still a clearly premium-sized cover everywhere this tile is
+            // used (Liked Songs, Library, Search, Artist page, Mix
+            // screen), just not oversized.
             AurumStackedArtwork(
               url: widget.song.artworkUrl,
-              size: 64,
+              size: 58,
               borderRadius: 10,
               showNowPlaying: isCurrentSong,
               isPlaying: isActuallyPlaying,

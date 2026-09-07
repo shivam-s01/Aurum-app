@@ -433,6 +433,168 @@ class HomeShelf {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// REAL "Moods & Genres" grid (browseId FEmusic_moods_and_genres) — the
+// exact colorful category-tile page YT Music itself shows (Chill,
+// Commute, Energize, Workout, Romance, Bollywood/Hindi/Bhojpuri/etc
+// regional buckets...). Two levels, both real InnerTube data, no
+// Worker dependency (same phone-direct reasoning as _ytmHomeRaw):
+//   1. fetchMoodsAndGenres() -> grouped sections of MoodGenreCategory
+//      tiles (each with its own real browseId + real background color
+//      straight off musicNavigationButtonRenderer.solid, never a
+//      locally-invented color).
+//   2. fetchMoodGenreCategory(browseId) -> tapping a tile browses into
+//      it, returning the real curated HomeShelf-shaped playlist/album
+//      grid for that category (reuses HomeShelf/HomeShelfItem so the
+//      existing playlist->MixScreen / album->AlbumScreen open logic in
+//      home_screen.dart needs zero changes to handle it).
+// ═══════════════════════════════════════════════════════════════════
+
+/// One tappable tile on the Moods & Genres grid (e.g. "Romance",
+/// "Bollywood", "Workout"). `color` is the real solid background color
+/// InnerTube itself assigns that tile (musicNavigationButtonRenderer's
+/// `solid.leftStripeColor`/`background` field, a signed 32-bit ARGB
+/// int) — never guessed or theme-generated, so the grid's palette
+/// matches music.youtube.com's own tile-for-tile.
+///
+/// FIX (recheck against real captured InnerTube response, 2026-09-07):
+/// EVERY tile on this page shares the exact same literal browseId —
+/// "FEmusic_moods_and_genres_category" — verified against a live
+/// Termux capture (see check_moods_genres.py output: all 49 real
+/// tiles, both the 11 "Moods & moments" and the 38 "Genres" tiles,
+/// carry that identical string). The actual per-category identity
+/// lives entirely in `params` (e.g. "ggMPOg1uX1JOQWZFeDByc2Jm"), a
+/// second field on the same browseEndpoint that must be sent alongside
+/// browseId on the follow-up browse call — browseId alone is not a
+/// unique key for this page. `browseId` is kept here for the browse
+/// call's `browseId` field (still required, just not unique on its
+/// own); `params` is the field that actually distinguishes one
+/// category from another.
+class MoodGenreCategory {
+  final String browseId;
+  final String params;
+  final String title;
+  final int? color;
+  // Real playlist artwork (from a lightweight follow-up search), added
+  // so tiles can show a thumbnail like the reference screenshots
+  // instead of a flat color block. Optional and additive — every
+  // existing caller that builds a MoodGenreCategory without this still
+  // compiles; a tile with no match just falls back to the flat color.
+  final String? artworkUrl;
+  const MoodGenreCategory({
+    required this.browseId,
+    required this.params,
+    required this.title,
+    this.color,
+    this.artworkUrl,
+  });
+
+  MoodGenreCategory copyWithArtwork(String? artworkUrl) => MoodGenreCategory(
+        browseId: browseId,
+        params: params,
+        title: title,
+        color: color,
+        artworkUrl: artworkUrl,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'browseId': browseId,
+        'params': params,
+        'title': title,
+        if (color != null) 'color': color,
+        if (artworkUrl != null && artworkUrl!.isNotEmpty)
+          'artworkUrl': artworkUrl,
+      };
+
+  factory MoodGenreCategory.fromJson(Map<String, dynamic> json) =>
+      MoodGenreCategory(
+        browseId: (json['browseId'] ?? '').toString(),
+        params: (json['params'] ?? '').toString(),
+        title: (json['title'] ?? '').toString(),
+        color: json['color'] as int?,
+        artworkUrl: json['artworkUrl'] as String?,
+      );
+}
+
+/// One labeled group of tiles on the Moods & Genres page (InnerTube
+/// groups tiles under section headers like "Moods & moments",
+/// "Genres" — real titles, never invented).
+class MoodGenreSection {
+  final String title;
+  final List<MoodGenreCategory> items;
+  const MoodGenreSection({required this.title, required this.items});
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        'items': items.map((e) => e.toJson()).toList(),
+      };
+
+  factory MoodGenreSection.fromJson(Map<String, dynamic> json) =>
+      MoodGenreSection(
+        title: (json['title'] ?? '').toString(),
+        items: ((json['items'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(MoodGenreCategory.fromJson)
+            .toList(),
+      );
+}
+
+// Instant-load cache for the Moods & Genres grid — same
+// SharedPreferences-backed, save-then-serve-stale-then-refresh pattern
+// used elsewhere in this file (see HomeFeedCache.savePlaylistCards),
+// kept self-contained here since this is the only place that needs it.
+// Goal: opening the grid should never show a bare loading spinner if a
+// previous fetch already succeeded — show the cached grid immediately,
+// then silently refresh in the background only if the cache has aged
+// past _freshWindow.
+class MoodGenreCacheStore {
+  static const _key = 'mood_genre_sections_cache_v1';
+  static const _timeKey = 'mood_genre_sections_cache_time_v1';
+  static const _freshWindow = Duration(hours: 6);
+
+  static Future<void> save(List<MoodGenreSection> sections) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded =
+          jsonEncode(sections.map((s) => s.toJson()).toList());
+      await prefs.setString(_key, encoded);
+      await prefs.setInt(
+          _timeKey, DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {
+      // Best-effort — a failed cache write just means the next open
+      // won't be instant, not worth surfacing to the user.
+    }
+  }
+
+  static Future<List<MoodGenreSection>?> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_key);
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw) as List;
+      return decoded
+          .whereType<Map<String, dynamic>>()
+          .map(MoodGenreSection.fromJson)
+          .toList();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<bool> isFresh() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedAt = prefs.getInt(_timeKey);
+      if (savedAt == null) return false;
+      final age = DateTime.now()
+          .difference(DateTime.fromMillisecondsSinceEpoch(savedAt));
+      return age < _freshWindow;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // MOOD CHIPS for the "Playlists For You" row. Each id maps to a plain
 // YT Music search query (see _kMoodSearchQuery below) — no Worker-side
 // mood table to keep in sync anymore.
@@ -4407,6 +4569,345 @@ class ApiService {
     }
   }
 
+  // Same anonymous, no-Worker InnerTube browse as _ytmHomeRaw, just a
+  // different fixed browseId — this is the literal request
+  // music.youtube.com's own web client sends when you open its "Moods
+  // & genres" page from the sidebar.
+  static Future<Map<String, dynamic>?> _ytmMoodsAndGenresRaw({
+    Duration timeout = const Duration(seconds: 8),
+  }) =>
+      _ytmBrowseRaw('FEmusic_moods_and_genres', timeout: timeout);
+
+  /// One musicNavigationButtonRenderer -> a MoodGenreCategory tile, or
+  /// null for anything that isn't a real, navigable category (no
+  /// browseId, no title — never surfaced as a broken/blank tile).
+  ///
+  /// FIX (recheck, 2026-09-07): the original version only looked for the
+  /// endpoint under `clickCommand`/`onTap`. InnerTube actually varies
+  /// which field wraps a button's tap target (`clickCommand`, `command`,
+  /// or a `serviceEndpoint`/`browseEndpoint` nested a level differently
+  /// depending on response variant) — this is an undocumented API with
+  /// no fixed schema guarantee, so instead of betting on one exact path,
+  /// this now does a full recursive search (_findRenderers) for ANY
+  /// browseEndpoint anywhere under this tile's own renderer. That makes
+  /// it immune to exactly the kind of path mismatch that would have
+  /// silently dropped every tile.
+  ///
+  /// FIX (bug found via live Termux capture, 2026-09-07): every real
+  /// tile on this page shares the identical literal browseId
+  /// "FEmusic_moods_and_genres_category" — confirmed against a captured
+  /// response (both the 11 "Moods & moments" tiles and the 38 "Genres"
+  /// tiles). The per-category identity is `params`, a sibling field on
+  /// the same browseEndpoint — this was previously not extracted at
+  /// all, which meant (a) every tile's fetchMoodGenreCategory() call
+  /// would have hit the exact same generic page instead of that tile's
+  /// real category, and (b) the grid-vs-grid dedup fingerprint in
+  /// fetchMoodsAndGenres (which keyed off browseId) saw all 49 tiles as
+  /// "the same id" and silently dropped the entire second ("Genres",
+  /// 38 tiles) grid as a false-positive duplicate of the first. Now
+  /// extracts `params` alongside browseId and requires both to be
+  /// present for a tile to be considered real/navigable.
+  static MoodGenreCategory? _parseMoodGenreTile(Map<String, dynamic> item) {
+    final r = item['musicNavigationButtonRenderer'];
+    if (r is! Map) return null;
+    final renderer = Map<String, dynamic>.from(r);
+
+    final titleRuns = (renderer['buttonText']?['runs'] as List?) ?? const [];
+    if (titleRuns.isEmpty) return null;
+    final title = _cleanHomeText((titleRuns.first['text'] ?? '').toString());
+    if (title.isEmpty) return null;
+
+    String browseId = '';
+    String params = '';
+    for (final ep in _findRenderers(renderer, 'browseEndpoint')) {
+      final id = (ep['browseId'] ?? '').toString();
+      final p = (ep['params'] ?? '').toString();
+      if (id.isNotEmpty && p.isNotEmpty) {
+        browseId = id;
+        params = p;
+        break;
+      }
+    }
+    if (browseId.isEmpty || params.isEmpty) return null;
+
+    // solid.leftStripeColor is the real ARGB int InnerTube assigns this
+    // tile's background — comes through JSON as a plain (often negative,
+    // since ARGB's alpha byte sets the sign bit) integer. Checked under
+    // a couple of possible key names for the same reason as browseId
+    // above (undocumented API, no fixed schema guarantee). Left null
+    // (never a fabricated fallback color) when genuinely absent so the
+    // UI can pick its own neutral tile color instead of pretending
+    // InnerTube supplied one.
+    int? color;
+    final solid = renderer['solid'];
+    if (solid is Map) {
+      final raw = solid['leftStripeColor'] ?? solid['color'] ?? solid['backgroundColor'];
+      if (raw is int) color = raw;
+    }
+
+    return MoodGenreCategory(
+      browseId: browseId,
+      params: params,
+      title: title,
+      color: color,
+    );
+  }
+
+  /// The full real Moods & Genres grid, grouped exactly as InnerTube
+  /// itself groups it (section headers like "Moods & moments",
+  /// "Genres" — real titles). Empty list on any failure (offline,
+  /// blocked, unexpected shape) rather than throwing, so the caller can
+  /// simply hide the entry point instead of showing a broken page.
+  ///
+  /// FIX (recheck, 2026-09-07): originally only walked `gridRenderer`
+  /// wrappers. InnerTube has been observed wrapping this exact page's
+  /// sections in either a bare `gridRenderer` OR a
+  /// `musicCarouselShelfRenderer` containing a nested grid, depending on
+  /// client/response variant — undocumented API, no fixed schema
+  /// guarantee. This now checks both wrapper shapes so a mismatch in
+  /// either one alone can't silently empty the whole page; tiles found
+  /// under `musicCarouselShelfRenderer` reuse its already-correct title
+  /// path (musicCarouselShelfBasicHeaderRenderer, same as every other
+  /// shelf parser in this file) instead of the gridHeaderRenderer path.
+  static Future<List<MoodGenreSection>> fetchMoodsAndGenres({
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final data = await _ytmMoodsAndGenresRaw(timeout: timeout);
+    if (data == null) return const [];
+    try {
+      final sections = <MoodGenreSection>[];
+      // Dedup key for a gridRenderer already consumed as a shelf's
+      // nested grid below, so the same grid isn't parsed a second time
+      // as a bare, titleless top-level grid in the second loop.
+      // _findRenderers returns a fresh Map copy per match (see its own
+      // doc comment), so identity/reference equality can't be used here
+      // — instead this fingerprints a grid by its own items' `params`
+      // values.
+      //
+      // FIX (bug found via live Termux capture, 2026-09-07): this used
+      // to fingerprint by browseId — but EVERY tile on this whole page
+      // shares the identical literal browseId
+      // "FEmusic_moods_and_genres_category" (confirmed via a captured
+      // real response), so a browseId-based fingerprint made the
+      // 11-tile "Moods & moments" grid and the 38-tile "Genres" grid
+      // hash identically, and the second grid's real 38 tiles were
+      // silently discarded as a false-positive duplicate of the first.
+      // `params` is the field that's actually unique per tile (see
+      // _parseMoodGenreTile's own doc comment) — fingerprinting on that
+      // instead means two grids only ever look like duplicates when
+      // they genuinely share the same category set.
+      String gridFingerprint(Map grid) {
+        final items = (grid['items'] as List?) ?? const [];
+        final ids = <String>[];
+        for (final raw in items) {
+          if (raw is! Map<String, dynamic>) continue;
+          for (final ep in _findRenderers(raw, 'browseEndpoint')) {
+            final p = (ep['params'] ?? '').toString();
+            if (p.isNotEmpty) ids.add(p);
+          }
+        }
+        return ids.join(',');
+      }
+
+      final consumedGridFingerprints = <String>{};
+
+      for (final shelf in _findRenderers(data, 'musicCarouselShelfRenderer')) {
+        final titleRuns = (shelf['header']
+                    ?['musicCarouselShelfBasicHeaderRenderer']?['title']
+                ?['runs'] as List?) ??
+            const [];
+        final shelfTitle = titleRuns.isNotEmpty
+            ? _cleanHomeText((titleRuns.first['text'] ?? '').toString())
+            : '';
+
+        final tiles = <MoodGenreCategory>[];
+        // A carousel shelf on this page can hold tiles directly as
+        // musicNavigationButtonRenderer items, or wrap them in its own
+        // nested gridRenderer — check both.
+        for (final raw in ((shelf['contents'] as List?) ?? const [])) {
+          if (raw is! Map<String, dynamic>) continue;
+          final tile = _parseMoodGenreTile(raw);
+          if (tile != null) tiles.add(tile);
+        }
+        for (final nestedGrid in _findRenderers(shelf, 'gridRenderer')) {
+          consumedGridFingerprints.add(gridFingerprint(nestedGrid));
+          for (final raw in ((nestedGrid['items'] as List?) ?? const [])) {
+            if (raw is! Map<String, dynamic>) continue;
+            final tile = _parseMoodGenreTile(raw);
+            if (tile != null) tiles.add(tile);
+          }
+        }
+        if (tiles.isEmpty) continue;
+        sections.add(MoodGenreSection(
+          title: shelfTitle.isNotEmpty ? shelfTitle : 'Moods & genres',
+          items: tiles,
+        ));
+      }
+
+      for (final grid in _findRenderers(data, 'gridRenderer')) {
+        if (consumedGridFingerprints.contains(gridFingerprint(grid))) continue;
+        final headerRuns = (grid['header']?['gridHeaderRenderer']?['title']
+                    ?['runs'] as List?) ??
+            const [];
+        final sectionTitle = headerRuns.isNotEmpty
+            ? _cleanHomeText((headerRuns.first['text'] ?? '').toString())
+            : '';
+
+        final tiles = <MoodGenreCategory>[];
+        final items = (grid['items'] as List?) ?? const [];
+        for (final raw in items) {
+          if (raw is! Map<String, dynamic>) continue;
+          final tile = _parseMoodGenreTile(raw);
+          if (tile != null) tiles.add(tile);
+        }
+        if (tiles.isEmpty) continue;
+
+        sections.add(MoodGenreSection(
+          title: sectionTitle.isNotEmpty ? sectionTitle : 'Moods & genres',
+          items: tiles,
+        ));
+      }
+      return await _topupMoodGenreArtwork(sections);
+    } catch (e) {
+      _log('[fetchMoodsAndGenres] parse error: $e');
+      return const [];
+    }
+  }
+
+  // Artwork topup pass for the Moods & Genres grid. InnerTube's own
+  // moods_and_genres page gives real titles/colors/browseIds per tile
+  // but NOT a thumbnail — so this runs one lightweight
+  // `"<title> playlist"` search per unique tile title (deduped, since
+  // e.g. "Bollywood" can appear in more than one section) and takes the
+  // first real result's artwork. All searches run together via
+  // Future.wait so total wall time is one slowest call, not N
+  // sequential calls. Any tile with no match, or any failed search,
+  // just falls back to its flat color — never a fabricated image.
+  static Future<List<MoodGenreSection>> _topupMoodGenreArtwork(
+    List<MoodGenreSection> sections,
+  ) async {
+    final uniqueTitles = <String>{};
+    for (final section in sections) {
+      for (final tile in section.items) {
+        uniqueTitles.add(tile.title);
+      }
+    }
+    if (uniqueTitles.isEmpty) return sections;
+
+    final titleList = uniqueTitles.toList();
+    final results = await Future.wait(
+      titleList.map(
+        (title) => _searchAsHomeShelf('$title playlist', title, take: 1)
+            .catchError((_) => null),
+      ),
+    );
+
+    final artworkByTitle = <String, String>{};
+    for (var i = 0; i < titleList.length; i++) {
+      final shelf = results[i];
+      if (shelf == null || shelf.items.isEmpty) continue;
+      final art = shelf.items.first.artworkUrl;
+      if (art.isNotEmpty) artworkByTitle[titleList[i]] = art;
+    }
+    if (artworkByTitle.isEmpty) return sections;
+
+    return sections
+        .map((section) => MoodGenreSection(
+              title: section.title,
+              items: section.items
+                  .map((tile) =>
+                      tile.copyWithArtwork(artworkByTitle[tile.title]))
+                  .toList(),
+            ))
+        .toList();
+  }
+  /// (e.g. "Romance", "Bollywood") — returns the same HomeShelf shape
+  /// fetchRealHomeShelves uses, so home_screen.dart's existing
+  /// playlist->MixScreen / album->AlbumScreen tap handling works on
+  /// this unchanged. A category page can itself have multiple titled
+  /// shelves (e.g. "Romance" -> "Love Ballads", "Old School Romance",
+  /// "Romance Right Now" as separate rows) — all real, none flattened.
+  ///
+  /// FIX (bug found via live Termux capture, 2026-09-07): `browseId`
+  /// alone is not enough to identify a category on this page — every
+  /// tile shares the same literal browseId
+  /// ("FEmusic_moods_and_genres_category"); the real per-category key is
+  /// `params` (see MoodGenreCategory's own doc comment). This now
+  /// requires `params` and sends both fields to `_ytmBrowseRaw` — before
+  /// this fix, every single tile (regardless of which one was tapped)
+  /// would have browsed to the exact same generic page instead of that
+  /// tile's real category.
+  static Future<List<HomeShelf>> fetchMoodGenreCategory(
+    String browseId,
+    String params, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final data = await _ytmBrowseRaw(browseId, params: params, timeout: timeout);
+    if (data == null) return const [];
+    try {
+      final shelves = <HomeShelf>[];
+      for (final shelf in _findRenderers(data, 'musicCarouselShelfRenderer')) {
+        final titleRuns = (shelf['header']
+                    ?['musicCarouselShelfBasicHeaderRenderer']?['title']
+                ?['runs'] as List?) ??
+            const [];
+        final shelfTitle = titleRuns.isNotEmpty
+            ? _cleanHomeText((titleRuns.first['text'] ?? '').toString())
+            : '';
+        if (shelfTitle.isEmpty) continue;
+
+        final items = (shelf['contents'] as List?) ?? const [];
+        final parsed = <HomeShelfItem>[];
+        for (final raw in items) {
+          if (raw is! Map<String, dynamic>) continue;
+          final it = _parseHomeTwoRowItem(raw);
+          if (it == null || it.artworkUrl.isEmpty) continue;
+          parsed.add(HomeShelfItem(
+            browseId: it.browseId,
+            title: it.title,
+            subtitle: it.subtitle,
+            artworkUrl: it.artworkUrl,
+            isAlbum: it.pageType == 'MUSIC_PAGE_TYPE_ALBUM',
+          ));
+        }
+        if (parsed.isEmpty) continue;
+        shelves.add(HomeShelf(title: shelfTitle, items: parsed));
+      }
+
+      // Some category pages (mostly the smaller regional-language ones)
+      // render as a single flat gridRenderer of playlist tiles instead
+      // of carousel shelves — fall back to that shape if no carousels
+      // were found, under one generic "Playlists" title, rather than
+      // returning an empty page for a category that does have content.
+      if (shelves.isEmpty) {
+        final flat = <HomeShelfItem>[];
+        for (final grid in _findRenderers(data, 'gridRenderer')) {
+          final items = (grid['items'] as List?) ?? const [];
+          for (final raw in items) {
+            if (raw is! Map<String, dynamic>) continue;
+            final it = _parseHomeTwoRowItem(raw);
+            if (it == null || it.artworkUrl.isEmpty) continue;
+            flat.add(HomeShelfItem(
+              browseId: it.browseId,
+              title: it.title,
+              subtitle: it.subtitle,
+              artworkUrl: it.artworkUrl,
+              isAlbum: it.pageType == 'MUSIC_PAGE_TYPE_ALBUM',
+            ));
+          }
+        }
+        if (flat.isNotEmpty) {
+          shelves.add(HomeShelf(title: 'Playlists', items: flat));
+        }
+      }
+
+      return shelves;
+    } catch (e) {
+      _log('[fetchMoodGenreCategory] parse error for "$browseId": $e');
+      return const [];
+    }
+  }
+
   // FEATURE ("youtube music innertube jaisa, ekdam same top level" —
   // 2026-09-06): anonymous FEmusic_home only ever returns a small, fixed
   // pool (verified by hand: 2 shelves, ~20 items total — see
@@ -4422,18 +4923,83 @@ class ApiService {
   // filter already used for mood-chip playlists elsewhere in this file).
   // Every card here is a genuine InnerTube playlist search result, never
   // invented — same standard the FEmusic_home shelves above already meet.
-  static const List<({String label, String query})> _kSeedHomeShelfQueries = [
-    (label: 'Trending now', query: 'trending songs'),
-    (label: 'Bollywood Hitlist', query: 'bollywood hits playlist'),
-    (label: 'Punjabi Hits', query: 'punjabi hits playlist'),
-    (label: 'Old is Gold', query: 'old bollywood songs playlist'),
-    (label: 'Romance Right Now', query: 'romantic hindi songs playlist'),
-    (label: 'Party Anthems', query: 'party songs playlist'),
-    (label: 'Chill & Lofi', query: 'lofi chill songs playlist'),
+  // FEATURE ("ArchiveTune jaisa varied mood/decade/regional shelves" —
+  // 2026-09-07): expanded from the original 7 generic queries to match
+  // the reference screenshots' variety — decade throwbacks, situational
+  // moods (commute/evening/dancing-alone), and regional-language shelves
+  // (Kannada, Bengali, Tollywood etc.), same as YT Music's own home mixes
+  // genre/mood/language shelves together.
+  //
+  // IMPORTANT — `strapline` here is a PURELY CLIENT-SIDE LABEL, NOT
+  // INNERTUBE DATA: unlike HomeShelf.strapline on the real FEmusic_home
+  // shelves (fetchRealHomeShelves above), InnerTube's playlist *search*
+  // endpoint (what _searchAsHomeShelf below actually calls) never returns
+  // a strapline/eyebrow field at all — that field only exists on
+  // FEmusic_home's own musicCarouselShelfBasicHeaderRenderer. These
+  // straplines are hand-written here purely for visual parity with the
+  // reference screenshots' "CELEBRATE LOVE THE OLD FASHIONED WAY" style
+  // eyebrow lines. They are NEVER presented as if scraped from InnerTube
+  // — every item under the shelf is still a 100% real playlist search
+  // result, only the eyebrow text above the title is a local label.
+  static const List<({String label, String query, String? strapline})> _kSeedHomeShelfQueries = [
+    (label: 'Trending now', query: 'trending songs playlist', strapline: null),
+    (label: 'Bollywood Hitlist', query: 'bollywood hits playlist', strapline: null),
+    (label: 'Punjabi Hits', query: 'punjabi hits playlist', strapline: null),
+    (label: 'Old is Gold', query: 'old bollywood songs playlist', strapline: null),
+    (
+      label: 'Romance Right Now',
+      query: 'romantic hindi songs playlist',
+      strapline: 'Celebrate love the old fashioned way',
+    ),
+    (label: 'Party Anthems', query: 'party songs playlist', strapline: null),
+    (label: 'Chill & Lofi', query: 'lofi chill songs playlist', strapline: null),
+    (
+      label: 'Old School Romance',
+      query: 'old school romantic songs playlist',
+      strapline: 'Timeless love songs from a slower era',
+    ),
+    (
+      label: '90s Throwback Fun',
+      query: '90s bollywood songs playlist',
+      strapline: 'Brb, being nostalgic',
+    ),
+    (
+      label: 'Dancing on your own',
+      query: 'dancing on your own playlist',
+      strapline: 'Dance your stress away',
+    ),
+    (
+      label: 'Easy Evenings',
+      query: 'easy evenings playlist',
+      strapline: 'Comfy and cozy, as evenings should be',
+    ),
+    (
+      label: 'Feel-Good Hip Hop and R&B',
+      query: 'feel good hip hop rnb playlist',
+      strapline: null,
+    ),
+    (label: 'Coffee Shop Blend', query: 'coffee shop blend playlist', strapline: null),
+    (label: 'HIIT Desi Pop', query: 'hiit workout desi pop playlist', strapline: null),
+    (label: 'Gaming Hits', query: 'gaming hits playlist', strapline: null),
+    (label: 'Classical for Sleeping', query: 'classical sleep music playlist', strapline: null),
+    (label: 'Kannada Melodies', query: 'kannada melody songs playlist', strapline: null),
+    (label: 'Uncut Bollywood', query: 'uncut bollywood playlist', strapline: null),
+    (label: 'Soulful Tollywood', query: 'soulful tollywood playlist', strapline: null),
+    (label: 'Bengali Hitlist', query: 'bengali hit songs playlist', strapline: null),
+    (label: 'Arabs Abroad', query: 'arabic pop songs playlist', strapline: null),
+    (label: 'Owambe', query: 'african owambe playlist', strapline: null),
+    // FEATURE ("Trending community playlists" — 2026-09-07): a plain
+    // trending-playlist search — InnerTube's own playlist-search subtitle
+    // for a community playlist is genuinely "Playlist • N views" (already
+    // parsed as-is by the existing subtitle logic in _searchAsHomeShelf,
+    // no special-casing needed here), same real field the reference
+    // screenshot's "8.5M views" text comes from. Nothing view-count
+    // related is computed or guessed client-side.
+    (label: 'Trending community playlists', query: 'trending community playlist', strapline: null),
   ];
 
   static Future<HomeShelf?> _searchAsHomeShelf(String query, String label,
-      {int take = 10}) async {
+      {int take = 10, String? strapline}) async {
     try {
       final decoded = await _ytmSearchRaw(query,
           params: _ytmPlaylistsFilterParam, timeout: const Duration(seconds: 6));
@@ -4489,11 +5055,45 @@ class ApiService {
         if (items.length >= take) break;
       }
       if (items.isEmpty) return null;
-      return HomeShelf(title: label, items: items);
+      return HomeShelf(title: label, items: items, strapline: strapline);
     } catch (e) {
       _log('[_searchAsHomeShelf] error for "$query": $e');
       return null;
     }
+  }
+
+  // FEATURE ("Featured playlists for you" — ArchiveTune reference,
+  // 2026-09-07): reference screenshot's shelf shows exactly 3 cards —
+  // "Weekly Top Videos Tamil/Punjabi/Hindi" — not a generic search shelf.
+  // VERIFIED against a real InnerTube response (2026-09-07, see
+  // check_featured_shelf.py probe output) before writing this: querying
+  // "weekly top videos tamil"/"weekly top videos hindi" genuinely returns
+  // YouTube Music's own official "Top Weekly Videos Tamil"/"Top Weekly
+  // Videos Hindi" playlist as the very first result (creator: "YouTube
+  // Music", no view-count run — that's real, not a parsing gap, YT
+  // Music's own official playlists don't carry a view-count subtitle the
+  // way community uploads do). "weekly top videos punjabi" doesn't
+  // surface an equivalent official YT Music playlist as cleanly (real
+  // community playlists like "MOST VIEWED PUNJABI SONGS..." rank first
+  // instead) — rather than force a fake match, this takes whatever the
+  // real first valid playlist result is for each query, same standard
+  // as every other shelf in this file (never invented, never
+  // reordered/filtered to force a specific title to appear).
+  static Future<HomeShelf?> fetchFeaturedPlaylistsForYou() async {
+    const queries = [
+      'weekly top videos tamil',
+      'weekly top videos punjabi',
+      'weekly top videos hindi',
+    ];
+    final perQuery = await Future.wait(
+      queries.map((q) => _searchAsHomeShelf(q, 'Featured playlists for you', take: 1)),
+    );
+    final items = <HomeShelfItem>[];
+    for (final shelf in perQuery) {
+      if (shelf != null && shelf.items.isNotEmpty) items.add(shelf.items.first);
+    }
+    if (items.isEmpty) return null;
+    return HomeShelf(title: 'Featured playlists for you', items: items);
   }
 
   // PERSONALIZED SHELF ("user jo songs sune vaise aana, ekdam youtube
@@ -4530,40 +5130,69 @@ class ApiService {
     return HomeShelf(title: 'Made for you', items: items);
   }
 
+  // FEATURE ("Similar to [Artist]" shelves — ArchiveTune reference,
+  // 2026-09-07): reference screenshots show several SEPARATE "Similar to
+  // <Artist>" shelves (e.g. "Similar to Chill77", "Similar to Jasmine
+  // Sandlas"), not one merged "Made for you" row. This gives each top
+  // affinity artist its own titled shelf instead — same real per-artist
+  // InnerTube playlist search fetchPersonalizedHomeShelf already does
+  // (via _searchAsHomeShelf('$a mix playlist', ...)), just kept as
+  // separate HomeShelf objects rather than flattened+shuffled into one.
+  // Genuinely artist-scoped (no cross-artist mixing like the merged shelf
+  // does), so a shelf titled "Similar to X" only ever contains real
+  // playlist results from searching for X — never a fabricated
+  // recommendation, same standard as every other shelf in this file.
+  // Returns [] (not fake shelves) for a new install with no affinity
+  // history yet, same as fetchPersonalizedHomeShelf.
+  static Future<List<HomeShelf>> fetchSimilarToArtistShelves({int? seed, int artistCount = 3}) async {
+    final topArtists =
+        RecommendationEngine.rotatingAffinityArtists(count: artistCount, seed: seed);
+    if (topArtists.isEmpty) return const [];
+
+    final perArtist = await Future.wait(
+      topArtists.map((a) => _searchAsHomeShelf('$a mix playlist', 'Similar to $a', take: 10)),
+    );
+    return perArtist.whereType<HomeShelf>().toList();
+  }
+
   // Combined entry point home_screen.dart's _RealHomeShelvesSection calls:
   // real FEmusic_home shelves FIRST (highest-signal, exactly what YT
-  // Music's own anonymous home shows), then the personalized "Made for
-  // you" shelf right after (if the person has enough listening history),
-  // then the fixed seed shelves filling out the rest — mirrors real YT
-  // Music's own ordering (home feed's own algorithmic/personalized rows
-  // before generic genre/mood shelves). All fetched in parallel; a
-  // failed/empty individual shelf is silently dropped rather than
-  // blocking or blanking the others.
+  // Music's own anonymous home shows), then the per-artist "Similar to
+  // [Artist]" shelves (if the person has enough listening history), then
+  // the fixed seed shelves filling out the rest — mirrors real YT Music's
+  // own ordering (home feed's own algorithmic/personalized rows before
+  // generic genre/mood shelves). All fetched in parallel; a failed/empty
+  // individual shelf is silently dropped rather than blocking or
+  // blanking the others.
+  //
+  // FIX (compile-safety recheck, 2026-09-06, still true after the
+  // 2026-09-07 "Similar to [Artist]" change): Future.wait needs a single
+  // homogeneous Future<T> type — fetchRealHomeShelves() and
+  // fetchSimilarToArtistShelves() both return Future<List<HomeShelf>>
+  // (so they're fine together as realFuture/similarFuture below), but
+  // _searchAsHomeShelf() (used for the seeded queries) returns
+  // Future<HomeShelf?> — a different type, so it still needs its own
+  // separate wait rather than one mixed-type list. All three run fully
+  // concurrently regardless (none is awaited until its own wait).
   static Future<List<HomeShelf>> fetchHomeShelvesForDisplay({int? refreshSeed}) async {
-    // FIX (compile-safety recheck, 2026-09-06): Future.wait needs a single
-    // homogeneous Future<T> type — fetchRealHomeShelves() returns
-    // Future<List<HomeShelf>> while fetchPersonalizedHomeShelf()/
-    // _searchAsHomeShelf() return Future<HomeShelf?>, so these can't sit
-    // in one literal list together. Split into two separate waits
-    // instead (still fully parallel — both run concurrently since
-    // neither is awaited until the wait itself) rather than forcing a
-    // mixed-type list.
     final realFuture = fetchRealHomeShelves();
-    final extrasFuture = Future.wait<HomeShelf?>([
-      fetchPersonalizedHomeShelf(seed: refreshSeed),
-      ..._kSeedHomeShelfQueries.map(
-        (sq) => _searchAsHomeShelf(sq.query, sq.label),
+    final similarFuture = fetchSimilarToArtistShelves(seed: refreshSeed);
+    final featuredFuture = fetchFeaturedPlaylistsForYou();
+    final seededFuture = Future.wait<HomeShelf?>(
+      _kSeedHomeShelfQueries.map(
+        (sq) => _searchAsHomeShelf(sq.query, sq.label, strapline: sq.strapline),
       ),
-    ]);
+    );
 
     final real = await realFuture;
-    final extras = await extrasFuture;
-    final personalized = extras.first;
-    final seeded = extras.skip(1).whereType<HomeShelf>().toList();
+    final similar = await similarFuture;
+    final featured = await featuredFuture;
+    final seeded = (await seededFuture).whereType<HomeShelf>().toList();
 
     return [
       ...real,
-      if (personalized != null) personalized,
+      ...similar,
+      if (featured != null) featured,
       ...seeded,
     ];
   }
@@ -8548,15 +9177,25 @@ class ApiService {
     return out;
   }
 
-  /// Public resolver used by ArtistScreen: tries a real YouTube channel
-  /// first, Saavn only as a fallback when no YT channel exists for that
-  /// name. Returned id is prefixed so fetchArtist() knows which source to
-  /// hit — never mixed, never guessed twice.
+  /// Public resolver used by ArtistScreen: real YouTube channel ONLY.
+  ///
+  /// FIX ("home page jaisa ekdam InnerTube, ekdam YouTube Music jaisa
+  /// artist data" — user directive, 2026-09-07): this used to fall back
+  /// to a Saavn artist id (`saavn_...`) whenever _resolveYtChannelId came
+  /// back empty — the one remaining path by which an artist opened from
+  /// Home's real InnerTube artist chips (or a song tile's artist name)
+  /// could still land on non-InnerTube Saavn profile data instead of the
+  /// real YT Music page, even though Home's own artist row is already
+  /// 100% real InnerTube (fetchYtMusicHomeArtists) and normally supplies
+  /// a channelId directly — this fallback only ever fired for the rare
+  /// case where that id was missing. Saavn fallback removed entirely:
+  /// null now means "no real YouTube Music artist page found for this
+  /// name" and the caller shows its own not-found state, exactly what
+  /// happens on music.youtube.com itself when a name doesn't resolve to
+  /// a channel — never a quieter, lower-quality Saavn substitute.
   static Future<String?> resolveArtistId(String name) async {
     final ytId = await _resolveYtChannelId(name);
     if (ytId != null && ytId.isNotEmpty) return 'yt_$ytId';
-    final saavnId = await searchArtistByName(name);
-    if (saavnId != null && saavnId.isNotEmpty) return 'saavn_$saavnId';
     return null;
   }
 

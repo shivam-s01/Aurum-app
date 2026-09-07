@@ -3087,18 +3087,15 @@ class _LocalFilesScreen extends StatelessWidget {
                       // PERF: pop-in fix for the full local-songs list.
                       cacheExtent: 1000,
                       itemCount: lib.allSongs.length,
-                      // SIZE FIX ("thumbnail bahut chhota dikhta hai"
-                      // reference): SongTile's cover art was bumped
-                      // 50→64px app-wide, which grew this row's real
-                      // height from 66 to ~92 (20 vertical padding + the
-                      // 72px artwork box AurumStackedArtwork draws at
-                      // size+8 headroom). itemExtent has to match a
-                      // ListView.builder row's ACTUAL height or Flutter
-                      // clips/overflows every tile to the stale fixed
-                      // value — updated to keep the same "skip
-                      // per-item layout" perf win this was added for,
-                      // just at the tile's real new size.
-                      itemExtent: 92,
+                      // SIZE FIX ("thumbnail bahut chhota" then "thoda
+                      // sa aur chhota" — SongTile's cover art went
+                      // 50→64→58px app-wide): row height follows —
+                      // 20 vertical padding + the artwork box
+                      // AurumStackedArtwork draws at size+8 headroom
+                      // (58+8=66) = 86. itemExtent has to match
+                      // ListView.builder's actual row height or Flutter
+                      // clips/overflows every tile to the stale value.
+                      itemExtent: 86,
                       itemBuilder: (_, i) => SongTile(
                           song: lib.allSongs[i],
                           queue: lib.allSongs,

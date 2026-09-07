@@ -71,6 +71,11 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
   // jitters back from a slightly-stale native read.
   int? _volume;
   int _maxVolume = 15;
+  // True only while the user's thumb is actively down on the slider —
+  // see the StreamBuilder around _VolumeRow in build() for why this
+  // exists: it's what stops a live external volume change (hardware
+  // keys, another app) from fighting an in-progress drag gesture.
+  bool _isDragging = false;
   // Debounces setMediaVolume while dragging: only the last value in a
   // burst is actually sent to the platform channel, so a fast drag
   // doesn't flood it with dozens of calls.
@@ -287,10 +292,37 @@ class _AudioOutputSheetState extends State<_AudioOutputSheet> {
                 Divider(
                     color: AurumTheme.textMutedOf(context).withOpacity(0.1),
                     height: 1),
-                _VolumeRow(
-                  volume: _volume,
-                  max: _maxVolume,
-                  onChanged: _onVolumeChanged,
+                // FEATURE ("volume badane ka option live update nahi hota,
+                // phone button se badhau to bhi wahi rehta hai" —
+                // 2026-09-07): mediaVolumeStream now pushes a fresh value
+                // any time STREAM_MUSIC changes from ANY source (hardware
+                // keys, another app, this app's own slider) — see
+                // native_engine_bridge.dart's mediaVolumeStream doc for
+                // the native side. _isDragging guards against the live
+                // stream fighting the user's own in-progress drag: while
+                // actively dragging, the local optimistic _volume (set
+                // synchronously in _onVolumeChanged) stays authoritative,
+                // exactly like _volume already did before this stream
+                // existed — the live value only takes over once the user
+                // isn't the one currently moving the thumb.
+                StreamBuilder<MediaVolume?>(
+                  stream: engine.mediaVolumeStream,
+                  builder: (context, volSnapshot) {
+                    final live = volSnapshot.data;
+                    final effectiveVolume =
+                        (!_isDragging && live != null) ? live.level : _volume;
+                    final effectiveMax =
+                        (!_isDragging && live != null && live.max > 0)
+                            ? live.max
+                            : _maxVolume;
+                    return _VolumeRow(
+                      volume: effectiveVolume,
+                      max: effectiveMax,
+                      onChanged: _onVolumeChanged,
+                      onDragStart: () => setState(() => _isDragging = true),
+                      onDragEnd: () => setState(() => _isDragging = false),
+                    );
+                  },
                 ),
                 Divider(
                     color: AurumTheme.textMutedOf(context).withOpacity(0.1),
@@ -403,11 +435,15 @@ class _VolumeRow extends StatelessWidget {
   final int? volume;
   final int max;
   final ValueChanged<double> onChanged;
+  final VoidCallback? onDragStart;
+  final VoidCallback? onDragEnd;
 
   const _VolumeRow({
     required this.volume,
     required this.max,
     required this.onChanged,
+    this.onDragStart,
+    this.onDragEnd,
   });
 
   IconData get _icon {
@@ -449,6 +485,17 @@ class _VolumeRow extends StatelessWidget {
                 // onChanged is still wired so it becomes interactive the
                 // instant the initial getMediaVolume() call resolves.
                 onChanged: onChanged,
+                // Marks the drag window so the live mediaVolumeStream
+                // (see the StreamBuilder wrapping this widget) knows to
+                // stay hands-off of the slider's displayed value until
+                // the user actually lets go — otherwise a live update
+                // arriving mid-drag (e.g. this same setMediaVolume call
+                // echoing back) could yank the thumb out from under the
+                // user's finger.
+                onChangeStart: onDragStart == null
+                    ? null
+                    : (_) => onDragStart!(),
+                onChangeEnd: onDragEnd == null ? null : (_) => onDragEnd!(),
               ),
             ),
           ),

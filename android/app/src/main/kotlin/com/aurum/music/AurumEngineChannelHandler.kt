@@ -23,6 +23,7 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
         private const val EVENT_CHANNEL = "com.aurum.music/audio_engine_state"
         private const val ERROR_CHANNEL = "com.aurum.music/audio_engine_errors"
         private const val OUTPUT_DEVICES_EVENT_CHANNEL = "com.aurum.music/audio_output_devices"
+        private const val MEDIA_VOLUME_EVENT_CHANNEL = "com.aurum.music/media_volume"
         private const val CAST_STATE_EVENT_CHANNEL = "com.aurum.music/cast_state"
         private const val CAST_ROUTES_EVENT_CHANNEL = "com.aurum.music/cast_routes"
         // DIAGNOSTIC (heating investigation) — see onOffloadStatus in
@@ -147,6 +148,33 @@ class AurumEngineChannelHandler(context: Context, messenger: BinaryMessenger) {
             }
             override fun onCancel(args: Any?) {
                 engine.outputManager.onDevicesChanged = null
+            }
+        })
+
+        // ── Live system media volume ─────────────────────────────────
+        // FEATURE ("volume badane ka option live update nahi hota, phone
+        // button se badhau to bhi wahi rehta hai" — 2026-09-07): fires
+        // whenever STREAM_MUSIC volume changes from ANY source (hardware
+        // volume keys, another app, this app's own setMediaVolume) —
+        // AurumAudioOutputManager's BroadcastReceiver already listens for
+        // AudioManager.VOLUME_CHANGED_ACTION (see that class), this just
+        // wires its callback to a sink the same way OUTPUT_DEVICES_EVENT_
+        // CHANNEL above does for device changes — onListen/onCancel
+        // starts/stops the callback exactly when the Dart-side stream
+        // actually has a subscriber, same lifecycle discipline as every
+        // other EventChannel in this file.
+        EventChannel(messenger, MEDIA_VOLUME_EVENT_CHANNEL).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(args: Any?, sink: EventChannel.EventSink) {
+                engine.outputManager.onVolumeChanged = {
+                    val (level, max) = engine.outputManager.currentVolume()
+                    sink.success(mapOf(
+                        "volume" to level,
+                        "max" to max,
+                    ))
+                }
+            }
+            override fun onCancel(args: Any?) {
+                engine.outputManager.onVolumeChanged = null
             }
         })
 

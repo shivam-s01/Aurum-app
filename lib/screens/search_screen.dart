@@ -1662,16 +1662,16 @@ class _SearchScreenState extends State<SearchScreen>
             if (idx < _liveResults.length) {
               final song = _liveResults[idx];
               // PERF: fixed height matches SongTile's actual rendered
-              // size. SIZE FIX ("thumbnail bahut chhota dikhta hai"):
-              // SongTile's cover art grew 50→64px app-wide, which grew
-              // its real row height 66→~92 (20 vertical padding + the
-              // 72px artwork box AurumStackedArtwork draws at size+8
+              // size. SIZE FIX: SongTile's cover art went 50→64→58px
+              // app-wide across two rounds of feedback, which settled
+              // its real row height at 86 (20 vertical padding + the
+              // 66px artwork box AurumStackedArtwork draws at size+8
               // headroom) — updated so this fixed height matches the
-              // tile's actual new size instead of clipping it, while
-              // keeping the same "skip subtree measurement" perf win
-              // this convention exists for.
+              // tile's actual current size instead of clipping it,
+              // while keeping the same "skip subtree measurement" perf
+              // win this convention exists for.
               return SizedBox(
-                height: 92,
+                height: 86,
                 child: _StaggeredItem(
                   index: idx,
                   itemKey: 'live_${song.id}',
@@ -1856,9 +1856,9 @@ class _SearchScreenState extends State<SearchScreen>
             }
             if (i < _results.length) {
               // SIZE FIX: see the live-panel SizedBox above for why this
-              // is 92 now, not 66 — same SongTile height-growth reasoning.
+              // is 86 now — same SongTile height reasoning.
               return SizedBox(
-                height: 92,
+                height: 86,
                 child: _StaggeredItem(
                   index: i,
                   itemKey: 'result_${_results[i].id}',
@@ -1905,9 +1905,9 @@ class _SearchScreenState extends State<SearchScreen>
               return const SizedBox.shrink();
             }
             // SIZE FIX: see the live-panel SizedBox above for why this
-            // is 92 now, not 66 — same SongTile height-growth reasoning.
+            // is 86 now — same SongTile height reasoning.
             return SizedBox(
-              height: 92,
+              height: 86,
               child: _StaggeredItem(
                 index: i,
                 itemKey: 'related_${_relatedResults[relatedIdx].id}',

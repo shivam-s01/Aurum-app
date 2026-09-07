@@ -106,6 +106,14 @@ class NativeAudioEngine {
   static const EventChannel _errorEvents = EventChannel('com.aurum.music/audio_engine_errors');
   static const EventChannel _outputDeviceEvents =
       EventChannel('com.aurum.music/audio_output_devices');
+  // FEATURE ("volume badane ka option live update nahi hota" —
+  // 2026-09-07): live STREAM_MUSIC volume updates from ANY source
+  // (hardware volume keys, another app, Bluetooth remote's own volume
+  // buttons) — see MEDIA_VOLUME_EVENT_CHANNEL in
+  // AurumEngineChannelHandler.kt / the VOLUME_CHANGED_ACTION receiver in
+  // AurumAudioOutputManager.kt for the native side.
+  static const EventChannel _mediaVolumeEvents =
+      EventChannel('com.aurum.music/media_volume');
   static const EventChannel _castStateEvents =
       EventChannel('com.aurum.music/cast_state');
   static const EventChannel _castRoutesEvents =
@@ -131,6 +139,11 @@ class NativeAudioEngine {
   // rather than waiting on the stream alone for the first paint.
   final _outputDevices =
       BehaviorSubject<AudioOutputDevices?>.seeded(null);
+  // Same seeded-null reasoning as _outputDevices above: no snapshot has
+  // arrived yet until either a change fires or getMediaVolume() is
+  // called once — callers should pair this stream with that initial
+  // call, same convention as outputDevicesStream.
+  final _mediaVolume = BehaviorSubject<MediaVolume?>.seeded(null);
   // Seeded "unavailable/unsupported" rather than null: unlike output
   // devices (where "no snapshot yet" and "not supported" are genuinely
   // different states worth distinguishing), the cast button should just
@@ -158,6 +171,7 @@ class NativeAudioEngine {
   Stream<NativeEngineState> get stateStream => _state.stream;
   Stream<PlaybackErrorEvent> get errorStream => _errors.stream;
   Stream<AudioOutputDevices?> get outputDevicesStream => _outputDevices.stream;
+  Stream<MediaVolume?> get mediaVolumeStream => _mediaVolume.stream;
 
   /// Live cast availability/connection updates. Deliberately NOT
   /// auto-subscribed at construction — same reasoning as
@@ -209,6 +223,7 @@ class NativeAudioEngine {
   StreamSubscription? _stateSub;
   StreamSubscription? _errorSub;
   StreamSubscription? _outputDevicesSub;
+  StreamSubscription? _mediaVolumeSub;
 
   // Fired when AurumMediaSessionService (lock screen / notification heart)
   // reports a like-toggle tap for the given song ID. PlayerProvider sets
@@ -277,6 +292,17 @@ class NativeAudioEngine {
       _outputDevices.add(_parseOutputDevices(raw));
     }, onError: (Object e, StackTrace st) {
       debugPrint('[NativeAudioEngine] output-device stream error (ignored): $e');
+    });
+
+    _mediaVolumeSub =
+        _mediaVolumeEvents.receiveBroadcastStream().listen((raw) {
+      final m = Map<String, dynamic>.from(raw as Map);
+      _mediaVolume.add(MediaVolume(
+        level: m['volume'] as int? ?? 0,
+        max: m['max'] as int? ?? 1,
+      ));
+    }, onError: (Object e, StackTrace st) {
+      debugPrint('[NativeAudioEngine] media-volume stream error (ignored): $e');
     });
   }
 
@@ -748,9 +774,11 @@ class NativeAudioEngine {
     await _stateSub?.cancel();
     await _errorSub?.cancel();
     await _outputDevicesSub?.cancel();
+    await _mediaVolumeSub?.cancel();
     await _state.close();
     await _errors.close();
     await _outputDevices.close();
+    await _mediaVolume.close();
   }
 }
 

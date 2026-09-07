@@ -45,6 +45,7 @@ import 'full_player_screen.dart';
 import 'edge_to_edge_full_player.dart';
 import 'premium_screen.dart';
 import 'mix_screen.dart';
+import 'moods_genres_screen.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/followed_artists_provider.dart';
@@ -1032,6 +1033,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   // _YtAlbumsForYouSection/_ThemedPlaylistShelvesSection
                   // already removed earlier) rather than deleted outright,
                   // in case any part of it is wanted again later. ──
+                  // FEATURE ("mood genre jaisa playlist option, click pr
+                  // beautiful khule ekdam youtube music ka real" —
+                  // 2026-09-07): entry point into the real InnerTube
+                  // "Moods & Genres" grid (FEmusic_moods_and_genres) —
+                  // same colorful category-tile page music.youtube.com
+                  // itself shows, opened as its own full screen rather
+                  // than crammed into a home carousel. Kept alongside the
+                  // "Featured playlists for you" shelf's own arrow into
+                  // the same screen (_RealHomeShelfRow._openArrow below)
+                  // — two doors to the same real screen, never two
+                  // different implementations of it.
+                  const SliverToBoxAdapter(child: _MoodsGenresEntryCard()),
                   SliverToBoxAdapter(
                     child: _RealHomeShelvesSection(refreshKey: _playlistRefreshKey),
                   ),
@@ -3486,6 +3499,53 @@ class _YouMightAlsoLikeSectionState extends State<_YouMightAlsoLikeSection> {
   }
 }
 
+// Entry card into the full real "Moods & Genres" grid screen — tap opens
+// MoodsGenresScreen (ApiService.fetchMoodsAndGenres, real InnerTube
+// FEmusic_moods_and_genres browse, see that screen's own doc header).
+class _MoodsGenresEntryCard extends StatelessWidget {
+  const _MoodsGenresEntryCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 20, left: 12, right: 12),
+      child: Material(
+        color: AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () {
+            AurumHaptics.selection();
+            AurumDepthRoute.to(context, const MoodsGenresScreen());
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Row(
+              children: [
+                Icon(Icons.grid_view_rounded,
+                    color: AurumTheme.textPrimaryOf(context), size: 22),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'Moods & Genres',
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Icon(Icons.chevron_right,
+                    color: AurumTheme.textSecondaryOf(context), size: 22),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _RealHomeShelvesSection extends StatefulWidget {
   final int refreshKey;
   const _RealHomeShelvesSection({this.refreshKey = 0});
@@ -3610,42 +3670,110 @@ class _RealHomeShelfRow extends StatelessWidget {
   final HomeShelf shelf;
   const _RealHomeShelfRow({super.key, required this.shelf});
 
+  // FEATURE ("Featured playlists for you" arrow -> Mood & Genres —
+  // ArchiveTune reference, 2026-09-07): reference screenshot's "Featured
+  // playlists for you" shelf has an arrow that opens the dedicated
+  // "Mood & Genres" grid screen (Chill/Commute/Energize/etc. — see
+  // ApiService.fetchMoodsAndGenres, the real FEmusic_moods_and_genres
+  // browse), NOT a generic see-all of that shelf's own 3 items. Every
+  // other shelf keeps the generic See-all behavior (_ShelfSeeAllScreen
+  // below, opened via the else branch in _openArrow) — this is the one
+  // deliberate exception, matched by title since that's a real, stable
+  // HomeShelf.title this app itself sets (see
+  // ApiService.fetchFeaturedPlaylistsForYou), not a magic string
+  // invented in the UI layer.
+  static const String _kFeaturedForYouTitle = 'Featured playlists for you';
+
+  void _openArrow(BuildContext context) {
+    AurumHaptics.selection();
+    if (shelf.title == _kFeaturedForYouTitle) {
+      AurumDepthRoute.to(context, const MoodsGenresScreen());
+    } else {
+      AurumDepthRoute.to(context, _ShelfSeeAllScreen(shelf: shelf));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // "Featured playlists for you" always shows its arrow (3 items,
+    // wouldn't otherwise clear the >4 threshold below) since its arrow
+    // goes to Mood & Genres rather than a see-all of its own 3 items —
+    // every other shelf keeps the existing "only show when there's
+    // enough to actually see more of" rule.
+    final showArrow =
+        shelf.title == _kFeaturedForYouTitle || shelf.items.length > 4;
     return Padding(
       padding: const EdgeInsets.only(top: 28, left: 12, right: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // FEATURE ("ekdam youtube music jaisa" eyebrow+title header —
-          // 2026-09-06): when InnerTube's own response carries a
-          // strapline for this shelf (see HomeShelf.strapline's doc
-          // comment — genuinely present on some mood/genre carousels,
-          // e.g. "BACKGROUND SCORE TO YOUR LOVE STORY" above "Romance
-          // Right Now"), show it as the small-caps eyebrow line YT
-          // Music itself renders above the bold shelf title. Shelves
-          // with no strapline (e.g. "New releases") render exactly as
-          // before — single-line title, nothing invented.
-          if (shelf.strapline != null) ...[
-            Text(
-              shelf.strapline!.toUpperCase(),
-              style: TextStyle(
-                color: AurumTheme.textSecondaryOf(context),
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.6,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // FEATURE ("ekdam youtube music jaisa" eyebrow+title
+                    // header — 2026-09-06): when InnerTube's own response
+                    // carries a strapline for this shelf (see
+                    // HomeShelf.strapline's doc comment — genuinely
+                    // present on some mood/genre carousels, e.g.
+                    // "BACKGROUND SCORE TO YOUR LOVE STORY" above
+                    // "Romance Right Now"), show it as the small-caps
+                    // eyebrow line YT Music itself renders above the bold
+                    // shelf title. Shelves with no strapline (e.g. "New
+                    // releases") render exactly as before — single-line
+                    // title, nothing invented.
+                    if (shelf.strapline != null) ...[
+                      Text(
+                        shelf.strapline!.toUpperCase(),
+                        style: TextStyle(
+                          color: AurumTheme.textSecondaryOf(context),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                    ],
+                    Text(
+                      shelf.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 2),
-          ],
-          Text(
-            shelf.title,
-            style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
-            ),
+              if (showArrow)
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () => _openArrow(context),
+                    // FIX ("See all" arrow icon — ArchiveTune reference,
+                    // 2026-09-07): reference screenshots show a plain
+                    // right-arrow icon next to shelf titles (e.g. next to
+                    // "Similar to Chill77"/"New releases"), not a text
+                    // button — swapped from the text "See all" label to
+                    // match, tap target/behavior unchanged.
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Icon(
+                        Icons.arrow_forward,
+                        color: AurumTheme.textPrimaryOf(context),
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 12),
           FadedHorizontalList(
@@ -3689,7 +3817,8 @@ class _RealHomeShelfRow extends StatelessWidget {
 // many shelves/items InnerTube returns.
 class _RealShelfPlaylistCard extends StatefulWidget {
   final HomeShelfItem item;
-  const _RealShelfPlaylistCard({required this.item});
+  final bool fullWidth;
+  const _RealShelfPlaylistCard({required this.item, this.fullWidth = false});
 
   @override
   State<_RealShelfPlaylistCard> createState() =>
@@ -3765,8 +3894,10 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
           duration: AurumMotion.durationOrZero(AurumMotion.short1),
           curve: Curves.easeOut,
           child: Container(
-            width: 130,
-            margin: const EdgeInsets.only(right: 12),
+            width: widget.fullWidth ? null : 130,
+            margin: widget.fullWidth
+                ? EdgeInsets.zero
+                : const EdgeInsets.only(right: 12),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(14),
               child: Stack(
@@ -3800,19 +3931,56 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
                     ),
                   ),
                   Positioned(
+                    left: 8,
+                    top: 8,
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withOpacity(0.45),
+                      ),
+                      child: const Icon(
+                        Icons.play_circle_outline,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                  Positioned(
                     left: 10,
                     right: 10,
                     bottom: 10,
-                    child: Text(
-                      c.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        height: 1.2,
-                      ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          c.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            height: 1.2,
+                          ),
+                        ),
+                        if (c.subtitle.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            c.subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              height: 1.1,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   if (_resolving)
@@ -3829,6 +3997,65 @@ class _RealShelfPlaylistCardState extends State<_RealShelfPlaylistCard> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// FEATURE ("See all" full-grid screen — 2026-09-07): plain grid of every
+// item already sitting in `shelf.items` (no re-fetch — the horizontal row
+// already has all of it in memory). Reuses _RealShelfPlaylistCard /
+// _HomeAlbumCardWidget as-is so the tap-through (album -> AlbumScreen,
+// playlist -> lazy-resolved MixScreen via resolveHomeShelfPlaylist) is
+// pixel-for-pixel the same behavior as tapping the same card on Home.
+class _ShelfSeeAllScreen extends StatelessWidget {
+  final HomeShelf shelf;
+  const _ShelfSeeAllScreen({required this.shelf});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AurumTheme.bgOf(context),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: Text(
+          shelf.title,
+          style: TextStyle(
+            color: AurumTheme.textPrimaryOf(context),
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      body: GridView.builder(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 12,
+          childAspectRatio: 0.72,
+        ),
+        itemCount: shelf.items.length,
+        itemBuilder: (_, i) {
+          final item = shelf.items[i];
+          // Both card widgets are fixed-width (130) — built for a
+          // horizontal list, not a flexible grid cell — so center each
+          // one in its cell rather than stretching/distorting it.
+          if (item.isAlbum) {
+            return Center(
+              child: _HomeAlbumCardWidget(
+                card: HomeAlbumCard(
+                  albumId: item.browseId,
+                  title: item.title,
+                  artist: item.subtitle,
+                  artworkUrl: item.artworkUrl,
+                ),
+              ),
+            );
+          }
+          return Center(child: _RealShelfPlaylistCard(item: item));
+        },
       ),
     );
   }

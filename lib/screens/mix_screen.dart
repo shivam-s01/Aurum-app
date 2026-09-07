@@ -5,7 +5,7 @@
 //   playlists (Trending Now, Party Anthems, 90s Bollywood, etc), Spotify-
 //   style — big header art, Play + Save row, then the song list.
 //
-//   Premium header: blurred/zoomed artwork background with a one-shot
+//   Premium header: full-bleed, sharp artwork with a one-shot
 //   palette-derived glow (same visual language as the Full Player screen —
 //   see full_player_screen.dart's _extractColor — but static, no animation
 //   controllers, since this screen doesn't need to live-update per frame).
@@ -19,12 +19,12 @@
 import 'dart:async';
 import '../utils/aurum_transitions.dart';
 import 'dart:ui';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../models/song.dart';
 import '../services/api_service.dart';
+import '../services/aurum_image_cache.dart';
 import '../providers/player_provider.dart';
 import '../providers/followed_albums_provider.dart';
 import '../providers/download_provider.dart';
@@ -36,7 +36,6 @@ import '../widgets/aurum_snack.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/mini_player_slot.dart';
 import '../widgets/cast_button.dart';
-import '../widgets/aurum_stage_backdrop.dart' show resolveAurumImageProvider;
 import 'artist_screen.dart';
 import 'search_screen.dart';
 import 'full_player_screen.dart' show shareSong;
@@ -150,6 +149,64 @@ class _MixScreenState extends State<MixScreen> {
         if (mounted) setState(() => _awaitingFirstLoad = false);
       });
     }
+  }
+
+  bool _precachedHeaderArtwork = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // FIX ("artwork kuch sec baad aa raha hai, instant chahiye" —
+    // 2026-09-07): the header's full-bleed AurumArtwork(size: 700) only
+    // starts its network fetch once it actually builds — i.e. after the
+    // route's push transition has already started sliding this screen
+    // into view, so on a cold cache (first time seeing this particular
+    // song's artwork) the header visibly sat on its placeholder for a
+    // beat after arriving. Kicking off the exact same cached, same-size
+    // image request here — didChangeDependencies is the correct, safe
+    // lifecycle point for context-dependent work like precacheImage
+    // (unlike initState, where MediaQuery/dependencies aren't fully
+    // established yet), and it still runs before the header's own first
+    // build call — means the fetch is already in flight (often finished)
+    // by the time the header widget asks for it. _precachedHeaderArtwork
+    // guards against re-firing on every dependency change (e.g. a theme
+    // toggle) — this only needs to happen once per screen instance.
+    if (!_precachedHeaderArtwork) {
+      _precachedHeaderArtwork = true;
+      _precacheHeaderArtwork();
+    }
+  }
+
+  // FIX ("artwork kuch sec baad aa raha hai, instant chahiye" —
+  // 2026-09-07): kicks off the exact same request AurumArtwork's network
+  // branch will make for the header (same CachedNetworkImageProvider,
+  // same AurumImageCache manager, same maxWidth as AurumArtwork's own
+  // _cacheSize for size:700 — see aurum_artwork.dart) as early as
+  // possible, so the fetch is already in flight (often finished) before
+  // the header widget itself builds and asks for it. Guards mirror
+  // AurumArtwork.build()'s own URL branching — content:// and local file
+  // paths are never routed through a network image provider, so this
+  // silently no-ops for those instead of throwing.
+  void _precacheHeaderArtwork() {
+    final url = widget.artworkUrl;
+    if (url.isEmpty ||
+        url.startsWith('content://') ||
+        url.startsWith('/') ||
+        url.startsWith('file://')) {
+      return;
+    }
+    precacheImage(
+      CachedNetworkImageProvider(
+        url,
+        maxWidth: 1400,
+        cacheManager: AurumImageCache(),
+      ),
+      context,
+    ).catchError((_) {
+      // Same as every other precache in this app — a failed warm-up just
+      // means AurumArtwork's own build-time fetch handles it normally
+      // (including its own error/placeholder path), never a crash.
+    });
   }
 
   Future<void> _extractGlow() async {
@@ -269,18 +326,14 @@ class _MixScreenState extends State<MixScreen> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Layer 1 — blurred, edge-to-edge artwork filling the
-                  // entire header, hazy/"dudhla" exactly like the Full
-                  // Player's own background (see full_player_screen.dart's
-                  // _BlurredArtworkCore) — same 20σ/22σ sigma and 1.55x
-                  // overscan, so this reads as the identical treatment,
-                  // not a separate look. Baked to a static bitmap ONCE
-                  // per artworkUrl (see _MixHeaderBlur below) instead of
-                  // running a live blur shader every composited frame —
-                  // same technique already proven in aurum_stage_backdrop.
-                  // dart's _BakedBlurStage, just keyed on a plain URL
-                  // (mix_screen has no Song object, only artworkUrl)
-                  // instead of a Song.
+                  // Layer 1 — full-bleed artwork fills the entire header,
+                  // edge to edge, no card/frame — matches the reference
+                  // players' playlist/artist header treatment.
+                  // REVERTED: an earlier pass made this a hazy/blurred
+                  // backdrop like the Full Player's background — turned
+                  // out to read as "thumbnail blur ho gaya"/broken rather
+                  // than intentional, so this is back to the original
+                  // sharp, full-resolution artwork.
                   if (widget.artworkUrl.isNotEmpty)
                     Hero(
                       tag: 'mix_art_${widget.mixId}',
@@ -291,10 +344,8 @@ class _MixScreenState extends State<MixScreen> {
                           child: ScaleTransition(scale: animation, child: to.widget),
                         );
                       },
-                      child: _MixHeaderBlur(
-                        key: ValueKey(widget.artworkUrl),
-                        artworkUrl: widget.artworkUrl,
-                      ),
+                      child: AurumArtwork(
+                          url: widget.artworkUrl, size: 700, borderRadius: 0),
                     )
                   else
                     Container(
@@ -646,12 +697,13 @@ class _MixScreenState extends State<MixScreen> {
           else
             SliverList(
               delegate: SliverChildBuilderDelegate(
+                // FEATURE ("1 2 3 4 count number hata do" — same
+                // no-numbering convention already used on the artist
+                // page's song lists): plain tiles, no index column.
                 (context, i) => SongTile(
                   song: songs[i],
                   queue: songs,
                   index: i,
-                  showIndex: true,
-                  displayIndex: i + 1,
                   curatedQueue: true,
                 ),
                 childCount: songs.length,
@@ -1228,162 +1280,3 @@ class _ArtistChip extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// _MixHeaderBlur — the mix screen header's edge-to-edge blurred artwork,
-// "dudhla" exactly like the Full Player's own background. Same sigma
-// (20σ light / 22σ dark) and 1.55x overscan as
-// full_player_screen.dart's _BlurredArtworkCore, and the same bake-once-
-// then-blit technique already proven in aurum_stage_backdrop.dart's
-// _BakedBlurStage — the expensive blur shader runs exactly ONCE per
-// artworkUrl (captured via RenderRepaintBoundary.toImage() the first
-// frame it's actually painted), then every subsequent frame is just a
-// RawImage blit, as cheap as any other static photo. Keyed on artworkUrl
-// (not a Song — this screen only ever has a plain URL) so scrolling/
-// rebuilding this header never re-triggers the bake.
-// ─────────────────────────────────────────────────────────────────────────
-class _MixHeaderBlur extends StatefulWidget {
-  final String artworkUrl;
-  const _MixHeaderBlur({super.key, required this.artworkUrl});
-
-  @override
-  State<_MixHeaderBlur> createState() => _MixHeaderBlurState();
-}
-
-class _MixHeaderBlurState extends State<_MixHeaderBlur> {
-  final GlobalKey _repaintKey = GlobalKey();
-  ui.Image? _snapshot;
-  bool _capturing = false;
-  Animation<double>? _routeAnimation;
-  // SAFETY CAP ("battery heating" concern): the retry-until-painted loop
-  // below normally settles within 1-2 frames once the image decodes, but
-  // capping it means a genuinely stuck edge case (e.g. a broken/never-
-  // resolving artwork URL) can't turn into an unbounded per-frame retry
-  // loop burning CPU indefinitely. After this many attempts it just
-  // leaves the live blur showing — visually identical, just not baked
-  // into a static bitmap.
-  int _captureAttempts = 0;
-  static const int _maxCaptureAttempts = 30;
-
-  // Route lookups (ModalRoute.of/InheritedWidget) aren't safe in
-  // initState — didChangeDependencies is the correct lifecycle hook for
-  // this, and it's also called once right after initState on first
-  // build, so this still fires exactly once per mount.
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_routeAnimation != null || _snapshot != null) return;
-    // Wait for this screen's own push transition (and any Hero flight
-    // riding along with it) to fully settle before capturing — baking
-    // mid-flight, while the outer Hero's ScaleTransition is still
-    // animating this subtree, would freeze a transient in-between frame
-    // instead of the artwork's real resting frame. Falling back to a
-    // plain post-frame callback (no active route, e.g. hot-reload)
-    // still works exactly as before.
-    final route = ModalRoute.of(context);
-    if (route != null && route.animation != null && !route.animation!.isCompleted) {
-      _routeAnimation = route.animation;
-      _routeAnimation!.addStatusListener(_onRouteAnimationStatus);
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
-    }
-  }
-
-  void _onRouteAnimationStatus(AnimationStatus status) {
-    if (status == AnimationStatus.completed) {
-      _routeAnimation?.removeStatusListener(_onRouteAnimationStatus);
-      _routeAnimation = null;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
-    }
-  }
-
-  @override
-  void dispose() {
-    _routeAnimation?.removeStatusListener(_onRouteAnimationStatus);
-    _snapshot?.dispose();
-    super.dispose();
-  }
-
-  Future<void> _capture() async {
-    if (_capturing || !mounted) return;
-    _capturing = true;
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted) {
-      _capturing = false;
-      return;
-    }
-    try {
-      final boundary = _repaintKey.currentContext?.findRenderObject()
-          as RenderRepaintBoundary?;
-      if (boundary == null || boundary.debugNeedsPaint) {
-        _capturing = false;
-        _captureAttempts++;
-        if (mounted && _captureAttempts < _maxCaptureAttempts) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
-        }
-        return;
-      }
-      // pixelRatio 1.0 — same reasoning as the full player: the source
-      // decodes at a small capped width already, and a heavy blur
-      // destroys detail a higher-res capture would've preserved anyway.
-      final image = await boundary.toImage(pixelRatio: 1.0);
-      if (!mounted) {
-        image.dispose();
-        _capturing = false;
-        return;
-      }
-      final old = _snapshot;
-      setState(() => _snapshot = image);
-      old?.dispose();
-    } catch (_) {
-      // Live blur just stays on screen if a capture attempt fails —
-      // never worse than not baking, never a crash.
-    } finally {
-      _capturing = false;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final snapshot = _snapshot;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    return ClipRect(
-      child: snapshot != null
-          // Post-bake: plain bitmap blit, zero shader cost from here on.
-          ? RawImage(image: snapshot, fit: BoxFit.cover)
-          // Pre-bake: the one time the real blur shader runs for this art.
-          : RepaintBoundary(
-              key: _repaintKey,
-              child: Transform.scale(
-                // Small overscan so the blur's soft edge never shows a
-                // hard boundary — identical 1.55x used by the full
-                // player's own blurred background.
-                scale: 1.55,
-                child: ImageFiltered(
-                  imageFilter: ui.ImageFilter.blur(
-                    sigmaX: isLight ? 20 : 22,
-                    sigmaY: isLight ? 20 : 22,
-                    tileMode: TileMode.clamp,
-                  ),
-                  child: SizedBox.expand(
-                    child: FittedBox(
-                      fit: BoxFit.cover,
-                      child: SizedBox(
-                        // Small fixed decode size — matches
-                        // AurumArtwork's own "why decode more than the
-                        // blur can preserve" logic.
-                        width: 200,
-                        height: 200,
-                        child: Image(
-                          image: resolveAurumImageProvider(widget.artworkUrl),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const SizedBox.expand(),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-    );
-  }
-}
