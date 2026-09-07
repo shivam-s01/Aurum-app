@@ -162,65 +162,105 @@ class _AlbumScreenState extends State<AlbumScreen> {
             backgroundColor: immersiveScaffoldBg(context, _glow),
             elevation: 0,
             iconTheme: const IconThemeData(color: Colors.white),
-            expandedHeight: 400,
+            expandedHeight: 460,
             flexibleSpace: FlexibleSpaceBar(
+              // BANNER HEADER ("ekdam banner-style header chahiye jaisa
+              // screenshot mein hai, full-width artwork + overlay text" —
+              // reference screenshot): the artwork used to sit in a small
+              // centered 220x220 shadowed card with the title/artist/meta
+              // as a separate plain-text sliver below it. This replaces
+              // that with a full-bleed banner — the artwork fills the
+              // entire header width/height, and the title/artist/meta
+              // sit directly on top of it near the bottom, readable via
+              // the same immersiveHeaderScrim gradient (now doubling as
+              // both the color wash AND the text-legibility fade, same
+              // as the reference's dark-to-light overlay on the photo).
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  DecoratedBox(
-                // Same short muted-glow scrim mix_screen.dart and
-                // artist_screen.dart use — this card-style header keeps
-                // its centered artwork treatment, but now carries the
-                // album art's own extracted color instead of a flat
-                // AurumTheme.gold tint, so all three detail screens read
-                // as one consistent, alive ecosystem.
-                decoration: immersiveHeaderScrim(_glow),
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(32, 56, 32, 0),
-                    child: Center(
-                      child: Container(
-                        width: 220,
-                        height: 220,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.45),
-                              blurRadius: 30,
-                              offset: const Offset(0, 16),
-                            ),
-                          ],
-                        ),
-                        child: Hero(
-                          tag: 'album_art_${widget.albumId}',
-                          // FIX: see matching comment in library_screen.dart's
-                          // grid tile Hero — same page-slide + default-shuttle
-                          // conflict causes a visible snap/glitch as the
-                          // flight hands off to this (still page-sliding)
-                          // destination. Simple scale-only shuttle avoids it.
-                          flightShuttleBuilder: (context, animation, direction, from, to) {
-                            return Material(
-                              color: Colors.transparent,
-                              child: ScaleTransition(scale: animation, child: to.widget),
-                            );
-                          },
-                          child: Material(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(10),
-                            clipBehavior: Clip.antiAlias,
-                            child: AurumArtwork(
-                              url: _artworkUrl,
-                              size: 220,
-                              borderRadius: 10,
-                            ),
-                          ),
+                  ClipRect(
+                    child: Hero(
+                      tag: 'album_art_${widget.albumId}',
+                      // FIX: see matching comment in library_screen.dart's
+                      // grid tile Hero — same page-slide + default-shuttle
+                      // conflict causes a visible snap/glitch as the
+                      // flight hands off to this (still page-sliding)
+                      // destination. Simple scale-only shuttle avoids it.
+                      flightShuttleBuilder: (context, animation, direction, from, to) {
+                        return Material(
+                          color: Colors.transparent,
+                          child: ScaleTransition(scale: animation, child: to.widget),
+                        );
+                      },
+                      child: SizedBox.expand(
+                        child: AurumArtwork(
+                          url: _artworkUrl,
+                          size: 460,
+                          borderRadius: 0,
                         ),
                       ),
                     ),
                   ),
-                ),
-              ),
+                  DecoratedBox(
+                    // Same short muted-glow scrim mix_screen.dart and
+                    // artist_screen.dart use — now also carrying the
+                    // text-legibility job the old separate title sliver
+                    // didn't need, since the title now sits on the photo.
+                    decoration: immersiveHeaderScrim(_glow),
+                  ),
+                  SafeArea(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(
+                              widget.albumName,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                height: 1.15,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 10),
+                            if (artists.isNotEmpty) ...[
+                              Text(
+                                artists.join(' • '),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                            ],
+                            Text(
+                              [
+                                'Album',
+                                if (year != null) year,
+                              ].join(' • '),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.75),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                   // SimpMusic-style frosted glass strip fading in behind
                   // the collapsed bar — see mix_screen.dart's matching
                   // comment for why this is gated on expandRatio rather
@@ -245,97 +285,21 @@ class _AlbumScreenState extends State<AlbumScreen> {
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    widget.albumName,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: AurumTheme.textPrimaryOf(context),
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      height: 1.15,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 14),
-                  if (artists.isNotEmpty) ...[
-                    SizedBox(
-                      height: 28,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 20 + (artists.length - 1) * 14,
-                            height: 28,
-                            child: Stack(
-                              children: [
-                                for (var i = 0; i < artists.length; i++)
-                                  Positioned(
-                                    left: i * 14,
-                                    child: CircleAvatar(
-                                      radius: 14,
-                                      backgroundColor:
-                                          AurumTheme.bgOf(context),
-                                      child: CircleAvatar(
-                                        radius: 12,
-                                        backgroundColor:
-                                            AurumTheme.bgElevatedOf(context),
-                                        child: Text(
-                                          artists[i].isNotEmpty
-                                              ? artists[i][0].toUpperCase()
-                                              : '?',
-                                          style: TextStyle(
-                                            color: AurumTheme.gold,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              artists.join(' • '),
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: AurumTheme.textPrimaryOf(context),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  Text(
-                    [
-                      'Album',
-                      if (year != null) year,
-                    ].join(' • '),
-                    style: TextStyle(
-                      color: AurumTheme.textMutedOf(context),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
               child: Row(
+                // ACTION ROW REBUILD ("buttons bhi ekdam screenshot jaisa" —
+                // reference screenshot): the reference shows exactly 5 items
+                // spread evenly across the row — Download, Shuffle, a wide
+                // "Play" pill with a text label (not a bare circular play
+                // icon), a Save/Add icon, and a trailing options/queue
+                // icon — every icon sitting in its own soft round grey
+                // circle. This replaces the old 6-item layout (Download +
+                // Save + More grouped left, Shuffle + a plain circular
+                // play icon grouped right) with that same 5-across shape.
+                // The old "More options" sheet (_showAlbumOptions) isn't
+                // dropped — it now lives on the trailing icon instead of
+                // its own separate button, so nothing behind it is lost.
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Consumer<DownloadProvider>(
                     builder: (context, downloads, _) {
@@ -347,35 +311,13 @@ class _AlbumScreenState extends State<AlbumScreen> {
                       );
                     },
                   ),
-                  const SizedBox(width: 4),
-                  Consumer<FollowedAlbumsProvider>(
-                    builder: (context, followedAlbums, _) {
-                      final saved = followedAlbums.isFollowing(widget.albumId);
-                      return AurumSaveButton(
-                        saved: saved,
-                        size: 40,
-                        onTap: () => followedAlbums.toggleFollow(
-                          albumId: widget.albumId,
-                          name: widget.albumName,
-                          artworkUrl: _artworkUrl,
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 4),
-                  _ActionIcon(
-                    icon: Icons.more_vert_rounded,
-                    onTap: () => _showAlbumOptions(context),
-                  ),
-                  const Spacer(),
                   _ActionIcon(
                     icon: Icons.shuffle_rounded,
                     active: _shuffle,
                     onTap: () => setState(() => _shuffle = !_shuffle),
                   ),
-                  const SizedBox(width: 12),
                   AurumPressable(
-                    scaleAmount: 0.92,
+                    scaleAmount: 0.96,
                     onTap: _songs.isEmpty
                         ? null
                         : () {
@@ -386,13 +328,13 @@ class _AlbumScreenState extends State<AlbumScreen> {
                                 queue: queue, index: 0, curatedQueue: true);
                           },
                     child: Container(
-                      width: 56,
-                      height: 56,
+                      height: 48,
+                      padding: const EdgeInsets.symmetric(horizontal: 28),
                       decoration: BoxDecoration(
-                        shape: BoxShape.circle,
                         color: _songs.isEmpty
                             ? AurumTheme.gold.withOpacity(0.4)
                             : AurumTheme.gold,
+                        borderRadius: BorderRadius.circular(24),
                         boxShadow: _songs.isEmpty
                             ? null
                             : [
@@ -403,12 +345,50 @@ class _AlbumScreenState extends State<AlbumScreen> {
                                 ),
                               ],
                       ),
-                      child: const Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.black,
-                        size: 32,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.play_arrow_rounded,
+                            color: Colors.black,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            l10n.commonPlay,
+                            style: const TextStyle(
+                              color: Colors.black,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
+                  ),
+                  Consumer<FollowedAlbumsProvider>(
+                    builder: (context, followedAlbums, _) {
+                      final saved = followedAlbums.isFollowing(widget.albumId);
+                      return _ActionIcon(
+                        // ICON MATCH ("+ click pr playlist save ho jaye" —
+                        // reference screenshot shows a plain "+" here, not
+                        // a bookmark-style save icon): same toggleFollow
+                        // action as before (save/add this album), just a
+                        // plain add icon instead of AurumSaveButton's own
+                        // bookmark shape, matching the reference row.
+                        icon: Icons.add_rounded,
+                        active: saved,
+                        onTap: () => followedAlbums.toggleFollow(
+                          albumId: widget.albumId,
+                          name: widget.albumName,
+                          artworkUrl: _artworkUrl,
+                        ),
+                      );
+                    },
+                  ),
+                  _ActionIcon(
+                    icon: Icons.list_rounded,
+                    onTap: () => _showAlbumOptions(context),
                   ),
                 ],
               ),
@@ -893,12 +873,16 @@ class _ActionIcon extends StatelessWidget {
     return AurumPressable(
       scaleAmount: 0.88,
       onTap: onTap,
-      child: SizedBox(
-        width: 40,
-        height: 40,
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: (AurumTheme.textPrimaryOf(context)).withOpacity(0.08),
+        ),
         child: Icon(
           icon,
-          size: 22,
+          size: 20,
           color: disabled
               ? AurumTheme.textMutedOf(context).withOpacity(0.4)
               : active

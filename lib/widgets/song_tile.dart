@@ -199,40 +199,19 @@ class _SongTileState extends State<SongTile> {
       // can never read as a stray wrong-colored wash.
       splashColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
       highlightColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
-      child: Container(
-        // CARD LOOK ("songs akward aur dead lag rahe hai, dusre app jaisa
-        // alive/premium chahiye" — reference: Bloomee's SongCardWidget,
-        // where every row is its own soft glass card floating on the
-        // page, not a bare Row painted flat against the background).
-        // This used to be a plain Padding straight on the scaffold's
-        // background — zero depth of its own, so on a plain dark page it
-        // reads as static/lifeless list text rather than a tappable row.
-        // A faint tinted fill + hairline border + tiny outer margin gives
-        // every row its own quiet "card" presence and a sliver of visible
-        // gap between rows, without competing with the header's glow or
-        // needing per-row images/blur (kept cheap — flat colors only, so
-        // this costs nothing extra to paint at scroll speed).
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        decoration: BoxDecoration(
-          color: isCurrentSong
-              ? AurumTheme.gold.withOpacity(isDark ? 0.10 : 0.08)
-              : (isDark ? Colors.white : Colors.black).withOpacity(isDark ? 0.045 : 0.03),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isCurrentSong
-                ? AurumTheme.gold.withOpacity(0.28)
-                : (isDark ? Colors.white : Colors.black).withOpacity(isDark ? 0.07 : 0.06),
-            width: 1,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
+      child: Padding(
+        // FLAT LIST ("box mai band hai, ekdam Bloomee jaisa flat chahiye" —
+        // reference: Bloomee's SongCardWidget/screenshot — every row sits
+        // directly on the page background, no per-row card fill, border,
+        // or outer margin. Reverts the earlier "card look" experiment
+        // (tinted background + hairline border + margin), which read as
+        // a boxed/pill list rather than a single continuous sheet.
         // SPACING FIX ("thumbnail bahut chhota dikhta hai" — reference:
         // the artist "Top songs" list, where each row's cover art reads
         // as noticeably bigger/more premium than a compact 50px chip):
         // opened vertical padding 8→10 so the bigger 64px cover below
         // doesn't feel cramped between rows.
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
             if (widget.showIndex) ...[
@@ -314,7 +293,6 @@ class _SongTileState extends State<SongTile> {
               ),
             ),
           ],
-        ),
         ),
       ),
       ),
