@@ -40,11 +40,14 @@ import '../widgets/aurum_like_button.dart';
 import '../widgets/aurum_play_pause_icon.dart';
 import '../widgets/aurum_pressable.dart';
 import '../widgets/audio_output_sheet.dart';
-import '../services/native_engine_bridge.dart' show MediaVolume;
+import '../services/native_engine_bridge.dart'
+    show MediaVolume, AudioOutputDevice, AudioOutputDeviceKind, AudioOutputDevices;
 import '../utils/aurum_haptics.dart';
 import '../utils/aurum_sheet.dart';
+import '../l10n/generated/app_localizations.dart';
+import '../widgets/premium_gate.dart';
 import 'full_player_screen.dart'
-    show showAurumFullPlayerOptionsSheet, showSleepTimerForSong, AurumLyricsPage;
+    show showAurumFullPlayerOptionsSheet, showSleepTimerForSong, showSongInfoDialog, AurumLyricsPage;
 import 'settings_player_screen.dart' show SleepTimerService;
 
 class EdgeToEdgeFullPlayer extends StatefulWidget {
@@ -96,6 +99,23 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
       Navigator.of(context).maybePop();
       return;
     }
+    setState(() {
+      _dragging = false;
+      _dragY = 0;
+    });
+  }
+
+  // FIX (screen can get stuck mid-drag): if the gesture arena takes the
+  // pointer away mid-drag (e.g. a competing scroll/list inside the sheet
+  // wins resolution) with no onVerticalDragEnd ever firing, _dragging and
+  // _dragY had no way back to a clean state — the player would sit
+  // visually frozen half-dismissed (partially scaled/faded/translated)
+  // until another drag happened to reset it. Same class of bug the Card
+  // layout's FullPlayerScreen already guards against with its own
+  // onVerticalDragCancel handler; this treats it exactly like a
+  // below-threshold release — spring back to fully open.
+  void _handleDragCancel() {
+    if (!mounted) return;
     setState(() {
       _dragging = false;
       _dragY = 0;
@@ -236,20 +256,63 @@ class _EdgeToEdgeFullPlayerState extends State<EdgeToEdgeFullPlayer> {
         _loadPaletteFor(song.artworkUrl);
 
         final scale = (1 - (_dragY / 1400)).clamp(0.9, 1.0);
-        final opacity = (1 - (_dragY / 500)).clamp(0.35, 1.0);
+        // FIX ("YouTube jaisa akward lag raha hai" part 2): opacity used
+        // to start dropping from the very first pixel of drag (1 -
+        // dragY/500), so by the time the card had moved barely 60-70px it
+        // was already visibly fading — well before the card was anywhere
+        // near actually leaving the screen. That reads as a translucent,
+        // half-there card for most of the gesture instead of a solid card
+        // that slides cleanly away. YouTube's own full-player dismiss
+        // keeps the card fully opaque for almost the whole drag and only
+        // fades right at the very end, once it's basically already
+        // off-screen — same "hold opacity, then fade at the finish" curve
+        // the Card layout (full_player_screen.dart's _DragTransform)
+        // already uses, scaled here to this screen's own max drag range
+        // (600, from _handleDragUpdate's clamp) rather than the dismiss
+        // threshold — using the threshold directly would make the card
+        // vanish mid-drag any time someone holds past 140px without
+        // releasing, which is worse than the original bug.
+        final dismissProgress = (_dragY / 500).clamp(0.0, 1.0);
+        final opacity = 1.0 - ((dismissProgress - 0.75) / 0.25).clamp(0.0, 1.0);
 
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: SystemUiOverlayStyle.light,
           child: Scaffold(
-            backgroundColor: Colors.black,
+            // FIX (swipe-down shows solid black instead of the Home screen
+            // behind it): this was `Colors.black`. The route this screen is
+            // pushed on is `opaque: false` specifically so Home keeps
+            // rendering live frames underneath during the drag (see
+            // home_screen.dart's PageRouteBuilder comment) — but a fully
+            // opaque black Scaffold background here painted over that live
+            // Home frame on every single frame regardless, so the "reveal
+            // Home while dragging" effect never had anywhere to show
+            // through. Transparent lets Home itself be what's visible
+            // around/behind the shrinking, fading player card as it's
+            // dragged down, instead of a black void.
+            backgroundColor: Colors.transparent,
             body: GestureDetector(
               onVerticalDragUpdate: _handleDragUpdate,
               onVerticalDragEnd: _handleDragEnd,
+              onVerticalDragCancel: _handleDragCancel,
               child: AnimatedContainer(
                 duration: _dragging ? Duration.zero : const Duration(milliseconds: 220),
                 curve: Curves.easeOut,
+                // FIX ("YouTube jaisa drag akward lag raha hai" — root
+                // cause): transformAlignment was Alignment.center, so the
+                // scale-down during drag shrunk the card equally from ALL
+                // four edges — that opens up a visible gap at the TOP too
+                // as you drag down, which reads as the whole card
+                // floating/detaching from the top of the screen instead
+                // of just sliding down and off. YouTube's own full-player
+                // dismiss never opens a top gap — the card stays pinned to
+                // the top edge and only the BOTTOM edge recedes as it
+                // shrinks, so it reads as one continuous downward slide,
+                // not a shape floating in space. topCenter anchors the
+                // scale there instead of the middle, which is the exact
+                // fix: same translate-down + shrink motion, just anchored
+                // at the edge that should never move.
                 transform: Matrix4.translationValues(0, _dragY, 0)..scale(scale, scale),
-                transformAlignment: Alignment.center,
+                transformAlignment: Alignment.topCenter,
                 child: Opacity(
                   opacity: opacity,
                   child: LayoutBuilder(
@@ -570,6 +633,37 @@ class _CircleIconButton extends StatelessWidget {
   }
 }
 
+/// Smaller sibling of _CircleIconButton for the bottom icon row (queue /
+/// lyrics / sleep) — same flat, borderless, translucent circle-pill
+/// treatment as the top ••• / heart buttons and the Speaker pill, just
+/// sized to sit comfortably in a tighter row of three instead of two.
+/// Reference screenshot has all of these — top corner actions, bottom row
+/// icons, and the output pill — sharing one consistent "soft dark circle"
+/// language; this was the one row still rendering as bare icons with no
+/// pill at all.
+class _RoundIconButton extends StatelessWidget {
+  const _RoundIconButton({required this.icon, required this.onTap});
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return AurumPressable(
+      onTap: onTap,
+      child: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withOpacity(0.14),
+        ),
+        alignment: Alignment.center,
+        child: Icon(icon, color: Colors.white, size: 19),
+      ),
+    );
+  }
+}
+
 // Thin wrapper around the shared AurumSeekBar (see widgets/aurum_seek_bar.dart)
 // so every "Player Slider Style" option (Slim/Thick/Rounded/Waveform) looks
 // and behaves EXACTLY like the classic full player — this used to be its own
@@ -686,7 +780,26 @@ class _TransportRow extends StatelessWidget {
               icon: const Icon(Icons.fast_forward_rounded, color: Colors.white),
               onPressed: () {
                 AurumHaptics.light();
-                player.skipNext();
+                // FIX ("perfect work krega na" recheck — real gap found):
+                // skipNext() returns false (without skipping) once the
+                // free-tier skip limit is hit — see player_provider.dart's
+                // own "caller shows PremiumGate" comment. The Card
+                // layout's transport row already checks this and shows
+                // the sign-in/upgrade sheet; this row was ignoring the
+                // return value entirely, so on this layout hitting the
+                // limit just silently did nothing — the button looked
+                // unresponsive/broken with zero explanation instead of
+                // telling the user why. Now matches Card layout exactly.
+                player.skipNext().then((allowed) {
+                  if (!allowed && context.mounted) {
+                    PremiumGate.show(
+                      context,
+                      feature: AppLocalizations.of(context)!.fpUnlimitedSkipsFeature,
+                      description: AppLocalizations.of(context)!.fpUnlimitedSkipsSignIn,
+                      requiresLoginOnly: true,
+                    );
+                  }
+                });
               },
             ),
           ],
@@ -709,6 +822,12 @@ class _VolumeRowState extends State<_VolumeRow> {
   int _max = 15;
   bool _loaded = false;
   int? _fadeGen; // increments to cancel an in-flight fade if user interacts again
+  // True only while the user's thumb/tap is actively driving the level —
+  // guards against the live mediaVolumeStream (hardware keys, another
+  // app, or this row's own setMediaVolume echoing back) yanking the
+  // slider or fade-to-mute animation out from under an in-progress
+  // interaction. Same pattern as audio_output_sheet.dart's _isDragging.
+  bool _userDriving = false;
 
   @override
   void initState() {
@@ -745,6 +864,7 @@ class _VolumeRowState extends State<_VolumeRow> {
     final gen = (_fadeGen ?? 0) + 1;
     _fadeGen = gen;
     AurumHaptics.light();
+    setState(() => _userDriving = true);
     var v = _level;
     while (v > 0 && _fadeGen == gen && mounted) {
       v = (v - 1).clamp(0, _max);
@@ -752,6 +872,7 @@ class _VolumeRowState extends State<_VolumeRow> {
       widget.player.engine.setMediaVolume(v);
       await Future.delayed(const Duration(milliseconds: 35));
     }
+    if (mounted) setState(() => _userDriving = false);
   }
 
   /// Tapping the speaker/max icon: jumps straight to full volume — no
@@ -766,47 +887,71 @@ class _VolumeRowState extends State<_VolumeRow> {
   @override
   Widget build(BuildContext context) {
     if (!_loaded) return const SizedBox(height: 20);
-    return Row(
-      children: [
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: _fadeToMute,
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(
-              _level == 0 ? Icons.volume_off_rounded : Icons.volume_mute_rounded,
-              color: Colors.white.withOpacity(0.7),
-              size: 20,
+    // LIVE FIX ("valum live ekdam sahi se connect kro" — volume row didn't
+    // move when changed via hardware keys or another app, exactly the bug
+    // already fixed for audio_output_sheet.dart's slider): wrap in the
+    // same mediaVolumeStream StreamBuilder so this row updates instantly
+    // from ANY source, not just its own onChanged. _userDriving keeps the
+    // live value from fighting an active drag/fade the same way
+    // audio_output_sheet.dart's _isDragging does.
+    return StreamBuilder<MediaVolume?>(
+      stream: widget.player.engine.mediaVolumeStream,
+      builder: (context, snapshot) {
+        final live = snapshot.data;
+        final level = (!_userDriving && live != null) ? live.level : _level;
+        final max = (!_userDriving && live != null && live.max > 0) ? live.max : _max;
+        return Row(
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _fadeToMute,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Icon(
+                  level == 0 ? Icons.volume_off_rounded : Icons.volume_mute_rounded,
+                  color: Colors.white.withOpacity(0.7),
+                  size: 20,
+                ),
+              ),
             ),
-          ),
-        ),
-        Expanded(
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 3,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-              activeTrackColor: Colors.white.withOpacity(0.9),
-              inactiveTrackColor: Colors.white.withOpacity(0.22),
-              thumbColor: Colors.white,
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                  activeTrackColor: Colors.white.withOpacity(0.9),
+                  inactiveTrackColor: Colors.white.withOpacity(0.22),
+                  thumbColor: Colors.white,
+                ),
+                child: Slider(
+                  value: level.toDouble().clamp(0, max.toDouble()),
+                  min: 0,
+                  max: max.toDouble(),
+                  onChangeStart: (_) => setState(() {
+                    // Seed local state from whatever was showing (live or
+                    // last-known) so the drag starts from the visible
+                    // thumb position, not a possibly-stale _level.
+                    _level = level;
+                    _max = max;
+                    _userDriving = true;
+                  }),
+                  onChanged: _onChanged,
+                  onChangeEnd: (_) => setState(() => _userDriving = false),
+                ),
+              ),
             ),
-            child: Slider(
-              value: _level.toDouble().clamp(0, _max.toDouble()),
-              min: 0,
-              max: _max.toDouble(),
-              onChanged: _onChanged,
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _jumpToMax,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Icon(Icons.volume_up_rounded, color: Colors.white.withOpacity(0.7), size: 20),
+              ),
             ),
-          ),
-        ),
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: _jumpToMax,
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(Icons.volume_up_rounded, color: Colors.white.withOpacity(0.7), size: 20),
-          ),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 }
@@ -822,6 +967,8 @@ class _BottomIconRow extends StatefulWidget {
 }
 
 class _BottomIconRowState extends State<_BottomIconRow> {
+  AudioOutputDevices? _initialDevices;
+
   @override
   void initState() {
     super.initState();
@@ -829,6 +976,17 @@ class _BottomIconRowState extends State<_BottomIconRow> {
     // filled/outline state always matches SleepTimerService.instance —
     // same mechanism _PremiumOptionsSheet uses for its own sleep row.
     SleepTimerService.instance.addListener(_onSleepTick);
+    // outputDevicesStream only carries LIVE change events (connect/
+    // disconnect) — getAudioOutputDevices() is the one-shot snapshot call
+    // and does not itself feed that stream (see native_engine_bridge.dart:
+    // _outputDevices is only ever `.add()`-ed from the native EventChannel
+    // listener). Without fetching + holding this locally, the pill would
+    // sit on the "Speaker" fallback until the next connect/disconnect
+    // happened to fire, or until the user opened the full output sheet
+    // (which does its own separate fetch) at least once this session.
+    widget.player.engine.getAudioOutputDevices().then((d) {
+      if (mounted) setState(() => _initialDevices = d);
+    });
   }
 
   @override
@@ -849,47 +1007,91 @@ class _BottomIconRowState extends State<_BottomIconRow> {
       children: [
         Row(
           children: [
-            IconButton(
-              icon: const Icon(Icons.reorder_rounded, color: Colors.white, size: 24),
-              onPressed: () => _openQueueSheet(context),
+            // FIX ("dusre app jaisa beautiful, top grade" — screenshot
+            // shows queue/lyrics/sleep sitting inside their own soft
+            // translucent circle pill, same as the ••• and heart buttons
+            // up top — these were plain naked IconButtons with no
+            // background at all, which is exactly the "less premium"
+            // difference from the reference. Wrapped each in the same
+            // flat circle-pill treatment _CircleIconButton already uses
+            // above, just a touch smaller to match this row's icon size.
+            _RoundIconButton(
+              icon: Icons.reorder_rounded,
+              onTap: () => _openQueueSheet(context),
             ),
-            const SizedBox(width: 6),
-            IconButton(
-              icon: const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 22),
-              onPressed: () => _openLyricsSheet(context),
+            const SizedBox(width: 10),
+            _RoundIconButton(
+              icon: Icons.chat_bubble_outline_rounded,
+              onTap: () => _openLyricsSheet(context),
             ),
-            const SizedBox(width: 6),
-            IconButton(
-              icon: Icon(
-                sleepActive ? Icons.bedtime_rounded : Icons.dark_mode_outlined,
-                color: Colors.white,
-                size: 22,
-              ),
-              onPressed: () => showSleepTimerForSong(context, widget.player),
+            const SizedBox(width: 10),
+            _RoundIconButton(
+              icon: sleepActive ? Icons.bedtime_rounded : Icons.dark_mode_outlined,
+              onTap: () => showSleepTimerForSong(context, widget.player),
             ),
           ],
         ),
-        Container(
-          height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.14),
-            borderRadius: BorderRadius.circular(19),
-          ),
-          child: GestureDetector(
-            onTap: () => showAudioOutputSheet(context),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 10),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.speaker_group_rounded, color: Colors.white, size: 18),
-                  SizedBox(width: 6),
-                  Text('Speaker', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
-                ],
+        // LIVE FIX ("blootooth wala bhe connect kro jo connect ho wahi
+        // show ho" — pill was hardcoded to the text "Speaker" regardless
+        // of actual output): now reads engine.outputDevicesStream, the
+        // same live device stream audio_output_sheet.dart already uses,
+        // so this shows whichever device (phone speaker / wired / the
+        // connected Bluetooth headset's real name) is actually selected,
+        // and updates the instant a Bluetooth device connects or
+        // disconnects — no need to reopen the sheet.
+        StreamBuilder<AudioOutputDevices?>(
+          stream: widget.player.engine.outputDevicesStream,
+          builder: (context, snapshot) {
+            // Live stream event (a connect/disconnect firing after mount)
+            // takes priority once it arrives; until then, fall back to
+            // the one-shot snapshot fetched in initState above.
+            final devices = snapshot.data ?? _initialDevices;
+            AudioOutputDevice? selected;
+            for (final d in devices?.devices ?? const <AudioOutputDevice>[]) {
+              if (d.selected) {
+                selected = d;
+                break;
+              }
+            }
+            final icon = switch (selected?.kind) {
+              AudioOutputDeviceKind.bluetooth => Icons.bluetooth_audio_rounded,
+              AudioOutputDeviceKind.wired => Icons.headphones_rounded,
+              AudioOutputDeviceKind.usb => Icons.usb_rounded,
+              AudioOutputDeviceKind.speaker => Icons.smartphone_rounded,
+              _ => Icons.speaker_group_rounded,
+            };
+            final label = selected?.name ?? 'Speaker';
+            return Container(
+              height: 38,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(19),
               ),
-            ),
-          ),
+              child: GestureDetector(
+                onTap: () => showAudioOutputSheet(context),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, color: Colors.white, size: 18),
+                      const SizedBox(width: 6),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 110),
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -1460,7 +1662,7 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                       itemBuilder: (context, i) {
                         final s = queue[i];
                         final isCurrent = i == data.current;
-                        return Container(
+                        final row = Container(
                           // FIX: keying by index (`queue_${s.id}_$i`) gave
                           // every item a NEW key on every reorder (since its
                           // index changed), which defeats the whole point of
@@ -1478,7 +1680,6 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                           // for the same song are still distinct objects)
                           // and doesn't change when the list is reordered —
                           // exactly what ReorderableListView needs.
-                          key: ValueKey(identityHashCode(s)),
                           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                           decoration: BoxDecoration(
@@ -1531,11 +1732,28 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                                   ),
                                 ),
                               ),
+                              // FIX ("up next panel mein kaam nahi kar raha"
+                              // — real gap found: this row's ••• used to
+                              // open the generic song-options sheet (Play
+                              // Next / Add to Queue / Like / Share / Save to
+                              // Playlist / Audio Effects / Sleep Timer /
+                              // Download / Song Info) — NONE of which can
+                              // remove a single song from the queue or move
+                              // it to the top. The only removal path left
+                              // was the trash icon, which nukes the ENTIRE
+                              // queue, not just this one row. Swapped for a
+                              // queue-specific quick-actions menu — same
+                              // Play Next / Move to Top / Remove set the
+                              // Card layout's own _QueueTile already offers
+                              // — so a single unwanted song can actually be
+                              // taken out.
                               IconButton(
                                 icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 18),
-                                onPressed: () => showAurumFullPlayerOptionsSheet(
+                                onPressed: () => _showQueueItemActions(
                                   context,
-                                  s,
+                                  song: s,
+                                  index: i,
+                                  isCurrent: isCurrent,
                                   accentColor: panel.glow,
                                 ),
                               ),
@@ -1554,12 +1772,156 @@ class _EdgeToEdgeQueueSheetBodyState extends State<_EdgeToEdgeQueueSheetBody> {
                             ],
                           ),
                         );
+
+                        // FIX (same gap as above, second half): rows had no
+                        // swipe-to-delete either — Card layout's queue rows
+                        // support a horizontal swipe as a fast one-song
+                        // removal alongside the drag handle. The current
+                        // song is excluded from Dismissible (removing the
+                        // song that's actively playing out of the "Up
+                        // Next" list isn't a meaningful action here) so it
+                        // stays exactly as a plain, undismissible Container
+                        // — everything else can be swiped away.
+                        if (isCurrent) {
+                          return KeyedSubtree(
+                            key: ValueKey(identityHashCode(s)),
+                            child: row,
+                          );
+                        }
+                        return Dismissible(
+                          key: ValueKey(identityHashCode(s)),
+                          direction: DismissDirection.horizontal,
+                          background: _dismissBackground(alignStart: true),
+                          secondaryBackground: _dismissBackground(alignStart: false),
+                          onDismissed: (_) {
+                            AurumHaptics.medium();
+                            context.read<PlayerProvider>().removeFromQueue(i);
+                          },
+                          child: row,
+                        );
                       },
                     ),
             ),
           ],
         );
       },
+    );
+  }
+
+  /// Backdrop revealed behind a queue row while it's mid-swipe — a plain
+  /// rounded red delete affordance, aligned to whichever edge the swipe
+  /// is coming from so it never looks mirrored/wrong depending on swipe
+  /// direction.
+  Widget _dismissBackground({required bool alignStart}) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.redAccent.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      alignment: alignStart ? Alignment.centerLeft : Alignment.centerRight,
+      child: const Icon(Icons.delete_rounded, color: Colors.white, size: 22),
+    );
+  }
+
+  /// Queue-specific quick actions for a single row — Play Next / Move to
+  /// Top / Remove — the actions the generic showAurumFullPlayerOptionsSheet
+  /// doesn't cover (that sheet has no concept of "this song's position in
+  /// the queue" at all). Kept intentionally small/focused rather than
+  /// merged into the generic sheet, matching how the Card layout's
+  /// _QueueTile separates its own long-press menu from the shared
+  /// song-options sheet.
+  void _showQueueItemActions(
+    BuildContext context, {
+    required Song song,
+    required int index,
+    required bool isCurrent,
+    required Color accentColor,
+  }) {
+    AurumHaptics.light();
+    showAurumModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withAlpha(150),
+      builder: (sheetContext) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        child: Container(
+          color: AurumTheme.darkBgElevated,
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                ListTile(
+                  leading: Icon(Icons.skip_next_rounded, color: accentColor),
+                  title: Text(song.title,
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                  subtitle: Text(song.artist,
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Colors.white.withOpacity(0.6))),
+                  dense: true,
+                ),
+                const Divider(color: Colors.white24, height: 1),
+                ListTile(
+                  leading: const Icon(Icons.playlist_play_rounded, color: Colors.white),
+                  title: const Text('Play Next', style: TextStyle(color: Colors.white)),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    if (isCurrent) return;
+                    AurumHaptics.selection();
+                    final p = context.read<PlayerProvider>();
+                    await p.removeFromQueue(index);
+                    await p.playNext(song);
+                  },
+                ),
+                if (!isCurrent)
+                  ListTile(
+                    leading: const Icon(Icons.vertical_align_top_rounded, color: Colors.white),
+                    title: const Text('Move to Top', style: TextStyle(color: Colors.white)),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      AurumHaptics.selection();
+                      final p = context.read<PlayerProvider>();
+                      final target = p.currentIndex + 1;
+                      p.moveQueueItem(index, index < target ? target - 1 : target);
+                    },
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.info_outline_rounded, color: Colors.white),
+                  title: const Text('Song Info', style: TextStyle(color: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    showSongInfoDialog(context, song);
+                  },
+                ),
+                if (!isCurrent)
+                  ListTile(
+                    leading: const Icon(Icons.remove_circle_outline_rounded, color: Colors.redAccent),
+                    title: const Text('Remove from Queue', style: TextStyle(color: Colors.redAccent)),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      AurumHaptics.medium();
+                      context.read<PlayerProvider>().removeFromQueue(index);
+                    },
+                  ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

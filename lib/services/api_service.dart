@@ -298,10 +298,29 @@ class _MoodSubQuery {
 // (no songs resolved), just enough to try importing it.
 class _RealPlaylistCandidate {
   final String id;
+  final String title;
   final String author;
   final String artworkUrl;
   const _RealPlaylistCandidate({
     required this.id,
+    required this.title,
+    required this.author,
+    required this.artworkUrl,
+  });
+}
+
+/// Public, typed playlist result for UI callers outside this file (e.g.
+/// the search screen's "Community playlists" filter tab) — a public
+/// mirror of _RealPlaylistCandidate's fields, kept as a separate class
+/// since _RealPlaylistCandidate itself is intentionally file-private.
+class SearchPlaylistResult {
+  final String id;
+  final String title;
+  final String author;
+  final String artworkUrl;
+  const SearchPlaylistResult({
+    required this.id,
+    required this.title,
     required this.author,
     required this.artworkUrl,
   });
@@ -5118,6 +5137,40 @@ class ApiService {
     return HomeShelf(title: 'Featured playlists for you', items: items);
   }
 
+  /// Public typed "Featured playlists" list for the search screen's
+  /// Featured playlists filter tab — 100% YouTube Music InnerTube data,
+  /// same real official-weekly-chart queries fetchFeaturedPlaylistsForYou
+  /// already uses above (verified real InnerTube responses, see that
+  /// function's doc comment), just pulling more than one result per
+  /// query so the tab has a fuller list instead of exactly 3 cards. No
+  /// Saavn or any other source involved.
+  static Future<List<SearchPlaylistResult>> fetchFeaturedPlaylistsForSearch() async {
+    const queries = [
+      'weekly top videos hindi',
+      'weekly top videos tamil',
+      'weekly top videos punjabi',
+      'weekly top videos telugu',
+    ];
+    final perQuery = await Future.wait(
+      queries.map((q) => _searchAsHomeShelf(q, 'Featured playlists', take: 5)),
+    );
+    final results = <SearchPlaylistResult>[];
+    final seenIds = <String>{};
+    for (final shelf in perQuery) {
+      if (shelf == null) continue;
+      for (final item in shelf.items) {
+        if (!seenIds.add(item.browseId)) continue;
+        results.add(SearchPlaylistResult(
+          id: item.browseId,
+          title: item.title,
+          author: item.subtitle,
+          artworkUrl: item.artworkUrl,
+        ));
+      }
+    }
+    return results;
+  }
+
   // PERSONALIZED SHELF ("user jo songs sune vaise aana, ekdam youtube
   // music jaisa" — 2026-09-06): YT Music's own logged-in home has a
   // "Made for you"/"Because you listened to X" shelf built from actual
@@ -6705,6 +6758,7 @@ class ApiService {
 
         candidates.add(_RealPlaylistCandidate(
           id: browseId.startsWith('VL') ? browseId.substring(2) : browseId,
+          title: _cleanHomeText(title),
           author: _cleanHomeText(author),
           artworkUrl: artworkUrl,
         ));
@@ -6719,7 +6773,32 @@ class ApiService {
     }
   }
 
-  // First-non-empty-wins race across independent sources: the Worker's
+  // ═══════════════════════════════════════════════════════════════════
+  // PUBLIC playlist search — thin public wrapper around the private
+  // _searchRealPlaylists engine above, for UI callers (search screen's
+  // "Community playlists" filter) that need a typed, public result
+  // instead of the file-private _RealPlaylistCandidate. Reuses the exact
+  // same real YT Music InnerTube playlist search — no separate/fake
+  // data path.
+  // ═══════════════════════════════════════════════════════════════════
+  static Future<List<SearchPlaylistResult>> searchPlaylists(
+    String query, {
+    int take = 15,
+  }) async {
+    if (query.trim().isEmpty) return const [];
+    final candidates = await _searchRealPlaylists(query.trim(), take: take);
+    return candidates
+        .where((c) => c.title.isNotEmpty)
+        .map((c) => SearchPlaylistResult(
+              id: c.id,
+              title: c.title,
+              author: c.author,
+              artworkUrl: c.artworkUrl,
+            ))
+        .toList();
+  }
+
+
   // YT-search route, a direct-from-phone YT Music InnerTube call, and
   // JioSaavn's own search API. Saavn added (2026-08-14) as a third
   // source — it's JioSaavn's own catalog (not YouTube reuploads), so

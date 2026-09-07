@@ -24,7 +24,10 @@ import '../utils/aurum_haptics.dart';
 import '../utils/aurum_transitions.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart';
+import 'mix_screen.dart';
+import 'moods_genres_screen.dart';
 import '../utils/aurum_motion.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Staggered list item — fade + slide up, same system as home_screen.dart's
@@ -170,7 +173,7 @@ class _StaggeredItemState extends State<_StaggeredItem>
 // Public (not private to the state class) since it's referenced by the
 // chip-row widget below, which is a small standalone StatelessWidget for
 // clarity rather than an inline builder method.
-enum SearchResultFilter { all, songs, albums, artists }
+enum SearchResultFilter { all, songs, albums, artists, communityPlaylists, featuredPlaylists }
 
 class SearchScreen extends StatefulWidget {
   final bool isActive;
@@ -184,9 +187,6 @@ class _SearchScreenState extends State<SearchScreen>
     with SingleTickerProviderStateMixin {
   final _controller = TextEditingController();
   final _focusNode  = FocusNode();
-
-  // Tab controller: 0 = Search, 1 = Browse
-  late final TabController _tabController;
 
   // Search tab state
   List<Song>   _results        = [];
@@ -234,6 +234,15 @@ class _SearchScreenState extends State<SearchScreen>
   // sections inline, so it's a one-tap shortcut into the same dedicated
   // view the chip row offers.
   SearchResultFilter _activeFilter = SearchResultFilter.all;
+  // Community/Featured playlists filter state — fetched only when their
+  // chip is actually selected (not on every keystroke), same lazy
+  // pattern as the Albums/Artists dedicated filter views elsewhere in
+  // this file.
+  List<SearchPlaylistResult> _communityPlaylistResults = [];
+  bool _communityPlaylistsLoading = false;
+  String _lastCommunityPlaylistQuery = '';
+  List<SearchPlaylistResult> _featuredPlaylistResults = [];
+  bool _featuredPlaylistsLoading = false;
   // Vibe/related expansion, kept separate from _results so the UI shows it
   // as its own labeled "You might also like" section — never silently
   // merged into the direct matches (that mixing was why unrelated songs
@@ -283,17 +292,17 @@ class _SearchScreenState extends State<SearchScreen>
   Timer? _liveLoaderGraceTimer;
   bool _showHistory = false;
 
+  // Explore/Suggestions landing state (shown when there's no query) —
+  // 0 = Explore (mood/genre grid), 1 = Suggestions (unique songs/artists).
+  int _landingTabIndex = 0;
+  List<MoodGenreSection>? _moodSections;
+
   // Tracks the body key from the PREVIOUS build so the AnimatedSwitcher's
   // duration can tell "empty -> live" (keystroke #1, should feel instant)
   // apart from every other transition (should keep the normal 280ms feel).
   // Updated at the end of build(), after _computeBodyKey() has already
   // been read for both the duration check and the KeyedSubtree key.
   String _bodyKeyBeforeThisBuild = 'empty';
-
-  // Browse tab state
-  bool              _browseLoading = false;
-  BrowseSearchResult _browseResult = BrowseSearchResult.empty();
-  String            _lastBrowseQuery = '';
 
   Timer? _debounce;
   Timer? _suggestDebounce;
@@ -304,16 +313,26 @@ class _SearchScreenState extends State<SearchScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
     _loadHistory();
     _focusNode.addListener(_onFocusChange);
-    _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) setState(() {});
-    });
     // Ping Saavn backend the moment search opens — absorbs Render free-tier
     // cold-start delay before the user finishes typing their query.
     ApiService.wakeSaavn();
     _applyActiveState();
+    _loadMoodGenres();
+  }
+
+  Future<void> _loadMoodGenres() async {
+    final cached = await MoodGenreCacheStore.load();
+    if (cached != null && cached.isNotEmpty && mounted) {
+      setState(() => _moodSections = cached);
+    }
+    final fresh = await MoodGenreCacheStore.isFresh();
+    if (cached != null && cached.isNotEmpty && fresh) return;
+    final sections = await ApiService.fetchMoodsAndGenres();
+    if (!mounted || sections.isEmpty) return;
+    setState(() => _moodSections = sections);
+    unawaited(MoodGenreCacheStore.save(sections));
   }
 
   // ROOT FIX (keyboard stuck closed after leaving the Search tab): see
@@ -361,7 +380,6 @@ class _SearchScreenState extends State<SearchScreen>
     _focusNode.removeListener(_onFocusChange);
     _controller.dispose();
     _focusNode.dispose();
-    _tabController.dispose();
     _debounce?.cancel();
     _suggestDebounce?.cancel();
     _liveLoaderGraceTimer?.cancel();
@@ -513,16 +531,6 @@ class _SearchScreenState extends State<SearchScreen>
         setState(() { _albumResults = albums; });
       }).catchError((_) {});
 
-      // STABILITY FIX ("production level pe crash na ho"): this callback
-      // runs after a 120ms Timer delay — a real async gap. If the widget
-      // gets disposed during that wait (user backs out of Search fast
-      // enough), _fetchBrowse's very first line does
-      // `setState(() => _browseLoading = true)` with no mounted check of
-      // its own, which throws "setState() called after dispose()" and
-      // crashes. Every other callback in this same Timer already guards
-      // on `if (!mounted) return` before touching state; this call site
-      // was the one gap.
-      if (mounted && _tabController.index == 1) _fetchBrowse(query);
     });
   }
 
@@ -806,60 +814,7 @@ class _SearchScreenState extends State<SearchScreen>
       _liveLoading = false; _showLiveLoader = false; _loading = false;
       _showHistory = _history.isNotEmpty;
       _resultQueues = []; _relatedQueues = [];
-      _browseResult = BrowseSearchResult.empty();
-      _lastBrowseQuery = '';
     });
-  }
-
-
-  Future<void> _fetchBrowse(String query) async {
-    if (!mounted) return;
-    if (query == _lastBrowseQuery) return;
-    _lastBrowseQuery = query;
-    setState(() => _browseLoading = true);
-    // STABILITY FIX: same class of bug as ApiService.search() above —
-    // BrowseService.search() was awaited with no try/catch, so a real
-    // exception here (Browse tab search fires from the same debounce timer
-    // as live search) had the same uncaught-async-error crash path.
-    BrowseSearchResult result;
-    try {
-      result = await BrowseService.search(query);
-    } catch (_) {
-      if (mounted && _lastBrowseQuery == query) {
-        setState(() => _browseLoading = false);
-      }
-      return;
-    }
-    if (mounted && _lastBrowseQuery == query) {
-      setState(() { _browseResult = result; _browseLoading = false; });
-    }
-  }
-
-
-  Future<void> _playBrowseTrack(BrowseTrack track) async {
-    AurumHaptics.light();
-    _dismissKeyboard();
-    // FIX: tracks discovered via the YouTube fallback (Saavn had nothing for
-    // that artist/album) carry a real YouTube video ID as trackId. Forcing
-    // source: SongSource.saavn on those meant the player tried to resolve a
-    // YouTube ID against Saavn and always failed silently — tapping the
-    // track did nothing. track.isFromYoutube is set explicitly wherever
-    // these tracks are created, so playback routes to the correct resolver
-    // instead of guessing from the ID's shape.
-    final song = Song(
-      id:         track.trackId,
-      title:      track.title,
-      artist:     track.artist,
-      album:      track.album,
-      artworkUrl: track.artworkUrl,
-      duration:   track.durationMs != null ? (track.durationMs! / 1000).round() : null,
-      source:     track.isFromYoutube ? SongSource.youtube : SongSource.saavn,
-    );
-    if (mounted) {
-      // SPOTIFY-STYLE FIX ("kahi se bhi full player na khule"): tap now
-      // only starts playback — mini player is the tap feedback.
-      context.read<PlayerProvider>().playSong(song, queue: [song], index: 0);
-    }
   }
 
   // ── Build ─────────────────────────────────────────────────────
@@ -1009,17 +964,9 @@ class _SearchScreenState extends State<SearchScreen>
             children: [
               _buildHeader(context),
               _buildSearchBar(context),
-              // tab bar
-              _buildTabBar(context),
               _buildFilterChips(context),
               Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  // NeverScrollableScrollPhysics: prevents swipe-between-tabs
-                  // from triggering focus events that reopen the keyboard.
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    // Tab 0: existing search
+                child:
                     // FIX (nav bar showed solid/opaque on Search but
                     // transparent on Home): this used to be
                     // `ColoredBox(color: AurumTheme.bgOf(context))`
@@ -1071,17 +1018,6 @@ class _SearchScreenState extends State<SearchScreen>
                         child: _buildBody(context),
                       ),
                     ),
-                    // Tab 1: Browse
-                    
-                    _BrowseTab(
-                      loading:  _browseLoading,
-                      result:   _browseResult,
-                      query:    _controller.text.trim(),
-                      onSearch: _fetchBrowse,
-                      onPlay:   _playBrowseTrack,
-                    ),
-                  ],
-                ),
               ),
             ],
           ),
@@ -1091,90 +1027,51 @@ class _SearchScreenState extends State<SearchScreen>
     );
   }
 
-  // tab bar widget
-  Widget _buildTabBar(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-      child: Container(
-        height: 38,
-        decoration: BoxDecoration(
-          color: AurumTheme.bgCardOf(context),
-          borderRadius: BorderRadius.circular(11),
-          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.6),
-        ),
-        child: TabBar(
-          controller: _tabController,
-          indicator: BoxDecoration(
-            gradient: AurumTheme.goldGradient,
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: [
-              BoxShadow(
-                color: AurumTheme.gold.withOpacity(0.35),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          indicatorSize: TabBarIndicatorSize.tab,
-          dividerColor: Colors.transparent,
-          labelColor: Colors.black,
-          unselectedLabelColor: AurumTheme.textSecondaryOf(context),
-          labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-          unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-          padding: const EdgeInsets.all(3),
-          tabs: [
-            Tab(text: l10n.searchTabSearch),
-            Tab(text: l10n.searchTabBrowse),
-          ],
-          onTap: (i) {
-            if (i != _tabController.index) AurumHaptics.selection();
-            if (i == 1 && _controller.text.trim().isNotEmpty) {
-              _fetchBrowse(_controller.text.trim());
-            }
-          },
-        ),
-      ),
-    );
-  }
-
-  // ── Filter chips (SimpMusic-style: All / Songs / Albums / Artists) ──
+  // ── Filter chips (ArchiveTune-style: All / Songs / Albums / Artists,
+  // pill row with a leading check on the selected chip) ──
   //
-  // Only makes sense once there's an actual query with results, and only
-  // on the Search tab (tab 0) — Browse has its own category system
-  // already, this row would be a redundant second filter mechanism there.
+  // Only makes sense once there's an actual query with results.
   Widget _buildFilterChips(BuildContext context) {
     final hasQuery = _controller.text.trim().isNotEmpty;
     final hasAnyResults = _results.isNotEmpty || _artistResults.isNotEmpty || _albumResults.isNotEmpty;
-    if (_tabController.index != 0 || !hasQuery || !hasAnyResults) {
+    if (!hasQuery || !hasAnyResults) {
       return const SizedBox.shrink();
     }
-    final chips = <(SearchResultFilter, String)>[
-      (SearchResultFilter.all, 'All'),
-      (SearchResultFilter.songs, 'Songs'),
-      (SearchResultFilter.albums, 'Albums'),
-      (SearchResultFilter.artists, 'Artists'),
+    final chips = <(SearchResultFilter, String, IconData)>[
+      (SearchResultFilter.all, 'All', Icons.check_rounded),
+      (SearchResultFilter.songs, 'Songs', Icons.music_note_rounded),
+      (SearchResultFilter.albums, 'Albums', Icons.album_rounded),
+      (SearchResultFilter.artists, 'Artists', Icons.person_rounded),
+      (SearchResultFilter.communityPlaylists, 'Community playlists', Icons.groups_rounded),
+      (SearchResultFilter.featuredPlaylists, 'Featured playlists', Icons.playlist_play_rounded),
     ];
     return SizedBox(
-      height: 40,
+      height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
         itemCount: chips.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
-          final (filter, label) = chips[i];
+          final (filter, label, icon) = chips[i];
           final selected = _activeFilter == filter;
-          return GestureDetector(
+          return _PressScale(
             onTap: () {
               if (selected) return;
-              AurumHaptics.selection();
               setState(() => _activeFilter = filter);
+              // Lazy-fetch the two playlist tabs only when actually
+              // selected — never on every keystroke, same reasoning as
+              // the Albums/Artists dedicated views already use.
+              if (filter == SearchResultFilter.communityPlaylists) {
+                _fetchCommunityPlaylists(_controller.text.trim());
+              } else if (filter == SearchResultFilter.featuredPlaylists) {
+                _fetchFeaturedPlaylists();
+              }
             },
             child: AnimatedContainer(
               duration: AurumMotion.durationOrZero(AurumMotion.medium1),
               curve: Curves.easeOut,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 gradient: selected ? AurumTheme.goldGradient : null,
@@ -1193,13 +1090,24 @@ class _SearchScreenState extends State<SearchScreen>
                       ]
                     : null,
               ),
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected ? Colors.black : AurumTheme.textSecondaryOf(context),
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icon,
+                    size: 15,
+                    color: selected ? Colors.black : AurumTheme.textSecondaryOf(context),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? Colors.black : AurumTheme.textSecondaryOf(context),
+                    ),
+                  ),
+                ],
               ),
             ),
           );
@@ -1314,6 +1222,158 @@ class _SearchScreenState extends State<SearchScreen>
     );
   }
 
+  // ── Community playlists filter (real YT Music playlist search results
+  // for the current query, via ApiService.searchPlaylists) ──
+  Future<void> _fetchCommunityPlaylists(String query) async {
+    if (!mounted || query.isEmpty) return;
+    if (query == _lastCommunityPlaylistQuery && _communityPlaylistResults.isNotEmpty) return;
+    _lastCommunityPlaylistQuery = query;
+    setState(() => _communityPlaylistsLoading = true);
+    List<SearchPlaylistResult> results;
+    try {
+      results = await ApiService.searchPlaylists(query);
+    } catch (_) {
+      if (mounted && _lastCommunityPlaylistQuery == query) {
+        setState(() => _communityPlaylistsLoading = false);
+      }
+      return;
+    }
+    if (mounted && _lastCommunityPlaylistQuery == query) {
+      setState(() {
+        _communityPlaylistResults = results;
+        _communityPlaylistsLoading = false;
+      });
+    }
+  }
+
+  Widget _buildCommunityPlaylistsFilterView(BuildContext context) {
+    if (_communityPlaylistsLoading && _communityPlaylistResults.isEmpty) {
+      return const Center(child: AurumMorphLoader());
+    }
+    if (_communityPlaylistResults.isEmpty) {
+      return _buildEmptyFilterState(context, 'No community playlists found');
+    }
+    return ListView.builder(
+      key: const ValueKey('community_playlists_filter'),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 80),
+      itemCount: _communityPlaylistResults.length,
+      itemBuilder: (context, i) =>
+          _buildPlaylistResultTile(context, _communityPlaylistResults[i]),
+    );
+  }
+
+  // ── Featured playlists filter (real YouTube Music InnerTube data — the
+  // same official-weekly-chart queries fetchFeaturedPlaylistsForYou uses
+  // for the home feed's "Featured playlists for you" shelf, just fetched
+  // with a higher take() for a fuller list here — independent of the
+  // typed query, same as how YT Music's own "Featured playlists" search
+  // tab shows curated picks rather than a text match) ──
+  Future<void> _fetchFeaturedPlaylists() async {
+    if (!mounted || _featuredPlaylistResults.isNotEmpty) return;
+    setState(() => _featuredPlaylistsLoading = true);
+    List<SearchPlaylistResult> results;
+    try {
+      results = await ApiService.fetchFeaturedPlaylistsForSearch();
+    } catch (_) {
+      if (mounted) setState(() => _featuredPlaylistsLoading = false);
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _featuredPlaylistResults = results;
+        _featuredPlaylistsLoading = false;
+      });
+    }
+  }
+
+  Widget _buildFeaturedPlaylistsFilterView(BuildContext context) {
+    if (_featuredPlaylistsLoading && _featuredPlaylistResults.isEmpty) {
+      return const Center(child: AurumMorphLoader());
+    }
+    if (_featuredPlaylistResults.isEmpty) {
+      return _buildEmptyFilterState(context, 'No featured playlists found');
+    }
+    return ListView.builder(
+      key: const ValueKey('featured_playlists_filter'),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 80),
+      itemCount: _featuredPlaylistResults.length,
+      itemBuilder: (context, i) =>
+          _buildPlaylistResultTile(context, _featuredPlaylistResults[i]),
+    );
+  }
+
+  // Shared row for both playlist filter tabs — real title/author/artwork,
+  // tap opens MixScreen and lazy-loads the actual song list via
+  // ApiService.fetchYtPlaylistSongs (both Community and Featured
+  // playlists are real YouTube Music InnerTube playlist ids — no other
+  // source), same "empty songs, autoLoadMore resolves it" pattern
+  // MixScreen's other real callers already use elsewhere in the app.
+  Widget _buildPlaylistResultTile(
+    BuildContext context,
+    SearchPlaylistResult playlist,
+  ) {
+    return AurumPressable(
+      scaleAmount: 0.97,
+      onTap: () {
+        AurumHaptics.light();
+        _dismissKeyboard();
+        AurumDepthRoute.to(
+          context,
+          MixScreen(
+            mixId: playlist.id,
+            mixName: playlist.title,
+            artworkUrl: playlist.artworkUrl,
+            emoji: '',
+            songs: const [],
+            autoLoadMore: () => ApiService.fetchYtPlaylistSongs(playlist.id),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: AurumArtwork(url: playlist.artworkUrl, size: 56),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    playlist.title,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    playlist.author.isNotEmpty ? playlist.author : 'Playlist',
+                    style: TextStyle(
+                      color: AurumTheme.textSecondaryOf(context),
+                      fontSize: 13,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context), size: 22),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody(BuildContext context) {
     // STRICT FIX: previously `if (_loading)` was checked first, no matter
     // what — so the instant the user hit the keyboard's Search action
@@ -1371,6 +1431,12 @@ class _SearchScreenState extends State<SearchScreen>
     }
     if (_activeFilter == SearchResultFilter.artists) {
       return _buildArtistsFilterView(context);
+    }
+    if (_activeFilter == SearchResultFilter.communityPlaylists) {
+      return _buildCommunityPlaylistsFilterView(context);
+    }
+    if (_activeFilter == SearchResultFilter.featuredPlaylists) {
+      return _buildFeaturedPlaylistsFilterView(context);
     }
     if (_results.isNotEmpty) return _buildResults();
     if (_controller.text.trim().isNotEmpty) return _buildLivePanel(context);
@@ -1752,6 +1818,37 @@ class _SearchScreenState extends State<SearchScreen>
     );
   }
 
+  // "Top results" header — ArchiveTune-style: a short gold accent bar
+  // plus a bold title, sitting above the first results list (matches the
+  // reference screenshot's "▎Top results" section header, distinct from
+  // the smaller uppercase _sectionLabel used for "You might also like").
+  Widget _topResultsHeader(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 16,
+            decoration: BoxDecoration(
+              gradient: AurumTheme.goldGradient,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'Top results',
+            style: TextStyle(
+              color: AurumTheme.textPrimaryOf(context),
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _suggestionTile(BuildContext context, String s) {
     return ListTile(
       key: ValueKey('sugg_$s'),
@@ -1798,6 +1895,12 @@ class _SearchScreenState extends State<SearchScreen>
     if (_activeFilter == SearchResultFilter.artists) {
       return _buildArtistsFilterView(context);
     }
+    if (_activeFilter == SearchResultFilter.communityPlaylists) {
+      return _buildCommunityPlaylistsFilterView(context);
+    }
+    if (_activeFilter == SearchResultFilter.featuredPlaylists) {
+      return _buildFeaturedPlaylistsFilterView(context);
+    }
     // Two clearly separated sections instead of one flat list — direct
     // matches for the query first, then a labeled "You might also like"
     // section for the mood/genre-related expansion. This is the fix for
@@ -1824,7 +1927,9 @@ class _SearchScreenState extends State<SearchScreen>
     // taller instead of overflowing anything.
     final showArtistAlbumHeader = _activeFilter == SearchResultFilter.all &&
         (_artistResults.isNotEmpty || _albumResults.isNotEmpty);
-    final headerItemCount = showArtistAlbumHeader ? 1 : 0;
+    final showTopResultsHeader = _activeFilter == SearchResultFilter.all &&
+        (_results.isNotEmpty || showArtistAlbumHeader);
+    final headerItemCount = (showTopResultsHeader ? 1 : 0) + (showArtistAlbumHeader ? 1 : 0);
 
     return Stack(
       children: [
@@ -1836,7 +1941,11 @@ class _SearchScreenState extends State<SearchScreen>
             itemCount: headerItemCount + itemCount,
             padding: const EdgeInsets.only(bottom: 80),
             itemBuilder: (_, rawIndex) {
-              if (showArtistAlbumHeader && rawIndex == 0) {
+              if (showTopResultsHeader && rawIndex == 0) {
+                return _topResultsHeader(context);
+              }
+              final afterTopIndex = rawIndex - (showTopResultsHeader ? 1 : 0);
+              if (showArtistAlbumHeader && afterTopIndex == 0) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -1846,7 +1955,7 @@ class _SearchScreenState extends State<SearchScreen>
                   ],
                 );
               }
-              final i = rawIndex - headerItemCount;
+              final i = afterTopIndex - (showArtistAlbumHeader ? 1 : 0);
             // CRASH FIX: _results/itemCount mismatch during scroll+update
             // race. itemCount was computed from _results.length at build()
             // time, but setState() can update _results mid-scroll — i can
@@ -2193,316 +2302,412 @@ class _SearchScreenState extends State<SearchScreen>
 
   Widget _buildEmpty(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Center(
-      key: const ValueKey('empty'),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Container(
-          width: 96,
-          height: 96,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              colors: [
-                AurumTheme.gold.withOpacity(0.16),
-                AurumTheme.gold.withOpacity(0.0),
-              ],
+    final sections = _moodSections;
+
+    // Nothing loaded yet (first cold open, no cache) — keep the original
+    // simple placeholder rather than showing a bare loading spinner.
+    if (sections == null || sections.isEmpty) {
+      return Center(
+        key: const ValueKey('empty'),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Container(
+            width: 96,
+            height: 96,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  AurumTheme.gold.withOpacity(0.16),
+                  AurumTheme.gold.withOpacity(0.0),
+                ],
+              ),
+            ),
+            child: Center(
+              child: ShaderMask(
+                shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
+                child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 46),
+              ),
             ),
           ),
-          child: Center(
-            child: ShaderMask(
-              shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
-              child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 46),
+          const SizedBox(height: 20),
+          Text(l10n.searchFavouriteSongs,
+              style: TextStyle(
+                  color: AurumTheme.textSecondaryOf(context),
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          Text(l10n.searchAllInOnePlace,
+              style: TextStyle(
+                  color: AurumTheme.textMutedOf(context),
+                  fontSize: 12.5)),
+        ]),
+      );
+    }
+
+    // Explore/Suggestions landing — ArchiveTune-style: a small segmented
+    // switcher up top, then either the Mood & Genres grid or the
+    // Suggestions list (Unique Songs / Unique Artists) below it.
+    return SingleChildScrollView(
+      key: const ValueKey('explore'),
+      padding: const EdgeInsets.only(bottom: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildLandingSwitcher(context),
+          const SizedBox(height: 4),
+          if (_landingTabIndex == 0)
+            _buildExploreGrid(context, sections)
+          else
+            _buildSuggestionsLanding(context),
+        ],
+      ),
+    );
+  }
+
+  // Segmented "Explore / Suggestions" switcher — matches the reference's
+  // two-tab landing (Explore shows Mood & Genres, Suggestions shows the
+  // user's own Unique Songs / Unique Artists).
+  Widget _buildLandingSwitcher(BuildContext context) {
+    Widget tab(String label, int index) {
+      final selected = _landingTabIndex == index;
+      return Expanded(
+        child: _PressScale(
+          onTap: () {
+            if (selected) return;
+            setState(() => _landingTabIndex = index);
+          },
+          child: AnimatedContainer(
+            duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+            curve: Curves.easeOut,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              gradient: selected ? AurumTheme.goldGradient : null,
+              color: selected ? null : Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: AurumTheme.gold.withOpacity(0.35),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                color: selected
+                    ? Colors.black
+                    : AurumTheme.textMutedOf(context),
+              ),
             ),
           ),
         ),
-        const SizedBox(height: 20),
-        Text(l10n.searchFavouriteSongs,
-            style: TextStyle(
-                color: AurumTheme.textSecondaryOf(context),
-                fontSize: 14.5,
-                fontWeight: FontWeight.w600)),
-        const SizedBox(height: 6),
-        Text(l10n.searchAllInOnePlace,
-            style: TextStyle(
-                color: AurumTheme.textMutedOf(context),
-                fontSize: 12.5)),
-      ]),
-    );
-  }
-}
+      );
+    }
 
-// =============================================================================
-// Browse Tab Widget
-// =============================================================================
-
-class _BrowseTab extends StatefulWidget {
-  final bool               loading;
-  final BrowseSearchResult result;
-  final String             query;
-  final void Function(String) onSearch;
-  final void Function(BrowseTrack) onPlay;
-
-  const _BrowseTab({
-    required this.loading,
-    required this.result,
-    required this.query,
-    required this.onSearch,
-    required this.onPlay,
-  });
-
-  @override
-  State<_BrowseTab> createState() => _BrowseTabState();
-}
-
-class _BrowseTabState extends State<_BrowseTab> {
-  // Album drill-down state
-  String?           _openAlbumId;
-  String?           _openAlbumName;
-  bool              _albumLoading = false;
-  List<BrowseTrack> _albumTracks  = [];
-
-  // Artist drill-down state
-  String?           _openArtistName;
-  bool              _artistLoading = false;
-  List<BrowseTrack> _artistTracks  = [];
-
-  // Scroll controllers so FadedHorizontalList can observe each row's
-  // position and only fade an edge once there's actually more content
-  // that way — see faded_horizontal_list.dart.
-  final _artistsScrollController = ScrollController();
-  final _albumsScrollController = ScrollController();
-
-  @override
-  void dispose() {
-    _artistsScrollController.dispose();
-    _albumsScrollController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _openAlbum(BrowseAlbum album) async {
-    setState(() { _openAlbumId = album.collectionId; _openAlbumName = album.name; _albumLoading = true; _albumTracks = []; _openArtistName = null; });
-    // FIX: albumTitle pass karo — ab specific movie/album ke songs aayenge
-    final tracks = await BrowseService.albumTracks(album.collectionId, isFromYoutube: album.isFromYoutube, albumTitle: album.name);
-    if (mounted) setState(() { _albumTracks = tracks; _albumLoading = false; });
-  }
-
-  Future<void> _openArtist(BrowseArtist artist) async {
-    setState(() { _openArtistName = artist.name; _artistLoading = true; _artistTracks = []; _openAlbumId = null; });
-    final tracks = await BrowseService.artistTopSongs(
-      artist.name,
-      isFromYoutube: artist.isFromYoutube,
-      channelId: artist.channelId,
-    );
-    if (mounted) setState(() { _artistTracks = tracks; _artistLoading = false; });
-  }
-
-  void _back() => setState(() { _openAlbumId = null; _openAlbumName = null; _openArtistName = null; _albumTracks = []; _artistTracks = []; });
-
-  @override
-  Widget build(BuildContext context) {
-    final bool isDrilledDown = _openAlbumId != null || _openArtistName != null;
-
-    // System/gesture back (and the Android predictive-back swipe) was
-    // previously invisible to this drill-down — it isn't a real Navigator
-    // route, just a setState-driven view swap, so back used to fall
-    // straight through to the Search screen's own route and exit all the
-    // way to Home. PopScope intercepts it while drilled into an
-    // album/artist and routes it through the same _back() the header's
-    // back arrow already uses, instead of popping the real screen.
-    return PopScope(
-      canPop: !isDrilledDown,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        if (isDrilledDown) _back();
-      },
-      child: _buildBody(context),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AurumTheme.dividerOf(context), width: 0.6),
+        ),
+        child: Row(children: [tab('Explore', 0), const SizedBox(width: 4), tab('Suggestions', 1)]),
+      ),
     );
   }
 
-  Widget _buildBody(BuildContext context) {
-    // Drill-down: album tracks
-    if (_openAlbumId != null) return _buildTrackList(context, _openAlbumName ?? AppLocalizations.of(context)!.browseAlbumFallbackTitle, _albumLoading, _albumTracks);
-    // Drill-down: artist top songs
-    if (_openArtistName != null) return _buildTrackList(context, _openArtistName!, _artistLoading, _artistTracks);
-
-    if (widget.query.isEmpty) return _buildBrowseEmpty(context);
-    if (widget.loading)       return const Center(child: AurumMorphLoader(size: 56));
-    if (widget.result.isEmpty) return _buildBrowseEmpty(context);
-
-    // LIGHTWEIGHT FIX ("browser mai bhi bahut MB/hang" — same root cause
-    // as the live-search panel): this was a plain ListView whose track
-    // sections (topAlbumTracks, tracks) were built via `.map()` — every
-    // track tile (with its own artwork image + gesture handling)
-    // instantiated immediately regardless of scroll position. A movie
-    // with a large OST or a broad keyword search could mean dozens of
-    // tiles and simultaneous image loads on a single search. Converted to
-    // CustomScrollView + slivers so the fixed carousels (artists/albums)
-    // stay as-is, but each track list is a SliverList.builder — lazily
-    // built only as the user actually scrolls to it.
-    return CustomScrollView(
-      slivers: [
-        const SliverPadding(padding: EdgeInsets.only(top: 0)),
-        // PREMIUM FEATURE: complete playlist for a strongly-matched
-        // album/movie name, pre-fetched by BrowseService.search — shown
-        // above Artists/Albums since it's the most direct answer to "I
-        // typed a movie name" and the user shouldn't have to tap the
-        // album card first to see it.
-        if (widget.result.topAlbum != null && widget.result.topAlbumTracks.isNotEmpty) ...[
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
-              child: Row(children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: AurumArtwork(url: widget.result.topAlbum!.artworkUrl, size: 48),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(widget.result.topAlbum!.name, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 15, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    Text('${widget.result.topAlbumTracks.length} songs', style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 12)),
-                  ]),
-                ),
-              ]),
-            ),
-          ),
-          SliverList.builder(
-            itemCount: widget.result.topAlbumTracks.length,
-            itemBuilder: (_, i) {
-              final t = widget.result.topAlbumTracks[i];
-              return _StaggeredItem(
-                index: i,
-                itemKey: 'topalbum_${t.trackId}',
-                child: _BrowseTrackTile(track: t, onPlay: () => widget.onPlay(t)),
-              );
-            },
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 8)),
-        ],
-        // Artists
-        if (widget.result.artists.isNotEmpty) ...[
-          SliverToBoxAdapter(child: _sectionLabel(context, AppLocalizations.of(context)!.libraryArtists)),
-          SliverToBoxAdapter(
-            child: FadedHorizontalList(
-              height: 100,
-              controller: _artistsScrollController,
-              child: ListView.builder(
-                controller: _artistsScrollController,
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                // PERF: horizontal carousel pop-in fix.
-                cacheExtent: 500,
-                itemCount: widget.result.artists.length,
-                itemBuilder: (_, i) => _StaggeredItem(
-                  index: i,
-                  itemKey: 'artist_${widget.result.artists[i].artistId}',
-                  child: _ArtistChip(
-                    artist: widget.result.artists[i],
-                    onTap: () => _openArtist(widget.result.artists[i]),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-        // Albums
-        if (widget.result.albums.isNotEmpty) ...[
-          SliverToBoxAdapter(child: _sectionLabel(context, AppLocalizations.of(context)!.libraryAlbums)),
-          SliverToBoxAdapter(
-            child: FadedHorizontalList(
-              height: 180,
-              controller: _albumsScrollController,
-              child: ListView.builder(
-                controller: _albumsScrollController,
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                // PERF: horizontal carousel pop-in fix.
-                cacheExtent: 700,
-                itemCount: widget.result.albums.length,
-                itemBuilder: (_, i) => _StaggeredItem(
-                  index: i,
-                  itemKey: 'album_${widget.result.albums[i].collectionId}',
-                  child: _AlbumCard(
-                    album: widget.result.albums[i],
-                    onTap: () => _openAlbum(widget.result.albums[i]),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-        // Tracks
-        if (widget.result.tracks.isNotEmpty) ...[
-          SliverToBoxAdapter(child: _sectionLabel(context, AppLocalizations.of(context)!.librarySongs)),
-          SliverList.builder(
-            itemCount: widget.result.tracks.length,
-            itemBuilder: (_, i) {
-              final t = widget.result.tracks[i];
-              return _StaggeredItem(
-                index: i,
-                itemKey: 'track_${t.trackId}',
-                child: _BrowseTrackTile(track: t, onPlay: () => widget.onPlay(t)),
-              );
-            },
-          ),
-        ],
-        const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
-      ],
-    );
-  }
-
-  Widget _buildTrackList(BuildContext context, String title, bool loading, List<BrowseTrack> tracks) {
+  Widget _buildExploreGrid(BuildContext context, List<MoodGenreSection> sections) {
+    // "Mood & Genres" grid, ArchiveTune-style: a header row with a "See
+    // all" action, then a 2-column grid of the first section's tiles
+    // (kept short here; the full page is one tap away).
+    final section = sections.first;
+    final tiles = section.items.take(10).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Back header
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 4, 20, 8),
-          child: Row(children: [
-            IconButton(icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18), onPressed: _back, color: AurumTheme.textPrimaryOf(context)),
-            Expanded(child: Text(title, style: TextStyle(color: AurumTheme.textPrimaryOf(context), fontSize: 16, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
-          ]),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Mood & Genres',
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    AurumHaptics.light();
+                    AurumDepthRoute.to(context, const MoodsGenresScreen());
+                  },
+                  child: Text(
+                    'See all',
+                    style: TextStyle(
+                      color: AurumTheme.gold,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: tiles.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 2.1,
+              ),
+              itemBuilder: (context, i) {
+                final tile = tiles[i];
+                final color = tile.color != null
+                    ? Color(tile.color!).withAlpha(255)
+                    : AurumTheme.bgCardOf(context);
+                return _ExploreMoodTile(
+                  title: tile.title,
+                  color: color,
+                  artworkUrl: tile.artworkUrl,
+                  onTap: () {
+                    AurumHaptics.selection();
+                    _dismissKeyboard();
+                    AurumDepthRoute.to(
+                      context,
+                      MoodGenreDetailScreen(category: tile, tileColor: color),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      );
+  }
+
+  // ── Suggestions landing: the user's own real listening data — "Unique
+  // Songs" (dedup'd recently-played) and "Unique Artists" (their top
+  // artists by play count). No fabricated data — both come straight
+  // from RecentlyPlayedProvider, which this screen already reads
+  // elsewhere in the file.
+  Widget _buildSuggestionsLanding(BuildContext context) {
+    final rp = context.watch<RecentlyPlayedProvider>();
+    final seen = <String>{};
+    final uniqueSongs = <Song>[];
+    for (final s in rp.history) {
+      if (seen.add(s.id)) uniqueSongs.add(s);
+      if (uniqueSongs.length >= 6) break;
+    }
+    final uniqueArtists = rp.topArtists(count: 6);
+
+    if (uniqueSongs.isEmpty && uniqueArtists.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 40, 20, 0),
+        child: Center(
+          child: Text(
+            'Play a few songs and your suggestions will show up here',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13),
+          ),
         ),
-        if (loading)
-          const Expanded(child: Center(child: AurumMorphLoader(size: 56)))
-        else
-          Expanded(
-            child: ListView.builder(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.only(bottom: 100),
-              // PERF: pop-in fix for the full track browse list.
-              cacheExtent: 1000,
-              itemCount: tracks.length,
-              itemBuilder: (_, i) => _StaggeredItem(
-                index: i,
-                itemKey: 'browsetrack_${tracks[i].trackId}',
-                child: _BrowseTrackTile(track: tracks[i], onPlay: () => widget.onPlay(tracks[i])),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (uniqueSongs.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Text(
+              'Unique Songs',
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.2,
               ),
             ),
           ),
+          ...List.generate(uniqueSongs.length, (i) {
+            final song = uniqueSongs[i];
+            return SongTile(
+              key: ValueKey('unique_song_${song.id}'),
+              song: song,
+              queue: uniqueSongs,
+              index: i,
+              showIndex: true,
+              displayIndex: i + 1,
+            );
+          }),
+        ],
+        if (uniqueArtists.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+            child: Text(
+              'Unique Artists',
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 96,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              itemCount: uniqueArtists.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 16),
+              itemBuilder: (context, i) {
+                final name = uniqueArtists[i];
+                return _PressScale(
+                  onTap: () {
+                    // No stable artist id is available from play history
+                    // (only the name) — so, same as tapping a suggestion
+                    // chip elsewhere in this screen, this runs it as a
+                    // real search rather than guessing an ArtistScreen id.
+                    _controller.text = name;
+                    _search(name);
+                  },
+                  child: SizedBox(
+                    width: 72,
+                    child: Column(
+                      children: [
+                        ClipOval(
+                          child: Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              gradient: AurumTheme.goldGradient,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Center(
+                              child: Text(
+                                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AurumTheme.textSecondaryOf(context),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ],
-    );
-  }
-
-  Widget _buildBrowseEmpty(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return AurumEmptyState(
-      icon: Icons.library_music_outlined,
-      title: widget.query.isEmpty ? l10n.browseTypeToExplore : l10n.browseNoResults,
-    );
-  }
-
-  Widget _sectionLabel(BuildContext context, String label) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-      child: Text(label.toUpperCase(), style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
     );
   }
 }
 
-// ── Browse sub-widgets ─────────────────────────────────────────────────────────
+// Compact tile for the Explore landing grid — visually matches
+// MoodsGenresScreen's own tile card so tapping through feels seamless.
+class _ExploreMoodTile extends StatelessWidget {
+  final String title;
+  final Color color;
+  final String? artworkUrl;
+  final VoidCallback onTap;
+
+  const _ExploreMoodTile({
+    required this.title,
+    required this.color,
+    required this.onTap,
+    this.artworkUrl,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final art = artworkUrl;
+    return Material(
+      color: color,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              if (art != null && art.isNotEmpty) ...[
+                const SizedBox(width: 10),
+                Transform.rotate(
+                  angle: 0.25,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: CachedNetworkImage(
+                      imageUrl: art,
+                      width: 46,
+                      height: 46,
+                      fit: BoxFit.cover,
+                      memCacheWidth: 92,
+                      memCacheHeight: 92,
+                      fadeInDuration: const Duration(milliseconds: 150),
+                      placeholder: (_, __) => const SizedBox.shrink(),
+                      errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 
 // Tiny reusable press-scale wrapper — same feel as home_screen's _SongCard
 // press animation, without duplicating an AnimationController per widget type.
@@ -2554,49 +2759,6 @@ class _PressScaleState extends State<_PressScale>
         builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
         child: widget.child,
       ),
-    );
-  }
-}
-
-class _BrowseTrackTile extends StatelessWidget {
-  final BrowseTrack track;
-  final VoidCallback onPlay;
-  const _BrowseTrackTile({required this.track, required this.onPlay});
-
-  @override
-  Widget build(BuildContext context) {
-    // FIX: was comparing on title+artist strings. Two different tracks that
-    // share the same title/artist (a reupload, a cover, the same song from
-    // a different album/source) would both light up as "now playing" at
-    // once — every SongTile elsewhere in the app already compares by the
-    // actual song id (see song_tile.dart), so Browse's own tile should
-    // hold the same identity bar instead of a string-based approximation.
-    final isPlaying = context.select<PlayerProvider, bool>((p) => p.currentSong?.id == track.trackId);
-    final isActuallyPlaying = context.select<PlayerProvider, bool>((p) => p.isPlaying);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return ListTile(
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: AurumArtwork(url: track.artworkUrl, size: 44),
-      ),
-      title: Text(track.title, style: TextStyle(color: isPlaying ? AurumTheme.gold : AurumTheme.textPrimaryOf(context), fontSize: 14, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(track.artist, style: TextStyle(color: AurumTheme.textSecondaryOf(context), fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: isPlaying
-          ? AurumEqualizerBars(playing: isActuallyPlaying, color: AurumTheme.gold, size: 20)
-          : Icon(Icons.play_circle_outline_rounded, color: AurumTheme.textMutedOf(context), size: 22),
-      dense: true,
-      // FIX (same class as song_tile.dart/library_screen.dart's InkWell
-      // fix — "cold start pe kisi bhi title tap karo, grey/white layer
-      // aa jaata hai"): ListTile's own internal InkWell had no explicit
-      // splashColor/highlightColor, so it used Flutter's unthemed
-      // Material default. Search's Browse tab tiles go through THIS
-      // widget, not song_tile.dart's SongTile — so fixing SongTile alone
-      // never covered a tap here. Same theme-correct, low-opacity color
-      // closes this the same way.
-      splashColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
-      focusColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
-      hoverColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
-      onTap: onPlay,
     );
   }
 }
