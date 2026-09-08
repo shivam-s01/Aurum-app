@@ -83,10 +83,10 @@ class LibraryScreen extends StatefulWidget {
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-enum _LibTab { playlists, songs, artists, albums }
+enum _LibTab { library, playlists, songs, artists, albums }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  _LibTab _tab = _LibTab.songs;
+  _LibTab _tab = _LibTab.library;
   final ScrollController _tabScrollCtrl = ScrollController();
 
   @override
@@ -100,7 +100,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       extendBody: true,
-      bottomNavigationBar: const MiniPlayerSlot(),
+      // FIX (duplicate mini player): LibraryScreen is always tab index 2
+      // inside MainShell's own IndexedStack (see main_shell.dart's
+      // `_screens` list) — it is never pushed as an independent route.
+      // MainShell's own bottomNavigationBar already renders the one real
+      // MiniPlayer for all 3 root tabs (Home/Search/Library). Giving this
+      // screen its own `MiniPlayerSlot()` on top of that stacked a SECOND,
+      // fully independent mini player (its own state, its own play/pause)
+      // directly above MainShell's, which is exactly the "2 mini players"
+      // bug. Root tab screens must NOT set their own bottomNavigationBar —
+      // only screens pushed via Navigator.push on top of MainShell (see
+      // MiniPlayerSlot's doc comment) need one.
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -175,9 +185,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  // ── Segmented tab row: Playlists / Songs / Artists / Albums ─────────────
+  // ── Segmented tab row: Library / Playlists / Songs / Artists / Albums ───
   Widget _buildTabRow(BuildContext context) {
     final tabs = <_LibTab, ({IconData icon, String label})>{
+      _LibTab.library:   (icon: Icons.grid_view_rounded, label: 'Library'),
       _LibTab.playlists: (icon: Icons.format_list_bulleted_rounded, label: 'Playlists'),
       _LibTab.songs:     (icon: Icons.music_note_rounded, label: 'Songs'),
       _LibTab.artists:   (icon: Icons.person_rounded, label: 'Artists'),
@@ -212,6 +223,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _buildTabBody(BuildContext context) {
     switch (_tab) {
+      case _LibTab.library:
+        return const _AurumLibraryOverviewTab();
       case _LibTab.playlists:
         return const _AurumPlaylistsTab();
       case _LibTab.songs:
@@ -1846,22 +1859,20 @@ class _AurumAlbumRow extends StatelessWidget {
   }
 }
 // ══════════════════════════════════════════════════════════════════════════════
-// PLAYLISTS TAB — combines a quick-access grid (
-// Liked/Offline/Cached/Local Files/My Top 50 + Recently Played rail) with
-// the user's own saved playlists underneath. Backed by real providers:
-// FavoritesProvider (Liked), DownloadProvider (Offline), LibraryProvider
-// (Local Files), RecentlyPlayedProvider (Recently Played), PlaylistProvider
-// (Your Playlists).
+// LIBRARY TAB — the overview landing tab (ArchiveTune-style): hero "most
+// played" card, quick-access grid (Liked / Offline / Cached / Local Files /
+// My Top 50), Recently Played rail, and a small 2-item playlist preview
+// with a "See all" arrow into the full PlaylistsScreen.
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _AurumPlaylistsTab extends StatefulWidget {
-  const _AurumPlaylistsTab();
+class _AurumLibraryOverviewTab extends StatefulWidget {
+  const _AurumLibraryOverviewTab();
 
   @override
-  State<_AurumPlaylistsTab> createState() => _AurumPlaylistsTabState();
+  State<_AurumLibraryOverviewTab> createState() => _AurumLibraryOverviewTabState();
 }
 
-class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
+class _AurumLibraryOverviewTabState extends State<_AurumLibraryOverviewTab> {
   @override
   Widget build(BuildContext context) {
     final favorites = context.watch<FavoritesProvider>();
@@ -1876,6 +1887,7 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
     final heroTitle = !hasRecent
         ? 'Your Library'
         : (recent.first.album.isNotEmpty ? recent.first.album : recent.first.title);
+    final previewPlaylists = playlists.playlists.take(2).toList();
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
@@ -1888,7 +1900,17 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
             child: _HeroActionCard(
               eyebrow: hasRecent ? 'Most Played' : null,
               title: heroTitle,
-              subtitle: hasRecent ? '1 song' : 'Start playing to see your library grow',
+              // FIX (hardcoded "1 song" — pre-existing bug, not touched
+              // by intent): this used to read `hasRecent ? '1 song' : ...`
+              // literally always, regardless of the actual song. Nothing
+              // in RecentlyPlayedProvider tracks a per-song play COUNT
+              // (only a play timestamp — see _playedAtById), so a real
+              // count can't be shown honestly yet. Falls back to the
+              // artist name instead, which the data genuinely has —
+              // never displays a fabricated number.
+              subtitle: hasRecent
+                  ? (recent.first.artist.isNotEmpty ? recent.first.artist : 'Unknown artist')
+                  : 'Start playing to see your library grow',
               buttonLabel: 'Play all',
               icon: Icons.play_arrow_rounded,
               leading: !hasRecent
@@ -1905,7 +1927,14 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
                         index: 0,
                         curatedQueue: true,
                       ),
-              onMoreTap: !hasRecent ? null : () {},
+              // FIX (dead tap): was `() {}`. Now opens the same
+              // Add-to-Liked/Add-to-Playlist sheet every song row already
+              // uses (showAurumSongOptionsSheet), so the "..." on this
+              // hero card does something real and consistent with the
+              // rest of the app instead of nothing.
+              onMoreTap: !hasRecent
+                  ? null
+                  : () => showAurumSongOptionsSheet(context, recent.first),
             ),
           ),
         ),
@@ -1969,15 +1998,15 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
                   ),
                 ),
                 const Spacer(),
-                Material(
-                  color: AurumTheme.accentOf(context),
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: () => AurumDepthRoute.to(context, const PlaylistsScreen()),
-                    child: const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
+                GestureDetector(
+                  onTap: () => AurumDepthRoute.to(context, const PlaylistsScreen()),
+                  behavior: HitTestBehavior.opaque,
+                  child: Text(
+                    'See all',
+                    style: TextStyle(
+                      color: AurumTheme.accentOf(context),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -1989,11 +2018,64 @@ class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
-              child: _AurumEmptyState(
-                icon: Icons.playlist_play_rounded,
-                title: 'No playlists yet',
-                subtitle: 'Create one from any song\'s menu.',
+              child: GestureDetector(
+                onTap: () => AurumDepthRoute.to(context, const PlaylistsScreen()),
+                child: _AurumEmptyState(
+                  icon: Icons.playlist_play_rounded,
+                  title: 'No playlists yet',
+                  subtitle: 'Create one from any song\'s menu.',
+                ),
               ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, i) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _AurumPlaylistRow(playlist: previewPlaylists[i]),
+                ),
+                childCount: previewPlaylists.length,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PLAYLISTS TAB — the dedicated Playlists chip now shows ONLY the actual
+// playlist list (no Liked/Offline/Cached/Local Files/My Top 50 grid and no
+// Recently Played rail — those live on the Library overview tab now).
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _AurumPlaylistsTab extends StatefulWidget {
+  const _AurumPlaylistsTab();
+
+  @override
+  State<_AurumPlaylistsTab> createState() => _AurumPlaylistsTabState();
+}
+
+class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
+  @override
+  Widget build(BuildContext context) {
+    final playlists = context.watch<PlaylistProvider>();
+
+    return CustomScrollView(
+      physics: const BouncingScrollPhysics(),
+      cacheExtent: 1200,
+      slivers: [
+        const SliverToBoxAdapter(child: SizedBox(height: 6)),
+        if (playlists.playlists.isEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: _AurumEmptyState(
+              icon: Icons.playlist_play_rounded,
+              title: 'No playlists yet',
+              subtitle: 'Create one from any song\'s menu.',
             ),
           )
         else
