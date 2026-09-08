@@ -546,45 +546,59 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               // visibility now — dismissing it (or nothing playing yet)
               // no longer takes the nav bar down too (see FIX above).
               //
-              // FIX (white flash on auto-skip reappear): visible used to
-              // flip straight from false→true via an instant SizedBox.
-              // shrink() ↔ MiniPlayer() widget SWAP, not a resize — the
-              // Column jumped from 0 to full mini-player height in a
-              // single frame with no interpolation. That abrupt relayout
-              // landed hardest exactly when PlayerProvider force-clears
-              // _miniPlayerDismissed after a loading-timeout auto-skip
-              // (see the doc comment on that block in player_provider.dart)
-              // — a state change already firing its own notifyListeners()
-              // in the same tick as this Selector's rebuild. Two relayouts
-              // compounding in one frame is what let Scaffold's implicit
-              // bottomNavigationBar Material fill (see the layered
-              // "ghost pill" fixes below/in aurum_theme.dart) become
-              // visible for that single frame before the transparent
-              // styling fully reapplied — a swipe-down (which itself
-              // forces a rebuild) was "fixing" it by accident, not because
-              // anything was actually stuck.
-              // AnimatedSize smooths the height change over a real
-              // duration instead of jumping instantly, and AnimatedSwitcher
-              // cross-fades the widget identity change — between them,
-              // there's no single frame where the layout jumps discontinuously
-              // enough for the underlying Material fill to ever get a
-              // visible frame to itself.
-              AnimatedSize(
-                duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                curve: AurumMotion.standard,
-                alignment: Alignment.bottomCenter,
-                child: Selector<PlayerProvider, bool>(
-                  selector: (_, p) => p.miniPlayerVisible,
-                  builder: (context, visible, __) => AnimatedSwitcher(
-                    duration: AurumMotion.durationOrZero(AurumMotion.medium1),
-                    switchInCurve: Curves.easeOut,
-                    switchOutCurve: Curves.easeIn,
-                    transitionBuilder: (child, anim) =>
-                        FadeTransition(opacity: anim, child: child),
-                    child: visible
-                        ? const MiniPlayer(key: ValueKey('mini_player_visible'))
-                        : const SizedBox.shrink(key: ValueKey('mini_player_hidden')),
+              // FIX ("song play karte hi mini player aane par screen
+              // khichti hai, stable feel nahi deta" — same root cause
+              // MiniPlayerSlot.dart already diagnosed and fixed for
+              // pushed screens, see that file's matching comment for
+              // the full mechanism): the AnimatedSize+AnimatedSwitcher
+              // pair below used to run as two independent animations —
+              // AnimatedSize interpolating this Column's HEIGHT while a
+              // separate AnimatedSwitcher cross-faded the mini player's
+              // widget identity — both racing to settle on their own
+              // ticker. Height and opacity finishing even a few ms apart
+              // reads as a visible pop/jerk (the layout resizing while
+              // the content is still only partially faded in), and on a
+              // root tab like Library — sitting directly above a
+              // CustomScrollView — that height change also nudges the
+              // scroll viewport's own extent, which is exactly the
+              // "screen khichti hai" pull. Switched to the same fix
+              // already proven in MiniPlayerSlot: ONE AnimatedSwitcher
+              // with a Stack layoutBuilder (bottom-aligned, no shared
+              // height interpolation) drives fade+slide+scale together
+              // from a single Tween, and MiniPlayer's own height is
+              // simply present or absent — never animated as a
+              // continuous size change that could tug at page content
+              // above it.
+              Selector<PlayerProvider, bool>(
+                selector: (_, p) => p.miniPlayerVisible,
+                builder: (context, visible, __) => AnimatedSwitcher(
+                  duration: AurumMotion.durationOrZero(AurumMotion.medium1),
+                  switchInCurve: AurumMotion.standard,
+                  switchOutCurve: AurumMotion.standardReverse,
+                  layoutBuilder: (currentChild, previousChildren) => Stack(
+                    alignment: Alignment.bottomCenter,
+                    children: [
+                      ...previousChildren,
+                      if (currentChild != null) currentChild,
+                    ],
                   ),
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.12),
+                        end: Offset.zero,
+                      ).animate(anim),
+                      child: ScaleTransition(
+                        scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim),
+                        alignment: Alignment.bottomCenter,
+                        child: child,
+                      ),
+                    ),
+                  ),
+                  child: visible
+                      ? const MiniPlayer(key: ValueKey('mini_player_visible'))
+                      : const SizedBox.shrink(key: ValueKey('mini_player_hidden')),
                 ),
               ),
               // The nav bar no longer paints any top divider/gradient line
