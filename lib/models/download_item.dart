@@ -1,7 +1,7 @@
 import 'song.dart';
 
 /// Status of a single download task.
-enum DownloadStatus { queued, downloading, completed, failed, cancelled }
+enum DownloadStatus { queued, downloading, paused, completed, failed, cancelled }
 
 /// Represents one downloaded (or downloading) song.
 /// Persisted in Hive box `aurum_downloads`, keyed by song.id.
@@ -12,6 +12,14 @@ class DownloadItem {
   final String? localPath; // set once completed
   final int? fileSizeBytes;
   final DateTime addedAt;
+  // Pause/resume support: the stream URL resolved for this download (once
+  // known) so resuming doesn't need to re-resolve it (a fresh resolve can
+  // return a different CDN URL than the one already partially downloaded
+  // against), and how many bytes of the `.part` file are already on disk
+  // so resume can send a `Range: bytes=<bytesDownloaded>-` request instead
+  // of restarting from zero.
+  final String? resolvedUrl;
+  final int bytesDownloaded;
 
   DownloadItem({
     required this.song,
@@ -19,11 +27,14 @@ class DownloadItem {
     this.progress = 0.0,
     this.localPath,
     this.fileSizeBytes,
+    this.resolvedUrl,
+    this.bytesDownloaded = 0,
     DateTime? addedAt,
   }) : addedAt = addedAt ?? DateTime.now();
 
   bool get isCompleted => status == DownloadStatus.completed;
   bool get isDownloading => status == DownloadStatus.downloading || status == DownloadStatus.queued;
+  bool get isPaused => status == DownloadStatus.paused;
   bool get isFailed => status == DownloadStatus.failed;
 
   DownloadItem copyWith({
@@ -31,6 +42,8 @@ class DownloadItem {
     double? progress,
     String? localPath,
     int? fileSizeBytes,
+    String? resolvedUrl,
+    int? bytesDownloaded,
   }) {
     return DownloadItem(
       song: song,
@@ -38,6 +51,8 @@ class DownloadItem {
       progress: progress ?? this.progress,
       localPath: localPath ?? this.localPath,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+      resolvedUrl: resolvedUrl ?? this.resolvedUrl,
+      bytesDownloaded: bytesDownloaded ?? this.bytesDownloaded,
       addedAt: addedAt,
     );
   }
@@ -48,6 +63,8 @@ class DownloadItem {
     'progress': progress,
     'localPath': localPath,
     'fileSizeBytes': fileSizeBytes,
+    'resolvedUrl': resolvedUrl,
+    'bytesDownloaded': bytesDownloaded,
     'addedAt': addedAt.toIso8601String(),
   };
 
@@ -63,6 +80,8 @@ class DownloadItem {
       progress: (json['progress'] as num?)?.toDouble() ?? 0.0,
       localPath: json['localPath'],
       fileSizeBytes: json['fileSizeBytes'],
+      resolvedUrl: json['resolvedUrl'],
+      bytesDownloaded: (json['bytesDownloaded'] as num?)?.toInt() ?? 0,
       addedAt: json['addedAt'] != null
           ? DateTime.tryParse(json['addedAt']) ?? DateTime.now()
           : DateTime.now(),

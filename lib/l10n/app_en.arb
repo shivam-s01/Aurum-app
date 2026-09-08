@@ -793,6 +793,12 @@
       }
     }
   },
+  "libraryDownloadsTabDownloaded": "Downloaded",
+  "libraryDownloadsTabInProgress": "In progress",
+  "libraryDownloadPaused": "Paused",
+  "libraryDownloadResume": "Resume",
+  "libraryDownloadPause": "Pause",
+  "libraryDownloadCancel": "Cancel",
   "libraryDownloadingHeader": "DOWNLOADING",
   "libraryDownloadingPercent": "Downloading • {percent}%",
   "@libraryDownloadingPercent": {
@@ -830,6 +836,16 @@
   "libraryNoDownloadsYet": "No downloads yet",
   "libraryNoHistoryYet": "No history yet",
   "libraryNoLocalSongsFound": "No local songs found",
+  "libraryLocalSearchHint": "Search local songs",
+  "libraryLocalSearchNoResults": "No local songs match \"{query}\"",
+  "@libraryLocalSearchNoResults": {
+    "description": "Empty state when a local-files search query matches nothing",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
   "libraryNoPlaylistsYet": "No playlists yet",
   "libraryNoSongsYetInPlaylist": "No songs yet",
   "libraryNothingHereYet": "Nothing here yet",

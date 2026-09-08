@@ -5409,13 +5409,73 @@ class _AnimatedHistoryItemState extends State<_AnimatedHistoryItem>
 // ══════════════════════════════════════════════════════════════════════════════
 // Local Files Screen (unchanged)
 // ══════════════════════════════════════════════════════════════════════════════
-class _LocalFilesScreen extends StatelessWidget {
+// Local/offline songs screen, now with an in-place search bar (reference:
+// ArchiveTune's "Local" screen shows a search icon in its top bar that
+// opens a search field scoped to just this list). StatefulWidget purely to
+// hold the TextEditingController + query string — LibraryProvider itself
+// stays the single source of truth for the actual song list, this only
+// filters what's already loaded, same as SongTile below already does with
+// its own local queue/index math.
+class _LocalFilesScreen extends StatefulWidget {
   const _LocalFilesScreen();
+
+  @override
+  State<_LocalFilesScreen> createState() => _LocalFilesScreenState();
+}
+
+class _LocalFilesScreenState extends State<_LocalFilesScreen> {
+  bool _searching = false;
+  final _searchController = TextEditingController();
+  final _searchFocusNode = FocusNode();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _openSearch() {
+    setState(() => _searching = true);
+    // Same "wait a frame, then focus" pattern search_screen.dart's own
+    // field uses — requesting focus in the same frame the field is first
+    // built can silently attach the IME connection without actually
+    // raising the keyboard.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocusNode.requestFocus();
+    });
+  }
+
+  void _closeSearch() {
+    setState(() {
+      _searching = false;
+      _query = '';
+      _searchController.clear();
+    });
+    FocusScope.of(context).unfocus();
+  }
+
+  // Case-insensitive match against title, artist, and album — the three
+  // fields a person would actually type when hunting for a specific local
+  // file (matches how search_screen.dart's own online search already
+  // reasons about "what a query could mean").
+  List<Song> _filtered(List<Song> songs) {
+    if (_query.trim().isEmpty) return songs;
+    final q = _query.trim().toLowerCase();
+    return songs.where((s) {
+      return s.title.toLowerCase().contains(q) ||
+          s.artist.toLowerCase().contains(q) ||
+          s.album.toLowerCase().contains(q);
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final lib = context.watch<LibraryProvider>();
+    final filtered = _filtered(lib.allSongs);
+
     return Scaffold(
       backgroundColor: AurumTheme.bgOf(context),
       // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
@@ -5423,21 +5483,53 @@ class _LocalFilesScreen extends StatelessWidget {
       bottomNavigationBar: const MiniPlayerSlot(),
       appBar: AppBar(
         backgroundColor: AurumTheme.bgOf(context),
-        title: Text(l10n.libraryLocalFiles,
-            style: TextStyle(
-                color: AurumTheme.textPrimaryOf(context),
-                fontWeight: FontWeight.w700)),
+        titleSpacing: _searching ? 4 : null,
+        title: _searching
+            ? _LocalSearchField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                onChanged: (v) => setState(() => _query = v),
+              )
+            : Text(l10n.libraryLocalFiles,
+                style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontWeight: FontWeight.w700)),
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_rounded,
+          icon: Icon(
+              _searching
+                  ? Icons.arrow_back_ios_rounded
+                  : Icons.arrow_back_ios_rounded,
               color: AurumTheme.textPrimaryOf(context)),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (_searching) {
+              _closeSearch();
+            } else {
+              Navigator.pop(context);
+            }
+          },
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: AurumTheme.gold),
-            onPressed: () => lib.refresh(),
-          ),
-        ],
+        actions: _searching
+            ? [
+                if (_searchController.text.isNotEmpty)
+                  IconButton(
+                    icon: Icon(Icons.close_rounded,
+                        color: AurumTheme.textMutedOf(context)),
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() => _query = '');
+                    },
+                  ),
+              ]
+            : [
+                IconButton(
+                  icon: const Icon(Icons.search_rounded, color: AurumTheme.gold),
+                  onPressed: _openSearch,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh_rounded, color: AurumTheme.gold),
+                  onPressed: () => lib.refresh(),
+                ),
+              ],
       ),
       body: lib.status == LibraryStatus.loading
           ? const Center(
@@ -5496,27 +5588,103 @@ class _LocalFilesScreen extends StatelessWidget {
                       child: Text(l10n.libraryNoLocalSongsFound,
                           style: TextStyle(
                               color: AurumTheme.textMutedOf(context))))
-                  : ListView.builder(
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.only(bottom: 100),
-                      // PERF: pop-in fix for the full local-songs list.
-                      cacheExtent: 1000,
-                      itemCount: lib.allSongs.length,
-                      // SIZE FIX ("thumbnail bahut chhota" then "thoda
-                      // sa aur chhota" — SongTile's cover art went
-                      // 50→64→58px app-wide): row height follows —
-                      // 20 vertical padding + the artwork box
-                      // AurumStackedArtwork draws at size+8 headroom
-                      // (58+8=66) = 86. itemExtent has to match
-                      // ListView.builder's actual row height or Flutter
-                      // clips/overflows every tile to the stale value.
-                      itemExtent: 86,
-                      itemBuilder: (_, i) => SongTile(
-                          song: lib.allSongs[i],
-                          queue: lib.allSongs,
-                          index: i,
-                          curatedQueue: true),
-                    ),
+                  : filtered.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 32),
+                            child: Text(
+                              l10n.libraryLocalSearchNoResults(_query),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: AurumTheme.textMutedOf(context)),
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.only(bottom: 100),
+                          // PERF: pop-in fix for the full local-songs list.
+                          cacheExtent: 1000,
+                          itemCount: filtered.length,
+                          // SIZE FIX ("thumbnail bahut chhota" then "thoda
+                          // sa aur chhota" — SongTile's cover art went
+                          // 50→64→58px app-wide): row height follows —
+                          // 20 vertical padding + the artwork box
+                          // AurumStackedArtwork draws at size+8 headroom
+                          // (58+8=66) = 86. itemExtent has to match
+                          // ListView.builder's actual row height or Flutter
+                          // clips/overflows every tile to the stale value.
+                          //
+                          // NOTE: only applied when NOT searching — a
+                          // filtered list can be short enough that a fixed
+                          // itemExtent times a small itemCount leaves the
+                          // rest of the screen blank, which reads fine
+                          // either way, so this is really just preserving
+                          // the exact unfiltered behavior untouched.
+                          itemExtent: _query.trim().isEmpty ? 86 : null,
+                          itemBuilder: (_, i) => SongTile(
+                              song: filtered[i],
+                              queue: filtered,
+                              index: i,
+                              curatedQueue: true),
+                        ),
+    );
+  }
+}
+
+// ── Search field used inside _LocalFilesScreen's AppBar ─────────────────────
+// Deliberately its own small widget (not inlined) so the AnimatedSwitcher-
+// less swap between title Text and this field in the AppBar stays simple —
+// same visual language (rounded, gold-on-focus border) as
+// search_screen.dart's main search bar, just compact enough to sit in an
+// AppBar's title slot instead of taking a full screen section.
+class _LocalSearchField extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final ValueChanged<String> onChanged;
+  const _LocalSearchField({
+    required this.controller,
+    required this.focusNode,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withOpacity(0.06)
+            : Colors.black.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withOpacity(0.12)
+              : Colors.black.withOpacity(0.08),
+          width: 0.7,
+        ),
+      ),
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        onChanged: onChanged,
+        autofocus: false,
+        style: TextStyle(
+            color: AurumTheme.textPrimaryOf(context),
+            fontSize: 14,
+            fontWeight: FontWeight.w500),
+        decoration: InputDecoration(
+          isCollapsed: true,
+          hintText: l10n.libraryLocalSearchHint,
+          hintStyle:
+              TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
+          border: InputBorder.none,
+        ),
+        textInputAction: TextInputAction.search,
+      ),
     );
   }
 }
@@ -5541,6 +5709,15 @@ class _LocalFilesScreen extends StatelessWidget {
 //      download finishing (moves from "Downloading" to "Downloaded") or a
 //      delete doesn't jump-cut the list — a short fade/slide, same 220ms
 //      timing already used everywhere else in the app for consistency.
+// ── Downloads: Downloaded / In progress tabs ────────────────────────────────
+// Reference (ArchiveTune screenshot): two tabs under the "Downloads" title —
+// "Downloaded" (a checkmark-circle icon above the label) and "In progress"
+// (a download-arrow icon above the label), each tab a full-width flex half,
+// selected tab in gold text with a gold underline beneath it, unselected
+// tab dimmed. Replaces the earlier single continuous scroll (Downloading
+// section stacked above Downloaded section) — that layout technically
+// worked but read as flat/lifeless next to the reference's clearer split,
+// and gave "in progress" items no per-song pause control, only cancel.
 class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({super.key});
 
@@ -5549,6 +5726,8 @@ class DownloadsScreen extends StatefulWidget {
 }
 
 class _DownloadsScreenState extends State<DownloadsScreen> {
+  int _tabIndex = 0; // 0 = Downloaded, 1 = In progress
+
   @override
   void initState() {
     super.initState();
@@ -5580,7 +5759,6 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     final downloads = context.watch<DownloadProvider>();
     final inProgress = downloads.inProgress;
     final completed = downloads.completed;
-    final isEmpty = inProgress.isEmpty && completed.isEmpty;
     final totalBytes = completed.fold<int>(
         0, (sum, d) => sum + (d.fileSizeBytes ?? 0));
 
@@ -5589,48 +5767,43 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
       // matching comment for the full reasoning.
       bottomNavigationBar: const MiniPlayerSlot(),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        // PERF FIX — see LibraryScreen's matching cacheExtent comment above.
-        cacheExtent: 1200,
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 100,
-            floating: true,
-            snap: true,
-            backgroundColor: AurumTheme.bgOf(context),
-            leading: IconButton(
-              icon: Icon(Icons.arrow_back_ios_rounded,
-                  color: AurumTheme.textSecondaryOf(context), size: 20),
-              onPressed: () => Navigator.pop(context),
-            ),
-            flexibleSpace: FlexibleSpaceBar(
-              titlePadding: const EdgeInsets.fromLTRB(52, 0, 16, 16),
-              title: Row(
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 20, 0),
+              child: Row(
                 children: [
-                  const Icon(Icons.download_rounded,
-                      color: AurumTheme.gold, size: 22),
-                  const SizedBox(width: 8),
-                  ShaderMask(
-                    shaderCallback: (b) =>
-                        AurumTheme.goldGradient.createShader(b),
-                    child: Text(l10n.settingsDownloads,
-                        style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white)),
+                  IconButton(
+                    icon: Icon(Icons.arrow_back_ios_rounded,
+                        color: AurumTheme.textSecondaryOf(context), size: 20),
+                    onPressed: () => Navigator.pop(context),
                   ),
                 ],
               ),
             ),
-          ),
-          // Storage summary strip — only meaningful once something is
-          // actually downloaded, so it's skipped entirely on the empty
-          // state (no dead "0 songs · 0 MB" row to greet a new user).
-          if (completed.isNotEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: ShaderMask(
+                  shaderCallback: (b) =>
+                      AurumTheme.goldGradient.createShader(b),
+                  child: Text(l10n.settingsDownloads,
+                      style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white)),
+                ),
+              ),
+            ),
+            // Storage summary strip — only meaningful once something is
+            // actually downloaded, so it's skipped entirely on the empty
+            // state (no dead "0 songs · 0 MB" row to greet a new user).
+            if (completed.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
                 child: Row(
                   children: [
                     Icon(Icons.sd_storage_rounded,
@@ -5647,95 +5820,386 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                   ],
                 ),
               ),
+            const SizedBox(height: 8),
+            _DownloadsTabRow(
+              index: _tabIndex,
+              inProgressCount: inProgress.length,
+              onChanged: (i) {
+                if (i == _tabIndex) return;
+                AurumHaptics.selection();
+                setState(() => _tabIndex = i);
+              },
             ),
-          if (isEmpty)
-            SliverFillRemaining(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          color: AurumTheme.gold.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                              color: AurumTheme.gold.withOpacity(0.3)),
-                        ),
-                        child: const Icon(Icons.download_rounded,
-                            color: AurumTheme.gold, size: 36),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(l10n.libraryNoDownloadsYet,
-                          style: TextStyle(
-                              color: AurumTheme.textPrimaryOf(context),
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 8),
-                      Text(
-                        l10n.libraryDownloadFromPlayerDesc,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            color: AurumTheme.textMutedOf(context),
-                            fontSize: 13,
-                            height: 1.5),
-                      ),
-                    ],
-                  ),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: AurumMotion.durationOrZero(AurumMotion.short2),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: KeyedSubtree(
+                  key: ValueKey(_tabIndex),
+                  child: _tabIndex == 0
+                      ? _DownloadedList(completed: completed)
+                      : _InProgressList(items: inProgress),
                 ),
               ),
-            )
-          else ...[
-            if (inProgress.isNotEmpty) ...[
-              SliverToBoxAdapter(child: _sectionHeader(context, l10n.libraryDownloadingHeader)),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, i) => _DownloadTileEntrance(
-                    key: ValueKey('dl_prog_${inProgress[i].song.id}'),
-                    child: _DownloadTile(item: inProgress[i]),
-                  ),
-                  childCount: inProgress.length,
-                ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 16)),
-            ],
-            if (completed.isNotEmpty) ...[
-              SliverToBoxAdapter(
-                  child: _sectionHeader(
-                      context, l10n.libraryDownloadedCountHeader(completed.length))),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, i) => _DownloadTileEntrance(
-                    key: ValueKey('dl_done_${completed[i].song.id}'),
-                    child: _DownloadTile(
-                      item: completed[i],
-                      queue: completed,
-                      queueIndex: i,
-                    ),
-                  ),
-                  childCount: completed.length,
-                ),
-              ),
-            ],
-            const SliverToBoxAdapter(child: SizedBox(height: 100)),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Tab row: "Downloaded" / "In progress", underline indicator ─────────────
+class _DownloadsTabRow extends StatelessWidget {
+  final int index;
+  final int inProgressCount;
+  final ValueChanged<int> onChanged;
+  const _DownloadsTabRow({
+    required this.index,
+    required this.inProgressCount,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Row(
+      children: [
+        Expanded(
+          child: _DownloadsTab(
+            icon: Icons.check_circle_outline_rounded,
+            label: l10n.libraryDownloadsTabDownloaded,
+            selected: index == 0,
+            onTap: () => onChanged(0),
+          ),
+        ),
+        Expanded(
+          child: _DownloadsTab(
+            icon: Icons.download_rounded,
+            label: l10n.libraryDownloadsTabInProgress,
+            selected: index == 1,
+            badgeCount: inProgressCount,
+            onTap: () => onChanged(1),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DownloadsTab extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final int badgeCount;
+  final VoidCallback onTap;
+  const _DownloadsTab({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.badgeCount = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected
+        ? AurumTheme.gold
+        : AurumTheme.textMutedOf(context);
+    return InkWell(
+      onTap: onTap,
+      splashColor: AurumTheme.gold.withValues(alpha: 0.06),
+      highlightColor: AurumTheme.gold.withValues(alpha: 0.04),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10, top: 4),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label,
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 13.5,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w600)),
+                if (badgeCount > 0) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: AurumTheme.gold.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('$badgeCount',
+                        style: const TextStyle(
+                            color: AurumTheme.gold,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700)),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            AnimatedContainer(
+              duration: AurumMotion.durationOrZero(AurumMotion.short2),
+              height: 2.5,
+              width: 64,
+              decoration: BoxDecoration(
+                color: selected ? AurumTheme.gold : Colors.transparent,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── "Downloaded" tab body ───────────────────────────────────────────────────
+class _DownloadedList extends StatelessWidget {
+  final List<DownloadItem> completed;
+  const _DownloadedList({required this.completed});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    if (completed.isEmpty) {
+      return _DownloadsEmptyState(
+        icon: Icons.check_circle_outline_rounded,
+        title: l10n.libraryNoDownloadsYet,
+        message: l10n.libraryDownloadFromPlayerDesc,
+      );
+    }
+    return ListView.builder(
+      key: const PageStorageKey('downloads_downloaded'),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.only(bottom: 100),
+      cacheExtent: 1200,
+      itemCount: completed.length,
+      itemBuilder: (context, i) => _DownloadTileEntrance(
+        key: ValueKey('dl_done_${completed[i].song.id}'),
+        child: _DownloadTile(
+          item: completed[i],
+          queue: completed,
+          queueIndex: i,
+        ),
+      ),
+    );
+  }
+}
+
+// ── "In progress" tab body ──────────────────────────────────────────────────
+class _InProgressList extends StatelessWidget {
+  final List<DownloadItem> items;
+  const _InProgressList({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    if (items.isEmpty) {
+      return _DownloadsEmptyState(
+        icon: Icons.download_rounded,
+        title: l10n.libraryNoDownloadsYet,
+        message: l10n.libraryDownloadFromPlayerDesc,
+      );
+    }
+    return ListView.builder(
+      key: const PageStorageKey('downloads_in_progress'),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
+      cacheExtent: 1200,
+      itemCount: items.length,
+      itemBuilder: (context, i) => _DownloadTileEntrance(
+        key: ValueKey('dl_prog_${items[i].song.id}'),
+        child: _InProgressCard(item: items[i]),
+      ),
+    );
+  }
+}
+
+class _DownloadsEmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  const _DownloadsEmptyState({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AurumTheme.gold.withOpacity(0.1),
+                shape: BoxShape.circle,
+                border: Border.all(color: AurumTheme.gold.withOpacity(0.3)),
+              ),
+              child: Icon(icon, color: AurumTheme.gold, size: 36),
+            ),
+            const SizedBox(height: 20),
+            Text(title,
+                style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: AurumTheme.textMutedOf(context),
+                  fontSize: 13,
+                  height: 1.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── "In progress" row: artwork, title/artist, live progress bar, ───────────
+// pause/resume + cancel buttons. Reference (ArchiveTune screenshot) shows
+// exactly this: a rounded card per song, a filled pill "%" + "B/s" line, a
+// thin progress track beneath, and two circular action buttons — pause
+// (or resume, once paused) and an X to cancel.
+class _InProgressCard extends StatelessWidget {
+  final DownloadItem item;
+  const _InProgressCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final song = item.song;
+    final dl = context.read<DownloadProvider>();
+    final percent = (item.progress * 100).clamp(0, 100).toStringAsFixed(0);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AurumTheme.bgElevatedOf(context),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: AurumArtwork(url: song.artworkUrl, size: 48, borderRadius: 8),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: AurumTheme.textPrimaryOf(context),
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.isPaused
+                          ? l10n.libraryDownloadPaused
+                          : '$percent%',
+                      style: const TextStyle(
+                          color: AurumTheme.gold,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _RoundIconButton(
+                icon: item.isPaused
+                    ? Icons.play_arrow_rounded
+                    : Icons.pause_rounded,
+                tooltip: item.isPaused
+                    ? l10n.libraryDownloadResume
+                    : l10n.libraryDownloadPause,
+                onTap: () {
+                  if (item.isPaused) {
+                    dl.resumeDownload(song);
+                  } else {
+                    dl.pauseDownload(song.id);
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
+              _RoundIconButton(
+                icon: Icons.close_rounded,
+                tooltip: l10n.libraryDownloadCancel,
+                onTap: () => dl.cancelDownload(song.id),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: item.progress.clamp(0.0, 1.0),
+              minHeight: 5,
+              backgroundColor: AurumTheme.gold.withValues(alpha: 0.15),
+              valueColor: AlwaysStoppedAnimation(
+                item.isPaused
+                    ? AurumTheme.gold.withValues(alpha: 0.45)
+                    : AurumTheme.gold,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
+}
 
-  Widget _sectionHeader(BuildContext context, String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-      child: Text(title,
-          style: TextStyle(
-              color: AurumTheme.textMutedOf(context),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.5)),
+class _RoundIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  const _RoundIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: AurumTheme.gold.withValues(alpha: 0.15),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(icon, color: AurumTheme.gold, size: 18),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -105,6 +105,12 @@ class DownloadProvider extends ChangeNotifier {
   final Completer<Box<Map>> _boxReady = Completer<Box<Map>>();
   final Map<String, DownloadItem> _items = {}; // keyed by song.id
   final Map<String, CancelToken> _cancelTokens = {};
+  // Songs whose current CancelToken.cancel() call was a deliberate pause
+  // (pauseDownload) rather than a real cancel/failure — checked in
+  // _runDownload's catch block to decide whether to persist `paused`
+  // (keep the .part file) or `cancelled` (delete it). Removed the moment
+  // that catch block reads it, so it never leaks between download attempts.
+  final Set<String> _pausedTokens = {};
 
   bool _initialized = false;
 
@@ -204,13 +210,19 @@ class DownloadProvider extends ChangeNotifier {
   List<DownloadItem> get completed =>
       items.where((d) => d.status == DownloadStatus.completed).toList();
 
+  // Paused downloads still belong on the "In progress" tab (reference:
+  // ArchiveTune keeps a paused item there with its progress bar frozen in
+  // place, not tucked away as if it were done or failed) — only
+  // completed/failed/cancelled leave this list.
   List<DownloadItem> get inProgress =>
-      items.where((d) => d.isDownloading).toList();
+      items.where((d) => d.isDownloading || d.isPaused).toList();
 
   bool isDownloaded(String songId) =>
       _items[songId]?.status == DownloadStatus.completed;
 
   bool isDownloading(String songId) => _items[songId]?.isDownloading ?? false;
+
+  bool isPaused(String songId) => _items[songId]?.isPaused ?? false;
 
   DownloadItem? statusOf(String songId) => _items[songId];
 
@@ -233,7 +245,13 @@ class DownloadProvider extends ChangeNotifier {
     for (final raw in box.values) {
       try {
         final item = DownloadItem.fromJson(Map<String, dynamic>.from(raw));
-        // Any download that was mid-flight when the app died is now stale.
+        // Any download that was actively transferring when the app died is
+        // now stale (no live CancelToken/isolate survives a process kill).
+        // A `paused` item is different — it was deliberately left alone
+        // with its `.part` file intentionally kept on disk, so it stays
+        // `paused` across restarts and can still be resumed later; only
+        // `downloading`/`queued` (genuinely interrupted, not deliberately
+        // stopped) get demoted to `failed`.
         final fixed = item.status == DownloadStatus.downloading ||
                 item.status == DownloadStatus.queued
             ? item.copyWith(status: DownloadStatus.failed)
@@ -298,8 +316,10 @@ class DownloadProvider extends ChangeNotifier {
     return '${safe.isEmpty ? song.id : safe}.mp3';
   }
 
-  /// Starts (or resumes) downloading a song. Safe to call multiple times —
-  /// no-ops if already downloaded or currently downloading.
+  /// Starts downloading a song. Safe to call multiple times — no-ops if
+  /// already downloaded or currently downloading. To resume a paused
+  /// download, use [resumeDownload] instead (this method always starts
+  /// fresh from byte 0 for a genuinely new download).
   ///
   /// Returns true if the download actually started, false if it couldn't
   /// (e.g. no stream URL could be resolved) — callers use this to show
@@ -307,6 +327,58 @@ class DownloadProvider extends ChangeNotifier {
   Future<bool> download(Song song) async {
     if (isDownloaded(song.id) || isDownloading(song.id)) return true;
     if (song.isLocal) return false;
+    return _runDownload(song);
+  }
+
+  /// Resumes a `paused` download from where it left off, using the
+  /// `.part` file and resolved URL already saved on its DownloadItem.
+  /// Falls back to a fresh `download()` if the item isn't actually
+  /// paused/known, or if its `.part` file has since disappeared.
+  Future<bool> resumeDownload(Song song) async {
+    final item = _items[song.id];
+    if (item == null || !item.isPaused) return download(song);
+
+    final dir = await _downloadsDir();
+    final filePath = '${dir.path}/${_safeFileName(song)}';
+    final tempFile = File('$filePath.part');
+    final hasPartialFile =
+        await tempFile.exists() && item.bytesDownloaded > 0;
+
+    return _runDownload(
+      song,
+      resumeFromBytes: hasPartialFile ? item.bytesDownloaded : 0,
+      knownUrl: item.resolvedUrl,
+    );
+  }
+
+  /// Pauses a download in progress: cancels the in-flight transfer but
+  /// deliberately leaves the `.part` file and its byte count on disk (the
+  /// `deleteOnError`/cleanup path in [_runDownload]'s catch block is
+  /// skipped for a pause, unlike a genuine cancel or failure) so
+  /// [resumeDownload] can continue from that offset instead of
+  /// re-downloading the whole file.
+  Future<void> pauseDownload(String songId) async {
+    final item = _items[songId];
+    if (item == null || !item.isDownloading) return;
+    // BUG FIX: if the user taps Pause while the song is still `queued`
+    // (URL not resolved yet — cancelToken doesn't exist until _runDownload
+    // reaches it, which is after an async URL-resolve step for Saavn
+    // songs), the token lookup below is null and `.cancel()` becomes a
+    // harmless no-op via `?.` — but _pausedTokens had already been marked,
+    // so the download would carry on unpaused and the leftover flag would
+    // wrongly mark some *future* unrelated cancel/failure of this song as
+    // a pause. Guard: only mark paused if a live token actually exists.
+    final token = _cancelTokens[songId];
+    if (token == null) return;
+    _pausedTokens.add(songId);
+    token.cancel('paused');
+  }
+
+  Future<bool> _runDownload(
+    Song song, {
+    int resumeFromBytes = 0,
+    String? knownUrl,
+  }) async {
 
     // ── WiFi-only check ────────────────────────────────────────────────────
     final prefs = await SharedPreferences.getInstance();
@@ -339,7 +411,19 @@ class DownloadProvider extends ChangeNotifier {
 
     // Show "queued" immediately so the UI reacts instantly, even while we
     // resolve the actual stream URL (YouTube songs don't carry one upfront).
-    await _persist(DownloadItem(song: song, status: DownloadStatus.queued));
+    // On resume, this also carries forward bytesDownloaded/resolvedUrl —
+    // otherwise pausing (which shows real progress) would visually
+    // "reset" to 0 for the instant between tapping Resume and the first
+    // progress callback of the new transfer.
+    await _persist(DownloadItem(
+      song: song,
+      status: DownloadStatus.queued,
+      progress: resumeFromBytes > 0
+          ? (_items[song.id]?.progress ?? 0.0)
+          : 0.0,
+      resolvedUrl: knownUrl,
+      bytesDownloaded: resumeFromBytes,
+    ));
     // Isolated: this runs before the try block below even starts, so an
     // uncaught throw here would previously crash download() entirely
     // before a single byte was ever requested.
@@ -347,7 +431,10 @@ class DownloadProvider extends ChangeNotifier {
       await NotificationService.instance.showProgress(
         songId: song.id,
         title: song.title,
-        percent: 0,
+        percent: (resumeFromBytes > 0
+                ? ((_items[song.id]?.progress ?? 0.0) * 100)
+                : 0)
+            .round(),
       );
     } catch (e) {
       if (kDebugMode) {
@@ -355,7 +442,11 @@ class DownloadProvider extends ChangeNotifier {
       }
     }
 
-    String? url = song.source == SongSource.saavn ? null : song.streamUrl;
+    // Resuming with an already-known URL skips re-resolving entirely — a
+    // fresh resolve can hand back a different CDN URL than the one the
+    // `.part` file's bytes were already downloaded against, which would
+    // make a Range-based resume against the new URL invalid/mismatched.
+    String? url = knownUrl ?? (song.source == SongSource.saavn ? null : song.streamUrl);
     // FLOOR FIX (Saavn only): a pre-populated song.streamUrl (e.g. from a
     // search result's media_url field) carries no known bitrate — see
     // _extractSaavnStreamUrl's media_url fallback, which explicitly sets
@@ -466,75 +557,178 @@ class DownloadProvider extends ChangeNotifier {
       tempPath = '$filePath.part';
 
       await _persist(
-        _items[song.id]!.copyWith(status: DownloadStatus.downloading),
+        _items[song.id]!.copyWith(
+          status: DownloadStatus.downloading,
+          resolvedUrl: url,
+        ),
       );
 
       int lastNotifiedPercent = -1;
+      // Resuming a paused download appends to the existing `.part` file
+      // rather than truncating it — Dio's `download()` always overwrites,
+      // so a resume opens the file itself in append mode via a Range
+      // request instead.
+      final isResume = resumeFromBytes > 0;
+      final tempFile = File(tempPath);
+      final finalFile = File(filePath);
 
-      await _downloadClient.download(
-        url,
-        tempPath,
-        cancelToken: cancelToken,
-        // SPEED FIX: explicit large receive buffer + deleteOnError so a
-        // failed transfer doesn't leave a corrupt partial file mistaken
-        // for a resumable one on the next attempt.
-        deleteOnError: true,
-        options: Options(
-          receiveTimeout: const Duration(seconds: 60),
-          // SPEED FIX (YouTube specifically): googlevideo.com also checks
-          // Referer on top of User-Agent — a request with a UA but no
-          // Referer can still get throttled. Harmless no-op for Saavn's
-          // CDN, which doesn't check this header at all, so it's safe to
-          // send unconditionally rather than branching on song.source.
-          headers: song.source == SongSource.youtube
-              ? {'Referer': 'https://www.youtube.com/'}
-              : null,
-        ),
-        onReceiveProgress: (received, total) async {
-          if (total <= 0) return;
-          final progress = received / total;
-          final percent = (progress * 100).round();
+      if (isResume) {
+        // ── Resume path: Range request, append to existing bytes ──────────
+        final response = await _downloadClient.get<ResponseBody>(
+          url,
+          cancelToken: cancelToken,
+          options: Options(
+            responseType: ResponseType.stream,
+            receiveTimeout: const Duration(seconds: 60),
+            headers: {
+              'Range': 'bytes=$resumeFromBytes-',
+              if (song.source == SongSource.youtube)
+                'Referer': 'https://www.youtube.com/',
+            },
+          ),
+        );
 
-          // SPEED FIX: this callback fires many times per second on a
-          // fast connection — persisting (Hive disk write) on every call
-          // was fighting the file-write for the same disk I/O and
-          // slowing the transfer on low-end devices. Only persist +
-          // notify when the whole-percent value actually changes, same
-          // cadence as the notification below, instead of on every raw
-          // byte-count tick.
-          if (percent == lastNotifiedPercent) return;
+        // A server that ignores Range and returns 200 (full content) can't
+        // be safely appended to — restart that one attempt from scratch
+        // rather than corrupting the file with a duplicated prefix.
+        final isPartialContent = response.statusCode == 206;
+        final sink = await tempFile.open(
+          mode: isPartialContent ? FileMode.append : FileMode.write,
+        );
+        var received = isPartialContent ? resumeFromBytes : 0;
+        final contentLength = response.data?.contentLength ?? -1;
+        final total = isPartialContent && contentLength > 0
+            ? resumeFromBytes + contentLength
+            : contentLength;
 
-          final current = _items[song.id];
-          if (current == null) return;
+        try {
+          // BUG FIX: bytesDownloaded must be persisted every tick regardless
+          // of whether `total` is known — previously this only happened
+          // inside the `if (total > 0)` branch, so a server that omits
+          // Content-Length on a Range response (total <= 0) never wrote
+          // `received` to disk. If the app died mid-resume in that state,
+          // the next resumeDownload would restart from the old, smaller
+          // saved offset while the `.part` file already had more bytes —
+          // duplicating that overlap into the appended file (corrupt
+          // audio). Byte-offset persistence must not depend on knowing the
+          // total; only the percent/progress UI does.
+          int lastPersistedBytes = resumeFromBytes;
+          await for (final chunk in response.data!.stream) {
+            await sink.writeFrom(chunk);
+            received += chunk.length;
 
-          await _persist(current.copyWith(progress: progress));
+            final hasTotal = total > 0;
+            final progress = hasTotal ? received / total : null;
+            final percent = hasTotal ? (progress! * 100).round() : null;
 
-          // Only push a notification update every whole percent to avoid spam.
-          if (percent != lastNotifiedPercent) {
-            lastNotifiedPercent = percent;
-            // Same isolation as showCompleted() below: a notification
-            // platform-channel hiccup here must never be allowed to
-            // propagate up through Dio's onReceiveProgress and abort an
-            // otherwise-healthy file transfer that might be seconds from
-            // finishing successfully.
-            try {
-              await NotificationService.instance.showProgress(
-                songId: song.id,
-                title: song.title,
-                percent: percent,
-              );
-            } catch (e) {
-              if (kDebugMode) {
-                debugPrint('[Aurum] DownloadProvider: showProgress notification failed for ${song.id} at $percent% (transfer continues): $e');
+            // Throttle disk writes the same way the known-total path does
+            // (avoid fighting the file write for I/O), but using a byte
+            // delta instead of percent when percent isn't available.
+            final shouldPersist = hasTotal
+                ? percent != lastNotifiedPercent
+                : (received - lastPersistedBytes) >= 262144; // 256KB steps
+
+            if (!shouldPersist) continue;
+
+            final current = _items[song.id];
+            if (current == null) continue;
+            await _persist(current.copyWith(
+              progress: progress ?? current.progress,
+              bytesDownloaded: received,
+            ));
+            lastPersistedBytes = received;
+
+            if (hasTotal && percent != lastNotifiedPercent) {
+              lastNotifiedPercent = percent!;
+              try {
+                await NotificationService.instance.showProgress(
+                  songId: song.id,
+                  title: song.title,
+                  percent: percent,
+                );
+              } catch (e) {
+                if (kDebugMode) {
+                  debugPrint('[Aurum] DownloadProvider: showProgress notification failed for ${song.id} at $percent% (transfer continues): $e');
+                }
               }
             }
           }
-        },
-      );
+        } finally {
+          await sink.close();
+        }
+      } else {
+        // ── Fresh download path — unchanged from before ────────────────────
+        await _downloadClient.download(
+          url,
+          tempPath,
+          cancelToken: cancelToken,
+          // SPEED FIX: explicit large receive buffer + deleteOnError so a
+          // failed transfer doesn't leave a corrupt partial file mistaken
+          // for a resumable one on the next attempt. NOTE: a *paused*
+          // transfer never reaches this deleteOnError behavior — pausing
+          // cancels the token, which Dio surfaces as a normal
+          // DioException, caught below (deleteOnError only fires Dio's
+          // own internal cleanup on a genuine transfer error, not on a
+          // caller-issued cancel).
+          deleteOnError: true,
+          options: Options(
+            receiveTimeout: const Duration(seconds: 60),
+            // SPEED FIX (YouTube specifically): googlevideo.com also checks
+            // Referer on top of User-Agent — a request with a UA but no
+            // Referer can still get throttled. Harmless no-op for Saavn's
+            // CDN, which doesn't check this header at all, so it's safe to
+            // send unconditionally rather than branching on song.source.
+            headers: song.source == SongSource.youtube
+                ? {'Referer': 'https://www.youtube.com/'}
+                : null,
+          ),
+          onReceiveProgress: (received, total) async {
+            if (total <= 0) return;
+            final progress = received / total;
+            final percent = (progress * 100).round();
+
+            // SPEED FIX: this callback fires many times per second on a
+            // fast connection — persisting (Hive disk write) on every call
+            // was fighting the file-write for the same disk I/O and
+            // slowing the transfer on low-end devices. Only persist +
+            // notify when the whole-percent value actually changes, same
+            // cadence as the notification below, instead of on every raw
+            // byte-count tick.
+            if (percent == lastNotifiedPercent) return;
+
+            final current = _items[song.id];
+            if (current == null) return;
+
+            await _persist(current.copyWith(
+              progress: progress,
+              bytesDownloaded: received,
+            ));
+
+            // Only push a notification update every whole percent to avoid spam.
+            if (percent != lastNotifiedPercent) {
+              lastNotifiedPercent = percent;
+              // Same isolation as showCompleted() below: a notification
+              // platform-channel hiccup here must never be allowed to
+              // propagate up through Dio's onReceiveProgress and abort an
+              // otherwise-healthy file transfer that might be seconds from
+              // finishing successfully.
+              try {
+                await NotificationService.instance.showProgress(
+                  songId: song.id,
+                  title: song.title,
+                  percent: percent,
+                );
+              } catch (e) {
+                if (kDebugMode) {
+                  debugPrint('[Aurum] DownloadProvider: showProgress notification failed for ${song.id} at $percent% (transfer continues): $e');
+                }
+              }
+            }
+          },
+        );
+      }
 
       // Move temp -> final so a half-written file is never mistaken as done.
-      final tempFile = File(tempPath);
-      final finalFile = File(filePath);
       if (await finalFile.exists()) await finalFile.delete();
       await tempFile.rename(filePath);
 
@@ -580,10 +774,34 @@ class DownloadProvider extends ChangeNotifier {
       }
       return true;
     } catch (e) {
+      // A deliberate pause (pauseDownload) also cancels the token, so it
+      // lands in this same catch block — checked first, before the
+      // generic cancel/failure handling, since a pause must NOT delete
+      // the `.part` file the way a real cancel/failure does below.
+      final wasPaused = _pausedTokens.remove(song.id);
+      if (wasPaused && cancelToken.isCancelled) {
+        final partial = File(tempPath!);
+        final bytesOnDisk = await partial.exists() ? await partial.length() : 0;
+        await _persist(_items[song.id]!.copyWith(
+          status: DownloadStatus.paused,
+          bytesDownloaded: bytesOnDisk,
+        ));
+        try {
+          await NotificationService.instance.cancelProgress(song.id);
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('[Aurum] DownloadProvider: cancelProgress notification failed for ${song.id}: $e');
+          }
+        }
+        return false;
+      }
+
       // FIX (2026-07-02): clean up the orphaned partial file left behind on
       // cancel/failure — previously nothing deleted this, so every
       // cancelled or failed download quietly left a `.part` file on disk
-      // forever, wasting storage over time.
+      // forever, wasting storage over time. A pause (handled above) is
+      // deliberately exempt from this — its `.part` file is kept on
+      // purpose so resumeDownload has something to continue from.
       if (tempPath != null) {
         try {
           final leftover = File(tempPath);
@@ -620,7 +838,26 @@ class DownloadProvider extends ChangeNotifier {
     }
   }
 
+  /// Cancels an active or paused download. A `downloading`/`queued` item
+  /// has a live CancelToken, handled the normal way; a `paused` item's
+  /// token is already gone (its transfer already finished cancelling when
+  /// it paused) so cancelling it here instead deletes its kept-around
+  /// `.part` file directly and marks it `cancelled`.
   Future<void> cancelDownload(String songId) async {
+    final item = _items[songId];
+    if (item != null && item.isPaused) {
+      final dir = await _downloadsDir();
+      final tempPath = '${dir.path}/${_safeFileName(item.song)}.part';
+      try {
+        final leftover = File(tempPath);
+        if (await leftover.exists()) await leftover.delete();
+      } catch (_) {}
+      await _persist(item.copyWith(status: DownloadStatus.cancelled));
+      try {
+        await NotificationService.instance.cancelProgress(songId);
+      } catch (_) {}
+      return;
+    }
     _cancelTokens[songId]?.cancel();
   }
 
@@ -636,6 +873,17 @@ class DownloadProvider extends ChangeNotifier {
     if (item?.localPath != null) {
       final f = File(item!.localPath!);
       if (await f.exists()) await f.delete();
+    }
+    // A paused item's `.part` file was deliberately kept on disk to
+    // support resumeDownload — deleting the item entirely (as opposed to
+    // just cancelling it) must clean that up too, or it leaks forever.
+    if (item != null && item.isPaused) {
+      final dir = await _downloadsDir();
+      final tempPath = '${dir.path}/${_safeFileName(item.song)}.part';
+      try {
+        final leftover = File(tempPath);
+        if (await leftover.exists()) await leftover.delete();
+      } catch (_) {}
     }
     _items.remove(songId);
     final box = _box ?? await _boxReady.future;
