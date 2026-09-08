@@ -60,6 +60,10 @@ class FollowedArtistsProvider extends ChangeNotifier {
     final box = _box ?? await _boxReady.future;
     if (isFollowing(artistId)) {
       await box.delete(artistId);
+      if (kDebugMode) {
+        debugPrint('[FollowedArtists] UNFOLLOWED id=$artistId name=$name '
+            '— box now has ${box.length} artist(s)');
+      }
       unawaited(SyncService.instance.pushUnfollowedArtist(artistId));
     } else {
       final data = {
@@ -68,6 +72,10 @@ class FollowedArtistsProvider extends ChangeNotifier {
         'imageUrl': imageUrl,
       };
       await box.put(artistId, data);
+      if (kDebugMode) {
+        debugPrint('[FollowedArtists] FOLLOWED id=$artistId name=$name '
+            '— box now has ${box.length} artist(s): ${box.values.map((m) => m['name']).toList()}');
+      }
       unawaited(SyncService.instance.pushFollowedArtist(data));
     }
     notifyListeners();
