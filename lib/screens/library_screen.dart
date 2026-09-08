@@ -1181,7 +1181,7 @@ class _TopArtistAndCountRow extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
-                  children: const [
+                  children: [
                     Expanded(
                       child: Text(
                         'Artists',
