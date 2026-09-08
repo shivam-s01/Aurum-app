@@ -1,7 +1,7 @@
 // =============================================================================
 // FILE: lib/screens/library_screen.dart
 // PROJECT: Aurum Music
-// DESCRIPTION: Library — ArchiveTune-style tabbed layout.
+// DESCRIPTION: Library — tabbed layout.
 //   Root screen shows a segmented tab row (Playlists / Songs / Artists /
 //   Albums), each with its own hero card ("Top Artist", "Featured Album",
 //   "Your Collection") plus a quick-access grid (Liked / Offline / Cached /
@@ -72,25 +72,8 @@ import '../utils/aurum_motion.dart';
 // silently drifts if AurumTheme's palette changes elsewhere in the app.
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _Archive {
-  static const Color bg          = Color(0xFFFCF1EA);
-  static const Color bgAlt       = Color(0xFFFFF8F3);
-  static const Color chip        = Color(0xFFF8E4D8);
-  static const Color chipActive  = Color(0xFF7A4B36);
-  static const Color hero        = Color(0xFFF7D8C4);
-  static const Color heroStrong  = Color(0xFFF3C6A9);
-  static const Color brown       = Color(0xFF7A4B36);
-  static const Color brownDeep   = Color(0xFF5C3624);
-  static const Color textPrimary = Color(0xFF2B1B12);
-  static const Color textMuted   = Color(0xFF9C8778);
-  static const Color divider     = Color(0xFFEFDCCB);
-
-  static Color onDark(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark ? Colors.white : brown;
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
-// Library Root — ArchiveTune-style tabbed shell
+// Library Root — tabbed shell
 // ══════════════════════════════════════════════════════════════════════════════
 
 class LibraryScreen extends StatefulWidget {
@@ -115,7 +98,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _Archive.bg,
+      backgroundColor: AurumTheme.bgOf(context),
       extendBody: true,
       bottomNavigationBar: const MiniPlayerSlot(),
       body: SafeArea(
@@ -152,16 +135,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
             height: 30,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: _Archive.brown,
+              color: AurumTheme.accentOf(context),
               borderRadius: BorderRadius.circular(9),
             ),
             child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 18),
           ),
           const SizedBox(width: 10),
           Text(
-            'ArchiveTune',
+            'Aurum',
             style: TextStyle(
-              color: _Archive.textPrimary,
+              color: AurumTheme.textPrimaryOf(context),
               fontSize: 21,
               fontWeight: FontWeight.w800,
               letterSpacing: -0.4,
@@ -230,13 +213,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _buildTabBody(BuildContext context) {
     switch (_tab) {
       case _LibTab.playlists:
-        return const _ArchivePlaylistsTab();
+        return const _AurumPlaylistsTab();
       case _LibTab.songs:
-        return const _ArchiveSongsTab();
+        return const _AurumSongsTab();
       case _LibTab.artists:
-        return const _ArchiveArtistsTab();
+        return const _AurumArtistsTab();
       case _LibTab.albums:
-        return const _ArchiveAlbumsTab();
+        return const _AurumAlbumsTab();
     }
   }
 }
@@ -249,7 +232,7 @@ class _TopIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: _Archive.chip,
+      color: AurumTheme.bgSurfaceOf(context),
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
@@ -259,7 +242,7 @@ class _TopIconButton extends StatelessWidget {
         },
         child: Padding(
           padding: const EdgeInsets.all(9),
-          child: Icon(icon, color: _Archive.brown, size: 19),
+          child: Icon(icon, color: AurumTheme.accentOf(context), size: 19),
         ),
       ),
     );
@@ -281,7 +264,7 @@ class _TabChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? _Archive.chipActive : _Archive.chip,
+      color: selected ? AurumTheme.accentOf(context) : AurumTheme.bgSurfaceOf(context),
       borderRadius: BorderRadius.circular(24),
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
@@ -294,12 +277,12 @@ class _TabChip extends StatelessWidget {
             children: [
               Icon(icon,
                   size: 18,
-                  color: selected ? Colors.white : _Archive.brown),
+                  color: selected ? Colors.white : AurumTheme.accentOf(context)),
               const SizedBox(width: 8),
               Text(
                 label,
                 style: TextStyle(
-                  color: selected ? Colors.white : _Archive.brown,
+                  color: selected ? Colors.white : AurumTheme.accentOf(context),
                   fontSize: 14.5,
                   fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                 ),
@@ -312,19 +295,23 @@ class _TabChip extends StatelessWidget {
   }
 }
 // ══════════════════════════════════════════════════════════════════════════════
-// SONGS TAB — mirrors ArchiveTune's "Your Collection" hero + song list.
+// SONGS TAB — hero card summarizing the collection + song list.
 // Backed by LibraryProvider's real scanned device library (allSongs).
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _ArchiveSongsTab extends StatefulWidget {
-  const _ArchiveSongsTab();
+class _AurumSongsTab extends StatefulWidget {
+  const _AurumSongsTab();
 
   @override
-  State<_ArchiveSongsTab> createState() => _ArchiveSongsTabState();
+  State<_AurumSongsTab> createState() => _AurumSongsTabState();
 }
 
-class _ArchiveSongsTabState extends State<_ArchiveSongsTab> {
+class _AurumSongsTabState extends State<_AurumSongsTab> {
   bool _newestFirst = true;
+  // Which subset of the library this tab is currently showing — mirrors
+  // the reference screenshot's "Liked / Downloaded / All Songs" chip row.
+  // "All Songs" is the same full-library view this tab always had.
+  _SongsFilter _filter = _SongsFilter.liked;
 
   @override
   void initState() {
@@ -338,6 +325,8 @@ class _ArchiveSongsTabState extends State<_ArchiveSongsTab> {
   @override
   Widget build(BuildContext context) {
     final lib = context.watch<LibraryProvider>();
+    final favorites = context.watch<FavoritesProvider>();
+    final downloads = context.watch<DownloadProvider>();
 
     if (lib.status == LibraryStatus.loading || lib.status == LibraryStatus.idle) {
       return const Center(
@@ -349,10 +338,21 @@ class _ArchiveSongsTabState extends State<_ArchiveSongsTab> {
     }
 
     if (lib.status == LibraryStatus.noPermission) {
-      return _ArchivePermissionState(onGrant: () => lib.load());
+      return _AurumPermissionState(onGrant: () => lib.load());
     }
 
-    final songs = List<Song>.from(lib.allSongs);
+    List<Song> songs;
+    switch (_filter) {
+      case _SongsFilter.liked:
+        songs = List<Song>.from(favorites.favorites);
+        break;
+      case _SongsFilter.downloaded:
+        songs = downloads.completed.map((d) => d.song).toList();
+        break;
+      case _SongsFilter.all:
+        songs = List<Song>.from(lib.allSongs);
+        break;
+    }
     if (_newestFirst) {
       // LibraryProvider doesn't track a per-song "added" timestamp — the
       // scan order from MediaStore is already newest-ish first on most
@@ -371,14 +371,48 @@ class _ArchiveSongsTabState extends State<_ArchiveSongsTab> {
       cacheExtent: 1200,
       slivers: [
         SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
-            child: _SortRow(
-              newestFirst: _newestFirst,
-              onToggle: () {
-                AurumHaptics.selection();
-                setState(() => _newestFirst = !_newestFirst);
-              },
+          child: SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+              children: [
+                _SongsFilterChip(
+                  label: 'Liked',
+                  selected: _filter == _SongsFilter.liked,
+                  onTap: () {
+                    AurumHaptics.selection();
+                    setState(() => _filter = _SongsFilter.liked);
+                  },
+                ),
+                const SizedBox(width: 10),
+                _SongsFilterChip(
+                  label: 'Downloaded',
+                  selected: _filter == _SongsFilter.downloaded,
+                  onTap: () {
+                    AurumHaptics.selection();
+                    setState(() => _filter = _SongsFilter.downloaded);
+                  },
+                ),
+                const SizedBox(width: 10),
+                _SongsFilterChip(
+                  label: 'All Songs',
+                  selected: _filter == _SongsFilter.all,
+                  onTap: () {
+                    AurumHaptics.selection();
+                    setState(() => _filter = _SongsFilter.all);
+                  },
+                ),
+                const SizedBox(width: 10),
+                _SortRow(
+                  newestFirst: _newestFirst,
+                  onToggle: () {
+                    AurumHaptics.selection();
+                    setState(() => _newestFirst = !_newestFirst);
+                  },
+                ),
+              ],
             ),
           ),
         ),
@@ -408,10 +442,14 @@ class _ArchiveSongsTabState extends State<_ArchiveSongsTab> {
         if (ordered.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
-            child: _ArchiveEmptyState(
+            child: _AurumEmptyState(
               icon: Icons.music_note_rounded,
               title: 'No songs found',
-              subtitle: 'Songs from your device will show up here.',
+              subtitle: _filter == _SongsFilter.liked
+                  ? 'Songs you like will show up here.'
+                  : _filter == _SongsFilter.downloaded
+                      ? 'Downloaded songs will show up here.'
+                      : 'Songs from your device will show up here.',
             ),
           )
         else
@@ -421,7 +459,7 @@ class _ArchiveSongsTabState extends State<_ArchiveSongsTab> {
               delegate: SliverChildBuilderDelegate(
                 (context, i) => Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: _ArchiveSongRow(
+                  child: _AurumSongRow(
                     song: ordered[i],
                     queue: ordered,
                     index: i,
@@ -447,6 +485,39 @@ class _ArchiveSongsTabState extends State<_ArchiveSongsTab> {
   }
 }
 
+enum _SongsFilter { liked, downloaded, all }
+
+class _SongsFilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _SongsFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AurumTheme.accentOf(context) : AurumTheme.bgSurfaceOf(context),
+      borderRadius: BorderRadius.circular(24),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Text(label,
+              style: TextStyle(
+                  color: selected ? Colors.white : AurumTheme.textPrimaryOf(context),
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600)),
+        ),
+      ),
+    );
+  }
+}
+
 class _SortRow extends StatelessWidget {
   final bool newestFirst;
   final VoidCallback onToggle;
@@ -457,7 +528,7 @@ class _SortRow extends StatelessWidget {
     return Row(
       children: [
         Material(
-          color: _Archive.chip,
+          color: AurumTheme.bgSurfaceOf(context),
           borderRadius: BorderRadius.circular(20),
           child: InkWell(
             borderRadius: BorderRadius.circular(20),
@@ -469,15 +540,15 @@ class _SortRow extends StatelessWidget {
                 children: [
                   Text(
                     newestFirst ? 'Newest first' : 'Oldest first',
-                    style: const TextStyle(
-                      color: _Archive.brown,
+                    style: TextStyle(
+                      color: AurumTheme.accentOf(context),
                       fontSize: 13.5,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(width: 4),
-                  const Icon(Icons.keyboard_arrow_down_rounded,
-                      color: _Archive.brown, size: 18),
+                  Icon(Icons.keyboard_arrow_down_rounded,
+                      color: AurumTheme.accentOf(context), size: 18),
                 ],
               ),
             ),
@@ -485,7 +556,7 @@ class _SortRow extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Material(
-          color: _Archive.chip,
+          color: AurumTheme.bgSurfaceOf(context),
           shape: const CircleBorder(),
           child: InkWell(
             customBorder: const CircleBorder(),
@@ -496,7 +567,7 @@ class _SortRow extends StatelessWidget {
                 newestFirst
                     ? Icons.arrow_downward_rounded
                     : Icons.arrow_upward_rounded,
-                color: _Archive.brown,
+                color: AurumTheme.accentOf(context),
                 size: 16,
               ),
             ),
@@ -535,7 +606,7 @@ class _HeroActionCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _Archive.hero,
+        color: AurumTheme.bgElevatedOf(context),
         borderRadius: BorderRadius.circular(28),
       ),
       child: Row(
@@ -553,7 +624,7 @@ class _HeroActionCard extends StatelessWidget {
                   Text(
                     eyebrow!.toUpperCase(),
                     style: TextStyle(
-                      color: _Archive.brown.withOpacity(0.75),
+                      color: AurumTheme.accentOf(context).withOpacity(0.75),
                       fontSize: 11.5,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.6,
@@ -565,8 +636,8 @@ class _HeroActionCard extends StatelessWidget {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _Archive.textPrimary,
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.4,
@@ -578,7 +649,7 @@ class _HeroActionCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: _Archive.textPrimary.withOpacity(0.65),
+                    color: AurumTheme.textPrimaryOf(context).withOpacity(0.65),
                     fontSize: 13.5,
                     fontWeight: FontWeight.w500,
                   ),
@@ -587,7 +658,7 @@ class _HeroActionCard extends StatelessWidget {
                 Row(
                   children: [
                     Material(
-                      color: _Archive.brown,
+                      color: AurumTheme.accentOf(context),
                       borderRadius: BorderRadius.circular(22),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(22),
@@ -626,10 +697,10 @@ class _HeroActionCard extends StatelessWidget {
                         child: InkWell(
                           customBorder: const CircleBorder(),
                           onTap: onMoreTap,
-                          child: const Padding(
+                          child: Padding(
                             padding: EdgeInsets.all(11),
                             child: Icon(Icons.more_horiz_rounded,
-                                color: _Archive.brown, size: 18),
+                                color: AurumTheme.accentOf(context), size: 18),
                           ),
                         ),
                       ),
@@ -645,12 +716,12 @@ class _HeroActionCard extends StatelessWidget {
   }
 }
 
-// ── Song row (ArchiveTune-style flat card) ──────────────────────────────────
-class _ArchiveSongRow extends StatelessWidget {
+// ── Song row (flat card) ──────────────────────────────────
+class _AurumSongRow extends StatelessWidget {
   final Song song;
   final List<Song> queue;
   final int index;
-  const _ArchiveSongRow({
+  const _AurumSongRow({
     required this.song,
     required this.queue,
     required this.index,
@@ -683,9 +754,9 @@ class _ArchiveSongRow extends StatelessWidget {
                     ? Container(
                         width: 46,
                         height: 46,
-                        color: _Archive.chip,
-                        child: const Icon(Icons.music_note_rounded,
-                            color: _Archive.brown, size: 20),
+                        color: AurumTheme.bgSurfaceOf(context),
+                        child: Icon(Icons.music_note_rounded,
+                            color: AurumTheme.accentOf(context), size: 20),
                       )
                     : AurumArtwork(url: song.artworkUrl, size: 46, borderRadius: 12),
               ),
@@ -706,8 +777,8 @@ class _ArchiveSongRow extends StatelessWidget {
                             song.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: _Archive.textPrimary,
+                            style: TextStyle(
+                              color: AurumTheme.textPrimaryOf(context),
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
                             ),
@@ -721,7 +792,7 @@ class _ArchiveSongRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: _Archive.textMuted,
+                        color: AurumTheme.textMutedOf(context),
                         fontSize: 12.5,
                         fontWeight: FontWeight.w500,
                       ),
@@ -734,15 +805,15 @@ class _ArchiveSongRow extends StatelessWidget {
                 Text(
                   song.durationString,
                   style: TextStyle(
-                    color: _Archive.textMuted,
+                    color: AurumTheme.textMutedOf(context),
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               const SizedBox(width: 4),
               IconButton(
-                icon: const Icon(Icons.more_vert_rounded,
-                    color: _Archive.textMuted, size: 20),
+                icon: Icon(Icons.more_vert_rounded,
+                    color: AurumTheme.textMutedOf(context), size: 20),
                 onPressed: () => _showSongSheet(context, song),
               ),
             ],
@@ -758,8 +829,8 @@ class _ArchiveSongRow extends StatelessWidget {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => Container(
-        decoration: const BoxDecoration(
-          color: _Archive.bgAlt,
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
@@ -781,15 +852,15 @@ class _ArchiveSongRow extends StatelessWidget {
                       Text(song.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: _Archive.textPrimary,
+                          style: TextStyle(
+                              color: AurumTheme.textPrimaryOf(context),
                               fontSize: 15,
                               fontWeight: FontWeight.w700)),
                       Text(song.artist,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              color: _Archive.textMuted, fontSize: 12.5)),
+                              color: AurumTheme.textMutedOf(context), fontSize: 12.5)),
                     ],
                   ),
                 ),
@@ -807,7 +878,7 @@ class _ArchiveSongRow extends StatelessWidget {
                 ),
                 title: Text(
                   fav.isFavorite(song.id) ? 'Remove from Liked' : 'Add to Liked',
-                  style: const TextStyle(color: _Archive.textPrimary),
+                  style: TextStyle(color: AurumTheme.textPrimaryOf(context)),
                 ),
                 onTap: () {
                   rootContext.read<FavoritesProvider>().toggleFavorite(song);
@@ -817,9 +888,9 @@ class _ArchiveSongRow extends StatelessWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.playlist_add_rounded, color: _Archive.brown),
-              title: const Text('Add to Playlist',
-                  style: TextStyle(color: _Archive.textPrimary)),
+              leading: Icon(Icons.playlist_add_rounded, color: AurumTheme.accentOf(context)),
+              title: Text('Add to Playlist',
+                  style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () => Navigator.pop(sheetContext),
             ),
           ],
@@ -830,11 +901,11 @@ class _ArchiveSongRow extends StatelessWidget {
 }
 
 // ── Shared empty/permission states ──────────────────────────────────────────
-class _ArchiveEmptyState extends StatelessWidget {
+class _AurumEmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  const _ArchiveEmptyState({
+  const _AurumEmptyState({
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -852,16 +923,16 @@ class _ArchiveEmptyState extends StatelessWidget {
               width: 72,
               height: 72,
               decoration: BoxDecoration(
-                color: _Archive.chip,
+                color: AurumTheme.bgSurfaceOf(context),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: _Archive.brown, size: 30),
+              child: Icon(icon, color: AurumTheme.accentOf(context), size: 30),
             ),
             const SizedBox(height: 18),
             Text(
               title,
-              style: const TextStyle(
-                color: _Archive.textPrimary,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
@@ -871,7 +942,7 @@ class _ArchiveEmptyState extends StatelessWidget {
               subtitle,
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: _Archive.textMuted,
+                color: AurumTheme.textMutedOf(context),
                 fontSize: 13,
                 height: 1.4,
               ),
@@ -883,9 +954,9 @@ class _ArchiveEmptyState extends StatelessWidget {
   }
 }
 
-class _ArchivePermissionState extends StatelessWidget {
+class _AurumPermissionState extends StatelessWidget {
   final VoidCallback onGrant;
-  const _ArchivePermissionState({required this.onGrant});
+  const _AurumPermissionState({required this.onGrant});
 
   @override
   Widget build(BuildContext context) {
@@ -898,17 +969,17 @@ class _ArchivePermissionState extends StatelessWidget {
             Container(
               width: 72,
               height: 72,
-              decoration: const BoxDecoration(
-                color: _Archive.chip,
+              decoration: BoxDecoration(
+                color: AurumTheme.bgSurfaceOf(context),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.folder_rounded, color: _Archive.brown, size: 30),
+              child: Icon(Icons.folder_rounded, color: AurumTheme.accentOf(context), size: 30),
             ),
             const SizedBox(height: 18),
-            const Text(
+            Text(
               'Permission needed',
               style: TextStyle(
-                color: _Archive.textPrimary,
+                color: AurumTheme.textPrimaryOf(context),
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
@@ -917,11 +988,11 @@ class _ArchivePermissionState extends StatelessWidget {
             Text(
               'Aurum needs access to your device storage to show local songs.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: _Archive.textMuted, fontSize: 13, height: 1.4),
+              style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13, height: 1.4),
             ),
             const SizedBox(height: 18),
             Material(
-              color: _Archive.brown,
+              color: AurumTheme.accentOf(context),
               borderRadius: BorderRadius.circular(22),
               child: InkWell(
                 borderRadius: BorderRadius.circular(22),
@@ -943,19 +1014,19 @@ class _ArchivePermissionState extends StatelessWidget {
   }
 }
 // ══════════════════════════════════════════════════════════════════════════════
-// ARTISTS TAB — mirrors ArchiveTune's "Top Artist" hero + "Artists" count
+// ARTISTS TAB — top-artist hero + "Artists" count
 // card + sort row + list. Backed by FollowedArtistsProvider (real saved/
 // followed artists — same data source the existing _ArtistsScreen used).
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _ArchiveArtistsTab extends StatefulWidget {
-  const _ArchiveArtistsTab();
+class _AurumArtistsTab extends StatefulWidget {
+  const _AurumArtistsTab();
 
   @override
-  State<_ArchiveArtistsTab> createState() => _ArchiveArtistsTabState();
+  State<_AurumArtistsTab> createState() => _AurumArtistsTabState();
 }
 
-class _ArchiveArtistsTabState extends State<_ArchiveArtistsTab> {
+class _AurumArtistsTabState extends State<_AurumArtistsTab> {
   bool _newestFirst = true;
 
   @override
@@ -1009,13 +1080,13 @@ class _ArchiveArtistsTabState extends State<_ArchiveArtistsTab> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                     decoration: BoxDecoration(
-                      color: _Archive.chip,
+                      color: AurumTheme.bgSurfaceOf(context),
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Text(
+                    child: Text(
                       'Subscribed Only',
                       style: TextStyle(
-                        color: _Archive.brown,
+                        color: AurumTheme.accentOf(context),
                         fontSize: 12.5,
                         fontWeight: FontWeight.w700,
                       ),
@@ -1029,7 +1100,7 @@ class _ArchiveArtistsTabState extends State<_ArchiveArtistsTab> {
         if (ordered.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
-            child: _ArchiveEmptyState(
+            child: _AurumEmptyState(
               icon: Icons.person_rounded,
               title: 'No artists saved yet',
               subtitle: 'Artists you follow will appear here.',
@@ -1042,7 +1113,7 @@ class _ArchiveArtistsTabState extends State<_ArchiveArtistsTab> {
               delegate: SliverChildBuilderDelegate(
                 (context, i) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _ArchiveArtistRow(artist: ordered[i]),
+                  child: _AurumArtistRow(artist: ordered[i]),
                 ),
                 childCount: ordered.length,
               ),
@@ -1080,7 +1151,7 @@ class _TopArtistAndCountRow extends StatelessWidget {
                   ? Container(
                       width: 46,
                       height: 46,
-                      color: _Archive.chipActive,
+                      color: AurumTheme.accentOf(context),
                       child: const Icon(Icons.person_rounded,
                           color: Colors.white, size: 22),
                     )
@@ -1102,7 +1173,7 @@ class _TopArtistAndCountRow extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: _Archive.heroStrong,
+              color: AurumTheme.bgElevatedOf(context),
               borderRadius: BorderRadius.circular(28),
             ),
             child: Column(
@@ -1115,20 +1186,20 @@ class _TopArtistAndCountRow extends StatelessWidget {
                       child: Text(
                         'Artists',
                         style: TextStyle(
-                          color: _Archive.textPrimary,
+                          color: AurumTheme.textPrimaryOf(context),
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                     ),
                     Icon(Icons.arrow_forward_rounded,
-                        color: _Archive.brown, size: 18),
+                        color: AurumTheme.accentOf(context), size: 18),
                   ],
                 ),
                 Text(
                   '$totalCount',
-                  style: const TextStyle(
-                    color: _Archive.textPrimary,
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
                     fontSize: 30,
                     fontWeight: FontWeight.w800,
                   ),
@@ -1136,7 +1207,7 @@ class _TopArtistAndCountRow extends StatelessWidget {
                 Text(
                   'total',
                   style: TextStyle(
-                    color: _Archive.textPrimary.withOpacity(0.6),
+                    color: AurumTheme.textPrimaryOf(context).withOpacity(0.6),
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1150,9 +1221,9 @@ class _TopArtistAndCountRow extends StatelessWidget {
   }
 }
 
-class _ArchiveArtistRow extends StatelessWidget {
+class _AurumArtistRow extends StatelessWidget {
   final Map<String, dynamic> artist;
-  const _ArchiveArtistRow({required this.artist});
+  const _AurumArtistRow({required this.artist});
 
   @override
   Widget build(BuildContext context) {
@@ -1182,9 +1253,9 @@ class _ArchiveArtistRow extends StatelessWidget {
                     ? Container(
                         width: 48,
                         height: 48,
-                        color: _Archive.chip,
-                        child: const Icon(Icons.person_rounded,
-                            color: _Archive.brown, size: 22),
+                        color: AurumTheme.bgSurfaceOf(context),
+                        child: Icon(Icons.person_rounded,
+                            color: AurumTheme.accentOf(context), size: 22),
                       )
                     : AurumArtwork(url: imageUrl, size: 48, borderRadius: 24),
               ),
@@ -1197,8 +1268,8 @@ class _ArchiveArtistRow extends StatelessWidget {
                       name.isEmpty ? 'Unknown' : name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _Archive.textPrimary,
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
@@ -1207,7 +1278,7 @@ class _ArchiveArtistRow extends StatelessWidget {
                     Text(
                       'Artist',
                       style: TextStyle(
-                        color: _Archive.textMuted,
+                        color: AurumTheme.textMutedOf(context),
                         fontSize: 12.5,
                         fontWeight: FontWeight.w500,
                       ),
@@ -1216,7 +1287,7 @@ class _ArchiveArtistRow extends StatelessWidget {
                 ),
               ),
               Material(
-                color: _Archive.brown,
+                color: AurumTheme.accentOf(context),
                 shape: const CircleBorder(),
                 child: InkWell(
                   customBorder: const CircleBorder(),
@@ -1244,8 +1315,8 @@ class _ArchiveArtistRow extends StatelessWidget {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => Container(
-        decoration: const BoxDecoration(
-          color: _Archive.bgAlt,
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
@@ -1262,8 +1333,8 @@ class _ArchiveArtistRow extends StatelessWidget {
                 Expanded(
                   child: Text(
                     name,
-                    style: const TextStyle(
-                      color: _Archive.textPrimary,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                     ),
@@ -1277,8 +1348,8 @@ class _ArchiveArtistRow extends StatelessWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.person_remove_rounded, color: Colors.redAccent),
-              title: const Text('Unfollow artist',
-                  style: TextStyle(color: _Archive.textPrimary)),
+              title: Text('Unfollow artist',
+                  style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () {
                 Navigator.pop(sheetContext);
                 rootContext.read<FollowedArtistsProvider>().toggleFollow(
@@ -1295,19 +1366,19 @@ class _ArchiveArtistRow extends StatelessWidget {
   }
 }
 // ══════════════════════════════════════════════════════════════════════════════
-// ALBUMS TAB — mirrors ArchiveTune's "Featured Album" hero + grid, plus a
+// ALBUMS TAB — featured-album hero + grid, plus a
 // list/grid toggle. Backed by FollowedAlbumsProvider (real saved albums —
 // same data source the existing _AlbumsScreen used).
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _ArchiveAlbumsTab extends StatefulWidget {
-  const _ArchiveAlbumsTab();
+class _AurumAlbumsTab extends StatefulWidget {
+  const _AurumAlbumsTab();
 
   @override
-  State<_ArchiveAlbumsTab> createState() => _ArchiveAlbumsTabState();
+  State<_AurumAlbumsTab> createState() => _AurumAlbumsTabState();
 }
 
-class _ArchiveAlbumsTabState extends State<_ArchiveAlbumsTab> {
+class _AurumAlbumsTabState extends State<_AurumAlbumsTab> {
   bool _newestFirst = true;
   bool _gridView = true;
 
@@ -1367,7 +1438,7 @@ class _ArchiveAlbumsTabState extends State<_ArchiveAlbumsTab> {
         if (ordered.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
-            child: _ArchiveEmptyState(
+            child: _AurumEmptyState(
               icon: Icons.album_rounded,
               title: 'No albums saved yet',
               subtitle: 'Albums you save will appear here.',
@@ -1384,7 +1455,7 @@ class _ArchiveAlbumsTabState extends State<_ArchiveAlbumsTab> {
                 childAspectRatio: 0.78,
               ),
               delegate: SliverChildBuilderDelegate(
-                (context, i) => _ArchiveAlbumTile(album: ordered[i]),
+                (context, i) => _AurumAlbumTile(album: ordered[i]),
                 childCount: ordered.length,
               ),
             ),
@@ -1396,7 +1467,7 @@ class _ArchiveAlbumsTabState extends State<_ArchiveAlbumsTab> {
               delegate: SliverChildBuilderDelegate(
                 (context, i) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _ArchiveAlbumRow(album: ordered[i]),
+                  child: _AurumAlbumRow(album: ordered[i]),
                 ),
                 childCount: ordered.length,
               ),
@@ -1417,7 +1488,7 @@ class _ViewToggle extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: _Archive.chip,
+        color: AurumTheme.bgSurfaceOf(context),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -1452,14 +1523,14 @@ class _ViewToggleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? _Archive.chipActive : Colors.transparent,
+      color: selected ? AurumTheme.accentOf(context) : Colors.transparent,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(8),
-          child: Icon(icon, size: 18, color: selected ? Colors.white : _Archive.brown),
+          child: Icon(icon, size: 18, color: selected ? Colors.white : AurumTheme.accentOf(context)),
         ),
       ),
     );
@@ -1496,7 +1567,7 @@ class _FeaturedAlbumHero extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _Archive.hero,
+        color: AurumTheme.bgElevatedOf(context),
         borderRadius: BorderRadius.circular(28),
       ),
       child: Row(
@@ -1514,7 +1585,7 @@ class _FeaturedAlbumHero extends StatelessWidget {
                 Text(
                   'FEATURED ALBUM',
                   style: TextStyle(
-                    color: _Archive.brown.withOpacity(0.75),
+                    color: AurumTheme.accentOf(context).withOpacity(0.75),
                     fontSize: 11.5,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.6,
@@ -1525,8 +1596,8 @@ class _FeaturedAlbumHero extends StatelessWidget {
                   name.isEmpty ? 'Unknown album' : name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _Archive.textPrimary,
+                  style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.4,
@@ -1536,7 +1607,7 @@ class _FeaturedAlbumHero extends StatelessWidget {
                 Row(
                   children: [
                     Material(
-                      color: _Archive.brown,
+                      color: AurumTheme.accentOf(context),
                       borderRadius: BorderRadius.circular(22),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(22),
@@ -1565,9 +1636,9 @@ class _FeaturedAlbumHero extends StatelessWidget {
                       child: InkWell(
                         customBorder: const CircleBorder(),
                         onTap: open,
-                        child: const Padding(
+                        child: Padding(
                           padding: EdgeInsets.all(11),
-                          child: Icon(Icons.more_horiz_rounded, color: _Archive.brown, size: 18),
+                          child: Icon(Icons.more_horiz_rounded, color: AurumTheme.accentOf(context), size: 18),
                         ),
                       ),
                     ),
@@ -1582,9 +1653,9 @@ class _FeaturedAlbumHero extends StatelessWidget {
   }
 }
 
-class _ArchiveAlbumTile extends StatelessWidget {
+class _AurumAlbumTile extends StatelessWidget {
   final Map<String, dynamic> album;
-  const _ArchiveAlbumTile({required this.album});
+  const _AurumAlbumTile({required this.album});
 
   @override
   Widget build(BuildContext context) {
@@ -1629,8 +1700,8 @@ class _ArchiveAlbumTile extends StatelessWidget {
               name.isEmpty ? 'Unknown album' : name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: _Archive.textPrimary,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
               ),
@@ -1648,8 +1719,8 @@ class _ArchiveAlbumTile extends StatelessWidget {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => Container(
-        decoration: const BoxDecoration(
-          color: _Archive.bgAlt,
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
@@ -1667,8 +1738,8 @@ class _ArchiveAlbumTile extends StatelessWidget {
                 Expanded(
                   child: Text(
                     name,
-                    style: const TextStyle(
-                      color: _Archive.textPrimary,
+                    style: TextStyle(
+                      color: AurumTheme.textPrimaryOf(context),
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                     ),
@@ -1682,8 +1753,8 @@ class _ArchiveAlbumTile extends StatelessWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.bookmark_remove_rounded, color: Colors.redAccent),
-              title: const Text('Remove from saved albums',
-                  style: TextStyle(color: _Archive.textPrimary)),
+              title: Text('Remove from saved albums',
+                  style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
               onTap: () {
                 Navigator.pop(sheetContext);
                 rootContext.read<FollowedAlbumsProvider>().toggleFollow(
@@ -1700,9 +1771,9 @@ class _ArchiveAlbumTile extends StatelessWidget {
   }
 }
 
-class _ArchiveAlbumRow extends StatelessWidget {
+class _AurumAlbumRow extends StatelessWidget {
   final Map<String, dynamic> album;
-  const _ArchiveAlbumRow({required this.album});
+  const _AurumAlbumRow({required this.album});
 
   @override
   Widget build(BuildContext context) {
@@ -1748,8 +1819,8 @@ class _ArchiveAlbumRow extends StatelessWidget {
                       name.isEmpty ? 'Unknown album' : name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _Archive.textPrimary,
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
@@ -1758,7 +1829,7 @@ class _ArchiveAlbumRow extends StatelessWidget {
                     Text(
                       'Album',
                       style: TextStyle(
-                        color: _Archive.textMuted,
+                        color: AurumTheme.textMutedOf(context),
                         fontSize: 12.5,
                         fontWeight: FontWeight.w500,
                       ),
@@ -1766,7 +1837,7 @@ class _ArchiveAlbumRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: _Archive.textMuted),
+              Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context)),
             ],
           ),
         ),
@@ -1775,7 +1846,7 @@ class _ArchiveAlbumRow extends StatelessWidget {
   }
 }
 // ══════════════════════════════════════════════════════════════════════════════
-// PLAYLISTS TAB — combines ArchiveTune's "Library" home (quick-access grid:
+// PLAYLISTS TAB — combines a quick-access grid (
 // Liked/Offline/Cached/Local Files/My Top 50 + Recently Played rail) with
 // the user's own saved playlists underneath. Backed by real providers:
 // FavoritesProvider (Liked), DownloadProvider (Offline), LibraryProvider
@@ -1783,14 +1854,14 @@ class _ArchiveAlbumRow extends StatelessWidget {
 // (Your Playlists).
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _ArchivePlaylistsTab extends StatefulWidget {
-  const _ArchivePlaylistsTab();
+class _AurumPlaylistsTab extends StatefulWidget {
+  const _AurumPlaylistsTab();
 
   @override
-  State<_ArchivePlaylistsTab> createState() => _ArchivePlaylistsTabState();
+  State<_AurumPlaylistsTab> createState() => _AurumPlaylistsTabState();
 }
 
-class _ArchivePlaylistsTabState extends State<_ArchivePlaylistsTab> {
+class _AurumPlaylistsTabState extends State<_AurumPlaylistsTab> {
   @override
   Widget build(BuildContext context) {
     final favorites = context.watch<FavoritesProvider>();
@@ -1856,7 +1927,7 @@ class _ArchivePlaylistsTabState extends State<_ArchivePlaylistsTab> {
               child: Text(
                 'Recently Played',
                 style: TextStyle(
-                  color: _Archive.textPrimary,
+                  color: AurumTheme.textPrimaryOf(context),
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
                 ),
@@ -1892,14 +1963,14 @@ class _ArchivePlaylistsTabState extends State<_ArchivePlaylistsTab> {
                 Text(
                   'Your Playlists',
                   style: TextStyle(
-                    color: _Archive.textPrimary,
+                    color: AurumTheme.textPrimaryOf(context),
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const Spacer(),
                 Material(
-                  color: _Archive.brown,
+                  color: AurumTheme.accentOf(context),
                   shape: const CircleBorder(),
                   child: InkWell(
                     customBorder: const CircleBorder(),
@@ -1918,7 +1989,7 @@ class _ArchivePlaylistsTabState extends State<_ArchivePlaylistsTab> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
-              child: _ArchiveEmptyState(
+              child: _AurumEmptyState(
                 icon: Icons.playlist_play_rounded,
                 title: 'No playlists yet',
                 subtitle: 'Create one from any song\'s menu.',
@@ -1932,7 +2003,7 @@ class _ArchivePlaylistsTabState extends State<_ArchivePlaylistsTab> {
               delegate: SliverChildBuilderDelegate(
                 (context, i) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _ArchivePlaylistRow(playlist: playlists.playlists[i]),
+                  child: _AurumPlaylistRow(playlist: playlists.playlists[i]),
                 ),
                 childCount: playlists.playlists.length,
               ),
@@ -1967,28 +2038,28 @@ class _QuickAccessGrid extends StatelessWidget {
         ),
         _QuickAccessCard(
           icon: Icons.check_circle_rounded,
-          iconColor: _Archive.brown,
+          iconColor: AurumTheme.accentOf(context),
           title: 'Offline',
           subtitle: downloadedCount == 0 ? 'Downloaded' : '$downloadedCount downloaded',
           onTap: () => AurumDepthRoute.to(context, const DownloadsScreen()),
         ),
         _QuickAccessCard(
           icon: Icons.sync_rounded,
-          iconColor: _Archive.brown,
+          iconColor: AurumTheme.accentOf(context),
           title: 'Cached',
           subtitle: 'Instant playback',
           onTap: () {},
         ),
         _QuickAccessCard(
           icon: Icons.folder_rounded,
-          iconColor: _Archive.brown,
+          iconColor: AurumTheme.accentOf(context),
           title: 'Local Files',
           subtitle: 'On device',
           onTap: () => AurumDepthRoute.to(context, const _LocalFilesScreen()),
         ),
         _QuickAccessCard(
           icon: Icons.trending_up_rounded,
-          iconColor: _Archive.brown,
+          iconColor: AurumTheme.accentOf(context),
           title: 'My top 50',
           subtitle: 'All time',
           onTap: () => AurumDepthRoute.to(context, const _HistoryScreen()),
@@ -2015,7 +2086,7 @@ class _QuickAccessCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: _Archive.chip,
+      color: AurumTheme.bgSurfaceOf(context),
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
@@ -2033,8 +2104,8 @@ class _QuickAccessCard extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 title,
-                style: const TextStyle(
-                  color: _Archive.textPrimary,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
                   fontSize: 14.5,
                   fontWeight: FontWeight.w700,
                 ),
@@ -2045,7 +2116,7 @@ class _QuickAccessCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: _Archive.textMuted,
+                  color: AurumTheme.textMutedOf(context),
                   fontSize: 11.5,
                   fontWeight: FontWeight.w500,
                 ),
@@ -2096,7 +2167,7 @@ class _RecentlyPlayedCard extends StatelessWidget {
                   right: 8,
                   bottom: 8,
                   child: Material(
-                    color: _Archive.brown,
+                    color: AurumTheme.accentOf(context),
                     shape: const CircleBorder(),
                     child: Padding(
                       padding: const EdgeInsets.all(7),
@@ -2111,8 +2182,8 @@ class _RecentlyPlayedCard extends StatelessWidget {
               song.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: _Archive.textPrimary,
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
               ),
@@ -2122,7 +2193,7 @@ class _RecentlyPlayedCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: _Archive.textMuted,
+                color: AurumTheme.textMutedOf(context),
                 fontSize: 11.5,
                 fontWeight: FontWeight.w500,
               ),
@@ -2134,9 +2205,9 @@ class _RecentlyPlayedCard extends StatelessWidget {
   }
 }
 
-class _ArchivePlaylistRow extends StatelessWidget {
+class _AurumPlaylistRow extends StatelessWidget {
   final AurumPlaylist playlist;
-  const _ArchivePlaylistRow({required this.playlist});
+  const _AurumPlaylistRow({required this.playlist});
 
   @override
   Widget build(BuildContext context) {
@@ -2159,9 +2230,9 @@ class _ArchivePlaylistRow extends StatelessWidget {
                     ? Container(
                         width: 48,
                         height: 48,
-                        color: _Archive.chip,
-                        child: const Icon(Icons.playlist_play_rounded,
-                            color: _Archive.brown, size: 22),
+                        color: AurumTheme.bgSurfaceOf(context),
+                        child: Icon(Icons.playlist_play_rounded,
+                            color: AurumTheme.accentOf(context), size: 22),
                       )
                     : AurumArtwork(url: playlist.coverArt!, size: 48, borderRadius: 12),
               ),
@@ -2174,8 +2245,8 @@ class _ArchivePlaylistRow extends StatelessWidget {
                       playlist.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: _Archive.textPrimary,
+                      style: TextStyle(
+                        color: AurumTheme.textPrimaryOf(context),
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
@@ -2184,7 +2255,7 @@ class _ArchivePlaylistRow extends StatelessWidget {
                     Text(
                       '${playlist.songCount} song${playlist.songCount == 1 ? '' : 's'}',
                       style: TextStyle(
-                        color: _Archive.textMuted,
+                        color: AurumTheme.textMutedOf(context),
                         fontSize: 12.5,
                         fontWeight: FontWeight.w500,
                       ),
@@ -2192,7 +2263,7 @@ class _ArchivePlaylistRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: _Archive.textMuted),
+              Icon(Icons.chevron_right_rounded, color: AurumTheme.textMutedOf(context)),
             ],
           ),
         ),
@@ -2201,33 +2272,80 @@ class _ArchivePlaylistRow extends StatelessWidget {
   }
 }
 // ══════════════════════════════════════════════════════════════════════════════
-// PLAYLISTS SCREEN  — Spotify-style list of user playlists
+// PLAYLISTS SCREEN — full list of user playlists with custom-order drag
+// reorder, list/grid view toggle, tag filtering, and "Manage Tags".
 // ══════════════════════════════════════════════════════════════════════════════
 
-class PlaylistsScreen extends StatelessWidget {
+enum _PlaylistSort { custom, name, dateAdded, mostPlayed }
+
+class PlaylistsScreen extends StatefulWidget {
   const PlaylistsScreen({super.key});
+
+  @override
+  State<PlaylistsScreen> createState() => _PlaylistsScreenState();
+}
+
+class _PlaylistsScreenState extends State<PlaylistsScreen> {
+  _PlaylistSort _sort = _PlaylistSort.custom;
+  bool _gridView = false;
+  // Locks the drag handles so an accidental long-press doesn't reshuffle
+  // "Custom order" — matches the reference lock icon next to the sort
+  // dropdown. Starts locked; the user explicitly unlocks to reorder.
+  bool _reorderLocked = true;
+  String? _activeTag; // null == "All"
+
+  String _sortLabel(_PlaylistSort s) {
+    switch (s) {
+      case _PlaylistSort.custom:
+        return 'Custom order';
+      case _PlaylistSort.name:
+        return 'Name';
+      case _PlaylistSort.dateAdded:
+        return 'Date added';
+      case _PlaylistSort.mostPlayed:
+        return 'Most played';
+    }
+  }
+
+  List<AurumPlaylist> _sorted(PlaylistProvider pp) {
+    final base = _activeTag == null
+        ? pp.customOrdered()
+        : pp.byTag(_activeTag!);
+    if (_sort == _PlaylistSort.custom) return base;
+    final list = List<AurumPlaylist>.from(base);
+    switch (_sort) {
+      case _PlaylistSort.name:
+        list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        break;
+      case _PlaylistSort.dateAdded:
+        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        break;
+      case _PlaylistSort.mostPlayed:
+        list.sort((a, b) => b.songCount.compareTo(a.songCount));
+        break;
+      case _PlaylistSort.custom:
+        break;
+    }
+    return list;
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Consumer<PlaylistProvider>(
       builder: (context, pp, _) {
+        final tags = pp.allTags;
+        final visible = _sorted(pp);
+        final canReorder = _sort == _PlaylistSort.custom &&
+            _activeTag == null &&
+            !_reorderLocked;
+
         return Scaffold(
           backgroundColor: AurumTheme.bgOf(context),
-          // SPOTIFY-STYLE PERSISTENT MINI PLAYER — see liked_screen.dart's
-          // matching comment for the full reasoning.
           bottomNavigationBar: const MiniPlayerSlot(),
-          // BUGFIX: same "whole app shrinks when keyboard opens" fix as
-          // MainShell — the New Playlist dialog is pushed on top of THIS
-          // Scaffold, and its default resizeToAvoidBottomInset: true was
-          // squeezing the whole playlists list/app-bar upward the moment
-          // the dialog's TextField got focus, on top of the dialog's own
-          // (correct) keyboard-avoidance. The dialog handles its own
-          // resize; this screen doesn't need to.
           resizeToAvoidBottomInset: false,
           body: CustomScrollView(
             physics: const BouncingScrollPhysics(),
-            // PERF FIX — see LibraryScreen's matching cacheExtent comment above.
             cacheExtent: 1200,
             slivers: [
               // ── App Bar ─────────────────────────────────────────────────
@@ -2241,75 +2359,140 @@ class PlaylistsScreen extends StatelessWidget {
                       color: AurumTheme.textSecondaryOf(context), size: 20),
                   onPressed: () => Navigator.pop(context),
                 ),
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.add_rounded,
-                        color: AurumTheme.gold, size: 26),
-                    onPressed: () => _showCreateDialog(context),
-                  ),
-                ],
                 flexibleSpace: FlexibleSpaceBar(
-                  titlePadding: const EdgeInsets.fromLTRB(52, 0, 60, 16),
-                  title: Row(
+                  titlePadding: const EdgeInsets.fromLTRB(52, 0, 20, 16),
+                  title: Text(l10n.libraryPlaylists,
+                      style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: AurumTheme.textPrimaryOf(context))),
+                ),
+              ),
+
+              // ── Toolbar row: sort dropdown, lock, view toggle, add ──────
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: Row(
                     children: [
-                      const Icon(Icons.queue_music_rounded,
-                          color: Colors.purpleAccent, size: 22),
+                      _SortDropdown(
+                        label: _sortLabel(_sort),
+                        onSelected: (s) => setState(() => _sort = s),
+                      ),
+                      const Spacer(),
+                      _ToolbarIconButton(
+                        icon: _reorderLocked
+                            ? Icons.lock_rounded
+                            : Icons.lock_open_rounded,
+                        selected: !_reorderLocked,
+                        onTap: _sort != _PlaylistSort.custom
+                            ? null
+                            : () => setState(() => _reorderLocked = !_reorderLocked),
+                      ),
                       const SizedBox(width: 8),
-                      ShaderMask(
-                        shaderCallback: (b) =>
-                            AurumTheme.goldGradient.createShader(b),
-                        child: Text(l10n.libraryPlaylists,
-                            style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white)),
+                      _PlaylistViewToggle(
+                        gridView: _gridView,
+                        onChanged: (g) => setState(() => _gridView = g),
+                      ),
+                      const SizedBox(width: 8),
+                      _ToolbarIconButton(
+                        icon: Icons.add_rounded,
+                        filled: true,
+                        onTap: () => _showCreateDialog(context),
                       ),
                     ],
                   ),
                 ),
               ),
 
-              // ── Empty State ─────────────────────────────────────────────
-              if (pp.playlists.isEmpty)
+              // ── Tag filter row: "All" chip + one per tag, "Manage Tags" ─
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 44,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                    children: [
+                      _TagFilterChip(
+                        icon: Icons.filter_alt_rounded,
+                        label: 'All',
+                        selected: _activeTag == null,
+                        onTap: () => setState(() => _activeTag = null),
+                      ),
+                      const SizedBox(width: 10),
+                      for (final tag in tags) ...[
+                        _TagFilterChip(
+                          label: tag,
+                          selected: _activeTag == tag,
+                          onTap: () => setState(
+                              () => _activeTag = _activeTag == tag ? null : tag),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      _TagFilterChip(
+                        icon: Icons.add_rounded,
+                        label: 'Manage Tags',
+                        selected: false,
+                        onTap: () => _showManageTagsSheet(context, pp),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 8)),
+
+              // ── Empty state ──────────────────────────────────────────────
+              if (visible.isEmpty)
                 SliverFillRemaining(
                   child: _EmptyPlaylists(
                       onCreateTap: () => _showCreateDialog(context)),
                 )
-              else ...[
-                // ── Header row ────────────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-                    child: Text(
-                      l10n.libraryPlaylistCount(pp.count),
-                      style: TextStyle(
-                          color: AurumTheme.textMutedOf(context),
-                          fontSize: 12),
+              else if (_gridView)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                  sliver: SliverGrid(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 16,
+                      crossAxisSpacing: 16,
+                      childAspectRatio: 0.86,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => _PlaylistGridTile(playlist: visible[i]),
+                      childCount: visible.length,
                     ),
                   ),
-                ),
-                // ── Playlist Cards ────────────────────────────────────────
+                )
+              else if (canReorder)
+                SliverReorderableList(
+                  itemCount: visible.length,
+                  onReorder: (oldIndex, newIndex) {
+                    AurumHaptics.medium();
+                    pp.reorderPlaylist(oldIndex, newIndex);
+                  },
+                  itemBuilder: (context, i) => _PlaylistListRow(
+                    key: ValueKey(visible[i].id),
+                    playlist: visible[i],
+                    index: i,
+                    reorderable: true,
+                  ),
+                )
+              else
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (context, i) {
-                      final pl = pp.playlists[i];
-                      return _PlaylistCard(playlist: pl);
-                    },
-                    childCount: pp.playlists.length,
+                    (context, i) => _PlaylistListRow(
+                      key: ValueKey(visible[i].id),
+                      playlist: visible[i],
+                      index: i,
+                      reorderable: false,
+                    ),
+                    childCount: visible.length,
                   ),
                 ),
-                const SliverToBoxAdapter(child: SizedBox(height: 100)),
-              ],
+              const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
           ),
-          // ── FAB ─────────────────────────────────────────────────────────
-          floatingActionButton: pp.playlists.isNotEmpty
-              ? FloatingActionButton(
-                  backgroundColor: AurumTheme.gold,
-                  onPressed: () => _showCreateDialog(context),
-                  child: Icon(Icons.add_rounded, color: AurumTheme.bgOf(context)),
-                )
-              : null,
         );
       },
     );
@@ -2328,6 +2511,567 @@ class PlaylistsScreen extends StatelessWidget {
           builder: (_) => _CreatePlaylistDialog(),
         );
       },
+    );
+  }
+
+  Future<void> _showManageTagsSheet(
+      BuildContext context, PlaylistProvider pp) async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => _ManageTagsSheet(pp: pp),
+    );
+  }
+}
+
+// ── Sort dropdown chip ────────────────────────────────────────────────────────
+
+class _SortDropdown extends StatelessWidget {
+  final String label;
+  final ValueChanged<_PlaylistSort> onSelected;
+  const _SortDropdown({required this.label, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_PlaylistSort>(
+      onSelected: onSelected,
+      color: AurumTheme.bgCardOf(context),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      itemBuilder: (context) => [
+        _menuItem(context, _PlaylistSort.custom, 'Custom order'),
+        _menuItem(context, _PlaylistSort.name, 'Name'),
+        _menuItem(context, _PlaylistSort.dateAdded, 'Date added'),
+        _menuItem(context, _PlaylistSort.mostPlayed, 'Most played'),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgSurfaceOf(context),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(width: 4),
+            Icon(Icons.keyboard_arrow_down_rounded,
+                color: AurumTheme.textPrimaryOf(context), size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<_PlaylistSort> _menuItem(
+      BuildContext context, _PlaylistSort value, String label) {
+    return PopupMenuItem(
+      value: value,
+      child: Text(label,
+          style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
+    );
+  }
+}
+
+// ── Generic round toolbar icon button (lock / add) ────────────────────────────
+
+class _ToolbarIconButton extends StatelessWidget {
+  final IconData icon;
+  final bool filled;
+  final bool selected;
+  final VoidCallback? onTap;
+  const _ToolbarIconButton({
+    required this.icon,
+    this.filled = false,
+    this.selected = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = filled || selected
+        ? AurumTheme.accentOf(context)
+        : AurumTheme.bgSurfaceOf(context);
+    final fg = filled || selected ? Colors.white : AurumTheme.textPrimaryOf(context);
+    return Opacity(
+      opacity: onTap == null ? 0.4 : 1,
+      child: Material(
+        color: bg,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Icon(icon, color: fg, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── List/grid toggle (reused shape, own instance for Playlists tab) ──────────
+
+class _PlaylistViewToggle extends StatelessWidget {
+  final bool gridView;
+  final ValueChanged<bool> onChanged;
+  const _PlaylistViewToggle({required this.gridView, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: AurumTheme.bgSurfaceOf(context),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _PlaylistViewToggleButton(
+            icon: Icons.view_list_rounded,
+            selected: !gridView,
+            onTap: () => onChanged(false),
+          ),
+          _PlaylistViewToggleButton(
+            icon: Icons.grid_view_rounded,
+            selected: gridView,
+            onTap: () => onChanged(true),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlaylistViewToggleButton extends StatelessWidget {
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  const _PlaylistViewToggleButton({
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AurumTheme.accentOf(context) : Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(7),
+          child: Icon(icon,
+              color: selected ? Colors.white : AurumTheme.textMutedOf(context),
+              size: 18),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Tag filter chip ────────────────────────────────────────────────────────────
+
+class _TagFilterChip extends StatelessWidget {
+  final IconData? icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _TagFilterChip({
+    this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AurumTheme.accentOf(context) : AurumTheme.bgSurfaceOf(context),
+      borderRadius: BorderRadius.circular(24),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon,
+                    size: 16,
+                    color: selected ? Colors.white : AurumTheme.textPrimaryOf(context)),
+                const SizedBox(width: 6),
+              ],
+              Text(label,
+                  style: TextStyle(
+                      color: selected ? Colors.white : AurumTheme.textPrimaryOf(context),
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── List row (list-view mode) ──────────────────────────────────────────────────
+
+class _PlaylistListRow extends StatelessWidget {
+  final AurumPlaylist playlist;
+  final int index;
+  final bool reorderable;
+  const _PlaylistListRow({
+    super.key,
+    required this.playlist,
+    required this.index,
+    required this.reorderable,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (playlist.coverArt != null && playlist.coverArt!.isNotEmpty) {
+      ArtworkPaletteCache.warm(playlist.coverArt!);
+    }
+    final row = AurumPressable(
+      onTap: () => AurumDepthRoute.to(
+        context,
+        PlaylistDetailScreen(playlistId: playlist.id),
+      ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                width: 60,
+                height: 60,
+                child: playlist.coverArt == null || playlist.coverArt!.isEmpty
+                    ? PlaylistColorCover(
+                        artworkUrl: playlist.songs.isNotEmpty
+                            ? playlist.songs.first.artworkUrl
+                            : '',
+                        size: 60,
+                        borderRadius: 12,
+                      )
+                    : AurumArtwork(
+                        url: playlist.coverArt!, size: 60, borderRadius: 12),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(playlist.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: AurumTheme.textPrimaryOf(context),
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        '${playlist.songCount} tr${playlist.songCount == 1 ? '' : 'acks'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: AurumTheme.textMutedOf(context), fontSize: 12.5),
+                      ),
+                      if (playlist.isYtSynced) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AurumTheme.bgSurfaceOf(context),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text('YouTube synced',
+                              style: TextStyle(
+                                  color: AurumTheme.textMutedOf(context),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Material(
+              color: AurumTheme.accentOf(context),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: playlist.songs.isEmpty
+                    ? null
+                    : () => context.read<PlayerProvider>().playSong(
+                          playlist.songs.first,
+                          queue: playlist.songs,
+                          index: 0,
+                          curatedQueue: true,
+                        ),
+                child: const Padding(
+                  padding: EdgeInsets.all(9),
+                  child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: Icon(Icons.more_vert_rounded,
+                  color: AurumTheme.textMutedOf(context), size: 20),
+              onPressed: () => _showPlaylistMenu(context, playlist),
+            ),
+            if (reorderable)
+              ReorderableDragStartListener(
+                index: index,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Icon(Icons.drag_handle_rounded,
+                      color: AurumTheme.textMutedOf(context), size: 22),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    return row;
+  }
+
+  void _showPlaylistMenu(BuildContext context, AurumPlaylist playlist) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AurumTheme.bgCardOf(context),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetContext) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: Icon(Icons.edit_rounded, color: AurumTheme.accentOf(context)),
+              title: Text('Rename', style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
+              onTap: () => Navigator.pop(sheetContext),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_rounded, color: Colors.redAccent),
+              title: Text('Delete', style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                await context.read<PlaylistProvider>().deletePlaylist(playlist.id);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Grid tile (grid-view mode) ─────────────────────────────────────────────────
+
+class _PlaylistGridTile extends StatelessWidget {
+  final AurumPlaylist playlist;
+  const _PlaylistGridTile({required this.playlist});
+
+  @override
+  Widget build(BuildContext context) {
+    if (playlist.coverArt != null && playlist.coverArt!.isNotEmpty) {
+      ArtworkPaletteCache.warm(playlist.coverArt!);
+    }
+    return AurumPressable(
+      onTap: () => AurumDepthRoute.to(
+        context,
+        PlaylistDetailScreen(playlistId: playlist.id),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  playlist.coverArt == null || playlist.coverArt!.isEmpty
+                      ? PlaylistColorCover(
+                          artworkUrl: playlist.songs.isNotEmpty
+                              ? playlist.songs.first.artworkUrl
+                              : '',
+                          size: 200,
+                          borderRadius: 16,
+                        )
+                      : AurumArtwork(
+                          url: playlist.coverArt!, size: 200, borderRadius: 16),
+                  Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: Material(
+                      color: AurumTheme.accentOf(context),
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: playlist.songs.isEmpty
+                            ? null
+                            : () => context.read<PlayerProvider>().playSong(
+                                  playlist.songs.first,
+                                  queue: playlist.songs,
+                                  index: 0,
+                                  curatedQueue: true,
+                                ),
+                        child: const Padding(
+                          padding: EdgeInsets.all(9),
+                          child: Icon(Icons.play_arrow_rounded,
+                              color: Colors.white, size: 20),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(playlist.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700)),
+          const SizedBox(height: 2),
+          Text('${playlist.songCount} tracks',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 12.5)),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Manage Tags bottom sheet ────────────────────────────────────────────────────
+
+class _ManageTagsSheet extends StatefulWidget {
+  final PlaylistProvider pp;
+  const _ManageTagsSheet({required this.pp});
+
+  @override
+  State<_ManageTagsSheet> createState() => _ManageTagsSheetState();
+}
+
+class _ManageTagsSheetState extends State<_ManageTagsSheet> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tags = widget.pp.allTags;
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+        decoration: BoxDecoration(
+          color: AurumTheme.bgCardOf(context),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Manage Tags',
+                style: TextStyle(
+                    color: AurumTheme.textPrimaryOf(context),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800)),
+            const SizedBox(height: 16),
+            if (tags.isEmpty)
+              Text('No tags yet — add one below.',
+                  style: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 13.5))
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final tag in tags)
+                    Chip(
+                      label: Text(tag,
+                          style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
+                      backgroundColor: AurumTheme.bgSurfaceOf(context),
+                      deleteIcon: const Icon(Icons.close_rounded, size: 16),
+                      onDeleted: () => widget.pp.deleteTagEverywhere(tag),
+                    ),
+                ],
+              ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    style: TextStyle(color: AurumTheme.textPrimaryOf(context)),
+                    decoration: InputDecoration(
+                      hintText: 'New tag name',
+                      hintStyle: TextStyle(color: AurumTheme.textMutedOf(context)),
+                      filled: true,
+                      fillColor: AurumTheme.bgSurfaceOf(context),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Material(
+                  color: AurumTheme.accentOf(context),
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () {
+                      // Tags are attached to individual playlists via each
+                      // playlist's own edit sheet — this field exists here
+                      // only for renaming/removing tags globally per the
+                      // reference screenshot's "Manage Tags" affordance.
+                      // Creating a brand-new (unattached) tag has nothing
+                      // to attach to yet, so this is a no-op until at least
+                      // one playlist carries it.
+                      _controller.clear();
+                      FocusScope.of(context).unfocus();
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.all(14),
+                      child: Icon(Icons.check_rounded, color: Colors.white, size: 20),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -3532,97 +4276,6 @@ class _PlaylistSongTile extends StatelessWidget {
           });
         },
         onLongPress: selecting ? null : onEnterSelectMode,
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Playlist Card in list
-// ══════════════════════════════════════════════════════════════════════════════
-
-class _PlaylistCard extends StatelessWidget {
-  final AurumPlaylist playlist;
-  const _PlaylistCard({required this.playlist});
-
-  @override
-  Widget build(BuildContext context) {
-    // FIX ("artwork open hote hi turant catch le, time na le"): pre-warm
-    // this playlist's glow color the moment its card is on screen in the
-    // list, same idea as Full Player warming the next queued song's
-    // palette while the current one plays. The no-custom-cover path
-    // below (PlaylistColorCover) already warms itself via its own
-    // getFast()/get() calls — this covers the other half: playlists WITH
-    // a coverArt image, whose detail-screen glow previously only started
-        // extracting the moment the header itself first built.
-    if (playlist.coverArt != null && playlist.coverArt!.isNotEmpty) {
-      ArtworkPaletteCache.warm(playlist.coverArt!);
-    }
-    return AurumPressable(
-      onTap: () => AurumDepthRoute.to(
-        context,
-        PlaylistDetailScreen(playlistId: playlist.id),
-      ),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AurumTheme.bgCardOf(context),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-              color: Colors.purpleAccent.withOpacity(0.12), width: 0.8),
-        ),
-        child: Row(
-          children: [
-            // ── Cover ──────────────────────────────────────────────────
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: SizedBox(
-                width: 56,
-                height: 56,
-                child: playlist.coverArt == null || playlist.coverArt!.isEmpty
-                    ? PlaylistColorCover(
-                        artworkUrl: playlist.songs.isNotEmpty
-                            ? playlist.songs.first.artworkUrl
-                            : '',
-                        size: 56,
-                        borderRadius: 10,
-                      )
-                    : AurumArtwork(
-                        url: playlist.coverArt!,
-                        size: 56,
-                        borderRadius: 10),
-              ),
-            ),
-            const SizedBox(width: 14),
-            // ── Info ───────────────────────────────────────────────────
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(playlist.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          color: AurumTheme.textPrimaryOf(context),
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${playlist.songCount} song${playlist.songCount == 1 ? '' : 's'}'
-                    '${playlist.totalDurationString.isNotEmpty ? ' • ${playlist.totalDurationString}' : ''}',
-                    style: TextStyle(
-                        color: AurumTheme.textMutedOf(context),
-                        fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            // ── Chevron ────────────────────────────────────────────────
-            Icon(Icons.chevron_right_rounded,
-                color: AurumTheme.textMutedOf(context).withOpacity(0.5)),
-          ],
-        ),
       ),
     );
   }

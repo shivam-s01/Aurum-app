@@ -33,6 +33,22 @@ class AurumPlaylist {
   // back to the first song's artwork via coverArt below.
   String? customCoverPath;
 
+  // Manual drag-and-drop position in the "Custom order" sort mode (Playlists
+  // tab). Lower sorts first. Assigned sequentially at creation time and
+  // rewritten by PlaylistProvider.reorderPlaylist() when the user drags a
+  // row — kept separate from updatedAt so custom ordering doesn't get
+  // silently reshuffled every time a playlist's songs change.
+  int sortOrder;
+
+  // User-defined organizational tags (e.g. "Workout", "Chill") shown via the
+  // Playlists tab's tag filter chip row and edited from "Manage Tags".
+  List<String> tags;
+
+  // True only for playlists created via PlaylistProvider.importYtPlaylist()
+  // — drives the "YouTube synced" badge on the Playlists tab. Regular
+  // locally-created playlists are never synced, so this defaults to false.
+  bool isYtSynced;
+
   AurumPlaylist({
     required this.id,
     required this.name,
@@ -41,9 +57,13 @@ class AurumPlaylist {
     DateTime? createdAt,
     DateTime? updatedAt,
     this.customCoverPath,
+    this.sortOrder = 0,
+    List<String>? tags,
+    this.isYtSynced = false,
   })  : songs = songs ?? [],
         createdAt = createdAt ?? DateTime.now(),
-        updatedAt = updatedAt ?? DateTime.now();
+        updatedAt = updatedAt ?? DateTime.now(),
+        tags = tags ?? [];
 
   int get songCount => songs.length;
 
@@ -87,6 +107,9 @@ class AurumPlaylist {
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
         'customCoverPath': customCoverPath,
+        'sortOrder': sortOrder,
+        'tags': tags,
+        'isYtSynced': isYtSynced,
       };
 
   factory AurumPlaylist.fromJson(Map<String, dynamic> json) {
@@ -104,6 +127,15 @@ class AurumPlaylist {
           ? DateTime.tryParse(json['updatedAt'] as String) ?? DateTime.now()
           : DateTime.now(),
       customCoverPath: json['customCoverPath'] as String?,
+      // Older saved playlists (pre-existing Hive entries) won't have these
+      // keys at all — default to 0/empty/false so they load cleanly instead
+      // of throwing, and just sort to the front of custom order until the
+      // user drags them.
+      sortOrder: (json['sortOrder'] as int?) ?? 0,
+      tags: (json['tags'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      isYtSynced: (json['isYtSynced'] as bool?) ?? false,
     );
   }
 }
@@ -154,6 +186,7 @@ class PlaylistProvider extends ChangeNotifier {
       name: name.trim().isEmpty ? 'My Playlist' : name.trim(),
       description: description.trim(),
       songs: initialSong != null ? [initialSong] : [],
+      sortOrder: _nextSortOrder(),
     );
     _playlists.insert(0, playlist);
     await _persist(playlist);
@@ -265,6 +298,105 @@ class PlaylistProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Reorder Playlists (Custom order / Playlists tab) ────────────────────────
+
+  /// Drag-and-drop reorder of the playlists LIST itself (as opposed to
+  /// reorderSong above, which reorders songs inside one playlist). Only
+  /// meaningful while the Playlists tab's sort mode is "Custom order" —
+  /// callers should gate the drag handle on that, since dragging while
+  /// sorted by name/date would just get overwritten the next time that
+  /// sort re-runs.
+  Future<void> reorderPlaylist(int oldIndex, int newIndex) async {
+    final ordered = customOrdered();
+    if (oldIndex < 0 || oldIndex >= ordered.length) return;
+    if (oldIndex < newIndex) newIndex -= 1;
+    final moved = ordered.removeAt(oldIndex);
+    ordered.insert(newIndex, moved);
+    for (var i = 0; i < ordered.length; i++) {
+      ordered[i].sortOrder = i;
+    }
+    // Same fire-and-forget-then-notify ordering as reorderSong above, for
+    // the same drag-proxy-teardown reason.
+    for (final pl in ordered) {
+      unawaited(_persistLocalOnly(pl));
+    }
+    notifyListeners();
+  }
+
+  /// Playlists sorted by their manual sortOrder (ascending). This is the
+  /// list the Playlists tab's drag-and-drop UI should render from and index
+  /// into when "Custom order" is the active sort mode.
+  List<AurumPlaylist> customOrdered() {
+    final list = List<AurumPlaylist>.from(_playlists);
+    list.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    return list;
+  }
+
+  int _nextSortOrder() => _playlists.isEmpty
+      ? 0
+      : (_playlists.map((p) => p.sortOrder).reduce((a, b) => a > b ? a : b) + 1);
+
+  // ── Tags ──────────────────────────────────────────────────────────────────
+
+  /// Every distinct tag currently used across all playlists, for populating
+  /// the Playlists tab's filter-chip row ("All" + one chip per tag).
+  List<String> get allTags {
+    final set = <String>{};
+    for (final pl in _playlists) {
+      set.addAll(pl.tags);
+    }
+    final list = set.toList()..sort();
+    return list;
+  }
+
+  Future<void> setTags(String playlistId, List<String> newTags) async {
+    final pl = _findById(playlistId);
+    if (pl == null) return;
+    pl.tags = newTags.map((t) => t.trim()).where((t) => t.isNotEmpty).toSet().toList();
+    pl.updatedAt = DateTime.now();
+    unawaited(_persist(pl));
+    notifyListeners();
+  }
+
+  /// Renames a tag across every playlist that has it — used by "Manage
+  /// Tags" when the user renames a tag rather than editing one playlist's
+  /// tags at a time.
+  Future<void> renameTagEverywhere(String oldTag, String newTag) async {
+    final trimmed = newTag.trim();
+    if (trimmed.isEmpty) return;
+    var changed = false;
+    for (final pl in _playlists) {
+      final idx = pl.tags.indexOf(oldTag);
+      if (idx != -1) {
+        pl.tags[idx] = trimmed;
+        pl.tags = pl.tags.toSet().toList(); // de-dupe if newTag already existed
+        pl.updatedAt = DateTime.now();
+        unawaited(_persistLocalOnly(pl));
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
+  /// Removes a tag from every playlist that has it — used by "Manage Tags"
+  /// when the user deletes a tag outright.
+  Future<void> deleteTagEverywhere(String tag) async {
+    var changed = false;
+    for (final pl in _playlists) {
+      if (pl.tags.remove(tag)) {
+        pl.updatedAt = DateTime.now();
+        unawaited(_persistLocalOnly(pl));
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
+  /// Playlists carrying the given tag, in custom order — feeds the
+  /// Playlists tab when a specific tag chip (not "All") is selected.
+  List<AurumPlaylist> byTag(String tag) =>
+      customOrdered().where((p) => p.tags.contains(tag)).toList();
+
   // ── Cover Image ───────────────────────────────────────────────────────────
 
   /// Copies the picked gallery image into the app's own documents dir (so
@@ -358,6 +490,8 @@ class PlaylistProvider extends ChangeNotifier {
           ? 'Imported Playlist'
           : name.trim(),
       songs: songs,
+      sortOrder: _nextSortOrder(),
+      isYtSynced: true,
     );
     _playlists.insert(0, playlist);
     await _persist(playlist);
