@@ -913,6 +913,86 @@ class _AurumSongRow extends StatelessWidget {
   }
 }
 
+// ── Shared song options bottom sheet (Add/Remove Liked, Add to Playlist) ────
+// Extracted to a top-level function so any screen with a single Song in
+// hand can reuse the exact same working sheet instead of re-implementing
+// it — e.g. the Library overview's "Most Played" hero card's "more" button.
+void showAurumSongOptionsSheet(BuildContext context, Song song) {
+  final rootContext = context;
+  showAurumModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => Container(
+      decoration: BoxDecoration(
+        color: AurumTheme.bgCardOf(context),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: AurumArtwork(url: song.artworkUrl, size: 46, borderRadius: 10),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: AurumTheme.textPrimaryOf(context),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700)),
+                    Text(song.artist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: AurumTheme.textMutedOf(context), fontSize: 12.5)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Consumer<FavoritesProvider>(
+            builder: (context, fav, _) => ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                fav.isFavorite(song.id)
+                    ? Icons.favorite_rounded
+                    : Icons.favorite_border_rounded,
+                color: Colors.redAccent,
+              ),
+              title: Text(
+                fav.isFavorite(song.id) ? 'Remove from Liked' : 'Add to Liked',
+                style: TextStyle(color: AurumTheme.textPrimaryOf(context)),
+              ),
+              onTap: () {
+                rootContext.read<FavoritesProvider>().toggleFavorite(song);
+                Navigator.pop(sheetContext);
+              },
+            ),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.playlist_add_rounded, color: AurumTheme.accentOf(context)),
+            title: Text('Add to Playlist',
+                style: TextStyle(color: AurumTheme.textPrimaryOf(context))),
+            onTap: () => Navigator.pop(sheetContext),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 // ── Shared empty/permission states ──────────────────────────────────────────
 class _AurumEmptyState extends StatelessWidget {
   final IconData icon;

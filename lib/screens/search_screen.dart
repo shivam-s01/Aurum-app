@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 
 import '../services/browse_service.dart';
 import '../services/recommendation_engine.dart';
+import '../widgets/aurum_stacked_artwork.dart';
 import '../providers/player_provider.dart';
 import '../providers/recently_played_provider.dart';
 import '../theme/aurum_theme.dart';
@@ -817,6 +818,32 @@ class _SearchScreenState extends State<SearchScreen>
     });
   }
 
+  // Explicit "back to Explore/Suggestions" — the search bar's own back
+  // arrow (shown once the user is "inside" search: typing, viewing
+  // history, or looking at results). Unlike _clearSearch(), this always
+  // lands on the Explore/Suggestions landing screen even when search
+  // history exists — a deliberate override, since the whole point of
+  // this button is a guaranteed way back to that landing rather than
+  // whatever _clearSearch()'s normal fallback would show.
+  void _goToLanding() {
+    AurumHaptics.light();
+    _suggestDebounce?.cancel();
+    _debounce?.cancel();
+    _liveLoaderGraceTimer?.cancel();
+    _dismissKeyboard();
+    _controller.clear();
+    _searchGeneration++;
+    setState(() {
+      _results = []; _relatedResults = []; _liveResults = []; _suggestions = [];
+      _artistResults = [];
+      _albumResults = [];
+      _activeFilter = SearchResultFilter.all;
+      _liveLoading = false; _showLiveLoader = false; _loading = false;
+      _showHistory = false;
+      _resultQueues = []; _relatedQueues = [];
+    });
+  }
+
   // ── Build ─────────────────────────────────────────────────────
 
   // Single source of truth for both _computeBodyKey (drives the outer
@@ -1524,6 +1551,18 @@ class _SearchScreenState extends State<SearchScreen>
           onTap: () {
             if (!_focusNode.canRequestFocus) _focusNode.canRequestFocus = true;
             if (!_focusNode.hasFocus) _focusNode.requestFocus();
+            // DIRECT FIX ("box mai click krte hi history aa jaye"): the
+            // focus-listener (_onFocusChange) only fires setState when
+            // _showHistory's value actually flips — if the field was
+            // already focused (or the listener's async focus-gained
+            // event is simply slow/flaky), tapping back into an empty
+            // box with real history sometimes left the Explore landing
+            // showing instead of history. Setting it directly here, on
+            // the real tap gesture, makes it immediate and doesn't wait
+            // on any focus-change callback timing.
+            if (_controller.text.trim().isEmpty && _history.isNotEmpty && !_showHistory) {
+              setState(() => _showHistory = true);
+            }
           },
           onChanged: _onChanged,
           onSubmitted: _search,
@@ -1533,11 +1572,35 @@ class _SearchScreenState extends State<SearchScreen>
             hintStyle: TextStyle(color: AurumTheme.textMutedOf(context), fontSize: 14),
             prefixIcon: Icon(Icons.search_rounded,
                 color: focused ? AurumTheme.gold : AurumTheme.textMutedOf(context), size: 20),
-            suffixIcon: _controller.text.isNotEmpty
-                ? AurumPressable(
-                    scaleAmount: 0.82,
-                    onTap: _clearSearch,
-                    child: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 18),
+            // Right side: a back arrow whenever the user is "inside"
+            // search (focused, typing, viewing history, or looking at
+            // results) — a guaranteed one-tap way back to the
+            // Explore/Suggestions landing, since focus-based auto-return
+            // isn't reliable on its own (the field can stay focused
+            // without a fresh focus-gained event firing again). When
+            // there's also text typed, the clear(X) sits right next to
+            // it — clearing text alone (keep the keyboard open, stay in
+            // search) is still a separate, more common gesture than
+            // fully backing out.
+            suffixIcon: (focused || _controller.text.isNotEmpty || _showHistory)
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_controller.text.isNotEmpty)
+                        AurumPressable(
+                          scaleAmount: 0.82,
+                          onTap: _clearSearch,
+                          child: Icon(Icons.close_rounded, color: AurumTheme.textMutedOf(context), size: 18),
+                        ),
+                      AurumPressable(
+                        scaleAmount: 0.82,
+                        onTap: _goToLanding,
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 10, right: 4),
+                          child: Icon(Icons.arrow_back_rounded, color: AurumTheme.textMutedOf(context), size: 20),
+                        ),
+                      ),
+                    ],
                   )
                 : null,
             border: InputBorder.none,
@@ -2301,66 +2364,24 @@ class _SearchScreenState extends State<SearchScreen>
   // ── Empty state ──────────────────────────────────────────────
 
   Widget _buildEmpty(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final sections = _moodSections;
-
-    // Nothing loaded yet (first cold open, no cache) — keep the original
-    // simple placeholder rather than showing a bare loading spinner.
-    if (sections == null || sections.isEmpty) {
-      return Center(
-        key: const ValueKey('empty'),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(
-            width: 96,
-            height: 96,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  AurumTheme.gold.withOpacity(0.16),
-                  AurumTheme.gold.withOpacity(0.0),
-                ],
-              ),
-            ),
-            child: Center(
-              child: ShaderMask(
-                shaderCallback: (b) => AurumTheme.goldGradient.createShader(b),
-                child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 46),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(l10n.searchFavouriteSongs,
-              style: TextStyle(
-                  color: AurumTheme.textSecondaryOf(context),
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 6),
-          Text(l10n.searchAllInOnePlace,
-              style: TextStyle(
-                  color: AurumTheme.textMutedOf(context),
-                  fontSize: 12.5)),
-        ]),
-      );
-    }
-
-    // Explore/Suggestions landing — ArchiveTune-style: a small segmented
-    // switcher up top, then either the Mood & Genres grid or the
-    // Suggestions list (Unique Songs / Unique Artists) below it.
-    return SingleChildScrollView(
+    // Explore/Suggestions landing — ArchiveTune-style: a pill segmented
+    // switcher ALWAYS renders first (fixed position, never conditional on
+    // any data having loaded yet) so switching tabs never shifts or
+    // reflows anything above it — this was the actual cause of the
+    // "upar niche upar niche" jump: the switcher used to only appear once
+    // mood-grid data had loaded, so tapping Suggestions before that
+    // finished made the whole switcher vanish.
+    return Column(
       key: const ValueKey('explore'),
-      padding: const EdgeInsets.only(bottom: 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildLandingSwitcher(context),
-          const SizedBox(height: 4),
-          if (_landingTabIndex == 0)
-            _buildExploreGrid(context, sections)
-          else
-            _buildSuggestionsLanding(context),
-        ],
-      ),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildLandingSwitcher(context),
+        Expanded(
+          child: _landingTabIndex == 0
+              ? _buildExploreGrid(context)
+              : _buildSuggestionsLanding(context),
+        ),
+      ],
     );
   }
 
@@ -2424,44 +2445,39 @@ class _SearchScreenState extends State<SearchScreen>
     );
   }
 
-  Widget _buildExploreGrid(BuildContext context, List<MoodGenreSection> sections) {
-    // "Mood & Genres" grid, ArchiveTune-style: a header row with a "See
-    // all" action, then a 2-column grid of the first section's tiles
-    // (kept short here; the full page is one tap away).
-    final section = sections.first;
-    final tiles = section.items.take(10).toList();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+  Widget _buildExploreGrid(BuildContext context) {
+    final sections = _moodSections;
+    if (sections == null || sections.isEmpty) {
+      return const Center(child: AurumMorphLoader());
+    }
+    // Flatten every section's tiles into one combined grid (dedup by
+    // title) rather than just the first section's — a single section
+    // alone can come back under 30 tiles from InnerTube, and this tab
+    // needs a full, "kam se kam 30" grid, not a short preview pointing
+    // to a separate "See all" screen.
+    final seenTitles = <String>{};
+    final tiles = <MoodGenreCategory>[];
+    for (final section in sections) {
+      for (final tile in section.items) {
+        if (seenTitles.add(tile.title)) tiles.add(tile);
+      }
+    }
+    return SingleChildScrollView(
+      key: const ValueKey('explore_grid'),
+      padding: const EdgeInsets.only(bottom: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Mood & Genres',
-                  style: TextStyle(
-                    color: AurumTheme.textPrimaryOf(context),
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () {
-                    AurumHaptics.light();
-                    AurumDepthRoute.to(context, const MoodsGenresScreen());
-                  },
-                  child: Text(
-                    'See all',
-                    style: TextStyle(
-                      color: AurumTheme.gold,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+            child: Text(
+              'Mood & Genres',
+              style: TextStyle(
+                color: AurumTheme.textPrimaryOf(context),
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.2,
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -2499,25 +2515,125 @@ class _SearchScreenState extends State<SearchScreen>
             ),
           ),
         ],
-      );
+      ),
+    );
   }
 
-  // ── Suggestions landing: the user's own real listening data — "Unique
-  // Songs" (dedup'd recently-played) and "Unique Artists" (their top
-  // artists by play count). No fabricated data — both come straight
-  // from RecentlyPlayedProvider, which this screen already reads
-  // elsewhere in the file.
+  // ── Suggestions landing: real InnerTube-backed recommendations, same
+  // sources Home's own personalized rows use — see _SuggestionsLanding
+  // below for the actual data plumbing.
   Widget _buildSuggestionsLanding(BuildContext context) {
-    final rp = context.watch<RecentlyPlayedProvider>();
-    final seen = <String>{};
-    final uniqueSongs = <Song>[];
-    for (final s in rp.history) {
-      if (seen.add(s.id)) uniqueSongs.add(s);
-      if (uniqueSongs.length >= 6) break;
-    }
-    final uniqueArtists = rp.topArtists(count: 6);
+    return const _SuggestionsLanding();
+  }
+}
 
-    if (uniqueSongs.isEmpty && uniqueArtists.isEmpty) {
+// Real recommendation data for the Search screen's "Suggestions" tab —
+// deliberately mirrors Home's own personalized sections 1:1 rather than
+// inventing a new source:
+//   • "Unique Songs"   -> ApiService.fetchYouMightAlsoLike(seedVideoId),
+//     the exact same InnerTube "related videos" call powering Home's
+//     "You might also like" row (see _YouMightAlsoLikeSection in
+//     home_screen.dart), seeded from the user's most-recently-played
+//     song.
+//   • "Unique Artists" -> ApiService.fetchSimilarArtistChips(name), the
+//     exact same InnerTube "Fans might also like" related-artists call
+//     powering Home's "Similar to <Artist>" circular rows (see
+//     _SimilarArtistsSection), seeded from
+//     RecommendationEngine.rotatingAffinityArtists — same on-device
+//     listening-affinity ranking Home uses. Real photos included
+//     (ArtistSimple.imageUrl), rendered with the same AurumStackedArtwork
+//     circular avatar Home's own artist chips use — not a fallback
+//     letter-circle.
+//   • "Top Albums"     -> ApiService.searchAlbumsYtOnly(seedArtist), a
+//     real InnerTube album search (YT-only, no Saavn) for the same seed
+//     artist used for the artists row.
+// A user with no listening history yet sees a plain empty message rather
+// than any of this — there is no history to seed real recommendations
+// from, so nothing here is shown as a guess.
+class _SuggestionsLanding extends StatefulWidget {
+  const _SuggestionsLanding();
+
+  @override
+  State<_SuggestionsLanding> createState() => _SuggestionsLandingState();
+}
+
+class _SuggestionsLandingState extends State<_SuggestionsLanding> {
+  List<Song>? _songs;
+  List<({String artistName, List<ArtistSimple> related})>? _artistRows;
+  List<BrowseAlbum>? _albums;
+  bool _failed = false;
+  String? _seedVideoId;
+  // Guards against the genuine double-fetch this widget can otherwise
+  // trigger: initState() calls _load() once, then didChangeDependencies()
+  // (which always runs right after initState on first mount) can call it
+  // again once _seedVideoId is actually set — unlike Home's single-seed
+  // _YouMightAlsoLikeSection (whose _load() cheaply no-ops until its one
+  // seed is ready), this widget's _load() has a second independent seed
+  // (rotatingAffinityArtists) that's very likely already non-empty on
+  // that first initState() call, so both calls can end up doing real
+  // network work. Each _load() call captures its own generation; only
+  // the most recent one is allowed to commit its results.
+  int _loadGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Same "track the latest play" pattern _YouMightAlsoLikeSection uses
+    // on Home — a song finishing playback doesn't remount this tab, so
+    // the seed is re-checked on every dependency change instead of only
+    // once in initState.
+    final latest = context.watch<RecentlyPlayedProvider>().history.firstOrNull;
+    final latestId = latest?.id;
+    if (latestId != null && latestId != _seedVideoId) {
+      _seedVideoId = latestId;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final myGeneration = ++_loadGeneration;
+    final seedVideoId = _seedVideoId;
+    final seedArtists = RecommendationEngine.rotatingAffinityArtists(count: 3);
+    if ((seedVideoId == null || seedVideoId.isEmpty) && seedArtists.isEmpty) {
+      // No listening history at all yet — nothing real to recommend from.
+      if (mounted && myGeneration == _loadGeneration) setState(() => _failed = true);
+      return;
+    }
+    try {
+      final futureSongs = (seedVideoId != null && seedVideoId.isNotEmpty)
+          ? ApiService.fetchYouMightAlsoLike(seedVideoId)
+          : Future.value(<Song>[]);
+      final futureArtistRows = Future.wait(
+        seedArtists.map((a) => ApiService.fetchSimilarArtistChips(a)),
+      );
+      final futureAlbums = seedArtists.isNotEmpty
+          ? ApiService.searchAlbumsYtOnly(seedArtists.first, limit: 8)
+          : Future.value(<BrowseAlbum>[]);
+      final songs = await futureSongs;
+      final artistRowsRaw = await futureArtistRows;
+      final albums = await futureAlbums;
+      if (!mounted || myGeneration != _loadGeneration) return;
+      final artistRows = artistRowsRaw.where((r) => r != null).map((r) => r!).toList();
+      setState(() {
+        _songs = songs;
+        _artistRows = artistRows;
+        _albums = albums;
+        _failed = songs.isEmpty && artistRows.isEmpty && albums.isEmpty;
+      });
+    } catch (_) {
+      if (mounted && myGeneration == _loadGeneration) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_failed) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(20, 40, 20, 0),
         child: Center(
@@ -2529,110 +2645,172 @@ class _SearchScreenState extends State<SearchScreen>
         ),
       );
     }
+    final songs = _songs;
+    final artistRows = _artistRows;
+    final albums = _albums;
+    if (songs == null || artistRows == null || albums == null) {
+      return const Center(child: AurumMorphLoader());
+    }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (uniqueSongs.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Text(
-              'Unique Songs',
-              style: TextStyle(
-                color: AurumTheme.textPrimaryOf(context),
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.2,
+    // Flatten every artist row's chips into one combined strip — this
+    // tab shows a single "Unique Artists" row (not one row per seed
+    // artist like Home does), so duplicates across seeds are dropped by
+    // id.
+    final seenArtistIds = <String>{};
+    final uniqueArtists = <ArtistSimple>[];
+    for (final row in artistRows) {
+      for (final a in row.related) {
+        if (seenArtistIds.add(a.id)) uniqueArtists.add(a);
+      }
+    }
+
+    return SingleChildScrollView(
+      key: const ValueKey('suggestions_landing'),
+      padding: const EdgeInsets.only(bottom: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (songs.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Text(
+                'Unique Songs',
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                ),
               ),
             ),
-          ),
-          ...List.generate(uniqueSongs.length, (i) {
-            final song = uniqueSongs[i];
-            return SongTile(
-              key: ValueKey('unique_song_${song.id}'),
-              song: song,
-              queue: uniqueSongs,
-              index: i,
-              showIndex: true,
-              displayIndex: i + 1,
-            );
-          }),
-        ],
-        if (uniqueArtists.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-            child: Text(
-              'Unique Artists',
-              style: TextStyle(
-                color: AurumTheme.textPrimaryOf(context),
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.2,
+            ...List.generate(songs.length, (i) {
+              final song = songs[i];
+              return SongTile(
+                key: ValueKey('unique_song_${song.id}'),
+                song: song,
+                queue: songs,
+                index: i,
+                showIndex: true,
+                displayIndex: i + 1,
+              );
+            }),
+          ],
+          if (uniqueArtists.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Text(
+                'Unique Artists',
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                ),
               ),
             ),
-          ),
-          SizedBox(
-            height: 96,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: uniqueArtists.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 16),
-              itemBuilder: (context, i) {
-                final name = uniqueArtists[i];
-                return _PressScale(
+            FadedHorizontalList(
+              height: 132,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                physics: const BouncingScrollPhysics(),
+                cacheExtent: 500,
+                itemCount: uniqueArtists.length,
+                itemBuilder: (context, i) =>
+                    _SuggestionArtistChip(key: ValueKey(uniqueArtists[i].id), artist: uniqueArtists[i]),
+              ),
+            ),
+          ],
+          if (albums.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Text(
+                'Top Albums',
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 190,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                physics: const BouncingScrollPhysics(),
+                cacheExtent: 500,
+                itemCount: albums.length,
+                itemBuilder: (context, i) => _AlbumCard(
+                  key: ValueKey(albums[i].collectionId),
+                  album: albums[i],
                   onTap: () {
-                    // No stable artist id is available from play history
-                    // (only the name) — so, same as tapping a suggestion
-                    // chip elsewhere in this screen, this runs it as a
-                    // real search rather than guessing an ArtistScreen id.
-                    _controller.text = name;
-                    _search(name);
+                    AurumHaptics.light();
+                    Navigator.push(
+                      context,
+                      AurumDepthRoute(
+                        builder: (_) => AlbumScreen(
+                          albumId: albums[i].collectionId,
+                          albumName: albums[i].name,
+                          artworkUrl: albums[i].artworkUrl,
+                        ),
+                      ),
+                    );
                   },
-                  child: SizedBox(
-                    width: 72,
-                    child: Column(
-                      children: [
-                        ClipOval(
-                          child: Container(
-                            width: 56,
-                            height: 56,
-                            decoration: BoxDecoration(
-                              gradient: AurumTheme.goldGradient,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Center(
-                              child: Text(
-                                name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                style: const TextStyle(
-                                  color: Colors.black,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AurumTheme.textSecondaryOf(context),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+                ),
+              ),
             ),
-          ),
+          ],
         ],
-      ],
+      ),
+    );
+  }
+}
+
+// Small standalone circular artist chip for the Suggestions tab — same
+// visual language as home_screen.dart's private _ArtistChip (real photo
+// via AurumStackedArtwork, name below), kept as its own tiny class here
+// since _ArtistChip itself is file-private to home_screen.dart.
+class _SuggestionArtistChip extends StatelessWidget {
+  final ArtistSimple artist;
+  const _SuggestionArtistChip({super.key, required this.artist});
+
+  Future<void> _open(BuildContext context) async {
+    AurumHaptics.selection();
+    final id = artist.id.isNotEmpty ? artist.id : await ApiService.resolveArtistId(artist.name);
+    if (id == null || !context.mounted) return;
+    AurumDepthRoute.to(context, ArtistScreen(artistId: id, artistName: artist.name));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: AurumPressable(
+        scaleAmount: 0.94,
+        onTap: () => _open(context),
+        child: Container(
+          width: 96,
+          margin: const EdgeInsets.only(right: 14),
+          child: Column(
+            children: [
+              AurumStackedArtwork(url: artist.imageUrl, size: 90, circular: true),
+              const SizedBox(height: 8),
+              Text(
+                artist.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AurumTheme.textPrimaryOf(context),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -2766,7 +2944,7 @@ class _PressScaleState extends State<_PressScale>
 class _AlbumCard extends StatelessWidget {
   final BrowseAlbum album;
   final VoidCallback onTap;
-  const _AlbumCard({required this.album, required this.onTap});
+  const _AlbumCard({super.key, required this.album, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
