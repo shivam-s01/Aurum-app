@@ -135,48 +135,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  // ── Top bar: brand + quick action icons ──────────────────────────────────
+  // ── Top bar: "Library" heading + settings gear ───────────────────────────
+  // FIX (reverted to match the user's actual working design): this had been
+  // replaced with an "Aurum ⚡" brand row + 4 icon buttons (history/
+  // calendar/new-releases/settings) in a commit outside this chat — not
+  // something introduced by any fix here. The user's reference screenshots
+  // consistently show a plain "Library" heading (accent-colored, bold) with
+  // a single settings gear on the right, so that's what this restores.
   Widget _buildTopBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 12, 4),
       child: Row(
         children: [
-          Container(
-            width: 30,
-            height: 30,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AurumTheme.accentOf(context),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 18),
-          ),
-          const SizedBox(width: 10),
           Text(
-            'Aurum',
+            'Library',
             style: TextStyle(
-              color: AurumTheme.textPrimaryOf(context),
-              fontSize: 21,
+              color: AurumTheme.accentOf(context),
+              fontSize: 30,
               fontWeight: FontWeight.w800,
-              letterSpacing: -0.4,
+              letterSpacing: -0.6,
             ),
           ),
           const Spacer(),
-          _TopIconButton(
-            icon: Icons.history_rounded,
-            onTap: () => AurumDepthRoute.to(context, const _HistoryScreen()),
-          ),
-          const SizedBox(width: 8),
-          _TopIconButton(
-            icon: Icons.calendar_month_rounded,
-            onTap: () => AurumDepthRoute.to(context, const DownloadsScreen()),
-          ),
-          const SizedBox(width: 8),
-          _TopIconButton(
-            icon: Icons.new_releases_outlined,
-            onTap: () {},
-          ),
-          const SizedBox(width: 8),
           _TopIconButton(
             icon: Icons.settings_outlined,
             onTap: () => AurumDepthRoute.to(context, const SettingsScreen()),

@@ -477,7 +477,32 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       // makes content visibly (blurred) through the bar, matching a
       // premium "paid app" look instead of an opaque white strip.
       extendBody: true,
-      body: IndexedStack(index: _tab, children: _screens),
+      // FIX (Library/Home/Search content shifting up/down when the mini
+      // player shows or hides): Scaffold recomputes MediaQuery.viewPadding
+      // .bottom to match bottomNavigationBar's live height, and it does
+      // this on every frame of the mini player's AnimatedSize show/hide
+      // animation (see bottomNavigationBar below). Each screen's own
+      // SafeArea(bottom: false) only stops that value being consumed as
+      // padding at its own top level — it does nothing to stop that
+      // same live-changing MediaQuery from reaching further down into a
+      // screen's own CustomScrollView/ListView, which is exactly what
+      // was making Library's "Recently Played" rail (and everything
+      // below the Most Played hero card) visibly slide during the mini
+      // player's fade/resize instead of staying put like Spotify/YT
+      // Music, where content position never depends on whether a mini
+      // player happens to be showing right now. MediaQuery.removePadding
+      // here pins bottom padding to 0 for the entire IndexedStack
+      // subtree, permanently and independent of bottomNavigationBar's
+      // height — each screen already reserves its own fixed bottom
+      // space via a constant SliverPadding (see e.g. library_screen.dart's
+      // `EdgeInsets.fromLTRB(20, 0, 20, 110)`), so nothing is lost behind
+      // the nav bar/mini player; that reserved space just stops being
+      // re-derived from a value that changes underneath it.
+      body: MediaQuery.removePadding(
+        context: context,
+        removeBottom: true,
+        child: IndexedStack(index: _tab, children: _screens),
+      ),
       // FIX — PERMANENT fix for "mini player disappears into a stuck pill
       // after theme/settings changes, only recoverable with an app
       // restart": this used to read a static `MiniPlayer.visibleNotifier`
