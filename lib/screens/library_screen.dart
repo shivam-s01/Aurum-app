@@ -24,6 +24,7 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:aurum_music/widgets/aurum_loader.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../l10n/generated/app_localizations.dart';
