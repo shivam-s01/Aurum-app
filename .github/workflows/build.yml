@@ -105,3 +105,54 @@ jobs:
           name: Build ${{ steps.ver.outputs.build }}
           files: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ════════════════════════════════════════════════════════════════════════
+  # WEB PREVIEW — builds a browser-viewable version of the UI and publishes
+  # it to GitHub Pages, so the design can be checked from a phone browser
+  # in ~2-3 min instead of waiting on a full APK build. This is UI/layout
+  # preview only: native-only features (Hive local storage, background
+  # audio, downloads, native login flows, etc.) will not work identically
+  # on web — treat this as "does the screen look right", not a functional
+  # test. Runs independently of the `build` job above (separate job, same
+  # trigger) so it can never block or slow down the real APK pipeline; if
+  # this job fails, the APK build is unaffected.
+  web-preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: 'stable'
+
+      - name: Enable web support and scaffold web/ if missing
+        # FIX (no web/ folder in this repo yet — it's a mobile-only
+        # project): `flutter create --platforms=web .` is safe to run
+        # every time — it only adds/updates the web/ scaffolding files
+        # and never touches lib/ or any other existing source, so it
+        # won't conflict with or overwrite app code on repeat runs.
+        run: |
+          flutter config --enable-web
+          flutter create --platforms=web .
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build web (release, relative base-href for Pages subpath)
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
